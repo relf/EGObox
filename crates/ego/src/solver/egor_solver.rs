@@ -295,6 +295,9 @@ where
             );
         }
 
+        // TREGO initial sigma = sigma0 = 0.5 * (0.2)^(1/nx)
+        initial_state.sigma = 0.5 * (0.2f64).powf(1.0 / self.xlimits.nrows() as f64);
+
         initial_state.activity = activity;
         debug!("Initial State = {initial_state:?}");
         info!(
