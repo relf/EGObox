@@ -114,7 +114,10 @@ where
         let multistarter = LocalLhsMultiStarter::new(
             self.xlimits.clone(),
             xbest.to_owned(),
-            (self.config.trego.d.0, self.config.trego.d.1),
+            (
+                self.config.trego.d.0 * new_state.sigma,
+                self.config.trego.d.1 * new_state.sigma,
+            ),
             sub_rng,
         );
 
