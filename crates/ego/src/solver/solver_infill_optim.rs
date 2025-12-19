@@ -10,7 +10,7 @@ use nlopt::ObjFn;
 
 use egobox_moe::MixtureGpSurrogate;
 use log::info;
-use ndarray::{Array, Array1, Array2, Axis};
+use ndarray::{Array, Array1, Array2};
 
 use rayon::prelude::*;
 use serde::de::DeserializeOwned;
@@ -22,6 +22,12 @@ pub(crate) trait MultiStarter {
     /// Return initial points for optimization multistart
     /// taking into account active components given as a set of indices
     fn multistart(&mut self, n_start: usize, active: &[usize]) -> Array2<f64>;
+
+    /// Return the bounds of the design space
+    /// Compared to xlimits which are given by the user for all x components,
+    /// xbounds are the actual bounds used during optimization taking into account
+    /// active components and possibly trust region restrictions
+    fn xbounds(&self, active: &[usize]) -> Array2<f64>;
 }
 
 pub(crate) struct InfillOptProblem<'a, CstrFn> {
@@ -204,7 +210,7 @@ where
             cstr_refs.extend(cstr_funcs.clone());
 
             // Limits of activated components
-            let xlimits_active = coego::get_active_x(Axis(0), &self.xlimits, &active);
+            let xbounds = multistarter.xbounds(&active).to_owned();
 
             let algorithm = match self.config.infill_optimizer {
                 InfillOptimizer::Slsqp => crate::optimizers::Algorithm::Slsqp,
@@ -219,7 +225,7 @@ where
                 let res = (0..x_start.nrows())
                     .into_par_iter()
                     .map(|i| {
-                        Optimizer::new(algorithm, &obj, &cstr_refs, &infill_data, &xlimits_active)
+                        Optimizer::new(algorithm, &obj, &cstr_refs, &infill_data, &xbounds)
                             .xinit(&x_start.row(i))
                             .max_eval((10 * x_start.len()).min(INFILL_MAX_EVAL_DEFAULT))
                             .ftol_rel(1e-4)
@@ -227,7 +233,7 @@ where
                             .minimize()
                     })
                     .reduce(
-                        || (f64::INFINITY, Array::ones((xlimits_active.nrows(),))),
+                        || (f64::INFINITY, Array::ones((xbounds.nrows(),))),
                         |a, b| if b.0 < a.0 { b } else { a },
                     );
 
