@@ -53,7 +53,16 @@ impl<R: Rng + Clone> LocalLhsMultiStarter<R> {
 impl<R: Rng + Clone> MultiStarter for LocalLhsMultiStarter<R> {
     fn multistart(&mut self, n_start: usize, active: &[usize]) -> Array2<f64> {
         // Draw n_start initial points (multistart optim) in the local_area
-        // local_area = intersection(trust_region, xlimits)
+        // xbounds = intersection(trust_region, xlimits)
+        let xbounds = self.xbounds(active);
+        let lhs = Lhs::new(&xbounds)
+            .kind(egobox_doe::LhsKind::Maximin)
+            .with_rng(&mut self.rng);
+        lhs.sample(n_start)
+    }
+
+    fn xbounds(&self, active: &[usize]) -> Array2<f64> {
+        // local_area = intersection(trust_region, xlimits[active])
         let xlimits = coego::get_active_x(Axis(0), &self.xlimits, active);
         let origin = coego::get_active_x(Axis(0), &self.origin, active);
         let mut local_area = Array2::zeros(xlimits.dim());
@@ -67,11 +76,7 @@ impl<R: Rng + Clone> MultiStarter for LocalLhsMultiStarter<R> {
                 );
                 row.assign(&aview1(&[lo, up]))
             });
-
-        let lhs = Lhs::new(&local_area)
-            .kind(egobox_doe::LhsKind::Maximin)
-            .with_rng(&mut self.rng);
-        lhs.sample(n_start)
+        local_area
     }
 }
 
@@ -114,7 +119,10 @@ where
         let multistarter = LocalLhsMultiStarter::new(
             self.xlimits.clone(),
             xbest.to_owned(),
-            (self.config.trego.d.0, self.config.trego.d.1),
+            (
+                self.config.trego.d.0 * new_state.sigma,
+                self.config.trego.d.1 * new_state.sigma,
+            ),
             sub_rng,
         );
 

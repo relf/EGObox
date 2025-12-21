@@ -35,11 +35,14 @@ pub(crate) struct LhsMultiStarter<'a, R: Rng + Clone> {
 
 impl<R: Rng + Clone> super::solver_infill_optim::MultiStarter for LhsMultiStarter<'_, R> {
     fn multistart(&mut self, n_start: usize, active: &[usize]) -> Array2<f64> {
-        let xlimits = coego::get_active_x(Axis(0), self.xlimits, active);
-        let sampling = Lhs::new(&xlimits)
+        let sampling = Lhs::new(&self.xbounds(active))
             .kind(LhsKind::Maximin)
             .with_rng(&mut self.rng);
         sampling.sample(n_start)
+    }
+
+    fn xbounds(&self, active: &[usize]) -> Array2<f64> {
+        coego::get_active_x(Axis(0), self.xlimits, active)
     }
 }
 
@@ -110,6 +113,10 @@ impl<R: Rng + Clone> super::solver_infill_optim::MultiStarter
                 .with_rng(&mut self.rng);
             sampling.sample(n_start)
         }
+    }
+
+    fn xbounds(&self, active: &[usize]) -> Array2<f64> {
+        coego::get_active_x(Axis(0), self.xlimits, active)
     }
 }
 

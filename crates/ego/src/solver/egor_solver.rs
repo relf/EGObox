@@ -295,6 +295,9 @@ where
             );
         }
 
+        // TREGO initial sigma = sigma0 = 0.5 * (0.2)^(1/nx)
+        initial_state.sigma = 0.5 * (0.2f64).powf(1.0 / self.xlimits.nrows() as f64);
+
         initial_state.activity = activity;
         debug!("Initial State = {initial_state:?}");
         info!(
@@ -463,7 +466,7 @@ where
         let best = state.best_index.unwrap(); // initialized in init
         let prev_best = state.prev_best_index.unwrap(); // initialized in init
 
-        // Check prev step success
+        // Check step success
         let diff = y_data[[prev_best, 0]] - rho(state.sigma);
         let last_iter_success = y_data[[best, 0]] < diff;
         info!(
@@ -475,6 +478,7 @@ where
             rho(state.sigma)
         );
         let mut new_state = state.clone();
+
         if !state.prev_step_ego && state.get_iter() != 0 {
             // Adjust trust region wrt local step success
             if last_iter_success {
