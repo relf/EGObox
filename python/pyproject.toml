@@ -21,14 +21,8 @@ readme = 'README.md'
 build-backend = "maturin"
 requires = ["maturin>=1.0, <2.0"]
 
-[tool.maturin]
-module-name = "egobox"
-features = ["pyo3/extension-module"]
-# Optional usage of BLAS backend 
-# cargo-extra-args = "--features linfa/intel-mkl-static"
-
-[tool.uv]
-dev-dependencies = [
+[dependency-groups]
+dev = [
     "pip",
     "pytest>=8.0.2",
     "ruff>=0.8.0",
@@ -38,6 +32,12 @@ dev-dependencies = [
     "scikit-learn>=1.2.2", # for notebooks
     "pandas>=2.0.3",       # for notebooks
 ]
+
+[tool.maturin]
+module-name = "egobox"
+features = ["pyo3/extension-module"]
+# Optional usage of BLAS backend 
+# cargo-extra-args = "--features linfa/intel-mkl-static"
 
 [tool.ruff]
 extend-exclude = ["egobox/egobox.pyi"]
