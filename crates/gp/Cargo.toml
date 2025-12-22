@@ -38,7 +38,7 @@ log.workspace = true
 rayon.workspace = true
 
 ndarray-linalg = { version = "0.17", optional = true }
-ndarray-einsum = "0.8"
+ndarray-einsum = "0.9"
 
 ndarray-npy.workspace = true
 nlopt = { version = "0.8", optional = true }
