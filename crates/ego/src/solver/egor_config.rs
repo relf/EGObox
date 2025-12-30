@@ -120,8 +120,10 @@ impl GpConfig {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct TregoConfig {
     pub(crate) activated: bool,
-    pub(crate) n_local_steps: u64,
+    pub(crate) n_global_steps: usize,
+    pub(crate) n_local_steps: usize,
     pub(crate) d: (f64, f64),
+    pub(crate) alpha: f64,
     pub(crate) beta: f64,
     pub(crate) gamma: f64,
     pub(crate) sigma0: f64,
@@ -131,8 +133,10 @@ impl Default for TregoConfig {
     fn default() -> Self {
         TregoConfig {
             activated: false,
+            n_global_steps: 1,
             n_local_steps: 4,
             d: (1e-6, 1.),
+            alpha: 1.0,
             beta: 0.9,
             gamma: 10. / 9.,
             sigma0: 1e-1,

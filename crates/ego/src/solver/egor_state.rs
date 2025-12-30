@@ -93,7 +93,7 @@ pub struct EgorState<F: Float> {
     /// Trego state
     pub sigma: F,
     /// Prev step flag marking an EGO global set
-    pub prev_step_ego: bool,
+    pub prev_step_global_ego: usize,
     /// Coego state
     pub activity: Option<Array2<usize>>,
     /// Run data
@@ -409,7 +409,7 @@ where
 
             sigma: F::cast(1e-1),
             activity: None,
-            prev_step_ego: false,
+            prev_step_global_ego: 0,
             #[cfg(feature = "persistent")]
             run_data: None,
             rng: Some(Xoshiro256Plus::from_entropy()),

@@ -218,7 +218,6 @@ impl<'a> Optimizer<'a> {
                 }
             }
         };
-        log::debug!("... end optimization");
         res
     }
 }
