@@ -54,6 +54,13 @@ pub fn is_update_ok(
     true
 }
 
+pub fn check_update_ok(
+    x_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+    x_new: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+) -> bool {
+    x_new.rows().into_iter().any(|xn| is_update_ok(x_data, &xn))
+}
+
 /// Append `x_new` (resp. `y_new`, `c_new`) to `x_data` (resp. y_data, resp. c_data)
 /// if `x_new` not too close to `x_data` points
 /// Returns the index of appended points in `x_new`

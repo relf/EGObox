@@ -6,6 +6,7 @@ use crate::InfillObjData;
 use crate::SurrogateBuilder;
 use crate::solver::solver_infill_optim::InfillOptProblem;
 use crate::types::DomainConstraints;
+use crate::utils::check_update_ok;
 use crate::utils::find_best_result_index_from;
 use crate::utils::is_feasible;
 use crate::utils::update_data;
@@ -212,39 +213,44 @@ where
 
         let x_new = x_opt.insert_axis(Axis(0));
         debug!("x_old={} x_new={}", x_data.row(best_index), x_new.row(0));
-        let y_new = self.eval_obj(problem, &x_new);
-        debug!(
-            "y_old-y_new={}, rho={}",
-            y_old - y_new[[0, 0]],
-            rho(new_state.sigma)
-        );
 
-        let c_new = self.eval_problem_fcstrs(problem, &x_new);
+        let added = if check_update_ok(&x_data, &x_new) {
+            let y_new = self.eval_obj(problem, &x_new);
+            debug!(
+                "y_old-y_new={}, rho={}",
+                y_old - y_new[[0, 0]],
+                rho(new_state.sigma)
+            );
+            let c_new = self.eval_problem_fcstrs(problem, &x_new);
 
-        // Update DOE and best point
-        let added = update_data(
-            &mut x_data,
-            &mut y_data,
-            &mut c_data,
-            &x_new,
-            &y_new,
-            &c_new,
-        );
+            // Update DOE and best point
+            update_data(
+                &mut x_data,
+                &mut y_data,
+                &mut c_data,
+                &x_new,
+                &y_new,
+                &c_new,
+            )
+        } else {
+            Vec::new()
+        };
+
         new_state.prev_added = new_state.added;
         new_state.added += added.len();
-        info!(
-            "+{} point(s), total: {} points",
-            added.len(),
-            new_state.added
-        );
+        info!("+{} point, total: {} points", added.len(), new_state.added);
 
-        let new_best_index = find_best_result_index_from(
-            best_index,
-            y_data.nrows() - 1,
-            &y_data,
-            &c_data,
-            &new_state.cstr_tol,
-        );
+        let new_best_index = if added.is_empty() {
+            best_index
+        } else {
+            find_best_result_index_from(
+                best_index,
+                y_data.nrows() - 1,
+                &y_data,
+                &c_data,
+                &new_state.cstr_tol,
+            )
+        };
         new_state.feasibility = state.feasibility
             || is_feasible(
                 &y_data.row(new_best_index),
