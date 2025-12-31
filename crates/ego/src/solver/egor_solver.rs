@@ -110,6 +110,7 @@
 //! println!("G24 min result = {:?}", res.state);
 //! ```
 //!
+use crate::solver::trego::Phase;
 use crate::utils::{
     EGOBOX_LOG, EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER, EGOR_USE_GP_RECORDER,
     EGOR_USE_GP_VAR_PORTFOLIO, EGOR_USE_MAX_PROBA_OF_FEASIBILITY, EGOR_USE_RUN_RECORDER,
@@ -461,27 +462,19 @@ where
         problem: &mut Problem<O>,
         state: EgorState<f64>,
     ) -> std::result::Result<(EgorState<f64>, Option<KV>), argmin::core::Error> {
-        let (sufficient_decrease, mut new_state) = self.update_trego_state(&state);
+        let (phase, mut new_state) = self.update_trego_state(&state);
 
-        let is_global_phase = (sufficient_decrease && state.prev_step_global_ego > 0) || {
-            state
-                .get_iter()
-                .is_multiple_of(1 + self.config.trego.n_local_steps as u64)
-        };
-
-        if is_global_phase {
+        if phase == Phase::Global {
             // Global step
             info!(">>> TREGO global step (aka EGO)");
-            let mut res = self.ego_iteration(problem, new_state)?;
-            res.0.prev_step_global_ego = 1;
+            let res = self.ego_iteration(problem, new_state)?;
             Ok(res)
         } else {
             info!(">>> TREGO local step");
             // Local step
             let models = self.refresh_surrogates(&new_state);
             let infill_data = self.refresh_infill_data(problem, &mut new_state, &models);
-            let mut new_state = self.trego_step(problem, new_state, models, &infill_data);
-            new_state.prev_step_global_ego = 0;
+            let new_state = self.trego_step(problem, new_state, models, &infill_data);
             Ok((new_state, None))
         }
     }

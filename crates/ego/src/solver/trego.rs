@@ -86,7 +86,7 @@ where
     SB: SurrogateBuilder + DeserializeOwned,
     C: CstrFn,
 {
-    pub(crate) fn update_trego_state(&mut self, state: &EgorState<f64>) -> (bool, EgorState<f64>) {
+    pub(crate) fn update_trego_state(&mut self, state: &EgorState<f64>) -> (Phase, EgorState<f64>) {
         let rho = |sigma| sigma * sigma;
         let (_, y_data, _) = state.data.as_ref().unwrap();
         // initialized in init
@@ -95,50 +95,65 @@ where
         let prev_best = state.prev_best_index.unwrap();
         // initialized in init
 
-        // Check step success
-        let diff = y_data[[prev_best, 0]] - rho(state.sigma);
-        let sufficient_decrease = y_data[[best, 0]] < diff;
-        info!(
-            "success = {} as {} {} {} - {}",
-            sufficient_decrease,
-            y_data[[best, 0]],
-            if sufficient_decrease { "<" } else { ">=" },
-            y_data[[prev_best, 0]],
-            rho(state.sigma)
-        );
         let mut new_state = state.clone();
 
-        if state.prev_step_global_ego != 0 && state.get_iter() != 0 {
-            // Adjust trust region wrt local step success
-            if sufficient_decrease {
-                let old = state.sigma;
-                new_state.sigma *= self.config.trego.gamma;
-                info!(
-                    "Previous TREGO local step successful: sigma {} -> {}",
-                    old, new_state.sigma
-                );
-            } else {
-                let old = state.sigma;
-                new_state.sigma *= self.config.trego.beta;
-                info!(
-                    "Previous TREGO local step progress fail: sigma {} -> {}",
-                    old, new_state.sigma
-                );
-            }
-        } else if state.get_iter() != 0 {
-            // Adjust trust region wrt global step success
-            if sufficient_decrease {
-                let old = state.sigma;
-                new_state.sigma *= self.config.trego.gamma;
-                info!(
-                    "Previous EGO global step successful: sigma {} -> {}",
-                    old, new_state.sigma
-                );
-            } else {
-                info!("Previous EGO global step progress fail");
+        // Update cumulative decrease over the trego phase
+        let decrease = y_data[[prev_best, 0]] - y_data[[best, 0]];
+        new_state.best_decrease += decrease.max(0.0);
+        let sufficient_decrease = new_state.best_decrease >= rho(state.sigma);
+        log::info!(
+            "Cumulative decrease over TREGO phase: {}, required {}",
+            new_state.best_decrease,
+            rho(state.sigma)
+        );
+
+        log::info!(
+            "TREGO update: iter={}, global_ego_iter = {}, local_trego_iter = {}",
+            state.get_iter(),
+            state.global_trego_iter,
+            state.local_trego_iter
+        );
+
+        // Check step success and update trust region
+        if state.get_iter() > 0 {
+            // Check end of local or global phase
+            if state.local_trego_iter == self.config.trego.n_local_steps {
+                // Adjust trust region wrt local step success
+                if sufficient_decrease {
+                    let old = state.sigma;
+                    new_state.sigma *= self.config.trego.gamma;
+                    info!(
+                        "Previous TREGO local step successful: sigma {} -> {}",
+                        old, new_state.sigma
+                    );
+                } else {
+                    let old = state.sigma;
+                    new_state.sigma *= self.config.trego.beta;
+                    info!(
+                        "Previous TREGO local step progress fail: sigma {} -> {}",
+                        old, new_state.sigma
+                    );
+                }
+                // Reset cumulative decrease
+                new_state.best_decrease = 0.0;
+            } else if state.global_trego_iter == self.config.trego.n_global_steps {
+                // Adjust trust region wrt global step success
+                if sufficient_decrease {
+                    let old = state.sigma;
+                    new_state.sigma *= self.config.trego.gamma;
+                    info!(
+                        "Previous EGO global step successful: sigma {} -> {}",
+                        old, new_state.sigma
+                    );
+                } else {
+                    info!("Previous EGO global step progress fail");
+                }
+                // Reset cumulative decrease
+                new_state.best_decrease = 0.0;
             }
         }
-        (sufficient_decrease, new_state)
+        let phase = self.next_phase(sufficient_decrease, &mut new_state);
+        (phase, new_state)
     }
 
     /// Local step where infill criterion is optimized within trust region
@@ -259,9 +274,26 @@ where
             );
 
         new_state = new_state.data((x_data, y_data, c_data)).rng(rng);
-        new_state.prev_best_index = new_state.best_index;
-        new_state.best_index = Some(new_best_index);
+        if new_state.global_trego_iter == self.config.trego.n_global_steps
+            || new_state.local_trego_iter == self.config.trego.n_local_steps
+        {
+            new_state.prev_best_index = new_state.best_index;
+            new_state.best_index = Some(new_best_index);
+        }
         new_state
+    }
+
+    fn next_phase(&self, sufficient_decrease: bool, state: &mut EgorState<f64>) -> Phase {
+        let (phase, global_iter, local_iter) = next_phase(
+            sufficient_decrease,
+            state.global_trego_iter,
+            state.local_trego_iter,
+            self.config.trego.n_global_steps,
+            self.config.trego.n_local_steps,
+        );
+        state.global_trego_iter = global_iter;
+        state.local_trego_iter = local_iter;
+        phase
     }
 }
 
@@ -274,33 +306,31 @@ pub enum Phase {
 
 #[allow(unused_variables)]
 pub fn next_phase(
-    prev_phase: Phase,
-    enough_decrease: bool,
-    iter: usize,
+    sufficient_decrease: bool,
     global_iter: usize,
     local_iter: usize,
     n_global: usize,
     n_local: usize,
-) -> (Phase, usize, usize, usize) {
+) -> (Phase, usize, usize) {
     if global_iter > 0 && global_iter < n_global {
         // Normal global step
-        (Phase::Global, iter + 1, global_iter + 1, local_iter)
-    } else if prev_phase == Phase::Global && global_iter == n_global {
-        // End of global phase unless enough decrease
-        if enough_decrease {
-            (Phase::Global, iter + 1, 1, 0)
+        (Phase::Global, global_iter + 1, local_iter)
+    } else if global_iter == n_global {
+        // End of global phase unless sufficient decrease
+        if sufficient_decrease {
+            (Phase::Global, 1, 0)
         } else {
-            (Phase::Local, iter + 1, 0, 1)
+            (Phase::Local, 0, 1)
         }
     } else if local_iter > 0 && local_iter < n_local {
         // Normal local step
-        (Phase::Local, iter + 1, 0, local_iter + 1)
-    } else if prev_phase == Phase::Local && local_iter == n_local {
+        (Phase::Local, 0, local_iter + 1)
+    } else if local_iter == n_local {
         // End of local phase
-        (Phase::Global, iter + 1, 1, 0)
+        (Phase::Global, 1, 0)
     } else {
         // First iteration
-        (Phase::Global, iter + 1, global_iter + 1, 0)
+        (Phase::Global, global_iter + 1, 0)
     }
 }
 
@@ -313,72 +343,45 @@ mod tests {
 
     #[test]
     fn test_it1() {
-        assert_eq!(
-            next_phase(Phase::default(), false, 0, 0, 0, N_G, N_L),
-            (Phase::Global, 1, 1, 0)
-        );
+        assert_eq!(next_phase(false, 0, 0, N_G, N_L), (Phase::Global, 1, 0));
     }
 
     #[test]
     fn test_it2() {
-        assert_eq!(
-            next_phase(Phase::Global, false, 1, 1, 0, N_G, N_L),
-            (Phase::Global, 2, 2, 0)
-        );
+        assert_eq!(next_phase(false, 1, 0, N_G, N_L), (Phase::Global, 2, 0));
     }
 
     #[test]
     fn test_it3_no_decrease() {
-        assert_eq!(
-            next_phase(Phase::Global, false, 2, 2, 0, N_G, N_L),
-            (Phase::Local, 3, 0, 1)
-        );
+        assert_eq!(next_phase(false, 2, 0, N_G, N_L), (Phase::Local, 0, 1));
     }
 
     #[test]
     fn test_it4_no_decrease() {
-        assert_eq!(
-            next_phase(Phase::Local, false, 3, 0, 1, N_G, N_L),
-            (Phase::Local, 4, 0, 2)
-        );
+        assert_eq!(next_phase(false, 0, 1, N_G, N_L), (Phase::Local, 0, 2));
     }
 
     #[test]
     fn test_it5_no_decrease() {
-        assert_eq!(
-            next_phase(Phase::Local, false, 4, 0, 2, N_G, N_L),
-            (Phase::Global, 5, 1, 0)
-        );
+        assert_eq!(next_phase(false, 0, 2, N_G, N_L), (Phase::Global, 1, 0));
     }
     #[test]
     fn test_it6_no_decrease() {
-        assert_eq!(
-            next_phase(Phase::Global, false, 5, 1, 0, N_G, N_L),
-            (Phase::Global, 6, 2, 0)
-        );
+        assert_eq!(next_phase(false, 1, 0, N_G, N_L), (Phase::Global, 2, 0));
     }
 
     #[test]
     fn test_it7_decrease() {
-        assert_eq!(
-            next_phase(Phase::Global, true, 6, 2, 0, N_G, N_L),
-            (Phase::Global, 7, 1, 0)
-        );
+        assert_eq!(next_phase(true, 2, 0, N_G, N_L), (Phase::Global, 1, 0));
     }
 
     #[test]
     fn test_it8_no_decrease() {
-        assert_eq!(
-            next_phase(Phase::Global, false, 7, 1, 0, N_G, N_L),
-            (Phase::Global, 8, 2, 0)
-        );
+        assert_eq!(next_phase(false, 1, 0, N_G, N_L), (Phase::Global, 2, 0));
     }
 
     #[test]
     fn test_it9_no_decrease() {
-        assert_eq!(
-            next_phase(Phase::Global, false, 8, 2, 0, N_G, N_L),
-            (Phase::Local, 9, 0, 1)
-        );
+        assert_eq!(next_phase(false, 2, 0, N_G, N_L), (Phase::Local, 0, 1));
     }
 }
