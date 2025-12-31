@@ -171,7 +171,7 @@ where
 
         let best_index = new_state.best_index.unwrap();
         let y_old = y_data[[best_index, 0]];
-        let rho = |sigma| sigma * sigma;
+        let rho = |sigma| self.config.trego.alpha * sigma * sigma;
         let (obj_model, cstr_models) = models.split_first().unwrap();
         let cstr_tols = new_state.cstr_tol.clone();
 
