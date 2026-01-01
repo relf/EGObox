@@ -102,12 +102,12 @@ where
         new_state.best_decrease += decrease.max(0.0);
         let sufficient_decrease = new_state.best_decrease >= rho(state.sigma);
         log::info!(
-            "Cumulative decrease over TREGO phase: {}, required {}",
+            "Cumulative decrease: {}, required {}",
             new_state.best_decrease,
             rho(state.sigma)
         );
 
-        log::info!(
+        log::debug!(
             "TREGO update: iter={}, global_ego_iter = {}, local_trego_iter = {}",
             state.get_iter(),
             state.global_trego_iter,
