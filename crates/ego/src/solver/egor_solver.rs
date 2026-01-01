@@ -366,7 +366,7 @@ where
 
         let feasibility = state.feasibility;
 
-        let mut res = if self.config.trego.activated {
+        let mut res = if self.config.trego_config.activated {
             self.trego_iteration(problem, state)?
         } else {
             self.ego_iteration(problem, state)?

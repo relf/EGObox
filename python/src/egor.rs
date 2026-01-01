@@ -13,6 +13,7 @@
 
 use crate::domain::*;
 use crate::gp_config::*;
+use crate::trego_config::TregoConfig;
 use crate::types::*;
 use egobox_ego::{CoegoStatus, InfillObjData, find_best_result_index};
 use egobox_gp::ThetaTuning;
@@ -141,7 +142,7 @@ pub(crate) struct Egor {
     pub q_points: usize,
     pub q_infill_strategy: QInfillStrategy,
     pub infill_optimizer: InfillOptimizer,
-    pub trego: bool,
+    pub trego: Option<TregoConfig>,
     pub coego_n_coop: usize,
     pub q_optmod: usize,
     pub target: f64,
@@ -169,7 +170,7 @@ impl Egor {
         q_points = 1,
         q_infill_strategy = QInfillStrategy::Kb,
         infill_optimizer = InfillOptimizer::Cobyla,
-        trego = false,
+        trego = None,
         coego_n_coop = 0,
         q_optmod = 1,
         target = f64::MIN,
@@ -194,7 +195,7 @@ impl Egor {
         q_points: usize,
         q_infill_strategy: QInfillStrategy,
         infill_optimizer: InfillOptimizer,
-        trego: bool,
+        trego: Option<TregoConfig>,
         coego_n_coop: usize,
         q_optmod: usize,
         target: f64,
@@ -543,7 +544,13 @@ impl Egor {
             .q_points(self.q_points)
             .qei_strategy(qei_strategy)
             .infill_optimizer(infill_optimizer)
-            .trego(self.trego)
+            .configure_trego(|trego| {
+                if let Some(trego_cfg) = self.trego.as_ref() {
+                    trego_cfg.clone().into()
+                } else {
+                    trego
+                }
+            })
             .coego(coego_status)
             .q_optmod(self.q_optmod)
             .target(self.target)
@@ -552,6 +559,7 @@ impl Egor {
         if let Some(doe) = doe {
             config = config.doe(doe);
         };
+
         if let Some(outdir) = self.outdir.as_ref().cloned() {
             config = config.outdir(outdir);
         };

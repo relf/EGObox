@@ -118,14 +118,20 @@ impl GpConfig {
 
 /// A structure to handle TREGO method parameterization
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub(crate) struct TregoConfig {
+pub struct TregoConfig {
+    /// Whether the TReGO algorithm is activated
     pub(crate) activated: bool,
-    pub(crate) n_global_steps: usize,
-    pub(crate) n_local_steps: usize,
+    /// Number of global and local optimization steps.
+    /// number of steps should be strictly positive
+    pub(crate) n_gl_steps: (usize, usize),
+    /// Trust region size bounds (min, max)
     pub(crate) d: (f64, f64),
+    /// Threshold ratio for iteration acceptance used in trust region criteria
+    /// rho(sigma) = alpha * sigma * sigma
     pub(crate) alpha: f64,
+    /// Trust region contraction factor between 0 and 1.
     pub(crate) beta: f64,
-    pub(crate) gamma: f64,
+    /// Initial trust region radius
     pub(crate) sigma0: f64,
 }
 
@@ -133,14 +139,50 @@ impl Default for TregoConfig {
     fn default() -> Self {
         TregoConfig {
             activated: false,
-            n_global_steps: 1,
-            n_local_steps: 4,
+            n_gl_steps: (1, 4),
             d: (1e-6, 1.),
             alpha: 1.0,
             beta: 0.9,
-            gamma: 10. / 9.,
             sigma0: 1e-1,
         }
+    }
+}
+
+impl TregoConfig {
+    /// Sets whether TReGO is activated
+    pub fn activated(mut self, activated: bool) -> Self {
+        self.activated = activated;
+        self
+    }
+
+    /// Sets the number of global optimization steps
+    pub fn n_gl_steps(mut self, n_gl_steps: (usize, usize)) -> Self {
+        self.n_gl_steps = n_gl_steps;
+        self
+    }
+
+    /// Sets the trust region size bounds (min, max)
+    pub fn d(mut self, d: (f64, f64)) -> Self {
+        self.d = d;
+        self
+    }
+
+    /// Sets the threshold ratio for iteration acceptance
+    pub fn alpha(mut self, alpha: f64) -> Self {
+        self.alpha = alpha;
+        self
+    }
+
+    /// Sets the trust region contraction factor
+    pub fn beta(mut self, beta: f64) -> Self {
+        self.beta = beta;
+        self
+    }
+
+    /// Sets the initial trust region radius
+    pub fn sigma0(mut self, sigma0: f64) -> Self {
+        self.sigma0 = sigma0;
+        self
     }
 }
 
@@ -224,7 +266,7 @@ pub struct ValidEgorConfig {
     /// A random generator seed used to get reproductible results.
     pub(crate) seed: Option<u64>,
     /// TREGO parameterization
-    pub(crate) trego: TregoConfig,
+    pub(crate) trego_config: TregoConfig,
     /// CoEGO  parameterization
     pub(crate) coego: CoegoConfig,
     /// Constrained infill criterion activation
@@ -254,7 +296,7 @@ impl Default for ValidEgorConfig {
             hot_start: HotStartMode::Disabled,
             xtypes: vec![],
             seed: None,
-            trego: TregoConfig::default(),
+            trego_config: TregoConfig::default(),
             coego: CoegoConfig::default(),
             cstr_infill: false,
             cstr_strategy: ConstraintStrategy::MeanConstraint,
@@ -416,7 +458,13 @@ impl EgorConfig {
 
     /// Activate TREGO method
     pub fn trego(mut self, activated: bool) -> Self {
-        self.0.trego.activated = activated;
+        self.0.trego_config.activated = activated;
+        self
+    }
+
+    /// Configure TREGO parameters
+    pub fn configure_trego<F: FnOnce(TregoConfig) -> TregoConfig>(mut self, init: F) -> Self {
+        self.0.trego_config = init(self.0.trego_config);
         self
     }
 

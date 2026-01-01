@@ -117,18 +117,18 @@ where
         // Check step success and update trust region
         if state.get_iter() > 0 {
             // Check end of local or global phase
-            if state.local_trego_iter == self.config.trego.n_local_steps {
+            if state.local_trego_iter == self.config.trego_config.n_gl_steps.1 {
                 // Adjust trust region wrt local step success
                 if sufficient_decrease {
                     let old = state.sigma;
-                    new_state.sigma *= self.config.trego.gamma;
+                    new_state.sigma /= self.config.trego_config.beta;
                     info!(
                         "Previous TREGO local step successful: sigma {} -> {}",
                         old, new_state.sigma
                     );
                 } else {
                     let old = state.sigma;
-                    new_state.sigma *= self.config.trego.beta;
+                    new_state.sigma *= self.config.trego_config.beta;
                     info!(
                         "Previous TREGO local step progress fail: sigma {} -> {}",
                         old, new_state.sigma
@@ -136,11 +136,11 @@ where
                 }
                 // Reset cumulative decrease
                 new_state.best_decrease = 0.0;
-            } else if state.global_trego_iter == self.config.trego.n_global_steps {
+            } else if state.global_trego_iter == self.config.trego_config.n_gl_steps.0 {
                 // Adjust trust region wrt global step success
                 if sufficient_decrease {
                     let old = state.sigma;
-                    new_state.sigma *= self.config.trego.gamma;
+                    new_state.sigma /= self.config.trego_config.beta;
                     info!(
                         "Previous EGO global step successful: sigma {} -> {}",
                         old, new_state.sigma
@@ -171,7 +171,7 @@ where
 
         let best_index = new_state.best_index.unwrap();
         let y_old = y_data[[best_index, 0]];
-        let rho = |sigma| self.config.trego.alpha * sigma * sigma;
+        let rho = |sigma| self.config.trego_config.alpha * sigma * sigma;
         let (obj_model, cstr_models) = models.split_first().unwrap();
         let cstr_tols = new_state.cstr_tol.clone();
 
@@ -191,8 +191,8 @@ where
             self.xlimits.clone(),
             xbest.to_owned(),
             (
-                self.config.trego.d.0 * new_state.sigma,
-                self.config.trego.d.1 * new_state.sigma,
+                self.config.trego_config.d.0 * new_state.sigma,
+                self.config.trego_config.d.1 * new_state.sigma,
             ),
             sub_rng,
         );
@@ -274,8 +274,8 @@ where
             );
 
         new_state = new_state.data((x_data, y_data, c_data)).rng(rng);
-        if new_state.global_trego_iter == self.config.trego.n_global_steps
-            || new_state.local_trego_iter == self.config.trego.n_local_steps
+        if new_state.global_trego_iter == self.config.trego_config.n_gl_steps.0
+            || new_state.local_trego_iter == self.config.trego_config.n_gl_steps.1
         {
             new_state.prev_best_index = new_state.best_index;
             new_state.best_index = Some(new_best_index);
@@ -288,8 +288,8 @@ where
             sufficient_decrease,
             state.global_trego_iter,
             state.local_trego_iter,
-            self.config.trego.n_global_steps,
-            self.config.trego.n_local_steps,
+            self.config.trego_config.n_gl_steps.0,
+            self.config.trego_config.n_gl_steps.1,
         );
         state.global_trego_iter = global_iter;
         state.local_trego_iter = local_iter;
