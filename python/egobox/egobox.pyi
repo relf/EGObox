@@ -88,9 +88,9 @@ class Egor:
         The value is used as a modulo of iteration number * q_points to trigger true training.
         This is used to decrease the number of training at the expense of surrogate accuracy.    
     
-    
-    trego (bool):
-        When true, TREGO algorithm is used, otherwise classic EGO algorithm is used.
+    trego (TregoConfig or None):
+        When TregoConfig is given the TREGO algorithm is used to enhance local convergence
+        of the EGO algorithm by using a trust region strategy. See TregoConfig for details.
     
     coego_n_coop (int >= 0):
         Number of cooperative components groups which will be used by the CoEGO algorithm.
@@ -120,7 +120,7 @@ class Egor:
     seed (int >= 0):
         Random generator seed to allow computation reproducibility.
     """
-    def __new__(cls, xspecs: typing.Any, gp_config: GpConfig = ..., n_cstr: builtins.int = 0, cstr_tol: typing.Optional[typing.Sequence[builtins.float]] = None, n_start: builtins.int = 20, n_doe: builtins.int = 0, doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, infill_strategy: InfillStrategy = InfillStrategy.LOG_EI, cstr_infill: builtins.bool = False, cstr_strategy: ConstraintStrategy = ConstraintStrategy.MC, q_points: builtins.int = 1, q_infill_strategy: QInfillStrategy = QInfillStrategy.KB, infill_optimizer: InfillOptimizer = InfillOptimizer.COBYLA, trego: builtins.bool = False, coego_n_coop: builtins.int = 0, q_optmod: builtins.int = 1, target: builtins.float = -1.7976931348623157e+308, outdir: typing.Optional[builtins.str] = None, warm_start: builtins.bool = False, hot_start: typing.Optional[builtins.int] = None, seed: typing.Optional[builtins.int] = None) -> Egor: ...
+    def __new__(cls, xspecs: typing.Any, gp_config: GpConfig = ..., n_cstr: builtins.int = 0, cstr_tol: typing.Optional[typing.Sequence[builtins.float]] = None, n_start: builtins.int = 20, n_doe: builtins.int = 0, doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, infill_strategy: InfillStrategy = InfillStrategy.LOG_EI, cstr_infill: builtins.bool = False, cstr_strategy: ConstraintStrategy = ConstraintStrategy.MC, q_points: builtins.int = 1, q_infill_strategy: QInfillStrategy = QInfillStrategy.KB, infill_optimizer: InfillOptimizer = InfillOptimizer.COBYLA, trego: typing.Optional[TregoConfig] = None, coego_n_coop: builtins.int = 0, q_optmod: builtins.int = 1, target: builtins.float = -1.7976931348623157e+308, outdir: typing.Optional[builtins.str] = None, warm_start: builtins.bool = False, hot_start: typing.Optional[builtins.int] = None, seed: typing.Optional[builtins.int] = None) -> Egor: ...
     def minimize(self, fun: typing.Any, fcstrs: typing.Sequence[typing.Any] = [], max_iters: builtins.int = 20, run_info: typing.Optional[typing.Any] = None) -> OptimResult:
         r"""
         ```ignore
@@ -764,6 +764,83 @@ class SparseGpx:
         
         # Returns
             likelihood as an array[n_clusters]
+        """
+
+@typing.final
+class TregoConfig:
+    r"""
+    Trust region configuration for EGO optimization.
+    
+    The TREGO algorithm enhances the Efficient Global Optimization (EGO)
+    by incorporating a trust region strategy to improve local convergence.
+    
+    Parameters
+    ----------
+    n_gl_steps : (int, int)
+        A tuple specifying the number of global and local optimization steps as
+       (n_global_steps, n_local_steps).
+    d : tuple of float
+        Trust region size bounds as (min, max). The trust region radius
+        is constrained between these values.
+    alpha : float
+        Factor used within the trust region acceptance criteria defined as:
+        rho(sigma) = alpha * sigma * sigma
+    beta : float
+        Trust region contraction factor between 0 and 1.
+    sigma0 : float
+        Initial trust region radius.
+    """
+    @property
+    def n_gl_steps(self) -> tuple[builtins.int, builtins.int]:
+        r"""
+        Number of global optimization steps
+        """
+    @n_gl_steps.setter
+    def n_gl_steps(self, value: tuple[builtins.int, builtins.int]) -> None:
+        r"""
+        Number of global optimization steps
+        """
+    @property
+    def d(self) -> tuple[builtins.float, builtins.float]:
+        r"""
+        Trust region size bounds (dmin, dmax) with 0 < dmin < dmax
+        """
+    @d.setter
+    def d(self, value: tuple[builtins.float, builtins.float]) -> None:
+        r"""
+        Trust region size bounds (dmin, dmax) with 0 < dmin < dmax
+        """
+    @property
+    def alpha(self) -> builtins.float:
+        r"""
+        Threshold ratio for iteration acceptance used in trust region criteria
+        rho(sigma) = alpha * sigma * sigma
+        """
+    @alpha.setter
+    def alpha(self, value: builtins.float) -> None:
+        r"""
+        Threshold ratio for iteration acceptance used in trust region criteria
+        rho(sigma) = alpha * sigma * sigma
+        """
+    @property
+    def beta(self) -> builtins.float:
+        r"""
+        Trust region contraction factor
+        """
+    @beta.setter
+    def beta(self, value: builtins.float) -> None:
+        r"""
+        Trust region contraction factor
+        """
+    @property
+    def sigma0(self) -> builtins.float:
+        r"""
+        Initial trust region radius
+        """
+    @sigma0.setter
+    def sigma0(self, value: builtins.float) -> None:
+        r"""
+        Initial trust region radius
         """
 
 @typing.final
