@@ -220,7 +220,7 @@ class TestEgor(unittest.TestCase):
             n_cstr=n_cstr,
             seed=42,
             n_doe=n_doe,
-            trego=egx.TregoConfig((1, 4)),
+            trego=egx.TregoConfig(),
         )
         start = time.process_time()
         res = egor.minimize(g24, max_iters=max_iters)

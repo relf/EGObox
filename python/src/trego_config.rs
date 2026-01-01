@@ -8,8 +8,6 @@ use pyo3_stub_gen::derive::gen_stub_pyclass;
 ///
 /// Parameters
 /// ----------
-/// activated : bool
-///     Whether the TReGO algorithm is activated. When False, standard EGO is used.
 /// n_gl_steps : (int, int)
 ///     A tuple specifying the number of global and local optimization steps as
 ///    (n_global_steps, n_local_steps).
@@ -27,10 +25,6 @@ use pyo3_stub_gen::derive::gen_stub_pyclass;
 #[pyclass]
 #[derive(Clone, Debug)]
 pub(crate) struct TregoConfig {
-    /// Whether TReGO is activated
-    #[pyo3(get, set)]
-    pub activated: bool,
-
     /// Number of global optimization steps
     #[pyo3(get, set)]
     pub n_gl_steps: (usize, usize),
@@ -55,7 +49,7 @@ pub(crate) struct TregoConfig {
 
 impl Default for TregoConfig {
     fn default() -> Self {
-        TregoConfig::new(false, (1, 4), (1e-6, 1.), 1.0, 0.9, 1e-1)
+        TregoConfig::new((1, 4), (1e-6, 1.), 1.0, 0.9, 1e-1)
     }
 }
 
@@ -65,8 +59,6 @@ impl TregoConfig {
     ///
     /// Parameters
     /// ----------
-    /// activated : bool, optional
-    ///     Whether TREGO is activated (default: False)
     /// n_gl_steps : (int, int), optional
     ///     Number of global/local steps (default: (1, 4))
     /// d : tuple of float, optional
@@ -84,7 +76,6 @@ impl TregoConfig {
     ///     A new TReGO configuration object
     #[new]
     #[pyo3(signature = (
-        activated=TregoConfig::default().activated,
         n_gl_steps=TregoConfig::default().n_gl_steps,
         d=TregoConfig::default().d,
         alpha=TregoConfig::default().alpha,
@@ -93,7 +84,6 @@ impl TregoConfig {
     ))]
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        activated: bool,
         n_gl_steps: (usize, usize),
         d: (f64, f64),
         alpha: f64,
@@ -101,7 +91,6 @@ impl TregoConfig {
         sigma0: f64,
     ) -> Self {
         TregoConfig {
-            activated,
             n_gl_steps,
             d,
             alpha,
@@ -114,7 +103,7 @@ impl TregoConfig {
 impl From<TregoConfig> for egobox_ego::TregoConfig {
     fn from(config: TregoConfig) -> Self {
         egobox_ego::TregoConfig::default()
-            .activated(config.activated)
+            .activated(true)
             .n_gl_steps(config.n_gl_steps)
             .d(config.d)
             .alpha(config.alpha)

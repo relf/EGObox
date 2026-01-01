@@ -94,9 +94,9 @@ use std::cmp::Ordering;
 ///         The value is used as a modulo of iteration number * q_points to trigger true training.
 ///         This is used to decrease the number of training at the expense of surrogate accuracy.    
 ///
-///
-///     trego (bool):
-///         When true, TREGO algorithm is used, otherwise classic EGO algorithm is used.
+///     trego (TregoConfig or None):
+///         When TregoConfig is given the TREGO algorithm is used to enhance local convergence
+///         of the EGO algorithm by using a trust region strategy. See TregoConfig for details.
 ///
 ///     coego_n_coop (int >= 0):
 ///         Number of cooperative components groups which will be used by the CoEGO algorithm.
