@@ -786,7 +786,7 @@ class TregoConfig:
         Factor used within the trust region acceptance criteria defined as:
         rho(sigma) = alpha * sigma * sigma
     beta : float
-        Trust region contraction factor between 0 and 1.
+        Trust region contraction factor in ]0., 1.[
     sigma0 : float
         Initial trust region radius.
     """

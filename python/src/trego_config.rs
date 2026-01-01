@@ -18,7 +18,7 @@ use pyo3_stub_gen::derive::gen_stub_pyclass;
 ///     Factor used within the trust region acceptance criteria defined as:
 ///     rho(sigma) = alpha * sigma * sigma
 /// beta : float
-///     Trust region contraction factor between 0 and 1.
+///     Trust region contraction factor in ]0., 1.[
 /// sigma0 : float
 ///     Initial trust region radius.
 #[gen_stub_pyclass]
@@ -73,7 +73,7 @@ impl TregoConfig {
     /// Returns
     /// -------
     /// TregoConfig
-    ///     A new TReGO configuration object
+    ///     A new TREGO configuration object
     #[new]
     #[pyo3(signature = (
         n_gl_steps=TregoConfig::default().n_gl_steps,

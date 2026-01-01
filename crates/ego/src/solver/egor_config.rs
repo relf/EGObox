@@ -129,7 +129,7 @@ pub struct TregoConfig {
     /// Threshold ratio for iteration acceptance used in trust region criteria
     /// rho(sigma) = alpha * sigma * sigma
     pub(crate) alpha: f64,
-    /// Trust region contraction factor between 0 and 1.
+    /// Trust region contraction factor in ]0, 1.[.
     pub(crate) beta: f64,
     /// Initial trust region radius
     pub(crate) sigma0: f64,
