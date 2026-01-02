@@ -121,7 +121,7 @@ where
                 // Adjust trust region wrt local step success
                 if sufficient_decrease {
                     let old = state.sigma;
-                    new_state.sigma /= self.config.trego_config.beta;
+                    new_state.sigma *= 1. / self.config.trego_config.beta;
                     info!(
                         "Previous TREGO local step successful: sigma {} -> {}",
                         old, new_state.sigma
@@ -140,7 +140,7 @@ where
                 // Adjust trust region wrt global step success
                 if sufficient_decrease {
                     let old = state.sigma;
-                    new_state.sigma /= self.config.trego_config.beta;
+                    new_state.sigma *= 1. / self.config.trego_config.beta;
                     info!(
                         "Previous EGO global step successful: sigma {} -> {}",
                         old, new_state.sigma
@@ -274,12 +274,8 @@ where
             );
 
         new_state = new_state.data((x_data, y_data, c_data)).rng(rng);
-        if new_state.global_trego_iter == self.config.trego_config.n_gl_steps.0
-            || new_state.local_trego_iter == self.config.trego_config.n_gl_steps.1
-        {
-            new_state.prev_best_index = new_state.best_index;
-            new_state.best_index = Some(new_best_index);
-        }
+        new_state.prev_best_index = new_state.best_index;
+        new_state.best_index = Some(new_best_index);
         new_state
     }
 
