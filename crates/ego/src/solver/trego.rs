@@ -101,11 +101,16 @@ where
         let decrease = y_data[[prev_best, 0]] - y_data[[best, 0]];
         new_state.best_decrease += decrease.max(0.0);
         let sufficient_decrease = new_state.best_decrease >= rho(state.sigma);
-        log::info!(
-            "Cumulative decrease: {}, required {}",
-            new_state.best_decrease,
-            rho(state.sigma)
-        );
+
+        if state.global_trego_iter == self.config.trego_config.n_gl_steps.0
+            || state.local_trego_iter == self.config.trego_config.n_gl_steps.1
+        {
+            log::info!(
+                "Cumulative decrease: {}, required {}",
+                new_state.best_decrease,
+                rho(state.sigma)
+            );
+        }
 
         log::debug!(
             "TREGO update: iter={}, global_ego_iter = {}, local_trego_iter = {}",
@@ -116,8 +121,22 @@ where
 
         // Check step success and update trust region
         if state.get_iter() > 0 {
-            // Check end of local or global phase
-            if state.local_trego_iter == self.config.trego_config.n_gl_steps.1 {
+            // Check end global or local phase
+            if state.global_trego_iter == self.config.trego_config.n_gl_steps.0 {
+                // Adjust trust region wrt global step success
+                if sufficient_decrease {
+                    let old = state.sigma;
+                    new_state.sigma *= 1. / self.config.trego_config.beta;
+                    info!(
+                        "Previous EGO global step successful: sigma {} -> {}",
+                        old, new_state.sigma
+                    );
+                } else {
+                    info!("Previous EGO global step progress fail");
+                }
+                // Reset cumulative decrease
+                new_state.best_decrease = 0.0;
+            } else if state.local_trego_iter == self.config.trego_config.n_gl_steps.1 {
                 // Adjust trust region wrt local step success
                 if sufficient_decrease {
                     let old = state.sigma;
@@ -133,20 +152,6 @@ where
                         "Previous TREGO local step progress fail: sigma {} -> {}",
                         old, new_state.sigma
                     );
-                }
-                // Reset cumulative decrease
-                new_state.best_decrease = 0.0;
-            } else if state.global_trego_iter == self.config.trego_config.n_gl_steps.0 {
-                // Adjust trust region wrt global step success
-                if sufficient_decrease {
-                    let old = state.sigma;
-                    new_state.sigma *= 1. / self.config.trego_config.beta;
-                    info!(
-                        "Previous EGO global step successful: sigma {} -> {}",
-                        old, new_state.sigma
-                    );
-                } else {
-                    info!("Previous EGO global step progress fail");
                 }
                 // Reset cumulative decrease
                 new_state.best_decrease = 0.0;

@@ -466,11 +466,17 @@ where
 
         if phase == Phase::Global {
             // Global step
-            info!(">>> TREGO global step (aka EGO)");
+            info!(
+                ">>> EGO global step {}/{}",
+                new_state.global_trego_iter, self.config.trego_config.n_gl_steps.0
+            );
             let res = self.ego_iteration(problem, new_state)?;
             Ok(res)
         } else {
-            info!(">>> TREGO local step");
+            info!(
+                ">>> TREGO local step {}/{}",
+                new_state.local_trego_iter, self.config.trego_config.n_gl_steps.1
+            );
             // Local step
             let models = self.refresh_surrogates(&new_state);
             let infill_data = self.refresh_infill_data(problem, &mut new_state, &models);
