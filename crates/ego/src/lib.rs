@@ -179,12 +179,12 @@
 //! each modeled function will be retained. You can also simply specify `RegressionSpec::ALL` and `CorrelationSpec::ALL` to
 //! test all available combinations but remember that the more you test the slower it runs.
 //!
-//! * the TREGO algorithm described in \[[Diouane2023](#Diouane2023)\] can be activated
+//! * the TREGO algorithm described in \[[Diouane2023](#Diouane2023)\] can be configured
 //!
 //! ```no_run
 //! # use egobox_ego::{EgorConfig, RegressionSpec, CorrelationSpec};
 //! # let egor_config = EgorConfig::default();
-//!     egor_config.trego(true);
+//!     egor_config.configure_trego(|trego_cfg| trego_cfg.activated(true));
 //! ```
 //!
 //! * Intermediate results can be logged at each iteration when `outdir` directory is specified.
