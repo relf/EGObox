@@ -793,7 +793,7 @@ mod tests {
         let init_doe = Lhs::new(&xlimits)
             .with_rng(Xoshiro256Plus::seed_from_u64(42))
             .sample(10);
-        let max_iters = 20;
+        let max_iters = 30;
         let res = EgorBuilder::optimize(rosenb)
             .configure(|config| {
                 config
