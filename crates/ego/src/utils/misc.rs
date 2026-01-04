@@ -47,10 +47,18 @@ pub fn is_update_ok(
 ) -> bool {
     for row in x_data.rows() {
         if row.l1_dist(x_new).unwrap() < 100. * f64::EPSILON {
+            log::warn!("Point {} too close to existing data point {}", x_new, row);
             return false;
         }
     }
     true
+}
+
+pub fn check_update_ok(
+    x_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+    x_new: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+) -> bool {
+    x_new.rows().into_iter().any(|xn| is_update_ok(x_data, &xn))
 }
 
 /// Append `x_new` (resp. `y_new`, `c_new`) to `x_data` (resp. y_data, resp. c_data)

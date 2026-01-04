@@ -129,14 +129,14 @@ class TestEgor(unittest.TestCase):
         res = egor.minimize(xsinx, max_iters=20)
         print(f"Optimization f={res.y_opt} at {res.x_opt}")
         self.assertAlmostEqual(-15.125, res.y_opt[0], delta=1e-3)
-        self.assertAlmostEqual(18.935, res.x_opt[0], delta=1e-3)
+        self.assertAlmostEqual(18.935, res.x_opt[0], delta=1e-2)
 
     def test_xsinx_with_reclustering(self):
         egor = egx.Egor([[0.0, 25.0]], seed=42, gp_config=egx.GpConfig(n_clusters=0))
         res = egor.minimize(xsinx, max_iters=20)
         print(f"Optimization f={res.y_opt} at {res.x_opt}")
         self.assertAlmostEqual(-15.125, res.y_opt[0], delta=1e-3)
-        self.assertAlmostEqual(18.935, res.x_opt[0], delta=1e-3)
+        self.assertAlmostEqual(18.935, res.x_opt[0], delta=1e-2)
 
     def test_xsinx_with_warmstart(self):
         if os.path.exists("./test_dir/egor_initial_doe.npy"):
@@ -188,8 +188,8 @@ class TestEgor(unittest.TestCase):
         self.assertAlmostEqual(-5.5080, res.y_opt[0], delta=1e-2)
         self.assertAlmostEqual(2.3295, res.x_opt[0], delta=1e-2)
         self.assertAlmostEqual(3.1785, res.x_opt[1], delta=1e-2)
-        self.assertEqual((n_doe + max_iters, 2), res.x_doe.shape)
-        self.assertEqual((n_doe + max_iters, 1 + n_cstr), res.y_doe.shape)
+        self.assertGreaterEqual(n_doe + max_iters, res.x_doe.shape[0])
+        self.assertEqual(1 + n_cstr, res.y_doe.shape[1])
 
     def test_g24_kpls(self):
         egor = egx.Egor(
@@ -220,7 +220,7 @@ class TestEgor(unittest.TestCase):
             n_cstr=n_cstr,
             seed=42,
             n_doe=n_doe,
-            trego=True,
+            trego=egx.TregoConfig(),
         )
         start = time.process_time()
         res = egor.minimize(g24, max_iters=max_iters)

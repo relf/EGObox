@@ -110,6 +110,7 @@
 //! println!("G24 min result = {:?}", res.state);
 //! ```
 //!
+use crate::solver::trego::Phase;
 use crate::utils::{
     EGOBOX_LOG, EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER, EGOR_USE_GP_RECORDER,
     EGOR_USE_GP_VAR_PORTFOLIO, EGOR_USE_MAX_PROBA_OF_FEASIBILITY, EGOR_USE_RUN_RECORDER,
@@ -365,7 +366,7 @@ where
 
         let feasibility = state.feasibility;
 
-        let mut res = if self.config.trego.activated {
+        let mut res = if self.config.trego_config.activated {
             self.trego_iteration(problem, state)?
         } else {
             self.ego_iteration(problem, state)?
@@ -461,73 +462,25 @@ where
         problem: &mut Problem<O>,
         state: EgorState<f64>,
     ) -> std::result::Result<(EgorState<f64>, Option<KV>), argmin::core::Error> {
-        let rho = |sigma| sigma * sigma;
-        let (_, y_data, _) = state.data.as_ref().unwrap(); // initialized in init
-        let best = state.best_index.unwrap(); // initialized in init
-        let prev_best = state.prev_best_index.unwrap(); // initialized in init
+        let (phase, mut new_state) = self.update_trego_state(&state);
 
-        // Check step success
-        let diff = y_data[[prev_best, 0]] - rho(state.sigma);
-        let last_iter_success = y_data[[best, 0]] < diff;
-        info!(
-            "success = {} as {} {} {} - {}",
-            last_iter_success,
-            y_data[[best, 0]],
-            if last_iter_success { "<" } else { ">=" },
-            y_data[[prev_best, 0]],
-            rho(state.sigma)
-        );
-        let mut new_state = state.clone();
-
-        if !state.prev_step_ego && state.get_iter() != 0 {
-            // Adjust trust region wrt local step success
-            if last_iter_success {
-                let old = state.sigma;
-                new_state.sigma *= self.config.trego.gamma;
-                info!(
-                    "Previous TREGO local step successful: sigma {} -> {}",
-                    old, new_state.sigma
-                );
-            } else {
-                let old = state.sigma;
-                new_state.sigma *= self.config.trego.beta;
-                info!(
-                    "Previous TREGO local step progress fail: sigma {} -> {}",
-                    old, new_state.sigma
-                );
-            }
-        } else if state.get_iter() != 0 {
-            // Adjust trust region wrt global step success
-            if last_iter_success {
-                let old = state.sigma;
-                new_state.sigma *= self.config.trego.gamma;
-                info!(
-                    "Previous EGO global step successful: sigma {} -> {}",
-                    old, new_state.sigma
-                );
-            } else {
-                info!("Previous EGO global step progress fail");
-            }
-        }
-
-        let is_global_phase = (last_iter_success && state.prev_step_ego)
-            || state
-                .get_iter()
-                .is_multiple_of(1 + self.config.trego.n_local_steps);
-
-        if is_global_phase {
+        if phase == Phase::Global {
             // Global step
-            info!(">>> TREGO global step (aka EGO)");
-            let mut res = self.ego_iteration(problem, new_state)?;
-            res.0.prev_step_ego = true;
+            info!(
+                ">>> EGO global step {}/{}",
+                new_state.global_trego_iter, self.config.trego_config.n_gl_steps.0
+            );
+            let res = self.ego_iteration(problem, new_state)?;
             Ok(res)
         } else {
-            info!(">>> TREGO local step");
+            info!(
+                ">>> TREGO local step {}/{}",
+                new_state.local_trego_iter, self.config.trego_config.n_gl_steps.1
+            );
             // Local step
             let models = self.refresh_surrogates(&new_state);
             let infill_data = self.refresh_infill_data(problem, &mut new_state, &models);
-            let mut new_state = self.trego_step(problem, new_state, models, &infill_data);
-            new_state.prev_step_ego = false;
+            let new_state = self.trego_step(problem, new_state, models, &infill_data);
             Ok((new_state, None))
         }
     }
