@@ -13,7 +13,7 @@ use argmin::core::{CostFunction, Problem};
 use egobox_doe::{Lhs, LhsKind, SamplingMethod};
 use egobox_moe::MixtureGpSurrogate;
 
-use log::{debug, info, warn};
+use log::{debug, info};
 use ndarray::{
     Array, Array1, Array2, ArrayBase, ArrayView2, Axis, Data, Ix1, Ix2, Zip, concatenate, s, stack,
 };
@@ -313,6 +313,8 @@ where
     ) -> f64 {
         let mut crit_vals = Array1::zeros(x.nrows());
         let (mut nan_count, mut inf_count) = (0, 0);
+
+        // Filter out points that are NaN or Inf in the infill criterion evaluation
         Zip::from(&mut crit_vals).and(x.rows()).for_each(|c, x| {
             let val =
                 self.eval_infill_obj(&x.to_vec(), obj_model, fmin, 1.0, scale_ic, sigma_weight);
@@ -337,17 +339,10 @@ where
         }
 
         if inf_count > 0 || nan_count > 0 {
-            if (inf_count + nan_count) as f64 > 0.8 * x.nrows() as f64 {
-                debug!(
-                    "Criterion scale computation: high number of invalid values ({nan_count} NaN + {inf_count} Inf) / {} points",
-                    x.nrows()
-                );
-            } else {
-                debug!(
-                    "Criterion scale computation warning: ({nan_count} NaN + {inf_count} Inf) / {} points",
-                    x.nrows()
-                );
-            }
+            debug!(
+                "Criterion scale computation warning: ({nan_count} NaN + {inf_count} Inf) / {} points",
+                x.nrows()
+            );
         }
         let scale = *crit_vals.mapv(|v| v.abs()).max().unwrap_or(&1.0);
         if scale < 100.0 * f64::EPSILON {
