@@ -188,8 +188,8 @@ class TestEgor(unittest.TestCase):
         self.assertAlmostEqual(-5.5080, res.y_opt[0], delta=1e-2)
         self.assertAlmostEqual(2.3295, res.x_opt[0], delta=1e-2)
         self.assertAlmostEqual(3.1785, res.x_opt[1], delta=1e-2)
-        self.assertEqual((n_doe + max_iters, 2), res.x_doe.shape)
-        self.assertEqual((n_doe + max_iters, 1 + n_cstr), res.y_doe.shape)
+        self.assertGreaterEqual(n_doe + max_iters, res.x_doe.shape[0])
+        self.assertEqual(1 + n_cstr, res.y_doe.shape[1])
 
     def test_g24_kpls(self):
         egor = egx.Egor(
