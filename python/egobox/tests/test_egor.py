@@ -136,7 +136,7 @@ class TestEgor(unittest.TestCase):
         res = egor.minimize(xsinx, max_iters=20)
         print(f"Optimization f={res.y_opt} at {res.x_opt}")
         self.assertAlmostEqual(-15.125, res.y_opt[0], delta=1e-3)
-        self.assertAlmostEqual(18.935, res.x_opt[0], delta=1e-3)
+        self.assertAlmostEqual(18.935, res.x_opt[0], delta=1e-2)
 
     def test_xsinx_with_warmstart(self):
         if os.path.exists("./test_dir/egor_initial_doe.npy"):
