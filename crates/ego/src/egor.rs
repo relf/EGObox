@@ -797,7 +797,7 @@ mod tests {
         let res = EgorBuilder::optimize(rosenb)
             .configure(|config| {
                 config
-                    //.infill_strategy(InfillStrategy::WB2)
+                    .infill_strategy(InfillStrategy::WB2)
                     .doe(&init_doe)
                     .max_iters(max_iters)
                     .outdir(outdir)
