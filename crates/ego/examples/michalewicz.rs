@@ -62,7 +62,7 @@ fn run_egor(dim: usize, outdir: &String, num: usize) -> Result<OptimResult<f64>>
                 })
                 .infill_strategy(InfillStrategy::LogEI)
                 .infill_optimizer(InfillOptimizer::Slsqp)
-                .configure_trego(|trego| trego.activated(true))
+                .trego(true)
                 // for dim=10
                 //.coego(egobox_ego::CoegoStatus::Enabled(2))
                 .max_iters(max_iters)

@@ -456,9 +456,16 @@ impl EgorConfig {
         self
     }
 
-    /// Configure TREGO parameters
+    /// Activate or deactivate TREGO method
+    pub fn trego(mut self, activated: bool) -> Self {
+        self.0.trego_config.activated = activated;
+        self
+    }
+
+    /// Configure TREGO parameters. TREGO is automatically activated by this method
     pub fn configure_trego<F: FnOnce(TregoConfig) -> TregoConfig>(mut self, init: F) -> Self {
         self.0.trego_config = init(self.0.trego_config);
+        self.0.trego_config.activated = true;
         self
     }
 
