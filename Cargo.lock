@@ -587,7 +587,7 @@ checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 
 [[package]]
 name = "egobox"
-version = "0.34.1"
+version = "0.34.2"
 dependencies = [
  "argmin_testfunctions",
  "ctrlc",
@@ -611,7 +611,7 @@ dependencies = [
 
 [[package]]
 name = "egobox-doe"
-version = "0.34.1"
+version = "0.34.2"
 dependencies = [
  "approx",
  "criterion",
@@ -628,7 +628,7 @@ dependencies = [
 
 [[package]]
 name = "egobox-ego"
-version = "0.34.1"
+version = "0.34.2"
 dependencies = [
  "anyhow",
  "approx",
@@ -671,7 +671,7 @@ dependencies = [
 
 [[package]]
 name = "egobox-gp"
-version = "0.34.1"
+version = "0.34.2"
 dependencies = [
  "anyhow",
  "approx",
@@ -703,7 +703,7 @@ dependencies = [
 
 [[package]]
 name = "egobox-moe"
-version = "0.34.1"
+version = "0.34.2"
 dependencies = [
  "approx",
  "argmin_testfunctions",

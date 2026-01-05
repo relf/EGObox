@@ -5,7 +5,7 @@ resolver = "2"
 [workspace.package]
 license = "Apache-2.0"
 edition = "2024"
-version = "0.34.1"
+version = "0.34.2"
 authors = ["Rémi Lafage <remi.lafage@onera.fr>"]
 homepage = "https://github.com/relf/egobox"
 documentation = "https://pypi.org/project/egobox"
