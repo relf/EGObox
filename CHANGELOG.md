@@ -2,6 +2,14 @@
 
 ## Version 0.35.0 - unreleased
 
+## Version 0.34.2 - 05/01/2026
+
+* Add TREGO configuration allowing to choose nb of global/local steps and other parameters by @relf in <https://github.com/relf/EGObox/pull/359>
+
+## Version 0.34.1 - 22/12/2025
+
+* Fix TREGO implementation by @relf in <https://github.com/relf/EGObox/pull/351>
+
 ## Version 0.34.0 - 17/11/2025
 
 * **Breaking changes**:
