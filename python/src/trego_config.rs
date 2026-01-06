@@ -1,6 +1,15 @@
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::gen_stub_pyclass;
 
+/// TREGO configuration specification which can be either
+/// a boolean to activate/deactivate the TREGO strategy
+/// or a full TregoConfig object.
+#[derive(FromPyObject)]
+pub enum TregoConfigSpec {
+    Activated(bool),
+    Custom(TregoConfig),
+}
+
 /// Trust region configuration for EGO optimization.
 ///
 /// The TREGO algorithm enhances the Efficient Global Optimization (EGO)

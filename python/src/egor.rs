@@ -14,6 +14,7 @@
 use crate::domain::*;
 use crate::gp_config::*;
 use crate::trego_config::TregoConfig;
+use crate::trego_config::TregoConfigSpec;
 use crate::types::*;
 use egobox_ego::{CoegoStatus, InfillObjData, find_best_result_index};
 use egobox_gp::ThetaTuning;
@@ -181,7 +182,7 @@ impl Egor {
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
-        _py: Python,
+        py: Python,
         xspecs: Py<PyAny>,
         gp_config: GpConfig,
         n_cstr: usize,
@@ -195,7 +196,7 @@ impl Egor {
         q_points: usize,
         q_infill_strategy: QInfillStrategy,
         infill_optimizer: InfillOptimizer,
-        trego: Option<TregoConfig>,
+        trego: Option<Py<PyAny>>,
         coego_n_coop: usize,
         q_optmod: usize,
         target: f64,
@@ -205,6 +206,29 @@ impl Egor {
         seed: Option<u64>,
     ) -> Self {
         let doe = doe.map(|x| x.to_owned_array());
+
+        // Parse trego configuration: boolean or custom configuration
+        let trego = match trego {
+            Some(trego_py) => {
+                let trego_typ: TregoConfigSpec =
+                    trego_py.extract(py).expect("Bad TREGO configuration");
+                match trego_typ {
+                    TregoConfigSpec::Activated(active) => {
+                        if active {
+                            // True case
+                            Some(TregoConfig::default())
+                        } else {
+                            // False case
+                            None
+                        }
+                    }
+                    TregoConfigSpec::Custom(cfg) => Some(cfg.into()),
+                }
+            }
+            // None case
+            None => None,
+        };
+        log::info!("TREGO config: {:?}", trego);
 
         Egor {
             xspecs,
@@ -544,18 +568,16 @@ impl Egor {
             .q_points(self.q_points)
             .qei_strategy(qei_strategy)
             .infill_optimizer(infill_optimizer)
-            .configure_trego(|trego| {
-                if let Some(trego_cfg) = self.trego.as_ref() {
-                    trego_cfg.clone().into()
-                } else {
-                    trego
-                }
-            })
             .coego(coego_status)
             .q_optmod(self.q_optmod)
             .target(self.target)
             .warm_start(self.warm_start)
             .hot_start(self.hot_start.into());
+
+        if let Some(trego) = self.trego.as_ref() {
+            config = config.configure_trego(|_| trego.clone().into())
+        }
+
         if let Some(doe) = doe {
             config = config.doe(doe);
         };
