@@ -88,9 +88,11 @@ class Egor:
         The value is used as a modulo of iteration number * q_points to trigger true training.
         This is used to decrease the number of training at the expense of surrogate accuracy.    
     
-    trego (TregoConfig or None):
-        When TregoConfig is given the TREGO algorithm is used to enhance local convergence
-        of the EGO algorithm by using a trust region strategy. See TregoConfig for details.
+    trego (TregoConfig, bool or None):
+        TREGO configuration to activate TREGO strategy for global optimization.
+        When True activate TREGO with default configuration.
+        To activate TREGO with custom configuration see TregoConfig for details.
+        When None or False TREGO is not used.
     
     coego_n_coop (int >= 0):
         Number of cooperative components groups which will be used by the CoEGO algorithm.
@@ -120,7 +122,7 @@ class Egor:
     seed (int >= 0):
         Random generator seed to allow computation reproducibility.
     """
-    def __new__(cls, xspecs: typing.Any, gp_config: GpConfig = ..., n_cstr: builtins.int = 0, cstr_tol: typing.Optional[typing.Sequence[builtins.float]] = None, n_start: builtins.int = 20, n_doe: builtins.int = 0, doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, infill_strategy: InfillStrategy = InfillStrategy.LOG_EI, cstr_infill: builtins.bool = False, cstr_strategy: ConstraintStrategy = ConstraintStrategy.MC, q_points: builtins.int = 1, q_infill_strategy: QInfillStrategy = QInfillStrategy.KB, infill_optimizer: InfillOptimizer = InfillOptimizer.COBYLA, trego: typing.Optional[TregoConfig] = None, coego_n_coop: builtins.int = 0, q_optmod: builtins.int = 1, target: builtins.float = -1.7976931348623157e+308, outdir: typing.Optional[builtins.str] = None, warm_start: builtins.bool = False, hot_start: typing.Optional[builtins.int] = None, seed: typing.Optional[builtins.int] = None) -> Egor: ...
+    def __new__(cls, xspecs: typing.Any, gp_config: GpConfig = ..., n_cstr: builtins.int = 0, cstr_tol: typing.Optional[typing.Sequence[builtins.float]] = None, n_start: builtins.int = 20, n_doe: builtins.int = 0, doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, infill_strategy: InfillStrategy = InfillStrategy.LOG_EI, cstr_infill: builtins.bool = False, cstr_strategy: ConstraintStrategy = ConstraintStrategy.MC, q_points: builtins.int = 1, q_infill_strategy: QInfillStrategy = QInfillStrategy.KB, infill_optimizer: InfillOptimizer = InfillOptimizer.COBYLA, trego: typing.Optional[typing.Any] = None, coego_n_coop: builtins.int = 0, q_optmod: builtins.int = 1, target: builtins.float = -1.7976931348623157e+308, outdir: typing.Optional[builtins.str] = None, warm_start: builtins.bool = False, hot_start: typing.Optional[builtins.int] = None, seed: typing.Optional[builtins.int] = None) -> Egor: ...
     def minimize(self, fun: typing.Any, fcstrs: typing.Sequence[typing.Any] = [], max_iters: builtins.int = 20, run_info: typing.Optional[typing.Any] = None) -> OptimResult:
         r"""
         ```ignore
