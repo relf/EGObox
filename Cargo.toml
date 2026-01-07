@@ -33,7 +33,7 @@ linfa-linalg = { version = "0.2", default-features = false }
 
 ndarray = { version = "0.16", features = ["rayon", "approx"] }
 ndarray-rand = "0.15"
-ndarray-stats = "0.6"
+ndarray-stats = "0.7"
 ndarray-npy = "0.9"
 statrs = "0.18"
 
