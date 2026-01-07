@@ -13,6 +13,7 @@
 
 use crate::domain::*;
 use crate::gp_config::*;
+use crate::q_par_config::*;
 use crate::trego_config::TregoConfig;
 use crate::trego_config::TregoConfigSpec;
 use crate::types::*;
@@ -142,12 +143,10 @@ pub(crate) struct Egor {
     pub infill_strategy: InfillStrategy,
     pub cstr_infill: bool,
     pub cstr_strategy: ConstraintStrategy,
-    pub q_points: usize,
-    pub q_infill_strategy: QInfillStrategy,
+    pub q_par_config: QParConfig,
     pub infill_optimizer: InfillOptimizer,
     pub trego: Option<TregoConfig>,
     pub coego_n_coop: usize,
-    pub q_optmod: usize,
     pub target: f64,
     pub outdir: Option<String>,
     pub warm_start: bool,
@@ -170,12 +169,10 @@ impl Egor {
         infill_strategy = InfillStrategy::LogEi,
         cstr_infill = false,
         cstr_strategy = ConstraintStrategy::Mc,
-        q_points = 1,
-        q_infill_strategy = QInfillStrategy::Kb,
+        q_par_config = QParConfig::default(),
         infill_optimizer = InfillOptimizer::Cobyla,
         trego = None,
         coego_n_coop = 0,
-        q_optmod = 1,
         target = f64::MIN,
         outdir = None,
         warm_start = false,
@@ -195,12 +192,10 @@ impl Egor {
         infill_strategy: InfillStrategy,
         cstr_infill: bool,
         cstr_strategy: ConstraintStrategy,
-        q_points: usize,
-        q_infill_strategy: QInfillStrategy,
+        q_par_config: QParConfig,
         infill_optimizer: InfillOptimizer,
         trego: Option<Py<PyAny>>,
         coego_n_coop: usize,
-        q_optmod: usize,
         target: f64,
         outdir: Option<String>,
         warm_start: bool,
@@ -243,12 +238,10 @@ impl Egor {
             infill_strategy,
             cstr_infill,
             cstr_strategy,
-            q_points,
-            q_infill_strategy,
+            q_par_config,
             infill_optimizer,
             trego,
             coego_n_coop,
-            q_optmod,
             target,
             outdir,
             warm_start,
@@ -477,7 +470,7 @@ impl Egor {
     }
 
     fn qei_strategy(&self) -> egobox_ego::QEiStrategy {
-        match self.q_infill_strategy {
+        match self.q_par_config.q_infill_strategy {
             QInfillStrategy::Kb => egobox_ego::QEiStrategy::KrigingBeliever,
             QInfillStrategy::Kblb => egobox_ego::QEiStrategy::KrigingBelieverLowerBound,
             QInfillStrategy::Kbub => egobox_ego::QEiStrategy::KrigingBelieverUpperBound,
@@ -567,11 +560,11 @@ impl Egor {
             .infill_strategy(infill_strategy)
             .cstr_infill(self.cstr_infill)
             .cstr_strategy(cstr_strategy)
-            .q_points(self.q_points)
+            .q_points(self.q_par_config.q_points)
             .qei_strategy(qei_strategy)
             .infill_optimizer(infill_optimizer)
             .coego(coego_status)
-            .q_optmod(self.q_optmod)
+            .q_optmod(self.q_par_config.q_optmod)
             .target(self.target)
             .warm_start(self.warm_start)
             .hot_start(self.hot_start.into());
