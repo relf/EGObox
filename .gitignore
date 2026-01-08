@@ -37,3 +37,7 @@ joss/paper.pdf
 
 # Run history
 history*
+
+# COCO
+exdata/
+ppdata/
