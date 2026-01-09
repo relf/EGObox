@@ -308,7 +308,7 @@ fn main() -> anyhow::Result<()> {
                     .n_start(50)
                     .infill_strategy(InfillStrategy::EI)
                     .cstr_infill(true)
-                    .q_points(10)
+                    .q_batch(10)
                     .q_optmod(2)
                     .qei_strategy(QEiStrategy::KrigingBeliever)
                     .outdir(outdir)

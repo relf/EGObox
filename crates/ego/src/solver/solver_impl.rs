@@ -584,30 +584,31 @@ where
     ) {
         let mut portfolio = vec![];
 
-        let sigma_weights =
-            if std::env::var(EGOR_USE_GP_VAR_PORTFOLIO).is_ok() && self.config.q_points == 1 {
-                // Do not believe GP variance, weight it to generate possibly several clusters
-                // hence several points to add
-                // logspace(0.1, 100., 13) with 1. moved in front
-                vec![
-                    1.,
-                    0.1,
-                    0.1778279410038923,
-                    0.31622776601683794,
-                    0.5623413251903491,
-                    1.7782794100389228,
-                    3.1622776601683795,
-                    5.623413251903491,
-                    10.,
-                    17.78279410038923,
-                    31.622776601683793,
-                    56.23413251903491,
-                    100.,
-                ]
-            } else {
-                // Fallback to default GP usage
-                vec![1.]
-            };
+        let sigma_weights = if std::env::var(EGOR_USE_GP_VAR_PORTFOLIO).is_ok()
+            && self.config.qei_config.q_batch == 1
+        {
+            // Do not believe GP variance, weight it to generate possibly several clusters
+            // hence several points to add
+            // logspace(0.1, 100., 13) with 1. moved in front
+            vec![
+                1.,
+                0.1,
+                0.1778279410038923,
+                0.31622776601683794,
+                0.5623413251903491,
+                1.7782794100389228,
+                3.1622776601683795,
+                5.623413251903491,
+                10.,
+                17.78279410038923,
+                31.622776601683793,
+                56.23413251903491,
+                100.,
+            ]
+        } else {
+            // Fallback to default GP usage
+            vec![1.]
+        };
 
         for (j, sigma_weight) in sigma_weights.iter().enumerate() {
             debug!("Make surrogate with {x_data}");
@@ -619,7 +620,7 @@ where
                 feasibility,
                 ..Default::default()
             };
-            for i in 0..self.config.q_points {
+            for i in 0..self.config.qei_config.q_batch {
                 let (xt, yt) = if i == 0 {
                     (x_data.to_owned(), y_data.to_owned())
                 } else {
@@ -640,8 +641,8 @@ where
                         format!("Constraint[{k}]")
                     };
                     let make_clustering = (init && i == 0) || recluster;
-                    let optimize_theta = (iter as usize * self.config.q_points + i)
-                        .is_multiple_of(self.config.q_optmod)
+                    let optimize_theta = (iter as usize * self.config.qei_config.q_batch + i)
+                        .is_multiple_of(self.config.qei_config.q_optmod)
                         && j == 0;
                     self.make_clustered_surrogate(
                         &name,

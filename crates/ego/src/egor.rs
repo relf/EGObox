@@ -1021,7 +1021,7 @@ mod tests {
                     })
                     .n_cstr(2)
                     .cstr_tol(array![2e-6, 2e-6])
-                    .q_points(q)
+                    .q_batch(q)
                     .qei_strategy(QEiStrategy::KrigingBeliever)
                     .doe(&doe)
                     .target(-5.5030)

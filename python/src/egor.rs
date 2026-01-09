@@ -254,7 +254,7 @@ impl Egor {
     ///         if constraints are cheap to evaluate better to pass them through run(fcstrs=[...])
     ///
     ///     max_iters:
-    ///         the iteration budget, number of fun calls is "n_doe + q_points * max_iters".
+    ///         the iteration budget, number of fun calls is "n_doe + q_batch * max_iters".
     ///
     ///     fcstrs:
     ///         list of constraints functions defined as g(x, return_grad): (ndarray[nx], bool) -> float or ndarray[nx,]
@@ -548,7 +548,7 @@ impl Egor {
             .infill_strategy(infill_strategy)
             .cstr_infill(self.cstr_infill)
             .cstr_strategy(cstr_strategy)
-            .q_points(self.qei_config.q_batch)
+            .q_batch(self.qei_config.q_batch)
             .qei_strategy(qei_strategy)
             .infill_optimizer(infill_optimizer)
             .coego(coego_status)
