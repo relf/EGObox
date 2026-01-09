@@ -10,7 +10,7 @@ use pyo3_stub_gen::derive::gen_stub_pyclass;
 ///
 /// Parameters
 /// ----------
-/// q_points : int
+/// q_batch : int
 ///     Number of points to evaluate in parallel at each iteration.
 ///     When set to 1, standard sequential EGO is used.
 /// q_infill_strategy : QInfillStrategy
@@ -28,7 +28,7 @@ use pyo3_stub_gen::derive::gen_stub_pyclass;
 pub(crate) struct QEiConfig {
     /// Number of points to evaluate in parallel
     #[pyo3(get, set)]
-    pub q_points: usize,
+    pub q_batch: usize,
 
     /// Strategy for selecting multiple points in parallel
     #[pyo3(get, set)]
@@ -51,7 +51,7 @@ impl QEiConfig {
     ///
     /// Parameters
     /// ----------
-    /// q_points : int, optional
+    /// q_batch : int, optional
     ///     Number of points to evaluate in parallel (default: 1)
     /// q_infill_strategy : QInfillStrategy, optional
     ///     Strategy for parallel point selection (default: QInfillStrategy.KB)
@@ -64,13 +64,13 @@ impl QEiConfig {
     ///     A new parallel evaluation configuration object
     #[new]
     #[pyo3(signature = (
-        q_points=QEiConfig::default().q_points,
+        q_batch=QEiConfig::default().q_batch,
         q_infill_strategy=QEiConfig::default().q_infill_strategy,
         q_optmod=QEiConfig::default().q_optmod,
     ))]
-    pub fn new(q_points: usize, q_infill_strategy: QInfillStrategy, q_optmod: usize) -> Self {
+    pub fn new(q_batch: usize, q_infill_strategy: QInfillStrategy, q_optmod: usize) -> Self {
         QEiConfig {
-            q_points,
+            q_batch,
             q_infill_strategy,
             q_optmod,
         }

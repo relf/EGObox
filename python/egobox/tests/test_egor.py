@@ -177,7 +177,6 @@ class TestEgor(unittest.TestCase):
             cstr_tol=np.array([1e-3, 1e-3]),
             n_cstr=n_cstr,
             seed=42,
-            q_optmod=2,
             n_doe=n_doe,
             cstr_strategy=egx.ConstraintStrategy.UTB,
         )
@@ -289,7 +288,6 @@ class TestEgor(unittest.TestCase):
         egor = egx.Egor(
             [[0.0, 3.0], [0.0, 4.0]],
             seed=42,
-            q_optmod=2,
             n_doe=n_doe,
         )
         start = time.process_time()
@@ -303,6 +301,28 @@ class TestEgor(unittest.TestCase):
         self.assertEqual((n_doe + max_iters, 2), res.x_doe.shape)
         self.assertEqual((n_doe + max_iters, 1), res.y_doe.shape)
 
+    def test_g24_with_qei(self):
+        n_doe = 5
+        max_iters = 20
+        n_cstr = 2
+        egor = egx.Egor(
+            [[0.0, 3.0], [0.0, 4.0]],
+            cstr_tol=np.array([1e-3, 1e-3]),
+            n_cstr=n_cstr,
+            seed=42,
+            n_doe=n_doe,
+            qei_config=egx.QEiConfig(
+                q_batch=3, q_infill_strategy=egx.QInfillStrategy.KBLB, q_optmod=2
+            ),
+        )
+        start = time.process_time()
+        res = egor.minimize(g24, max_iters=max_iters)
+        end = time.process_time()
+        print(f"Optimization f={res.y_opt} at {res.x_opt} in {end - start}s")
+        self.assertAlmostEqual(-5.5080, res.y_opt[0], delta=1e-2)
+        self.assertAlmostEqual(2.3295, res.x_opt[0], delta=1e-2)
+        self.assertAlmostEqual(3.1785, res.x_opt[1], delta=1e-2)
+
 
 if __name__ == "__main__":
-    unittest.main(defaultTest=["TestOptimizer.test_g24_trego"], exit=False)
+    unittest.main(defaultTest=["TestEgor.test_g24_with_qei"], exit=False)

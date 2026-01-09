@@ -548,7 +548,7 @@ impl Egor {
             .infill_strategy(infill_strategy)
             .cstr_infill(self.cstr_infill)
             .cstr_strategy(cstr_strategy)
-            .q_points(self.qei_config.q_points)
+            .q_points(self.qei_config.q_batch)
             .qei_strategy(qei_strategy)
             .infill_optimizer(infill_optimizer)
             .coego(coego_status)
