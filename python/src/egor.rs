@@ -458,11 +458,11 @@ impl Egor {
     }
 
     fn qei_strategy(&self) -> egobox_ego::QEiStrategy {
-        match self.qei_config.q_infill_strategy {
-            QInfillStrategy::Kb => egobox_ego::QEiStrategy::KrigingBeliever,
-            QInfillStrategy::Kblb => egobox_ego::QEiStrategy::KrigingBelieverLowerBound,
-            QInfillStrategy::Kbub => egobox_ego::QEiStrategy::KrigingBelieverUpperBound,
-            QInfillStrategy::Clmin => egobox_ego::QEiStrategy::ConstantLiarMinimum,
+        match self.qei_config.q_ei_strategy {
+            QEiStrategy::Kb => egobox_ego::QEiStrategy::KrigingBeliever,
+            QEiStrategy::Kblb => egobox_ego::QEiStrategy::KrigingBelieverLowerBound,
+            QEiStrategy::Kbub => egobox_ego::QEiStrategy::KrigingBelieverUpperBound,
+            QEiStrategy::Clmin => egobox_ego::QEiStrategy::ConstantLiarMinimum,
         }
     }
 

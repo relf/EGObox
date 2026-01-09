@@ -76,7 +76,7 @@ pub(crate) enum ConstraintStrategy {
 #[gen_stub_pyclass_enum]
 #[pyclass(eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) enum QInfillStrategy {
+pub(crate) enum QEiStrategy {
     Kb = 1,
     Kblb = 2,
     Kbub = 3,

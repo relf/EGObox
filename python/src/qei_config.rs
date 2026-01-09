@@ -13,7 +13,7 @@ use pyo3_stub_gen::derive::gen_stub_pyclass;
 /// q_batch : int
 ///     Number of points to evaluate in parallel at each iteration.
 ///     When set to 1, standard sequential EGO is used.
-/// q_infill_strategy : QInfillStrategy
+/// q_ei_strategy : QEiStrategy
 ///     Strategy for selecting multiple points:
 ///     * KB (Kriging Believer): Uses the GP mean prediction as a pseudo-observation
 ///     * KBLB (Kriging Believer Lower Bound): Uses GP mean - std as pseudo-observation
@@ -32,7 +32,7 @@ pub(crate) struct QEiConfig {
 
     /// Strategy for selecting multiple points in parallel
     #[pyo3(get, set)]
-    pub q_infill_strategy: QInfillStrategy,
+    pub q_ei_strategy: QEiStrategy,
 
     /// Interval between hyperparameter optimizations
     #[pyo3(get, set)]
@@ -41,7 +41,7 @@ pub(crate) struct QEiConfig {
 
 impl Default for QEiConfig {
     fn default() -> Self {
-        QEiConfig::new(1, QInfillStrategy::Kb, 1)
+        QEiConfig::new(1, QEiStrategy::Kb, 1)
     }
 }
 
@@ -53,25 +53,25 @@ impl QEiConfig {
     /// ----------
     /// q_batch : int, optional
     ///     Number of points to evaluate in parallel (default: 1)
-    /// q_infill_strategy : QInfillStrategy, optional
-    ///     Strategy for parallel point selection (default: QInfillStrategy.KB)
+    /// q_ei_strategy : QEiStrategy, optional
+    ///     Strategy for parallel point selection (default: QEiStrategy.KB)
     /// q_optmod : int, optional
     ///     Interval between hyperparameter optimizations (default: 1)
     ///
     /// Returns
     /// -------
-    /// QeiConfig
+    /// QEiConfig
     ///     A new parallel evaluation configuration object
     #[new]
     #[pyo3(signature = (
         q_batch=QEiConfig::default().q_batch,
-        q_infill_strategy=QEiConfig::default().q_infill_strategy,
+        q_ei_strategy=QEiConfig::default().q_ei_strategy,
         q_optmod=QEiConfig::default().q_optmod,
     ))]
-    pub fn new(q_batch: usize, q_infill_strategy: QInfillStrategy, q_optmod: usize) -> Self {
+    pub fn new(q_batch: usize, q_ei_strategy: QEiStrategy, q_optmod: usize) -> Self {
         QEiConfig {
             q_batch,
-            q_infill_strategy,
+            q_ei_strategy,
             q_optmod,
         }
     }

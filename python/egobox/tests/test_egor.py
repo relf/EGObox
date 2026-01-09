@@ -312,7 +312,7 @@ class TestEgor(unittest.TestCase):
             seed=42,
             n_doe=n_doe,
             qei_config=egx.QEiConfig(
-                q_batch=3, q_infill_strategy=egx.QInfillStrategy.KBLB, q_optmod=2
+                q_batch=3, q_ei_strategy=egx.QEiStrategy.KBLB, q_optmod=2
             ),
         )
         start = time.process_time()

@@ -71,22 +71,10 @@ class Egor:
         Constraint management either use the mean value or upper bound
         Can be either ConstraintStrategy.MeanValue or ConstraintStrategy.UpperTrustedBound.
     
-    q_infill_strategy (QInfillStrategy enum):
-        Parallel infill criteria (aka qEI) to get virtual next promising points in order to allow
-        q parallel evaluations of the function under optimization (only used when q_points > 1)
-        Can be either QInfillStrategy.KB (Kriging Believer),
-        QInfillStrategy.KBLB (KB Lower Bound), QInfillStrategy.KBUB (KB Upper Bound),
-        QInfillStrategy.CLMIN (Constant Liar Minimum)
-    
-    q_points (int > 0):
-        Number of points to be evaluated to allow parallel evaluation of the function under optimization.
-    
-    q_optmod (int >= 1):
-        Number of iterations between two surrogate models true training (hypermarameters optimization)
-        otherwise previous hyperparameters are re-used only when computing q_points to be evaluated in parallel.
-        The default value is 1 meaning surrogates are properly trained for each q points determination.
-        The value is used as a modulo of iteration number * q_points to trigger true training.
-        This is used to decrease the number of training at the expense of surrogate accuracy.    
+    qei_config (QEiConfig):
+        Configuration for parallel (qEI) evaluation also known as batch or multipoint evaluation.
+        q points are selected at each iteration of the EGO algorithm.
+        See QEiConfig for details.
     
     trego (TregoConfig, bool or None):
         TREGO configuration to activate TREGO strategy for global optimization.
@@ -122,7 +110,7 @@ class Egor:
     seed (int >= 0):
         Random generator seed to allow computation reproducibility.
     """
-    def __new__(cls, xspecs: typing.Any, gp_config: GpConfig = ..., n_cstr: builtins.int = 0, cstr_tol: typing.Optional[typing.Sequence[builtins.float]] = None, n_start: builtins.int = 20, n_doe: builtins.int = 0, doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, infill_strategy: InfillStrategy = InfillStrategy.LOG_EI, cstr_infill: builtins.bool = False, cstr_strategy: ConstraintStrategy = ConstraintStrategy.MC, q_points: builtins.int = 1, q_infill_strategy: QInfillStrategy = QInfillStrategy.KB, infill_optimizer: InfillOptimizer = InfillOptimizer.COBYLA, trego: typing.Optional[typing.Any] = None, coego_n_coop: builtins.int = 0, q_optmod: builtins.int = 1, target: builtins.float = -1.7976931348623157e+308, outdir: typing.Optional[builtins.str] = None, warm_start: builtins.bool = False, hot_start: typing.Optional[builtins.int] = None, seed: typing.Optional[builtins.int] = None) -> Egor: ...
+    def __new__(cls, xspecs: typing.Any, gp_config: GpConfig = ..., n_cstr: builtins.int = 0, cstr_tol: typing.Optional[typing.Sequence[builtins.float]] = None, n_start: builtins.int = 20, n_doe: builtins.int = 0, doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, infill_strategy: InfillStrategy = InfillStrategy.LOG_EI, cstr_infill: builtins.bool = False, cstr_strategy: ConstraintStrategy = ConstraintStrategy.MC, qei_config: QEiConfig = ..., infill_optimizer: InfillOptimizer = InfillOptimizer.COBYLA, trego: typing.Optional[typing.Any] = None, coego_n_coop: builtins.int = 0, target: builtins.float = -1.7976931348623157e+308, outdir: typing.Optional[builtins.str] = None, warm_start: builtins.bool = False, hot_start: typing.Optional[builtins.int] = None, seed: typing.Optional[builtins.int] = None) -> Egor: ...
     def minimize(self, fun: typing.Any, fcstrs: typing.Sequence[typing.Any] = [], max_iters: builtins.int = 20, run_info: typing.Optional[typing.Any] = None) -> OptimResult:
         r"""
         ```ignore
@@ -141,7 +129,7 @@ class Egor:
                 if constraints are cheap to evaluate better to pass them through run(fcstrs=[...])
         
             max_iters:
-                the iteration budget, number of fun calls is "n_doe + q_points * max_iters".
+                the iteration budget, number of fun calls is "n_doe + q_batch * max_iters".
         
             fcstrs:
                 list of constraints functions defined as g(x, return_grad): (ndarray[nx], bool) -> float or ndarray[nx,]
@@ -570,6 +558,61 @@ class OptimResult:
     def y_doe(self) -> numpy.typing.NDArray[numpy.float64]: ...
 
 @typing.final
+class QEiConfig:
+    r"""
+    Configuration for parallel (qEI) infill criterion evaluation.
+    
+    The q-parallel configuration allows for evaluating multiple points
+    in parallel during each EGO iteration, which can significantly speed up
+    optimization when function evaluations can be performed in parallel.
+    
+    Parameters
+    ----------
+    q_batch : int
+        Number of points to evaluate in parallel at each iteration.
+        When set to 1, standard sequential EGO is used.
+    q_ei_strategy : QEiStrategy
+        Strategy for selecting multiple points:
+        * KB (Kriging Believer): Uses the GP mean prediction as a pseudo-observation
+        * KBLB (Kriging Believer Lower Bound): Uses GP mean - std as pseudo-observation
+        * KBUB (Kriging Believer Upper Bound): Uses GP mean + std as pseudo-observation
+        * CLMIN (Constant Liar Minimum): Uses the current best value as pseudo-observation
+    q_optmod : int
+        Interval between two hyperparameter optimizations when computing q points.
+        For example, with q_optmod=2, hyperparameters are optimized every 2 points.
+    """
+    @property
+    def q_batch(self) -> builtins.int:
+        r"""
+        Number of points to evaluate in parallel
+        """
+    @q_batch.setter
+    def q_batch(self, value: builtins.int) -> None:
+        r"""
+        Number of points to evaluate in parallel
+        """
+    @property
+    def q_ei_strategy(self) -> QEiStrategy:
+        r"""
+        Strategy for selecting multiple points in parallel
+        """
+    @q_ei_strategy.setter
+    def q_ei_strategy(self, value: QEiStrategy) -> None:
+        r"""
+        Strategy for selecting multiple points in parallel
+        """
+    @property
+    def q_optmod(self) -> builtins.int:
+        r"""
+        Interval between hyperparameter optimizations
+        """
+    @q_optmod.setter
+    def q_optmod(self, value: builtins.int) -> None:
+        r"""
+        Interval between hyperparameter optimizations
+        """
+
+@typing.final
 class RegressionSpec:
     ALL: builtins.int = 7
     CONSTANT: builtins.int = 1
@@ -873,7 +916,7 @@ class InfillStrategy(enum.Enum):
     LOG_EI = ...
 
 @typing.final
-class QInfillStrategy(enum.Enum):
+class QEiStrategy(enum.Enum):
     KB = ...
     KBLB = ...
     KBUB = ...
