@@ -274,7 +274,7 @@ where
         cstr_models: &[Box<dyn MixtureGpSurrogate>],
     ) -> Result<Vec<f64>> {
         let mut res: Vec<f64> = vec![];
-        if self.config.qei_config.q_ei == QEiStrategy::ConstantLiarMinimum {
+        if self.config.qei_config.q_strategy == QEiStrategy::ConstantLiarMinimum {
             let index_min = y_data.slice(s![.., 0_usize]).argmin().unwrap();
             res.push(y_data[[index_min, 0]]);
             for ic in 1..=self.config.n_cstr {
@@ -285,7 +285,7 @@ where
             let x = &xk.view().insert_axis(Axis(0));
             let pred = obj_model.predict(x)?[0];
             let var = obj_model.predict_var(x)?[0];
-            let conf = match self.config.qei_config.q_ei {
+            let conf = match self.config.qei_config.q_strategy {
                 QEiStrategy::KrigingBeliever => 0.,
                 QEiStrategy::KrigingBelieverLowerBound => -3.,
                 QEiStrategy::KrigingBelieverUpperBound => 3.,

@@ -593,7 +593,7 @@ mod tests {
     #[serial]
     fn test_xsinx_optmod_egor() {
         let res = EgorBuilder::optimize(xsinx)
-            .configure(|config| config.max_iters(20).q_optmod(3))
+            .configure(|config| config.max_iters(20).configure_qei(|cfg| cfg.optmod(3)))
             .min_within(&array![[0.0, 25.0]])
             .expect("Egor configured")
             .run()
@@ -1021,8 +1021,9 @@ mod tests {
                     })
                     .n_cstr(2)
                     .cstr_tol(array![2e-6, 2e-6])
-                    .q_batch(q)
-                    .qei_strategy(QEiStrategy::KrigingBeliever)
+                    .configure_qei(|qei_config| {
+                        qei_config.batch(q).strategy(QEiStrategy::KrigingBeliever)
+                    })
                     .doe(&doe)
                     .target(-5.5030)
                     .max_iters(20)

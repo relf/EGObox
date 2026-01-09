@@ -548,11 +548,14 @@ impl Egor {
             .infill_strategy(infill_strategy)
             .cstr_infill(self.cstr_infill)
             .cstr_strategy(cstr_strategy)
-            .q_batch(self.qei_config.q_batch)
-            .qei_strategy(qei_strategy)
+            .configure_qei(|qei_config| {
+                qei_config
+                    .batch(self.qei_config.q_batch)
+                    .strategy(qei_strategy)
+                    .optmod(self.qei_config.q_optmod)
+            })
             .infill_optimizer(infill_optimizer)
             .coego(coego_status)
-            .q_optmod(self.qei_config.q_optmod)
             .target(self.target)
             .warm_start(self.warm_start)
             .hot_start(self.hot_start.into());
