@@ -70,10 +70,11 @@ impl<R: Rng + Clone> super::solver_infill_optim::MultiStarter
 
         if std::env::var(EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER).is_err() {
             let nt = self.xtrain.nrows();
-            // Compute the maximum number of points to consider to generate midpoints
+            // Compute the maximum number of points n to consider to generate midpoints
             // to avoid too much computation when large training set
             // Consider one tenth of training points as midpoints nb will grow as (n * (n-1) / 2)
-            // and we want to privilege exploration with LHS
+            // and multistart rarely exceeds 50. We do not want to pick only midpoints
+            // but keep some diversity by adding LHS points (at least when nt is small < 50).
             let n = (nt / 10).max(2);
 
             let xt = self.xtrain;
@@ -92,10 +93,10 @@ impl<R: Rng + Clone> super::solver_infill_optim::MultiStarter
             let n_midpoints = midpoints.nrows();
             let missing_points: i32 = n_start as i32 - n_midpoints as i32;
             if missing_points <= 0 {
-                info!("MiddlePickerMultiStarter: pick {n_midpoints} pts");
+                debug!("MiddlePickerMultiStarter: pick {n_midpoints} pts");
                 midpoints
             } else {
-                info!(
+                debug!(
                     "MiddlePickerMultiStarter: pick {n_midpoints} pt(s), add {missing_points} LHS pt(s)"
                 );
                 // complete with LHS
