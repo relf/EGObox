@@ -13,7 +13,7 @@
 
 use crate::domain::*;
 use crate::gp_config::*;
-use crate::q_par_config::*;
+use crate::qei_config::*;
 use crate::trego_config::TregoConfig;
 use crate::trego_config::TregoConfigSpec;
 use crate::types::*;
@@ -79,22 +79,10 @@ use std::cmp::Ordering;
 ///         Constraint management either use the mean value or upper bound
 ///         Can be either ConstraintStrategy.MeanValue or ConstraintStrategy.UpperTrustedBound.
 ///
-///     q_infill_strategy (QInfillStrategy enum):
-///         Parallel infill criteria (aka qEI) to get virtual next promising points in order to allow
-///         q parallel evaluations of the function under optimization (only used when q_points > 1)
-///         Can be either QInfillStrategy.KB (Kriging Believer),
-///         QInfillStrategy.KBLB (KB Lower Bound), QInfillStrategy.KBUB (KB Upper Bound),
-///         QInfillStrategy.CLMIN (Constant Liar Minimum)
-///
-///     q_points (int > 0):
-///         Number of points to be evaluated to allow parallel evaluation of the function under optimization.
-///
-///     q_optmod (int >= 1):
-///         Number of iterations between two surrogate models true training (hypermarameters optimization)
-///         otherwise previous hyperparameters are re-used only when computing q_points to be evaluated in parallel.
-///         The default value is 1 meaning surrogates are properly trained for each q points determination.
-///         The value is used as a modulo of iteration number * q_points to trigger true training.
-///         This is used to decrease the number of training at the expense of surrogate accuracy.    
+///     qei_config (QEiConfig):
+///         Configuration for parallel (qEI) evaluation also known as batch or multipoint evaluation.
+///         q points are selected at each iteration of the EGO algorithm.
+///         See QEiConfig for details.
 ///
 ///     trego (TregoConfig, bool or None):
 ///         TREGO configuration to activate TREGO strategy for global optimization.
@@ -143,7 +131,7 @@ pub(crate) struct Egor {
     pub infill_strategy: InfillStrategy,
     pub cstr_infill: bool,
     pub cstr_strategy: ConstraintStrategy,
-    pub q_par_config: QParConfig,
+    pub qei_config: QEiConfig,
     pub infill_optimizer: InfillOptimizer,
     pub trego: Option<TregoConfig>,
     pub coego_n_coop: usize,
@@ -169,7 +157,7 @@ impl Egor {
         infill_strategy = InfillStrategy::LogEi,
         cstr_infill = false,
         cstr_strategy = ConstraintStrategy::Mc,
-        q_par_config = QParConfig::default(),
+        qei_config = QEiConfig::default(),
         infill_optimizer = InfillOptimizer::Cobyla,
         trego = None,
         coego_n_coop = 0,
@@ -192,7 +180,7 @@ impl Egor {
         infill_strategy: InfillStrategy,
         cstr_infill: bool,
         cstr_strategy: ConstraintStrategy,
-        q_par_config: QParConfig,
+        qei_config: QEiConfig,
         infill_optimizer: InfillOptimizer,
         trego: Option<Py<PyAny>>,
         coego_n_coop: usize,
@@ -238,7 +226,7 @@ impl Egor {
             infill_strategy,
             cstr_infill,
             cstr_strategy,
-            q_par_config,
+            qei_config,
             infill_optimizer,
             trego,
             coego_n_coop,
@@ -470,7 +458,7 @@ impl Egor {
     }
 
     fn qei_strategy(&self) -> egobox_ego::QEiStrategy {
-        match self.q_par_config.q_infill_strategy {
+        match self.qei_config.q_infill_strategy {
             QInfillStrategy::Kb => egobox_ego::QEiStrategy::KrigingBeliever,
             QInfillStrategy::Kblb => egobox_ego::QEiStrategy::KrigingBelieverLowerBound,
             QInfillStrategy::Kbub => egobox_ego::QEiStrategy::KrigingBelieverUpperBound,
@@ -560,11 +548,11 @@ impl Egor {
             .infill_strategy(infill_strategy)
             .cstr_infill(self.cstr_infill)
             .cstr_strategy(cstr_strategy)
-            .q_points(self.q_par_config.q_points)
+            .q_points(self.qei_config.q_points)
             .qei_strategy(qei_strategy)
             .infill_optimizer(infill_optimizer)
             .coego(coego_status)
-            .q_optmod(self.q_par_config.q_optmod)
+            .q_optmod(self.qei_config.q_optmod)
             .target(self.target)
             .warm_start(self.warm_start)
             .hot_start(self.hot_start.into());

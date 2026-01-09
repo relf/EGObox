@@ -25,7 +25,7 @@ use pyo3_stub_gen::derive::gen_stub_pyclass;
 #[gen_stub_pyclass]
 #[pyclass]
 #[derive(Clone, Debug)]
-pub(crate) struct QParConfig {
+pub(crate) struct QEiConfig {
     /// Number of points to evaluate in parallel
     #[pyo3(get, set)]
     pub q_points: usize,
@@ -39,14 +39,14 @@ pub(crate) struct QParConfig {
     pub q_optmod: usize,
 }
 
-impl Default for QParConfig {
+impl Default for QEiConfig {
     fn default() -> Self {
-        QParConfig::new(1, QInfillStrategy::Kb, 1)
+        QEiConfig::new(1, QInfillStrategy::Kb, 1)
     }
 }
 
 #[pymethods]
-impl QParConfig {
+impl QEiConfig {
     /// Create a new parallel evaluation configuration.
     ///
     /// Parameters
@@ -60,16 +60,16 @@ impl QParConfig {
     ///
     /// Returns
     /// -------
-    /// QParConfig
+    /// QeiConfig
     ///     A new parallel evaluation configuration object
     #[new]
     #[pyo3(signature = (
-        q_points=QParConfig::default().q_points,
-        q_infill_strategy=QParConfig::default().q_infill_strategy,
-        q_optmod=QParConfig::default().q_optmod,
+        q_points=QEiConfig::default().q_points,
+        q_infill_strategy=QEiConfig::default().q_infill_strategy,
+        q_optmod=QEiConfig::default().q_optmod,
     ))]
     pub fn new(q_points: usize, q_infill_strategy: QInfillStrategy, q_optmod: usize) -> Self {
-        QParConfig {
+        QEiConfig {
             q_points,
             q_infill_strategy,
             q_optmod,
