@@ -585,7 +585,7 @@ where
         let mut portfolio = vec![];
 
         let sigma_weights = if std::env::var(EGOR_USE_GP_VAR_PORTFOLIO).is_ok()
-            && self.config.qei_config.q_batch == 1
+            && self.config.qei_config.batch == 1
         {
             // Do not believe GP variance, weight it to generate possibly several clusters
             // hence several points to add
@@ -620,7 +620,7 @@ where
                 feasibility,
                 ..Default::default()
             };
-            for i in 0..self.config.qei_config.q_batch {
+            for i in 0..self.config.qei_config.batch {
                 let (xt, yt) = if i == 0 {
                     (x_data.to_owned(), y_data.to_owned())
                 } else {
@@ -641,8 +641,8 @@ where
                         format!("Constraint[{k}]")
                     };
                     let make_clustering = (init && i == 0) || recluster;
-                    let optimize_theta = (iter as usize * self.config.qei_config.q_batch + i)
-                        .is_multiple_of(self.config.qei_config.q_optmod)
+                    let optimize_theta = (iter as usize * self.config.qei_config.batch + i)
+                        .is_multiple_of(self.config.qei_config.optmod)
                         && j == 0;
                     self.make_clustered_surrogate(
                         &name,

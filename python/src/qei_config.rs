@@ -28,15 +28,15 @@ use pyo3_stub_gen::derive::gen_stub_pyclass;
 pub(crate) struct QEiConfig {
     /// Number of points to evaluate in parallel
     #[pyo3(get, set)]
-    pub q_batch: usize,
+    pub batch: usize,
 
     /// Strategy for selecting multiple points in parallel
     #[pyo3(get, set)]
-    pub q_ei_strategy: QEiStrategy,
+    pub strategy: QEiStrategy,
 
     /// Interval between hyperparameter optimizations
     #[pyo3(get, set)]
-    pub q_optmod: usize,
+    pub optmod: usize,
 }
 
 impl Default for QEiConfig {
@@ -51,11 +51,11 @@ impl QEiConfig {
     ///
     /// Parameters
     /// ----------
-    /// q_batch : int, optional
+    /// batch : int, optional
     ///     Number of points to evaluate in parallel (default: 1)
-    /// q_ei_strategy : QEiStrategy, optional
+    /// strategy : QEiStrategy, optional
     ///     Strategy for parallel point selection (default: QEiStrategy.KB)
-    /// q_optmod : int, optional
+    /// optmod : int, optional
     ///     Interval between hyperparameter optimizations (default: 1)
     ///
     /// Returns
@@ -64,15 +64,15 @@ impl QEiConfig {
     ///     A new parallel evaluation configuration object
     #[new]
     #[pyo3(signature = (
-        q_batch=QEiConfig::default().q_batch,
-        q_ei_strategy=QEiConfig::default().q_ei_strategy,
-        q_optmod=QEiConfig::default().q_optmod,
+        batch=QEiConfig::default().batch,
+        strategy=QEiConfig::default().strategy,
+        optmod=QEiConfig::default().optmod,
     ))]
-    pub fn new(q_batch: usize, q_ei_strategy: QEiStrategy, q_optmod: usize) -> Self {
+    pub fn new(batch: usize, strategy: QEiStrategy, optmod: usize) -> Self {
         QEiConfig {
-            q_batch,
-            q_ei_strategy,
-            q_optmod,
+            batch,
+            strategy,
+            optmod,
         }
     }
 }

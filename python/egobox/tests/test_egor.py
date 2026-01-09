@@ -311,9 +311,7 @@ class TestEgor(unittest.TestCase):
             n_cstr=n_cstr,
             seed=42,
             n_doe=n_doe,
-            qei_config=egx.QEiConfig(
-                q_batch=3, q_ei_strategy=egx.QEiStrategy.KBLB, q_optmod=2
-            ),
+            qei_config=egx.QEiConfig(batch=3, strategy=egx.QEiStrategy.KBLB, optmod=2),
         )
         start = time.process_time()
         res = egor.minimize(g24, max_iters=max_iters)

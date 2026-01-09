@@ -191,40 +191,40 @@ impl TregoConfig {
 pub struct QEiConfig {
     /// Number of points returned by EGO iteration (aka qEI Multipoint strategy)
     /// Actually as some point determination may fail (at most q_batch are returned)
-    pub(crate) q_batch: usize,
+    pub(crate) batch: usize,
     /// Multipoint strategy used to get several points to be evaluated at each iteration
-    pub(crate) q_strategy: QEiStrategy,
+    pub(crate) strategy: QEiStrategy,
     /// Interval between two hyperparameters optimizations (as iteration number modulo)
     /// hyperparameters are optimized or re-used from an iteration to another when getting q points
-    pub(crate) q_optmod: usize,
+    pub(crate) optmod: usize,
 }
 
 impl Default for QEiConfig {
     fn default() -> Self {
         QEiConfig {
-            q_batch: 1,
-            q_strategy: QEiStrategy::KrigingBeliever,
-            q_optmod: 1,
+            batch: 1,
+            strategy: QEiStrategy::KrigingBeliever,
+            optmod: 1,
         }
     }
 }
 
 impl QEiConfig {
     /// Sets number of parallel evaluations
-    pub fn batch(mut self, q_batch: usize) -> Self {
-        self.q_batch = q_batch;
+    pub fn batch(mut self, batch: usize) -> Self {
+        self.batch = batch;
         self
     }
 
     /// Sets the parallel infill strategy
-    pub fn strategy(mut self, q_strategy: QEiStrategy) -> Self {
-        self.q_strategy = q_strategy;
+    pub fn strategy(mut self, strategy: QEiStrategy) -> Self {
+        self.strategy = strategy;
         self
     }
 
     /// Sets the number of iteration interval between two hyperparameter optimization
-    pub fn optmod(mut self, q_optmod: usize) -> Self {
-        self.q_optmod = q_optmod;
+    pub fn optmod(mut self, optmod: usize) -> Self {
+        self.optmod = optmod;
         self
     }
 }
@@ -411,7 +411,7 @@ impl EgorConfig {
         note = "Please use `configure_qei` method instead to set the number of parallel evaluations"
     )]
     pub fn q_batch(mut self, q_batch: usize) -> Self {
-        self.0.qei_config.q_batch = q_batch;
+        self.0.qei_config.batch = q_batch;
         self
     }
 
@@ -424,7 +424,7 @@ impl EgorConfig {
         note = "Please use `configure_qei` method instead to set the multipoint strategy"
     )]
     pub fn qei_strategy(mut self, q_ei: QEiStrategy) -> Self {
-        self.0.qei_config.q_strategy = q_ei;
+        self.0.qei_config.strategy = q_ei;
         self
     }
 
@@ -435,7 +435,7 @@ impl EgorConfig {
         note = "Please use `configure_qei` method instead to set the qEI parameters"
     )]
     pub fn q_optmod(mut self, q_optmod: usize) -> Self {
-        self.0.qei_config.q_optmod = q_optmod;
+        self.0.qei_config.optmod = q_optmod;
         self
     }
 

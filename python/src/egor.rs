@@ -458,7 +458,7 @@ impl Egor {
     }
 
     fn qei_strategy(&self) -> egobox_ego::QEiStrategy {
-        match self.qei_config.q_ei_strategy {
+        match self.qei_config.strategy {
             QEiStrategy::Kb => egobox_ego::QEiStrategy::KrigingBeliever,
             QEiStrategy::Kblb => egobox_ego::QEiStrategy::KrigingBelieverLowerBound,
             QEiStrategy::Kbub => egobox_ego::QEiStrategy::KrigingBelieverUpperBound,
@@ -550,9 +550,9 @@ impl Egor {
             .cstr_strategy(cstr_strategy)
             .configure_qei(|qei_config| {
                 qei_config
-                    .batch(self.qei_config.q_batch)
+                    .batch(self.qei_config.batch)
                     .strategy(qei_strategy)
-                    .optmod(self.qei_config.q_optmod)
+                    .optmod(self.qei_config.optmod)
             })
             .infill_optimizer(infill_optimizer)
             .coego(coego_status)
