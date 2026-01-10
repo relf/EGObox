@@ -70,10 +70,11 @@ impl<R: Rng + Clone> super::solver_infill_optim::MultiStarter
 
         if std::env::var(EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER).is_err() {
             let nt = self.xtrain.nrows();
-            // Compute the maximum number of points to consider to generate midpoints
+            // Compute the maximum number of points n to consider to generate midpoints
             // to avoid too much computation when large training set
             // Consider one tenth of training points as midpoints nb will grow as (n * (n-1) / 2)
-            // and we want to privilege exploration with LHS
+            // and multistart rarely exceeds 50. We do not want to pick only midpoints
+            // but keep some diversity by adding LHS points (at least when nt is small < 50).
             let n = (nt / 10).max(2);
 
             let xt = self.xtrain;
@@ -92,10 +93,10 @@ impl<R: Rng + Clone> super::solver_infill_optim::MultiStarter
             let n_midpoints = midpoints.nrows();
             let missing_points: i32 = n_start as i32 - n_midpoints as i32;
             if missing_points <= 0 {
-                info!("MiddlePickerMultiStarter: pick {n_midpoints} pts");
+                debug!("MiddlePickerMultiStarter: pick {n_midpoints} pts");
                 midpoints
             } else {
-                info!(
+                debug!(
                     "MiddlePickerMultiStarter: pick {n_midpoints} pt(s), add {missing_points} LHS pt(s)"
                 );
                 // complete with LHS
@@ -273,7 +274,7 @@ where
         cstr_models: &[Box<dyn MixtureGpSurrogate>],
     ) -> Result<Vec<f64>> {
         let mut res: Vec<f64> = vec![];
-        if self.config.q_ei == QEiStrategy::ConstantLiarMinimum {
+        if self.config.qei_config.strategy == QEiStrategy::ConstantLiarMinimum {
             let index_min = y_data.slice(s![.., 0_usize]).argmin().unwrap();
             res.push(y_data[[index_min, 0]]);
             for ic in 1..=self.config.n_cstr {
@@ -284,7 +285,7 @@ where
             let x = &xk.view().insert_axis(Axis(0));
             let pred = obj_model.predict(x)?[0];
             let var = obj_model.predict_var(x)?[0];
-            let conf = match self.config.q_ei {
+            let conf = match self.config.qei_config.strategy {
                 QEiStrategy::KrigingBeliever => 0.,
                 QEiStrategy::KrigingBelieverLowerBound => -3.,
                 QEiStrategy::KrigingBelieverUpperBound => 3.,

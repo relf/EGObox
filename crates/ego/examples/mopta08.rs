@@ -308,9 +308,12 @@ fn main() -> anyhow::Result<()> {
                     .n_start(50)
                     .infill_strategy(InfillStrategy::EI)
                     .cstr_infill(true)
-                    .q_points(10)
-                    .q_optmod(2)
-                    .qei_strategy(QEiStrategy::KrigingBeliever)
+                    .configure_qei(|qei_config| {
+                        qei_config
+                            .batch(10)
+                            .strategy(QEiStrategy::KrigingBeliever)
+                            .optmod(2)
+                    })
                     .outdir(outdir)
                     .warm_start(true)
                     .coego(CoegoStatus::Enabled(5))

@@ -186,6 +186,49 @@ impl TregoConfig {
     }
 }
 
+/// A structure to handle qEI (parallel infill criterion) method parameterization
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct QEiConfig {
+    /// Number of points returned by EGO iteration (aka qEI Multipoint strategy)
+    /// Actually as some point determination may fail (at most q_batch are returned)
+    pub(crate) batch: usize,
+    /// Multipoint strategy used to get several points to be evaluated at each iteration
+    pub(crate) strategy: QEiStrategy,
+    /// Interval between two hyperparameters optimizations (as iteration number modulo)
+    /// hyperparameters are optimized or re-used from an iteration to another when getting q points
+    pub(crate) optmod: usize,
+}
+
+impl Default for QEiConfig {
+    fn default() -> Self {
+        QEiConfig {
+            batch: 1,
+            strategy: QEiStrategy::KrigingBeliever,
+            optmod: 1,
+        }
+    }
+}
+
+impl QEiConfig {
+    /// Sets number of parallel evaluations
+    pub fn batch(mut self, batch: usize) -> Self {
+        self.batch = batch;
+        self
+    }
+
+    /// Sets the parallel infill strategy
+    pub fn strategy(mut self, strategy: QEiStrategy) -> Self {
+        self.strategy = strategy;
+        self
+    }
+
+    /// Sets the number of iteration interval between two hyperparameter optimization
+    pub fn optmod(mut self, optmod: usize) -> Self {
+        self.optmod = optmod;
+        self
+    }
+}
+
 /// An enum to specify CoEGO status and component number
 pub enum CoegoStatus {
     /// Do not use CoEGO algorithm
@@ -223,7 +266,7 @@ pub const EGO_DEFAULT_N_START: usize = 20;
 pub struct ValidEgorConfig {
     /// Max number of function iterations allocated to find the optimum (aka iteration budget)
     /// Note 1 : The number of cost function evaluations is deduced using the following formula (n_doe + max_iters)
-    /// Note 2 : When q_points > 1, the number of cost function evaluations is (n_doe + max_iters * q_points)
+    /// Note 2 : When q_batch > 1, the number of cost function evaluations is (n_doe + max_iters * q_batch)
     /// is is an upper bounds as some points may be rejected as being to close to previous ones.   
     pub(crate) max_iters: usize,
     /// Number of starts for multistart approach used for optimization
@@ -239,14 +282,8 @@ pub struct ValidEgorConfig {
     /// Initial doe can be either \[x\] with x inputs only or an evaluated doe \[x, y\]
     /// Note: x dimension is determined using `xlimits.nrows()`
     pub(crate) doe: Option<Array2<f64>>,
-    /// Multipoint strategy used to get several points to be evaluated at each iteration
-    pub(crate) q_ei: QEiStrategy,
-    /// Interval between two hyperparameters optimizations (as iteration number modulo)
-    /// hyperparameters are optimized or re-used from an iteration to another when getting q points
-    pub(crate) q_optmod: usize,
-    /// Number of points returned by EGO iteration (aka qEI Multipoint strategy)
-    /// Actually as some point determination may fail (at most q_points are returned)
-    pub(crate) q_points: usize,
+    /// qEI parallel evaluation configuration
+    pub(crate) qei_config: QEiConfig,
     /// General configuration for GP models used by the optimizer
     pub(crate) gp: GpConfig,
     /// Criterion to select next point to evaluate
@@ -284,9 +321,7 @@ impl Default for ValidEgorConfig {
             n_cstr: 0,
             cstr_tol: None,
             doe: None,
-            q_ei: QEiStrategy::KrigingBeliever,
-            q_optmod: 1,
-            q_points: 1,
+            qei_config: QEiConfig::default(),
             gp: GpConfig::default(),
             infill_criterion: Box::new(LOG_EI),
             infill_optimizer: InfillOptimizer::Slsqp,
@@ -370,27 +405,46 @@ impl EgorConfig {
         self
     }
 
+    /// Sets Number of parallel evaluations of the function under optimization
+    #[deprecated(
+        since = "0.35.0",
+        note = "Please use `configure_qei` method instead to set the number of parallel evaluations"
+    )]
+    pub fn q_batch(mut self, q_batch: usize) -> Self {
+        self.0.qei_config.batch = q_batch;
+        self
+    }
+
     /// Sets the parallel infill strategy
     ///
     /// Parallel infill criterion to get virtual next promising points in order to allow
     /// n parallel evaluations of the function under optimization.
+    #[deprecated(
+        since = "0.35.0",
+        note = "Please use `configure_qei` method instead to set the multipoint strategy"
+    )]
     pub fn qei_strategy(mut self, q_ei: QEiStrategy) -> Self {
-        self.0.q_ei = q_ei;
+        self.0.qei_config.strategy = q_ei;
         self
     }
 
     /// Sets the number of iteration interval between two hyperparameter optimization
     /// when computing q points to be evaluated in parallel
+    #[deprecated(
+        since = "0.35.0",
+        note = "Please use `configure_qei` method instead to set the qEI parameters"
+    )]
     pub fn q_optmod(mut self, q_optmod: usize) -> Self {
-        self.0.q_optmod = q_optmod;
+        self.0.qei_config.optmod = q_optmod;
         self
     }
 
-    /// Sets Number of parallel evaluations of the function under optimization
-    pub fn q_points(mut self, q_points: usize) -> Self {
-        self.0.q_points = q_points;
+    /// Configure qEI parameters
+    pub fn configure_qei<F: FnOnce(QEiConfig) -> QEiConfig>(mut self, init: F) -> Self {
+        self.0.qei_config = init(self.0.qei_config);
         self
     }
+
     /// Sets the infill strategy
     pub fn infill_strategy(mut self, infill: InfillStrategy) -> Self {
         self.0.infill_criterion = match infill {

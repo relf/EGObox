@@ -54,7 +54,7 @@ fn run_egor(dim: usize, outdir: &String, num: usize) -> Result<OptimResult<f64>>
                 //.trego(true)
                 // for high dimensions
                 //.coego(egobox_ego::CoegoStatus::Enabled(5))
-                // .q_points(10)
+                // .q_batch(10)
                 // .q_optmod(2)
                 // .qei_strategy(QEiStrategy::KrigingBeliever)
                 .n_start(90)

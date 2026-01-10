@@ -13,6 +13,7 @@
 
 use crate::domain::*;
 use crate::gp_config::*;
+use crate::qei_config::*;
 use crate::trego_config::TregoConfig;
 use crate::trego_config::TregoConfigSpec;
 use crate::types::*;
@@ -78,22 +79,10 @@ use std::cmp::Ordering;
 ///         Constraint management either use the mean value or upper bound
 ///         Can be either ConstraintStrategy.MeanValue or ConstraintStrategy.UpperTrustedBound.
 ///
-///     q_infill_strategy (QInfillStrategy enum):
-///         Parallel infill criteria (aka qEI) to get virtual next promising points in order to allow
-///         q parallel evaluations of the function under optimization (only used when q_points > 1)
-///         Can be either QInfillStrategy.KB (Kriging Believer),
-///         QInfillStrategy.KBLB (KB Lower Bound), QInfillStrategy.KBUB (KB Upper Bound),
-///         QInfillStrategy.CLMIN (Constant Liar Minimum)
-///
-///     q_points (int > 0):
-///         Number of points to be evaluated to allow parallel evaluation of the function under optimization.
-///
-///     q_optmod (int >= 1):
-///         Number of iterations between two surrogate models true training (hypermarameters optimization)
-///         otherwise previous hyperparameters are re-used only when computing q_points to be evaluated in parallel.
-///         The default value is 1 meaning surrogates are properly trained for each q points determination.
-///         The value is used as a modulo of iteration number * q_points to trigger true training.
-///         This is used to decrease the number of training at the expense of surrogate accuracy.    
+///     qei_config (QEiConfig):
+///         Configuration for parallel (qEI) evaluation also known as batch or multipoint evaluation.
+///         q points are selected at each iteration of the EGO algorithm.
+///         See QEiConfig for details.
 ///
 ///     trego (TregoConfig, bool or None):
 ///         TREGO configuration to activate TREGO strategy for global optimization.
@@ -142,12 +131,10 @@ pub(crate) struct Egor {
     pub infill_strategy: InfillStrategy,
     pub cstr_infill: bool,
     pub cstr_strategy: ConstraintStrategy,
-    pub q_points: usize,
-    pub q_infill_strategy: QInfillStrategy,
+    pub qei_config: QEiConfig,
     pub infill_optimizer: InfillOptimizer,
     pub trego: Option<TregoConfig>,
     pub coego_n_coop: usize,
-    pub q_optmod: usize,
     pub target: f64,
     pub outdir: Option<String>,
     pub warm_start: bool,
@@ -170,12 +157,10 @@ impl Egor {
         infill_strategy = InfillStrategy::LogEi,
         cstr_infill = false,
         cstr_strategy = ConstraintStrategy::Mc,
-        q_points = 1,
-        q_infill_strategy = QInfillStrategy::Kb,
+        qei_config = QEiConfig::default(),
         infill_optimizer = InfillOptimizer::Cobyla,
         trego = None,
         coego_n_coop = 0,
-        q_optmod = 1,
         target = f64::MIN,
         outdir = None,
         warm_start = false,
@@ -195,12 +180,10 @@ impl Egor {
         infill_strategy: InfillStrategy,
         cstr_infill: bool,
         cstr_strategy: ConstraintStrategy,
-        q_points: usize,
-        q_infill_strategy: QInfillStrategy,
+        qei_config: QEiConfig,
         infill_optimizer: InfillOptimizer,
         trego: Option<Py<PyAny>>,
         coego_n_coop: usize,
-        q_optmod: usize,
         target: f64,
         outdir: Option<String>,
         warm_start: bool,
@@ -243,12 +226,10 @@ impl Egor {
             infill_strategy,
             cstr_infill,
             cstr_strategy,
-            q_points,
-            q_infill_strategy,
+            qei_config,
             infill_optimizer,
             trego,
             coego_n_coop,
-            q_optmod,
             target,
             outdir,
             warm_start,
@@ -273,7 +254,7 @@ impl Egor {
     ///         if constraints are cheap to evaluate better to pass them through run(fcstrs=[...])
     ///
     ///     max_iters:
-    ///         the iteration budget, number of fun calls is "n_doe + q_points * max_iters".
+    ///         the iteration budget, number of fun calls is "n_doe + q_batch * max_iters".
     ///
     ///     fcstrs:
     ///         list of constraints functions defined as g(x, return_grad): (ndarray[nx], bool) -> float or ndarray[nx,]
@@ -477,11 +458,11 @@ impl Egor {
     }
 
     fn qei_strategy(&self) -> egobox_ego::QEiStrategy {
-        match self.q_infill_strategy {
-            QInfillStrategy::Kb => egobox_ego::QEiStrategy::KrigingBeliever,
-            QInfillStrategy::Kblb => egobox_ego::QEiStrategy::KrigingBelieverLowerBound,
-            QInfillStrategy::Kbub => egobox_ego::QEiStrategy::KrigingBelieverUpperBound,
-            QInfillStrategy::Clmin => egobox_ego::QEiStrategy::ConstantLiarMinimum,
+        match self.qei_config.strategy {
+            QEiStrategy::Kb => egobox_ego::QEiStrategy::KrigingBeliever,
+            QEiStrategy::Kblb => egobox_ego::QEiStrategy::KrigingBelieverLowerBound,
+            QEiStrategy::Kbub => egobox_ego::QEiStrategy::KrigingBelieverUpperBound,
+            QEiStrategy::Clmin => egobox_ego::QEiStrategy::ConstantLiarMinimum,
         }
     }
 
@@ -567,11 +548,14 @@ impl Egor {
             .infill_strategy(infill_strategy)
             .cstr_infill(self.cstr_infill)
             .cstr_strategy(cstr_strategy)
-            .q_points(self.q_points)
-            .qei_strategy(qei_strategy)
+            .configure_qei(|qei_config| {
+                qei_config
+                    .batch(self.qei_config.batch)
+                    .strategy(qei_strategy)
+                    .optmod(self.qei_config.optmod)
+            })
             .infill_optimizer(infill_optimizer)
             .coego(coego_status)
-            .q_optmod(self.q_optmod)
             .target(self.target)
             .warm_start(self.warm_start)
             .hot_start(self.hot_start.into());

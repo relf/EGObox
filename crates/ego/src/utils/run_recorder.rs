@@ -134,7 +134,7 @@ pub(crate) fn init_run_info(
             initial_samples: sampled_locations.len(),
             bo_iterations: config.max_iters as u64,
             total_samples: xdata.nrows(),
-            batch_size: config.q_points,
+            batch_size: config.qei_config.batch,
             seed: config.seed.map_or(-1, |v| v as i32),
             ..Default::default()
         },

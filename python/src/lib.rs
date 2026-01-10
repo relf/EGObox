@@ -4,6 +4,7 @@ pub(crate) mod domain;
 mod egor;
 mod gp_config;
 mod gp_mix;
+mod qei_config;
 mod sampling;
 mod sparse_gp_mix;
 mod trego_config;
@@ -37,12 +38,13 @@ fn egobox(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     // types
     m.add_class::<sampling::Sampling>()?;
     m.add_class::<gp_config::GpConfig>()?;
+    m.add_class::<qei_config::QEiConfig>()?;
     m.add_class::<trego_config::TregoConfig>()?;
     m.add_class::<RegressionSpec>()?;
     m.add_class::<CorrelationSpec>()?;
     m.add_class::<InfillStrategy>()?;
     m.add_class::<ConstraintStrategy>()?;
-    m.add_class::<QInfillStrategy>()?;
+    m.add_class::<QEiStrategy>()?;
     m.add_class::<InfillOptimizer>()?;
     m.add_class::<XType>()?;
     m.add_class::<XSpec>()?;
