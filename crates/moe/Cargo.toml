@@ -62,7 +62,7 @@ typetag = { version = "0.2", optional = true }
 criterion.workspace = true
 approx.workspace = true
 ndarray-npy.workspace = true
-ndarray-csv = "0.5"
+ndarray-csv = "=0.5.3"
 csv = "1.1"
 argmin_testfunctions.workspace = true
 
