@@ -8,12 +8,8 @@ import json
 import numpy as np
 import egobox as egx
 import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
+from matplotlib.patches import Circle, Rectangle
 from matplotlib import animation
-
-import logging
-
-logging.basicConfig(level=logging.INFO)
 
 
 # -----------------------------------------------------
@@ -51,7 +47,9 @@ opt = egx.Egor(
     bounds,
     n_doe=N_DOE,
     infill_strategy=egx.InfillStrategy.LOG_EI,
-    trego=egx.TregoConfig(n_gl_steps=(1, 4)),  # Enable TREGO
+    trego=egx.TregoConfig(
+        n_gl_steps=(1, 4), beta=0.9, alpha=1.0, d=(0.1, 1.0)
+    ),  # Enable TREGO
     outdir=outdir,
     seed=42,
 )
@@ -87,11 +85,15 @@ def load_state_files(outdir):
 
 def extract_trust_region_bounds(state, xlimits):
     """Extract trust region bounds from state."""
-    # Trust region is centered on current x within dmax * sigma L1 distance
-    if state.get("param") is None:
+    # Trust region only used when local optimization is active
+    if state.get("local_trego_iter") == 0:
         return None
 
-    param_json = state["param"]
+    # Trust region is centered on current best x within dmax * sigma L1 distance
+    if state.get("best_param") is None:
+        return None
+
+    param_json = state["best_param"]
     current_x = np.array(param_json["data"]).reshape(*param_json["dim"])
 
     sigma = state.get("sigma", 1.0)
@@ -253,10 +255,14 @@ trust_region_patch = Rectangle(
     (0, 0), 0, 0, linewidth=2, edgecolor="black", facecolor="none", linestyle="--"
 )
 ax.add_patch(trust_region_patch)
+ego_point = Circle(
+    (0, 0), 0, linewidth=1, edgecolor="blue", facecolor="none", linestyle="-"
+)
+ax.add_patch(ego_point)
 
 ax.set_xlabel("x₁")
 ax.set_ylabel("x₂")
-ax.legend(loc="upper right")
+ax.legend(loc="upper left")
 ax.grid(True, alpha=0.3)
 ax.set_xlim(bounds[0])
 ax.set_ylim(bounds[1])
@@ -277,14 +283,29 @@ def init():
     best_plot.set_data([], [])
     trust_region_patch.set_width(0)
     trust_region_patch.set_height(0)
+    ego_point.set_radius(0)
     title.set_text("Iteration 0 - Best: N/A")
-    return doe_points_plot, iter_points_plot, best_plot, trust_region_patch, title
+    return (
+        doe_points_plot,
+        iter_points_plot,
+        best_plot,
+        trust_region_patch,
+        ego_point,
+        title,
+    )
 
 
 def animate(frame):
     """Update animation frame."""
     if frame >= len(states):
-        return doe_points_plot, iter_points_plot, best_plot, trust_region_patch, title
+        return (
+            doe_points_plot,
+            iter_points_plot,
+            best_plot,
+            trust_region_patch,
+            ego_point,
+            title,
+        )
 
     state = states[frame]
     n_doe = N_DOE  # Initial DOE size
@@ -321,8 +342,16 @@ def animate(frame):
         trust_region_patch.set_width(tr_bounds[0, 1] - tr_bounds[0, 0])
         trust_region_patch.set_height(tr_bounds[1, 1] - tr_bounds[1, 0])
         trust_region_patch.set_visible(True)
+        ego_point.set_visible(False)
     else:
         trust_region_patch.set_visible(False)
+        # Show ego point instead (current x)
+        if state.get("param") is not None:
+            param_json = state["param"]
+            current_x = np.array(param_json["data"]).reshape(*param_json["dim"])
+            ego_point.center = (current_x[0], current_x[1])
+            ego_point.set_radius(0.1)  # Fixed radius for visibility
+            ego_point.set_visible(True)
 
     # Update iteration number in title
     best_cost_val = 0.0
@@ -335,19 +364,28 @@ def animate(frame):
     #     f"Frame {frame}: Iteration {state.get('iter', frame)} - Best cost: {best_cost_val:.4f}"
     # )
 
-    title.set_text(f"Iteration {state.get('iter', frame)} - Best: {best_cost_val:.4f}")
-    return doe_points_plot, iter_points_plot, best_plot, trust_region_patch, title
+    title.set_text(
+        f"Iteration {state.get('iter', frame) + 1} - Best: {best_cost_val:.4f}"
+    )
+    return (
+        doe_points_plot,
+        iter_points_plot,
+        best_plot,
+        trust_region_patch,
+        ego_point,
+        title,
+    )
 
 
 # Create animation
 anim = animation.FuncAnimation(
     fig,
     animate,
-    # init_func=init,
+    init_func=init,
     frames=len(states),
-    interval=500,
+    interval=1000,
     blit=False,
-    repeat=False,
+    repeat=True,
 )
 
 # Save animation
