@@ -338,8 +338,8 @@ class TestEgor(unittest.TestCase):
             y_doe = np.concatenate((y_doe, g24(x)))
         res_idx = egor.get_result_index(y_doe)
         res = egor.get_result(x_doe, y_doe)
-        for i in range(len(res.x_opt)):
-            self.assertEqual(x_doe[res_idx][i], res.x_opt[i])
+        for xi, xii in zip(res.x_opt, x_doe[res_idx]):
+            self.assertEqual(xi, xii)
         self.assertAlmostEqual(-5.5080, res.y_opt[0], delta=1e-2)
         self.assertAlmostEqual(2.3295, res.x_opt[0], delta=1e-2)
         self.assertAlmostEqual(3.1785, res.x_opt[1], delta=1e-2)
