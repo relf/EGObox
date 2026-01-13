@@ -37,3 +37,6 @@ joss/paper.pdf
 
 # Run history
 history*
+
+# Output directories
+**/*_output/
