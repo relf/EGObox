@@ -328,7 +328,7 @@ class TestEgor(unittest.TestCase):
         )
         x_doe = egx.lhs(xlimits, 5, seed=42)
         y_doe = g24(x_doe)
-        for _ in range(10):
+        for _ in range(20):
             x = egor.suggest(x_doe, y_doe)
             x_doe = np.concatenate((x_doe, x))
             y_doe = np.concatenate((y_doe, g24(x)))
