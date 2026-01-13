@@ -324,7 +324,11 @@ class TestEgor(unittest.TestCase):
     def test_g24_with_suggest(self):
         xlimits = [[0.0, 3.0], [0.0, 4.0]]
         egor = egx.Egor(
-            xlimits, infill_strategy=egx.InfillStrategy.WB2, n_cstr=2, seed=42
+            xlimits,
+            infill_strategy=egx.InfillStrategy.WB2,
+            cstr_tol=np.array([1e-2, 1e-2]),
+            n_cstr=2,
+            seed=42,
         )
         x_doe = egx.lhs(xlimits, 5, seed=42)
         y_doe = g24(x_doe)
@@ -332,6 +336,7 @@ class TestEgor(unittest.TestCase):
             x = egor.suggest(x_doe, y_doe)
             x_doe = np.concatenate((x_doe, x))
             y_doe = np.concatenate((y_doe, g24(x)))
+        res_idx = egor.get_result_index(y_doe)
         res = egor.get_result(x_doe, y_doe)
         self.assertAlmostEqual(-5.5080, res.y_opt[0], delta=1e-2)
         self.assertAlmostEqual(2.3295, res.x_opt[0], delta=1e-2)
