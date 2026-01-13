@@ -244,14 +244,19 @@ where
             let c_new = self.eval_problem_fcstrs(problem, &x_new);
 
             // Update DOE and best point
-            update_data(
+            let added = update_data(
                 &mut x_data,
                 &mut y_data,
                 &mut c_data,
                 &x_new,
                 &y_new,
                 &c_new,
-            )
+            );
+
+            new_state = new_state
+                .param(x_new.row(0).to_owned())
+                .cost(y_new.row(0).to_owned());
+            added
         } else {
             Vec::new()
         };
@@ -271,6 +276,7 @@ where
                 &new_state.cstr_tol,
             )
         };
+
         new_state.feasibility = state.feasibility
             || is_feasible(
                 &y_data.row(new_best_index),
