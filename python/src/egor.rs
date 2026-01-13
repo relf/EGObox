@@ -389,7 +389,7 @@ impl Egor {
         let y_doe = y_doe.as_array();
         // TODO: Make c_doe an optional argument ?
         let n_fcstrs = 0;
-        let c_doe = Array2::zeros((y_doe.ncols(), n_fcstrs));
+        let c_doe = Array2::zeros((y_doe.nrows(), n_fcstrs));
         find_best_result_index(&y_doe, &c_doe, &self.cstr_tol(n_fcstrs))
     }
 
@@ -417,7 +417,7 @@ impl Egor {
         let y_doe = y_doe.as_array();
         // TODO: Make c_doe an optional argument ?
         let n_fcstrs = 0;
-        let c_doe = Array2::zeros((y_doe.ncols(), n_fcstrs));
+        let c_doe = Array2::zeros((y_doe.nrows(), n_fcstrs));
         let idx = find_best_result_index(&y_doe, &c_doe, &self.cstr_tol(n_fcstrs));
         let x_opt = x_doe.row(idx).to_pyarray(py).into();
         let y_opt = y_doe.row(idx).to_pyarray(py).into();
