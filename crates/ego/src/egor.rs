@@ -388,6 +388,25 @@ impl Observe<EgorState<f64>> for OptimizationObserver {
             let filepath = std::path::Path::new(&self.dir).join(HISTORY_FILE);
             info!(">>> Save history {:?} in {:?}", hist.shape(), filepath);
             ndarray_npy::write_npy(filepath, &hist).expect("Write current history");
+
+            // Save EgorState if EGOR_USE_RUN_RECORDER equals "WITH_ITER_STATE"
+            #[cfg(feature = "persistent")]
+            if std::env::var(crate::utils::EGOR_USE_RUN_RECORDER)
+                .map(|v| v == "WITH_ITER_STATE")
+                .unwrap_or(false)
+            {
+                let state_filename = format!("egor_state_{:04}.json", state.iter);
+                let state_filepath = std::path::Path::new(&self.dir).join(state_filename);
+                if let Ok(json) = serde_json::to_string_pretty(state) {
+                    if let Err(e) = std::fs::write(&state_filepath, json) {
+                        log::warn!("Failed to save EgorState to {:?}: {}", state_filepath, e);
+                    } else {
+                        log::debug!(">>> Saved EgorState to {:?}", state_filepath);
+                    }
+                } else {
+                    log::warn!("Failed to serialize EgorState");
+                }
+            }
         }
         Ok(())
     }
