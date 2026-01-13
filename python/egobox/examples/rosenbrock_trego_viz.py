@@ -48,7 +48,7 @@ opt = egx.Egor(
     n_doe=N_DOE,
     infill_strategy=egx.InfillStrategy.LOG_EI,
     trego=egx.TregoConfig(
-        n_gl_steps=(1, 4), beta=0.9, alpha=1.0, d=(0.1, 1.0)
+        n_gl_steps=(1, 4), beta=0.8, alpha=1.0, d=(0.1, 0.7)
     ),  # Enable TREGO
     outdir=outdir,
     seed=42,
@@ -57,7 +57,7 @@ opt = egx.Egor(
 # -----------------------------------------------------
 # Run optimization
 # -----------------------------------------------------
-res = opt.minimize(rosenbrock, max_iters=30)
+res = opt.minimize(rosenbrock, max_iters=15)
 
 print("\n===== Optimization Result =====")
 print("Best value (y*):", res.y_opt)
