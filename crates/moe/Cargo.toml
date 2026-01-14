@@ -30,8 +30,8 @@ serializable = [
 blas = ["ndarray-linalg", "linfa/ndarray-linalg", "linfa-pls/blas"]
 
 [dependencies]
-egobox-doe = { version = "0.34.3", path = "../doe" }
-egobox-gp = { version = "0.34.3", path = "../gp" }
+egobox-doe = { version = "0.35.0", path = "../doe" }
+egobox-gp = { version = "0.35.0", path = "../gp" }
 
 linfa.workspace = true
 linfa-linalg.workspace = true

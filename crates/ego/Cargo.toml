@@ -18,11 +18,11 @@ persistent = ["egobox-moe/persistent"]
 blas = ["ndarray-linalg", "linfa/ndarray-linalg", "linfa-pls/blas"]
 
 [dependencies]
-egobox-doe = { version = "0.34.3", path = "../doe", features = [
+egobox-doe = { version = "0.35.0", path = "../doe", features = [
     "serializable",
 ] }
-egobox-gp = { version = "0.34.3", path = "../gp", features = ["serializable"] }
-egobox-moe = { version = "0.34.3", path = "../moe", features = [
+egobox-gp = { version = "0.35.0", path = "../gp", features = ["serializable"] }
+egobox-moe = { version = "0.35.0", path = "../moe", features = [
     "serializable",
 ] }
 
