@@ -47,7 +47,7 @@ pub fn is_update_ok(
 ) -> bool {
     for row in x_data.rows() {
         if row.l1_dist(x_new).unwrap() < 100. * f64::EPSILON {
-            log::warn!("Point {} too close to existing data point {}", x_new, row);
+            log::info!("Point {} too close to existing data point {}", x_new, row);
             return false;
         }
     }
