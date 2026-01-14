@@ -24,12 +24,12 @@ persistent-moe = ["egobox-moe/persistent"]
 blas = ["ndarray/blas", "egobox-gp/blas", "egobox-moe/blas", "egobox-ego/blas"]
 
 [dependencies]
-egobox-doe = { version = "0.34.3", path = "../crates/doe" }
-egobox-gp = { version = "0.34.3", path = "../crates/gp" }
-egobox-moe = { version = "0.34.3", path = "../crates/moe", features = [
+egobox-doe = { version = "0.35.0", path = "../crates/doe" }
+egobox-gp = { version = "0.35.0", path = "../crates/gp" }
+egobox-moe = { version = "0.35.0", path = "../crates/moe", features = [
   "persistent",
 ] }
-egobox-ego = { version = "0.34.3", path = "../crates/ego", features = [
+egobox-ego = { version = "0.35.0", path = "../crates/ego", features = [
   "persistent",
 ] }
 

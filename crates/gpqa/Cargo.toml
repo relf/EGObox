@@ -12,8 +12,8 @@ keywords = ["machine-learning", "bayesian", "optimization"]
 categories = ["algorithms", "mathematics", "science"]
 
 [dependencies]
-egobox-ego = { version = "0.34", path = "../ego" }
-egobox-moe = { version = "0.34", path = "../moe" }
+egobox-ego = { version = "0.35", path = "../ego" }
+egobox-moe = { version = "0.35", path = "../moe" }
 anyhow.workspace = true
 clap.workspace = true
 bincode.workspace = true

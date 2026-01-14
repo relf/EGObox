@@ -1,6 +1,12 @@
 # Changes
 
-## Version 0.35.0 - unreleased
+## Version 0.36.0 - unreleased
+
+## Version 0.35.0 - 14/01/2026
+
+* Refactor parallel evaluation API (aka qEI) by @relf in <https://github.com/relf/EGObox/pull/364>
+* Fix ask-and-tell `get_result()` function when optimization is constrained by @relf in <https://github.com/relf/EGObox/pull/367>
+* Add TREGO demonstration on rosenbrock 2D by @relf in <https://github.com/relf/EGObox/pull/368>
 
 ## Version 0.34.3 - 07/01/2026
 
