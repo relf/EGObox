@@ -2305,9 +2305,9 @@ checksum = "7a2ae44ef20feb57a68b23d846850f861394c2e02dc425a50098ae8c90267589"
 
 [[package]]
 name = "slsqp"
-version = "0.1.2"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5714f80b11be725515ee53df3e5d41684e9e80b11322531398c50b6f0393640c"
+checksum = "dd273530124c09a4cec5e5d047811a96742b9956a7ff7be11dc5392ef0d6c8aa"
 dependencies = [
  "libc",
 ]
