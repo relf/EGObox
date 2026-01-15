@@ -38,8 +38,8 @@ ndarray-rand.workspace = true
 ndarray-npy.workspace = true
 rayon.workspace = true
 
-cobyla = { version = "0.8" }
-slsqp = { version = "0.1" }
+cobyla = { version = "1.0" }
+slsqp = { version = "1.0" }
 nlopt = { version = "0.8", optional = true }
 
 rand_xoshiro = { version = "0.6", features = ["serde1"] }

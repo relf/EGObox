@@ -42,7 +42,7 @@ ndarray-einsum = "0.8"
 
 ndarray-npy.workspace = true
 nlopt = { version = "0.8", optional = true }
-cobyla = { version = "0.8" }
+cobyla = { version = "1.0" }
 paste = "1.0"
 
 serde = { version = "1", features = ["derive"], optional = true }
