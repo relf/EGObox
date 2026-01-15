@@ -36,16 +36,16 @@ use super::solver_infill_optim::MultiStarter;
 struct LocalLhsMultiStarter<R: Rng + Clone> {
     xlimits: Array2<f64>,
     origin: Array1<f64>,
-    local_bounds: (f64, f64),
+    max_dist: f64,
     rng: R,
 }
 
 impl<R: Rng + Clone> LocalLhsMultiStarter<R> {
-    fn new(xlimits: Array2<f64>, origin: Array1<f64>, local_bounds: (f64, f64), rng: R) -> Self {
+    fn new(xlimits: Array2<f64>, origin: Array1<f64>, max_dist: f64, rng: R) -> Self {
         Self {
             xlimits,
             origin,
-            local_bounds,
+            max_dist,
             rng,
         }
     }
@@ -72,8 +72,8 @@ impl<R: Rng + Clone> MultiStarter for LocalLhsMultiStarter<R> {
             .and(xlimits.rows())
             .for_each(|mut row, xb, xlims| {
                 let (lo, up) = (
-                    xlims[0].max(xb - self.local_bounds.0),
-                    xlims[1].min(xb + self.local_bounds.1),
+                    xlims[0].max(xb - self.max_dist),
+                    xlims[1].min(xb + self.max_dist),
                 );
                 row.assign(&aview1(&[lo, up]))
             });
@@ -195,10 +195,7 @@ where
         let multistarter = LocalLhsMultiStarter::new(
             self.xlimits.clone(),
             xbest.to_owned(),
-            (
-                self.config.trego_config.d.0 * new_state.sigma,
-                self.config.trego_config.d.1 * new_state.sigma,
-            ),
+            self.config.trego_config.d.1 * new_state.sigma,
             sub_rng,
         );
 
