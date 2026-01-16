@@ -40,13 +40,15 @@ pub fn norm_pdf(x: f64) -> f64 {
 // DOE handling functions
 ///////////////////////////////////////////////////////////////////////////////
 
+const MIN_DISTANCE: f64 = 1e-10;
+
 /// Check if new point is not too close to previous ones `x_data`
 pub fn is_update_ok(
     x_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
     x_new: &ArrayBase<impl Data<Elem = f64>, Ix1>,
 ) -> bool {
     for row in x_data.rows() {
-        if row.l1_dist(x_new).unwrap() < 100. * f64::EPSILON {
+        if row.l1_dist(x_new).unwrap() < MIN_DISTANCE {
             log::info!("Point {} too close to existing data point {}", x_new, row);
             return false;
         }
