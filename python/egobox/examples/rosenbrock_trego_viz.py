@@ -37,7 +37,9 @@ os.makedirs(outdir, exist_ok=True)
 # Set environment variable to save EgorState at each iteration
 os.environ["EGOR_USE_RUN_RECORDER"] = "WITH_ITER_STATE"
 
-N_DOE = 15
+N_DOE = 10
+DMIN = 0.1  # TREGO minimum trust region size
+DMAX = 1.0  # TREGO maximum trust region size
 
 # -----------------------------------------------------
 # Initialize optimizer with TREGO
@@ -46,10 +48,10 @@ print("Running Rosenbrock optimization with TREGO...")
 opt = egx.Egor(
     bounds,
     n_doe=N_DOE,
-    infill_strategy=egx.InfillStrategy.LOG_EI,
+    infill_strategy=egx.InfillStrategy.LOG_EI,  # default infill strategy
     trego=egx.TregoConfig(
-        n_gl_steps=(1, 4), beta=0.8, alpha=1.0, d=(0.1, 0.7)
-    ),  # Enable TREGO
+        n_gl_steps=(1, 4), beta=0.9, alpha=1.0, d=(DMIN, DMAX)
+    ),  # Enable TREGO with default parameter values
     outdir=outdir,
     seed=42,
 )
@@ -57,7 +59,7 @@ opt = egx.Egor(
 # -----------------------------------------------------
 # Run optimization
 # -----------------------------------------------------
-res = opt.minimize(rosenbrock, max_iters=15)
+res = opt.minimize(rosenbrock, max_iters=20)
 
 print("\n===== Optimization Result =====")
 print("Best value (y*):", res.y_opt)
@@ -83,7 +85,7 @@ def load_state_files(outdir):
     return states
 
 
-def extract_trust_region_bounds(state, xlimits):
+def extract_trust_region_bounds(state, xlimits, delta_scale):
     """Extract trust region bounds from state."""
     # Trust region only used when local optimization is active
     if state.get("local_trego_iter") == 0:
@@ -97,10 +99,9 @@ def extract_trust_region_bounds(state, xlimits):
     current_x = np.array(param_json["data"]).reshape(*param_json["dim"])
 
     sigma = state.get("sigma", 1.0)
-    dmax = 1.0  # TREGO dmax parameter (default upper bound)
 
-    # Trust region bounds: current_x +/- dmax * sigma (L1 distance)
-    delta = dmax * sigma
+    # Trust region bounds: current_x +/- delta_scale * sigma (L1 distance)
+    delta = delta_scale * sigma
 
     tr_bounds = np.array(
         [[current_x[i] - delta, current_x[i] + delta] for i in range(len(current_x))]
@@ -191,7 +192,7 @@ plt.scatter(
 # Show final trust region if available
 if states:
     final_state = states[-1]
-    tr_bounds = extract_trust_region_bounds(final_state, bounds)
+    tr_bounds = extract_trust_region_bounds(final_state, bounds, DMAX)
     if tr_bounds is not None:
         rect = Rectangle(
             (tr_bounds[0, 0], tr_bounds[1, 0]),
@@ -204,6 +205,19 @@ if states:
             label="Final trust region",
         )
         plt.gca().add_patch(rect)
+        dmin_bounds = extract_trust_region_bounds(final_state, bounds, DMIN)
+        if dmin_bounds is not None:
+            dmin_rect = Rectangle(
+                (dmin_bounds[0, 0], dmin_bounds[1, 0]),
+                dmin_bounds[0, 1] - dmin_bounds[0, 0],
+                dmin_bounds[1, 1] - dmin_bounds[1, 0],
+                linewidth=1.5,
+                edgecolor="gray",
+                facecolor="none",
+                linestyle=":",
+                label="Final DMIN box",
+            )
+            plt.gca().add_patch(dmin_rect)
 
 plt.title("Rosenbrock Function - TREGO Optimization")
 plt.xlabel("x₁")
@@ -255,6 +269,10 @@ trust_region_patch = Rectangle(
     (0, 0), 0, 0, linewidth=2, edgecolor="black", facecolor="none", linestyle="--"
 )
 ax.add_patch(trust_region_patch)
+dmin_patch = Rectangle(
+    (0, 0), 0, 0, linewidth=1.5, edgecolor="gray", facecolor="none", linestyle=":"
+)
+ax.add_patch(dmin_patch)
 ego_point = Circle(
     (0, 0), 0, linewidth=1, edgecolor="blue", facecolor="none", linestyle="-"
 )
@@ -283,6 +301,8 @@ def init():
     best_plot.set_data([], [])
     trust_region_patch.set_width(0)
     trust_region_patch.set_height(0)
+    dmin_patch.set_width(0)
+    dmin_patch.set_height(0)
     ego_point.set_radius(0)
     title.set_text("Iteration 0 - Best: N/A")
     return (
@@ -290,6 +310,7 @@ def init():
         iter_points_plot,
         best_plot,
         trust_region_patch,
+        dmin_patch,
         ego_point,
         title,
     )
@@ -303,6 +324,7 @@ def animate(frame):
             iter_points_plot,
             best_plot,
             trust_region_patch,
+            dmin_patch,
             ego_point,
             title,
         )
@@ -336,15 +358,24 @@ def animate(frame):
         best_plot.set_data([best[0]], [best[1]])
 
     # Update trust region
-    tr_bounds = extract_trust_region_bounds(state, bounds)
+    tr_bounds = extract_trust_region_bounds(state, bounds, DMAX)
     if tr_bounds is not None:
         trust_region_patch.set_xy((tr_bounds[0, 0], tr_bounds[1, 0]))
         trust_region_patch.set_width(tr_bounds[0, 1] - tr_bounds[0, 0])
         trust_region_patch.set_height(tr_bounds[1, 1] - tr_bounds[1, 0])
         trust_region_patch.set_visible(True)
+        dmin_bounds = extract_trust_region_bounds(state, bounds, DMIN)
+        if dmin_bounds is not None:
+            dmin_patch.set_xy((dmin_bounds[0, 0], dmin_bounds[1, 0]))
+            dmin_patch.set_width(dmin_bounds[0, 1] - dmin_bounds[0, 0])
+            dmin_patch.set_height(dmin_bounds[1, 1] - dmin_bounds[1, 0])
+            dmin_patch.set_visible(True)
+        else:
+            dmin_patch.set_visible(False)
         ego_point.set_visible(False)
     else:
         trust_region_patch.set_visible(False)
+        dmin_patch.set_visible(False)
         # Show ego point instead (current x)
         if state.get("param") is not None:
             param_json = state["param"]
@@ -372,6 +403,7 @@ def animate(frame):
         iter_points_plot,
         best_plot,
         trust_region_patch,
+        dmin_patch,
         ego_point,
         title,
     )
@@ -383,7 +415,7 @@ anim = animation.FuncAnimation(
     animate,
     init_func=init,
     frames=len(states),
-    interval=1000,
+    interval=500,
     blit=False,
     repeat=True,
 )
