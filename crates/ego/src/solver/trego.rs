@@ -22,6 +22,7 @@ use log::info;
 use ndarray::Zip;
 use ndarray::aview1;
 use ndarray::{Array1, Array2, Axis};
+use ndarray_stats::DeviationExt;
 
 use ndarray_rand::rand::Rng;
 use ndarray_rand::rand::SeedableRng;
@@ -231,7 +232,10 @@ where
         let x_new = x_opt.insert_axis(Axis(0));
         debug!("x_old={} x_new={}", x_data.row(best_index), x_new.row(0));
 
-        let added = if check_update_ok(&x_data, &x_new) {
+        let added = if xbest.l1_dist(&x_new.row(0)).unwrap()
+            > self.config.trego_config.d.0 * new_state.sigma
+            && check_update_ok(&x_data, &x_new)
+        {
             let y_new = self.eval_obj(problem, &x_new);
             debug!(
                 "y_old-y_new={}, rho={}",
