@@ -1,6 +1,6 @@
 # EGObox - Efficient Global Optimization toolbox
 
-[![pytests](https://github.com/relf/egobox/workflows/pytest/badge.svg)](https://github.com/relf/egobox/actions?query=workflow%3Apytest)
+![pytests](https://github.com/relf/egobox/actions/workflows/pytest.yml/badge.svg)
 [![DOI](https://joss.theoj.org/papers/10.21105/joss.04737/status.svg)](https://doi.org/10.21105/joss.04737)
 
 `egobox` package is the Python binding of the optimizer named `Egor` and the surrogate model `Gpx`, mixture of Gaussian processes, from the [EGObox libraries](https://github.com/relf/egobox?tab=readme-ov-file#egobox---efficient-global-optimization-toolbox) written in Rust.
