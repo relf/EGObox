@@ -551,17 +551,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "displaydoc"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97369cbbc041bc366949bc74d34658d6cda5621039731c6310521892a3a20ae0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "doc-comment"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -607,7 +596,7 @@ dependencies = [
  "env_logger",
  "linfa",
  "log",
- "ndarray",
+ "ndarray 0.16.1",
  "ndarray-rand",
  "numpy",
  "pyo3",
@@ -625,7 +614,7 @@ dependencies = [
  "approx",
  "criterion",
  "linfa",
- "ndarray",
+ "ndarray 0.16.1",
  "ndarray-rand",
  "ndarray-stats",
  "num-traits",
@@ -659,7 +648,7 @@ dependencies = [
  "linfa-linalg",
  "linfa-pls",
  "log",
- "ndarray",
+ "ndarray 0.16.1",
  "ndarray-linalg",
  "ndarray-npy",
  "ndarray-rand",
@@ -693,7 +682,7 @@ dependencies = [
  "linfa-linalg",
  "linfa-pls",
  "log",
- "ndarray",
+ "ndarray 0.16.1",
  "ndarray-einsum",
  "ndarray-linalg",
  "ndarray-npy",
@@ -728,7 +717,7 @@ dependencies = [
  "linfa-linalg",
  "linfa-pls",
  "log",
- "ndarray",
+ "ndarray 0.16.1",
  "ndarray-csv",
  "ndarray-linalg",
  "ndarray-npy",
@@ -802,7 +791,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fb08005ceda20e36d233b60fe476059cc9efe6ebd125f3a72b69729dbae0e794"
 dependencies = [
  "anyhow",
- "ndarray",
+ "ndarray 0.16.1",
  "num",
 ]
 
@@ -813,6 +802,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bfe33edd8e85a12a67454e37f8c75e730830d83e313556ab9ebf9ee7fbeb3bfb"
 dependencies = [
  "crc32fast",
+ "libz-rs-sys",
  "miniz_oxide",
 ]
 
@@ -1151,13 +1141,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9fbbcab51052fe104eb5e5d351cf728d30a5be1fe14d9be8a3b097481fb97de"
 
 [[package]]
+name = "libz-rs-sys"
+version = "0.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c10501e7805cee23da17c7790e59df2870c0d4043ec6d03f67d31e2b53e77415"
+dependencies = [
+ "zlib-rs",
+]
+
+[[package]]
 name = "linfa"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "87b84e47ca7a9d63f5be24c104e216c8263bfada38080cbdfe1082e611a81fd3"
 dependencies = [
  "approx",
- "ndarray",
+ "ndarray 0.16.1",
  "ndarray-linalg",
  "num-traits",
  "rand 0.8.5",
@@ -1175,7 +1174,7 @@ dependencies = [
  "linfa",
  "linfa-linalg",
  "linfa-nn",
- "ndarray",
+ "ndarray 0.16.1",
  "ndarray-rand",
  "ndarray-stats",
  "noisy_float",
@@ -1192,7 +1191,7 @@ version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "02a834c0ec063937688a0d13573aa515ab8c425bd8de3154b908dd3b9c197dc4"
 dependencies = [
- "ndarray",
+ "ndarray 0.16.1",
  "num-traits",
  "thiserror 1.0.69",
 ]
@@ -1205,7 +1204,7 @@ checksum = "d7ba257f89880df17b486e67731ef20c4a748a5f5f5eaace010853f69a0beee3"
 dependencies = [
  "kdtree",
  "linfa",
- "ndarray",
+ "ndarray 0.16.1",
  "ndarray-stats",
  "noisy_float",
  "num-traits",
@@ -1222,7 +1221,7 @@ checksum = "962eef849bea0fa6fd7ba512159c41f890d42ad780ca59ba2f59bc0d7d98fe96"
 dependencies = [
  "linfa",
  "linfa-linalg",
- "ndarray",
+ "ndarray 0.16.1",
  "ndarray-linalg",
  "ndarray-rand",
  "ndarray-stats",
@@ -1325,6 +1324,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ndarray"
+version = "0.17.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "520080814a7a6b4a6e9070823bb24b4531daac8c4627e08ba5de8c5ef2f2752d"
+dependencies = [
+ "matrixmultiply",
+ "num-complex",
+ "num-integer",
+ "num-traits",
+ "portable-atomic",
+ "portable-atomic-util",
+ "rawpointer",
+]
+
+[[package]]
 name = "ndarray-csv"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1332,7 +1346,7 @@ checksum = "2bd1058903ccb9851c3210bb235fa40cc90a4739141486719d89c306d6557366"
 dependencies = [
  "csv",
  "either",
- "ndarray",
+ "ndarray 0.16.1",
  "serde",
 ]
 
@@ -1344,7 +1358,7 @@ checksum = "f4b2d52dfff9b24d072b6080eab1587cbd54ae24da7b8370072c3a84db221e05"
 dependencies = [
  "hashbrown 0.15.5",
  "lazy_static",
- "ndarray",
+ "ndarray 0.16.1",
  "num-traits",
  "regex",
 ]
@@ -1358,7 +1372,7 @@ dependencies = [
  "cauchy",
  "katexit",
  "lax",
- "ndarray",
+ "ndarray 0.16.1",
  "num-complex",
  "num-traits",
  "rand 0.8.5",
@@ -1367,12 +1381,12 @@ dependencies = [
 
 [[package]]
 name = "ndarray-npy"
-version = "0.9.1"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b313788c468c49141a9d9b6131fc15f403e6ef4e8446a0b2e18f664ddb278a9"
+checksum = "58e8a348bca0075000d999d750420d74434fd0d3e0993b456554f885e7657a11"
 dependencies = [
  "byteorder",
- "ndarray",
+ "ndarray 0.17.2",
  "num-complex",
  "num-traits",
  "py_literal",
@@ -1385,7 +1399,7 @@ version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f093b3db6fd194718dcdeea6bd8c829417deae904e3fcc7732dabcd4416d25d8"
 dependencies = [
- "ndarray",
+ "ndarray 0.16.1",
  "rand 0.8.5",
  "rand_distr",
 ]
@@ -1398,7 +1412,7 @@ checksum = "17ebbe97acce52d06aebed4cd4a87c0941f4b2519b59b82b4feb5bd0ce003dfd"
 dependencies = [
  "indexmap",
  "itertools 0.13.0",
- "ndarray",
+ "ndarray 0.16.1",
  "noisy_float",
  "num-integer",
  "num-traits",
@@ -1518,7 +1532,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b2dba356160b54f5371b550575b78130a54718b4c6e46b3f33a6da74a27e78b"
 dependencies = [
  "libc",
- "ndarray",
+ "ndarray 0.16.1",
  "num-complex",
  "num-integer",
  "num-traits",
@@ -2335,7 +2349,7 @@ version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "704ef26d974e8a452313ed629828cd9d4e4fa34667ca1ad9d6b1fffa43c6e166"
 dependencies = [
- "ndarray",
+ "ndarray 0.16.1",
  "num-complex",
  "num-traits",
  "smallvec",
@@ -2849,20 +2863,23 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "2.4.2"
+version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fabe6324e908f85a1c52063ce7aa26b68dcb7eb6dbc83a2d148403c9bc3eba50"
+checksum = "eb2a05c7c36fde6c09b08576c9f7fb4cda705990f73b58fe011abf7dfb24168b"
 dependencies = [
  "arbitrary",
  "crc32fast",
- "crossbeam-utils",
- "displaydoc",
  "flate2",
  "indexmap",
  "memchr",
- "thiserror 2.0.17",
  "zopfli",
 ]
+
+[[package]]
+name = "zlib-rs"
+version = "0.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "40990edd51aae2c2b6907af74ffb635029d5788228222c4bb811e9351c0caad3"
 
 [[package]]
 name = "zmij"
