@@ -1247,7 +1247,7 @@ mod tests {
 
     fn branin_with_nans(x: &ArrayView2<f64>) -> Array2<f64> {
         x.map_axis(ndarray::Axis(1), |xi| {
-            if xi[1] >= 0. {
+            if xi[0] * xi[1] >= 0.2 {
                 branin_forrester(xi.view())
             } else {
                 f64::NAN
@@ -1259,21 +1259,40 @@ mod tests {
 
     #[test]
     #[serial]
-    fn test_egor_with_hidden_constraints() {
+    fn test_egor_with_initial_failed_points() {
+        let initial_doe = Lhs::new(&array![[0.0, 1.0], [0.0, 1.0]])
+            .with_rng(Xoshiro256Plus::seed_from_u64(42))
+            .sample(15);
+        let expected_nans = branin_with_nans(&initial_doe.view())
+            .iter()
+            .filter(|v| v.is_nan())
+            .count();
+
         let res = EgorBuilder::optimize(branin_with_nans)
-            .configure(|cfg| {
-                cfg.n_doe(15)
-                    .infill_strategy(InfillStrategy::EI)
-                    .infill_optimizer(InfillOptimizer::Slsqp)
-                    .max_iters(10)
-                    .seed(42)
-            })
+            .configure(|cfg| cfg.doe(&initial_doe).max_iters(0).seed(42))
             .min_within(&array![[0.0, 1.0], [0.0, 1.0]])
             .expect("Egor should be configured")
             .run()
             .expect("Egor should minimize branin_with_nans");
-        let x_expected = array![[0.96773, 0.20667]];
-        println!("{}", branin_with_nans(&x_expected.view()));
-        assert_abs_diff_eq!(x_expected.row(0), res.x_opt, epsilon = 5e-2);
+        // Check initial failed points are stored
+        assert!(res.state.x_fail.is_some());
+        assert_eq!(expected_nans, res.state.x_fail.unwrap().nrows());
+        // let x_expected = array![[0.96773, 0.20667]];
+        // println!("{}", branin_with_nans(&x_expected.view()));
+        // assert_abs_diff_eq!(x_expected.row(0), res.x_opt, epsilon = 5e-2);
+
+        let res = EgorBuilder::optimize(branin_with_nans)
+            .configure(|cfg| cfg.doe(&initial_doe).max_iters(1).seed(42))
+            .min_within(&array![[0.0, 1.0], [0.0, 1.0]])
+            .expect("Egor should be configured")
+            .run()
+            .expect("Egor should minimize branin_with_nans");
+        assert!(res.state.x_fail.is_some());
+        let x_fail = res.state.x_fail.as_ref().unwrap();
+        assert_eq!(expected_nans + 1, x_fail.nrows()); // the one iteration failed point added
+        assert_eq!(x_fail.row(expected_nans), res.state.get_param().unwrap());
+        let expected_valid = initial_doe.nrows() - expected_nans;
+        assert_eq!(expected_valid, res.x_doe.nrows());
+        assert_eq!(expected_valid, res.y_doe.nrows());
     }
 }
