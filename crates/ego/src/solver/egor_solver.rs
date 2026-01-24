@@ -114,7 +114,7 @@ use crate::solver::trego::Phase;
 use crate::utils::{
     EGOBOX_LOG, EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER, EGOR_USE_GP_RECORDER,
     EGOR_USE_GP_VAR_PORTFOLIO, EGOR_USE_MAX_PROBA_OF_FEASIBILITY, EGOR_USE_RUN_RECORDER,
-    find_best_result_index, is_feasible,
+    filter_nans, find_best_result_index, is_feasible,
 };
 use crate::{EgoError, EgorState, MAX_POINT_ADDITION_RETRY, ValidEgorConfig};
 
@@ -257,8 +257,21 @@ where
             None
         };
 
+        let (valid_idx, invalid_idx) = filter_nans(&y_data);
+        let x_fail = x_data.select(Axis(0), &invalid_idx).clone();
+        let x_data = x_data.select(Axis(0), &valid_idx);
+        let y_data = y_data.select(Axis(0), &valid_idx);
+        let c_data = c_data.select(Axis(0), &valid_idx);
+        if !x_fail.is_empty() {
+            info!(
+                "{} valid points, {} failed points in initial DOE",
+                x_data.nrows(),
+                x_fail.nrows()
+            );
+        }
         let mut initial_state = state
             .data((x_data.clone(), y_data.clone(), c_data.clone()))
+            .x_fail(x_fail)
             .clusterings(clusterings)
             .theta_inits(theta_inits)
             .rng(rng);

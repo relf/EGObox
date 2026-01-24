@@ -67,6 +67,16 @@ pub enum QEiStrategy {
     ConstantLiarMinimum,
 }
 
+/// Strategy to handle objective computation failure at a given x point
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum FailsafeStrategy {
+    /// Failure point x is ignored
+    Rejection,
+    /// Use objective surrogate prediction: y <- prediction(x) + variance(x)
+    PredictionReplacement,
+}
+
 /// An interface for objective function to be optimized
 ///
 /// The function is expected to return a matrix allowing nrows evaluations at once.

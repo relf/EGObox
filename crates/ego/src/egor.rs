@@ -422,7 +422,7 @@ mod tests {
     use argmin_testfunctions::rosenbrock;
     use egobox_doe::{Lhs, SamplingMethod};
     use egobox_moe::NbClusters;
-    use ndarray::{Array1, Array2, ArrayView2, Ix1, Zip, array, s};
+    use ndarray::{Array1, Array2, ArrayView1, ArrayView2, Ix1, Zip, array, s};
     use ndarray_rand::rand::SeedableRng;
     use rand_xoshiro::Xoshiro256Plus;
 
@@ -1232,5 +1232,48 @@ mod tests {
             .expect("Egor configured")
             .run()
             .unwrap();
+    }
+
+    fn branin_forrester(x: ArrayView1<f64>) -> f64 {
+        let x1 = x[0] * 15.0 - 5.0;
+        let x2 = x[1] * 15.0;
+        (x2 - (5.1 / (4.0 * std::f64::consts::PI * std::f64::consts::PI)) * x1 * x1
+            + (5.0 / std::f64::consts::PI) * x1
+            - 6.0)
+            .powi(2)
+            + 10.0 * (1.0 - 1.0 / (8.0 * std::f64::consts::PI)) * (x1).cos()
+            + 10.0
+    }
+
+    fn branin_with_nans(x: &ArrayView2<f64>) -> Array2<f64> {
+        x.map_axis(ndarray::Axis(1), |xi| {
+            if xi[1] >= 0. {
+                branin_forrester(xi.view())
+            } else {
+                f64::NAN
+            }
+        })
+        .into_shape_with_order((x.nrows(), 1))
+        .unwrap()
+    }
+
+    #[test]
+    #[serial]
+    fn test_egor_with_hidden_constraints() {
+        let res = EgorBuilder::optimize(branin_with_nans)
+            .configure(|cfg| {
+                cfg.n_doe(15)
+                    .infill_strategy(InfillStrategy::EI)
+                    .infill_optimizer(InfillOptimizer::Slsqp)
+                    .max_iters(10)
+                    .seed(42)
+            })
+            .min_within(&array![[0.0, 1.0], [0.0, 1.0]])
+            .expect("Egor should be configured")
+            .run()
+            .expect("Egor should minimize branin_with_nans");
+        let x_expected = array![[0.96773, 0.20667]];
+        println!("{}", branin_with_nans(&x_expected.view()));
+        assert_abs_diff_eq!(x_expected.row(0), res.x_opt, epsilon = 5e-2);
     }
 }

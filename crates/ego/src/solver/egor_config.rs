@@ -310,6 +310,8 @@ pub struct ValidEgorConfig {
     pub(crate) cstr_infill: bool,
     /// Constraints criterion
     pub(crate) cstr_strategy: ConstraintStrategy,
+    /// Failure handling strategy
+    pub(crate) failsafe_strategy: FailsafeStrategy,
 }
 
 impl Default for ValidEgorConfig {
@@ -335,6 +337,7 @@ impl Default for ValidEgorConfig {
             coego: CoegoConfig::default(),
             cstr_infill: false,
             cstr_strategy: ConstraintStrategy::MeanConstraint,
+            failsafe_strategy: FailsafeStrategy::Rejection,
         }
     }
 }
@@ -541,9 +544,15 @@ impl EgorConfig {
         self
     }
 
-    /// Sets the infill strategy
+    /// Sets the constraint modeling strategy
     pub fn cstr_strategy(mut self, cstr_strategy: ConstraintStrategy) -> Self {
         self.0.cstr_strategy = cstr_strategy;
+        self
+    }
+
+    /// Sets the failure handling strategy
+    pub fn fail_strategy(mut self, failsafe_strategy: FailsafeStrategy) -> Self {
+        self.0.failsafe_strategy = failsafe_strategy;
         self
     }
 

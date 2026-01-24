@@ -7,7 +7,7 @@ use crate::solver::solver_computations::MiddlePickerMultiStarter;
 use crate::solver::solver_infill_optim::InfillOptProblem;
 use crate::utils::{
     EGOBOX_LOG, EGOR_USE_GP_VAR_PORTFOLIO, find_best_result_index_from, is_feasible,
-    select_from_portfolio, update_data,
+    select_from_portfolio, update_data, usable_data,
 };
 use crate::{DEFAULT_CSTR_TOL, EgorSolver, MAX_POINT_ADDITION_RETRY, ValidEgorConfig};
 use crate::{EgorState, types::*};
@@ -423,7 +423,7 @@ where
             .take_data()
             .ok_or_else(argmin_error_closure!(PotentialBug, "EgorSolver: No data!"))?;
 
-        let (try_add_count, rejected_count, _) = loop {
+        let (x_dat, c_dat) = loop {
             let recluster = self.have_to_recluster(new_state.added, new_state.prev_added);
             if recluster {
                 info!("Reclustering surrogates...");
@@ -433,7 +433,7 @@ where
             let pb = problem.take_problem().unwrap();
             let fcstrs = pb.fn_constraints();
 
-            let (x_dat, y_dat, c_dat, infill_value, infill_data) = self.select_next_points(
+            let (x_dat, y_dat, c_dat, infill_value, _infill_data) = self.select_next_points(
                 init,
                 state.get_iter(),
                 recluster,
@@ -453,14 +453,7 @@ where
             problem.problem = Some(pb);
 
             debug!("Try adding {x_dat}");
-            let added_indices = update_data(
-                &mut x_data,
-                &mut y_data,
-                &mut c_data,
-                &x_dat,
-                &y_dat,
-                &c_dat,
-            );
+            let usable_indices = usable_data(&x_data, &x_dat);
 
             new_state = new_state
                 .clusterings(clusterings.clone())
@@ -470,6 +463,7 @@ where
                 .rng(rng.clone())
                 .param(x_dat.row(0).to_owned())
                 .cost(y_dat.row(0).to_owned());
+
             info!(
                 "{} criterion {} max found = {}",
                 if self.config.cstr_infill {
@@ -481,14 +475,18 @@ where
                 new_state.get_infill_value()
             );
 
-            let rejected_count = x_dat.nrows() - added_indices.len();
+            let rejected_count = x_dat.nrows() - usable_indices.len();
             for i in 0..x_dat.nrows() {
                 let msg = format!(
                     "  {} {}",
-                    if added_indices.contains(&i) { "A" } else { "R" },
+                    if usable_indices.contains(&i) {
+                        "A"
+                    } else {
+                        "R"
+                    },
                     x_dat.row(i)
                 );
-                if added_indices.contains(&i) {
+                if usable_indices.contains(&i) {
                     debug!("{msg}");
                 } else {
                     info!("{msg}")
@@ -510,34 +508,34 @@ where
                     return Err(EgoError::NoMorePointToAddError(Box::new(new_state)));
                 }
             } else {
-                // ok point added we can go on, just output number of rejected point
-                break (x_dat.nrows(), rejected_count, infill_data);
+                // ok point added we can go on, just output number of rejected points
+                let x_dat = x_dat.select(Axis(0), &usable_indices);
+                let c_dat = c_dat.select(Axis(0), &usable_indices);
+                break (x_dat, c_dat);
             }
         };
-        let add_count = (try_add_count - rejected_count) as i32;
-        let x_to_eval = x_data.slice(s![-add_count.., ..]).to_owned();
-        debug!(
-            "Eval {} point{} {}",
-            add_count,
-            if add_count > 1 { "s" } else { "" },
-            if new_state.no_point_added_retries == 0 {
-                " from sampling"
-            } else {
-                ""
-            }
+
+        let x_actual = x_dat;
+        let y_actual = self.eval_obj(problem, &x_actual);
+        let c_actual = c_dat; // fcstr evaluation already done in select_next_points
+        let (add_count, x_fail_points) = update_data(
+            &mut x_data,
+            &mut y_data,
+            &mut c_data,
+            &x_actual,
+            &y_actual,
+            &c_actual,
         );
 
-        new_state.prev_added = new_state.added;
-        new_state.added += add_count as usize;
+        new_state = new_state
+            .store_failed_points(x_fail_points)
+            .count_added_points(add_count);
         info!("+{} point(s), total: {} points", add_count, new_state.added);
         new_state.no_point_added_retries = MAX_POINT_ADDITION_RETRY;
-        let y_actual = self.eval_obj(problem, &x_to_eval);
-        Zip::from(y_data.slice_mut(s![-add_count.., ..]).rows_mut())
-            .and(y_actual.rows())
-            .for_each(|mut y, val| y.assign(&val));
+
         let best_index = find_best_result_index_from(
             state.best_index.unwrap(),
-            y_data.nrows() - add_count as usize,
+            y_data.nrows() - add_count,
             &y_data,
             &c_data,
             &new_state.cstr_tol,
