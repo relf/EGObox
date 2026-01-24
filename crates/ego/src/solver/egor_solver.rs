@@ -190,23 +190,23 @@ where
             Xoshiro256Plus::from_entropy()
         };
 
-        let hstart_doe: Option<Array2<f64>> =
-            if self.config.warm_start && self.config.outdir.is_some() {
-                let path: &String = self.config.outdir.as_ref().unwrap();
-                let filepath = std::path::Path::new(&path).join(DOE_FILE);
-                if filepath.is_file() {
-                    info!("Reading DOE from {filepath:?}");
-                    Some(read_npy(filepath)?)
-                } else if std::path::Path::new(&path).join(DOE_INITIAL_FILE).is_file() {
-                    let filepath = std::path::Path::new(&path).join(DOE_INITIAL_FILE);
-                    info!("Reading DOE from {filepath:?}");
-                    Some(read_npy(filepath)?)
-                } else {
-                    None
-                }
+        let hstart_doe: Option<Array2<f64>> = if self.config.warm_start
+            && let Some(path) = self.config.outdir.as_ref()
+        {
+            let filepath = std::path::Path::new(&path).join(DOE_FILE);
+            if filepath.is_file() {
+                info!("Reading DOE from {filepath:?}");
+                Some(read_npy(filepath)?)
+            } else if std::path::Path::new(&path).join(DOE_INITIAL_FILE).is_file() {
+                let filepath = std::path::Path::new(&path).join(DOE_INITIAL_FILE);
+                info!("Reading DOE from {filepath:?}");
+                Some(read_npy(filepath)?)
             } else {
                 None
-            };
+            }
+        } else {
+            None
+        };
 
         let doe = hstart_doe.as_ref().or(self.config.doe.as_ref());
 
@@ -235,8 +235,7 @@ where
             (self.eval_obj(problem, &x), x)
         };
         let doe = concatenate![Axis(1), x_data, y_data];
-        if self.config.outdir.is_some() {
-            let path = self.config.outdir.as_ref().unwrap();
+        if let Some(path) = self.config.outdir.as_ref() {
             std::fs::create_dir_all(path)?;
             let filepath = std::path::Path::new(path).join(DOE_INITIAL_FILE);
             info!("Save initial doe shape {:?} in {:?}", doe.shape(), filepath);

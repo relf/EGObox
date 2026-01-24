@@ -561,12 +561,12 @@ impl EgorConfig {
         let config = self.0;
         // Check cstr_tol length if any
         if config.n_cstr > 0
-            && config.cstr_tol.is_some()
-            && config.cstr_tol.as_ref().unwrap().len() != config.n_cstr
+            && let Some(cstr_tol) = config.cstr_tol.as_ref()
+            && cstr_tol.len() != config.n_cstr
         {
             return Err(crate::EgoError::InvalidConfigError(format!(
                 "EgorConfig invalid: cstr_tol length ({}) does not match n_cstr ({})",
-                config.cstr_tol.as_ref().unwrap().len(),
+                cstr_tol.len(),
                 config.n_cstr
             )));
         }
