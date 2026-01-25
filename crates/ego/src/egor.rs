@@ -704,6 +704,7 @@ mod tests {
                 config
                     .configure_gp(|gp| gp.n_clusters(NbClusters::auto()))
                     .max_iters(40)
+                    .seed(42)
             })
             .min_within(&array![[0.0, 25.0]])
             .expect("Egor configured")
