@@ -538,9 +538,10 @@ where
             &c_data,
             &new_state.cstr_tol,
         );
-        new_state.prev_best_index = state.best_index;
-        new_state.best_index = Some(best_index);
-        new_state = new_state.data((x_data.clone(), y_data.clone(), c_data.clone()));
+        new_state =
+            new_state
+                .best_index(best_index)
+                .data((x_data.clone(), y_data.clone(), c_data.clone()));
         new_state.feasibility = state.feasibility
             || is_feasible(
                 &y_data.row(best_index),

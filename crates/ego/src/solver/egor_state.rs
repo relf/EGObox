@@ -215,6 +215,15 @@ where
         self
     }
 
+    /// Set best index pointing to best cost found so far.
+    /// This shifts the stored best index to the previous best index.
+    #[must_use]
+    pub fn best_index(mut self, best_index: usize) -> Self {
+        self.prev_best_index = self.best_index;
+        self.best_index = Some(best_index);
+        self
+    }
+
     /// Adds the given nb of added point to the total added points.
     /// This shifts the total added points value to the previous total added points value.
     #[must_use]
@@ -293,7 +302,7 @@ where
     }
 
     /// Set the activity matrix  
-    #[must_use] 
+    #[must_use]
     pub fn activity(mut self, activity: Array2<usize>) -> Self {
         self.activity = Some(activity);
         self
@@ -331,7 +340,7 @@ where
     }
 
     /// Set the infill criterion value    
-    #[must_use] 
+    #[must_use]
     pub fn infill_value(mut self, value: F) -> Self {
         self.infill_value = value;
         self

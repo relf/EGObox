@@ -287,7 +287,7 @@ where
 
         let best_index = find_best_result_index(&y_data, &c_data, &initial_state.cstr_tol);
         initial_state.best_index = Some(best_index);
-        initial_state.prev_best_index = Some(best_index);
+        initial_state.prev_best_index = initial_state.best_index;
         initial_state.last_best_iter = 0;
 
         // Use proba of feasibility require related env var to be defined
