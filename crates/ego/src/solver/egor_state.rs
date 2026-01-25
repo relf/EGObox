@@ -217,6 +217,7 @@ where
 
     /// Adds the given nb of added point to the total added points.
     /// This shifts the total added points value to the previous total added points value.
+    #[must_use]
     pub fn count_added_points(mut self, nb: usize) -> Self {
         self.prev_added = self.added;
         self.added += nb;
@@ -224,6 +225,7 @@ where
     }
 
     /// Set the current clusterings used by surrogate models
+    #[must_use]
     pub fn clusterings(mut self, clustering: Vec<Option<Clustering>>) -> Self {
         self.clusterings = Some(clustering);
         self
@@ -235,6 +237,7 @@ where
     }
 
     /// Set the current theta init value used by surrogate models
+    #[must_use]
     pub fn theta_inits(mut self, theta_inits: Vec<Option<Array2<F>>>) -> Self {
         self.theta_inits = Some(theta_inits);
         self
@@ -251,6 +254,7 @@ where
     /// * xdata is a (p, nx matrix),
     /// * ydata is a (p, 1 + nb of cstr) matrix and ydata_i = fcost(xdata_i) for i in [1, p],  
     /// * cdata is a (p, nb of fcstr) matrix and cdata_i = fcstr_j(xdata_i) for i in [1, p], j in [1, nb of fcstr]
+    #[must_use]
     pub fn data(mut self, data: (Array2<F>, Array2<F>, Array2<F>)) -> Self {
         self.data = Some(data);
         self
@@ -267,6 +271,7 @@ where
     }
 
     /// Set the points resulting in failure during objective/constraints evaluation
+    #[must_use]
     pub fn x_fail(mut self, x_fail: Array2<F>) -> Self {
         self.x_fail = Some(x_fail);
         self
@@ -288,6 +293,7 @@ where
     }
 
     /// Set the activity matrix  
+    #[must_use] 
     pub fn activity(mut self, activity: Array2<usize>) -> Self {
         self.activity = Some(activity);
         self
@@ -300,6 +306,7 @@ where
 
     /// Set the run data
     #[cfg(feature = "persistent")]
+    #[must_use]
     pub fn run_data(mut self, run_data: crate::utils::run_recorder::EgorRunData) -> Self {
         self.run_data = Some(run_data);
         self
@@ -312,6 +319,7 @@ where
     }
 
     /// Set the random number generator used to draw random points
+    #[must_use]
     pub fn rng(mut self, rng: Xoshiro256Plus) -> Self {
         self.rng = Some(rng);
         self
@@ -323,6 +331,7 @@ where
     }
 
     /// Set the infill criterion value    
+    #[must_use] 
     pub fn infill_value(mut self, value: F) -> Self {
         self.infill_value = value;
         self

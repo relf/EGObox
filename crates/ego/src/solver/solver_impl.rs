@@ -515,16 +515,14 @@ where
             }
         };
 
-        let x_actual = x_dat;
-        let y_actual = self.eval_obj(problem, &x_actual);
-        let c_actual = c_dat; // fcstr evaluation already done in select_next_points
+        let y_actual = self.eval_obj(problem, &x_dat);
         let (add_count, x_fail_points) = update_data(
             &mut x_data,
             &mut y_data,
             &mut c_data,
-            &x_actual,
+            &x_dat,
             &y_actual,
-            &c_actual,
+            &c_dat, // fcstr evaluation already done in select_next_points
         );
 
         new_state = new_state
