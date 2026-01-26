@@ -81,7 +81,7 @@ impl<SB: SurrogateBuilder + DeserializeOwned, C: CstrFn> EgorSolver<SB, C> {
         let best_index = find_best_result_index(y_data, &c_data, &cstr_tol);
         let feasibility = is_feasible(&y_data.row(best_index), &c_data.row(best_index), &cstr_tol);
 
-        let (x_dat, _, _, _, _) = self.select_next_points(
+        let (x_dat, _, _, _) = self.select_next_points(
             true,
             0,
             false, // done anyway
@@ -433,7 +433,7 @@ where
             let pb = problem.take_problem().unwrap();
             let fcstrs = pb.fn_constraints();
 
-            let (x_dat, y_dat, c_dat, infill_value, _infill_data) = self.select_next_points(
+            let (x_dat, y_dat, c_dat, infill_value) = self.select_next_points(
                 init,
                 state.get_iter(),
                 recluster,
@@ -572,13 +572,7 @@ where
         cstr_funcs: &[impl CstrFn],
         feasibility: bool,
         rng: &mut Xoshiro256Plus,
-    ) -> (
-        Array2<f64>,
-        Array2<f64>,
-        Array2<f64>,
-        f64,
-        InfillObjData<f64>,
-    ) {
+    ) -> (Array2<f64>, Array2<f64>, Array2<f64>, f64) {
         let mut portfolio = vec![];
 
         let sigma_weights = if std::env::var(EGOR_USE_GP_VAR_PORTFOLIO).is_ok()
@@ -789,7 +783,7 @@ where
             }
             portfolio.push((x_dat.to_owned(), y_dat, c_dat, infill_val, infill_data));
         }
-        let (x_dat, y_dat, c_dat, infill_value, infill_data) = if portfolio.len() > 1 {
+        let (x_dat, y_dat, c_dat, infill_value, _infill_data) = if portfolio.len() > 1 {
             info!(
                 "Portfolio : {:?}",
                 portfolio.iter().map(|v| v.0[[0, 0]]).collect::<Vec<_>>()
@@ -801,6 +795,6 @@ where
             portfolio.remove(0)
         };
 
-        (x_dat, y_dat, c_dat, infill_value, infill_data)
+        (x_dat, y_dat, c_dat, infill_value)
     }
 }
