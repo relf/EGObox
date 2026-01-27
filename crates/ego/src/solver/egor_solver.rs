@@ -271,13 +271,13 @@ where
         let mut initial_state = state
             .data((x_data.clone(), y_data.clone(), c_data.clone()))
             .x_fail(x_fail)
+            .count_added_points(valid_idx.len())
             .clusterings(clusterings)
             .theta_inits(theta_inits)
             .rng(rng);
 
         initial_state.doe_size = doe.nrows();
         initial_state.max_iters = self.config.max_iters as u64;
-        initial_state.added = doe.nrows();
         initial_state.no_point_added_retries = no_point_added_retries;
         initial_state.cstr_tol = self.config.cstr_tol.clone().unwrap_or(Array1::from_elem(
             self.config.n_cstr + c_data.ncols(),

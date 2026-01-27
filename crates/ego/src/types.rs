@@ -68,13 +68,14 @@ pub enum QEiStrategy {
 }
 
 /// Strategy to handle objective computation failure at a given x point
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[non_exhaustive]
 pub enum FailsafeStrategy {
     /// Failure point x is ignored
+    #[default]
     Rejection,
     /// Use objective surrogate prediction: y <- prediction(x) + variance(x)
-    PredictionReplacement,
+    PredictionImputation,
 }
 
 /// An interface for objective function to be optimized

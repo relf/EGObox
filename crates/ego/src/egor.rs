@@ -1246,6 +1246,13 @@ mod tests {
             + 10.0
     }
 
+    #[allow(dead_code)]
+    fn branin(x: &ArrayView2<f64>) -> Array2<f64> {
+        x.map_axis(ndarray::Axis(1), |xi| branin_forrester(xi.view()))
+            .into_shape_with_order((x.nrows(), 1))
+            .unwrap()
+    }
+
     fn branin_with_nans(x: &ArrayView2<f64>) -> Array2<f64> {
         x.map_axis(ndarray::Axis(1), |xi| {
             if xi[0] * xi[1] >= 0.2 {
@@ -1295,5 +1302,59 @@ mod tests {
         let expected_valid = initial_doe.nrows() - expected_nans;
         assert_eq!(expected_valid, res.x_doe.nrows());
         assert_eq!(expected_valid, res.y_doe.nrows());
+    }
+
+    #[test]
+    #[serial]
+    fn test_egor_with_prediction_replacement_failed_points() {
+        const MAX_ITERS: usize = 30;
+        const N_DOE: usize = 10;
+
+        let initial_doe = Lhs::new(&array![[0.0, 1.0], [0.0, 1.0]])
+            .with_rng(Xoshiro256Plus::seed_from_u64(42))
+            .sample(N_DOE);
+
+        let fcstr = |x: &[f64], g: Option<&mut [f64]>, _u: &mut InfillObjData<f64>| {
+            if let Some(g) = g {
+                g[0] = -x[1];
+                g[1] = -x[0];
+            }
+            0.2 - x[0] * x[1]
+        };
+
+        let res = EgorBuilder::optimize(branin_with_nans)
+            .configure(|cfg| {
+                cfg.doe(&initial_doe)
+                    .max_iters(MAX_ITERS)
+                    // .fail_strategy(FailsafeStrategy::Rejection) default
+                    .seed(42)
+            })
+            .subject_to(vec![fcstr])
+            .min_within(&array![[0.0, 1.0], [0.0, 1.0]])
+            .expect("Egor should be configured")
+            .run()
+            .expect("Egor should minimize branin_with_nans");
+        let x_expected = array![[0.96773, 0.20667]];
+        assert_abs_diff_eq!(x_expected.row(0), res.x_opt, epsilon = 1e-2);
+        assert_eq!(
+            N_DOE + MAX_ITERS,
+            res.x_doe.nrows() + res.state.x_fail.as_ref().map_or(0, |xf| xf.nrows())
+        );
+
+        let res = EgorBuilder::optimize(branin_with_nans)
+            .configure(|cfg| {
+                cfg.doe(&initial_doe)
+                    .max_iters(MAX_ITERS)
+                    .fail_strategy(FailsafeStrategy::PredictionImputation)
+                    .seed(42)
+            })
+            .subject_to(vec![fcstr])
+            .min_within(&array![[0.0, 1.0], [0.0, 1.0]])
+            .expect("Egor should be configured")
+            .run()
+            .expect("Egor should minimize branin_with_nans");
+        assert_abs_diff_eq!(x_expected.row(0), res.x_opt, epsilon = 1e-2);
+        assert_eq!(N_DOE + MAX_ITERS, res.x_doe.nrows());
+        assert!(res.state.x_fail.is_some());
     }
 }

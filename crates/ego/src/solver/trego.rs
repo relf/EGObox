@@ -2,6 +2,7 @@
 use crate::CstrFn;
 use crate::EgorSolver;
 use crate::EgorState;
+use crate::FailsafeStrategy;
 use crate::InfillObjData;
 use crate::SurrogateBuilder;
 use crate::solver::solver_infill_optim::InfillOptProblem;
@@ -238,6 +239,17 @@ where
             );
             let c_new = self.eval_problem_fcstrs(problem, &x_new);
 
+            let y_penalized = match self.config.failsafe_strategy {
+                FailsafeStrategy::PredictionImputation => {
+                    let y_pen = self
+                        .compute_penalized_point(&x_new.row(0), obj_model.as_ref(), cstr_models)
+                        .unwrap();
+                    let y_pen = Array2::from_shape_vec((1, 1 + self.config.n_cstr), y_pen).unwrap();
+                    Some(y_pen)
+                }
+                _ => None,
+            };
+
             // Update DOE and best point
             let (add_count, x_fail_points) = update_data(
                 &mut x_data,
@@ -246,6 +258,7 @@ where
                 &x_new,
                 &y_new,
                 &c_new,
+                y_penalized.as_ref(),
             );
 
             new_state = new_state

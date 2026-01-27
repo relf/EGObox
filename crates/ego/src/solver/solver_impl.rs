@@ -81,7 +81,7 @@ impl<SB: SurrogateBuilder + DeserializeOwned, C: CstrFn> EgorSolver<SB, C> {
         let best_index = find_best_result_index(y_data, &c_data, &cstr_tol);
         let feasibility = is_feasible(&y_data.row(best_index), &c_data.row(best_index), &cstr_tol);
 
-        let (x_dat, _, _, _) = self.select_next_points(
+        let (x_dat, _, _, _, _) = self.select_next_points(
             true,
             0,
             false, // done anyway
@@ -423,7 +423,7 @@ where
             .take_data()
             .ok_or_else(argmin_error_closure!(PotentialBug, "EgorSolver: No data!"))?;
 
-        let (x_dat, c_dat) = loop {
+        let (x_dat, c_dat, y_penalized) = loop {
             let recluster = self.have_to_recluster(new_state.added, new_state.prev_added);
             if recluster {
                 info!("Reclustering surrogates...");
@@ -433,7 +433,7 @@ where
             let pb = problem.take_problem().unwrap();
             let fcstrs = pb.fn_constraints();
 
-            let (x_dat, y_dat, c_dat, infill_value) = self.select_next_points(
+            let (x_dat, y_dat, c_dat, y_penalized, infill_value) = self.select_next_points(
                 init,
                 state.get_iter(),
                 recluster,
@@ -461,8 +461,8 @@ where
                 .data((x_data.clone(), y_data.clone(), c_data.clone()))
                 .infill_value(infill_value)
                 .rng(rng.clone())
-                .param(x_dat.row(0).to_owned())
-                .cost(y_dat.row(0).to_owned());
+                .param(x_dat.row(0).to_owned()) // Note: take only first point.
+                .cost(y_dat.row(0).to_owned()); // Argmin framework requires param and cost to be set.
 
             info!(
                 "{} criterion {} max found = {}",
@@ -511,18 +511,23 @@ where
                 // ok point added we can go on, just output number of rejected points
                 let x_dat = x_dat.select(Axis(0), &usable_indices);
                 let c_dat = c_dat.select(Axis(0), &usable_indices);
-                break (x_dat, c_dat);
+                break (x_dat, c_dat, y_penalized);
             }
         };
 
         let y_actual = self.eval_obj(problem, &x_dat);
+        let y_penalized = match self.config.failsafe_strategy {
+            FailsafeStrategy::PredictionImputation => Some(y_penalized),
+            _ => None,
+        };
         let (add_count, x_fail_points) = update_data(
             &mut x_data,
             &mut y_data,
             &mut c_data,
             &x_dat,
             &y_actual,
-            &c_dat, // fcstr evaluation already done in select_next_points
+            &c_dat,               // fcstr evaluation already done in select_next_points
+            y_penalized.as_ref(), // penalized values in case of crash
         );
 
         new_state = new_state
@@ -572,7 +577,7 @@ where
         cstr_funcs: &[impl CstrFn],
         feasibility: bool,
         rng: &mut Xoshiro256Plus,
-    ) -> (Array2<f64>, Array2<f64>, Array2<f64>, f64) {
+    ) -> (Array2<f64>, Array2<f64>, Array2<f64>, Array2<f64>, f64) {
         let mut portfolio = vec![];
 
         let sigma_weights = if std::env::var(EGOR_USE_GP_VAR_PORTFOLIO).is_ok()
@@ -606,11 +611,9 @@ where
             let mut x_dat = Array2::zeros((0, x_data.ncols()));
             let mut y_dat = Array2::zeros((0, y_data.ncols()));
             let mut c_dat = Array2::zeros((0, c_data.ncols()));
+            let mut y_penalized = Array2::zeros((0, y_data.ncols()));
             let mut infill_val = f64::INFINITY;
-            let mut infill_data = InfillObjData {
-                feasibility,
-                ..Default::default()
-            };
+
             for i in 0..self.config.qei_config.batch {
                 let (xt, yt) = if i == 0 {
                     (x_data.to_owned(), y_data.to_owned())
@@ -695,7 +698,10 @@ where
 
                 let all_scale_cstr = concatenate![Axis(0), scale_cstr, scale_fcstr];
 
-                infill_data = InfillObjData {
+                // fmin and xbest are kept the same for all q points
+                // Would it be best to update them with regard to predicted virtual points?
+                // Keep it simple: For the moment we keep them fixed to the current best observed point
+                let mut infill_data = InfillObjData {
                     fmin,
                     xbest: xbest.to_vec(),
                     scale_infill_obj,
@@ -737,14 +743,14 @@ where
                 let xsamples = x_data.to_owned();
                 let multistarter = MiddlePickerMultiStarter::new(&self.xlimits, &xsamples, sub_rng);
 
-                let infill_optpb = InfillOptProblem {
-                    obj_model: obj_model.as_ref(),
+                let infill_optpb = InfillOptProblem::new(
+                    obj_model.as_ref(),
                     cstr_models,
-                    cstr_funcs: &cstr_funcs,
-                    cstr_tols: cstr_tol,
-                    infill_data: &infill_data,
-                    actives: &actives,
-                };
+                    &cstr_funcs,
+                    cstr_tol,
+                    &infill_data,
+                    &actives,
+                );
 
                 let (infill_obj, xk) = self.optimize_infill_criterion(
                     infill_optpb,
@@ -758,6 +764,13 @@ where
                         let yk = Array2::from_shape_vec((1, 1 + self.config.n_cstr), yk).unwrap();
                         y_dat = concatenate![Axis(0), y_dat, yk];
 
+                        let yk_pen = self
+                            .compute_penalized_point(&xk, obj_model.as_ref(), cstr_models)
+                            .unwrap();
+                        let yk_pen =
+                            Array2::from_shape_vec((1, 1 + self.config.n_cstr), yk_pen).unwrap();
+                        y_penalized = concatenate![Axis(0), y_penalized, yk_pen];
+
                         let ck = cstr_funcs
                             .iter()
                             .map(|cstr| cstr(&xk.to_vec(), None, &mut infill_data))
@@ -768,7 +781,7 @@ where
                             Array2::from_shape_vec((1, cstr_funcs.len()), ck).unwrap()
                         ];
 
-                        x_dat = concatenate![Axis(0), x_dat, xk.insert_axis(Axis(0))];
+                        x_dat = concatenate![Axis(0), x_dat, xk.clone().insert_axis(Axis(0))];
 
                         // infill objective was minimized while infill criterion itself
                         // is expected to be maximized hence the negative sign here
@@ -781,9 +794,9 @@ where
                     }
                 }
             }
-            portfolio.push((x_dat.to_owned(), y_dat, c_dat, infill_val, infill_data));
+            portfolio.push((x_dat.to_owned(), y_dat, c_dat, y_penalized, infill_val));
         }
-        let (x_dat, y_dat, c_dat, infill_value, _infill_data) = if portfolio.len() > 1 {
+        let (x_dat, y_dat, c_dat, y_penalized, infill_value) = if portfolio.len() > 1 {
             info!(
                 "Portfolio : {:?}",
                 portfolio.iter().map(|v| v.0[[0, 0]]).collect::<Vec<_>>()
@@ -795,6 +808,6 @@ where
             portfolio.remove(0)
         };
 
-        (x_dat, y_dat, c_dat, infill_value)
+        (x_dat, y_dat, c_dat, y_penalized, infill_value)
     }
 }

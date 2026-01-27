@@ -57,15 +57,6 @@ pub fn is_update_ok(
     true
 }
 
-// Check if at least one new point is not too close to previous ones `x_data`
-//
-// pub fn check_update_ok(
-//     x_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
-//     x_new: &ArrayBase<impl Data<Elem = f64>, Ix2>,
-// ) -> bool {
-//     x_new.rows().into_iter().any(|xn| is_update_ok(x_data, &xn))
-// }
-
 /// Returns the ind of usable points in `x_new` not too close to `x_data` points
 pub fn usable_data(
     x_data: &Array2<f64>,
@@ -98,20 +89,31 @@ pub fn filter_nans(ydata: &ArrayBase<impl Data<Elem = f64>, Ix2>) -> (Vec<usize>
 /// if `y_new` and `c_new` do not contain NaN values
 /// Returns the number of added points and the failed points (if any)
 pub fn update_data(
-    x_data: &mut ArrayBase<ndarray::OwnedRepr<f64>, ndarray::Dim<[usize; 2]>>,
-    y_data: &mut ArrayBase<ndarray::OwnedRepr<f64>, ndarray::Dim<[usize; 2]>>,
-    c_data: &mut ArrayBase<ndarray::OwnedRepr<f64>, ndarray::Dim<[usize; 2]>>,
-    x_new: &ArrayBase<ndarray::OwnedRepr<f64>, ndarray::Dim<[usize; 2]>>,
-    y_new: &ArrayBase<ndarray::OwnedRepr<f64>, ndarray::Dim<[usize; 2]>>,
-    c_new: &ArrayBase<ndarray::OwnedRepr<f64>, ndarray::Dim<[usize; 2]>>,
+    x_data: &mut Array2<f64>,
+    y_data: &mut Array2<f64>,
+    c_data: &mut Array2<f64>,
+    x_new: &Array2<f64>,
+    y_new: &Array2<f64>,
+    c_new: &Array2<f64>,
+    y_penalized: Option<&Array2<f64>>,
 ) -> (usize, Option<Array2<f64>>) {
     let (valid_idx, invalid_idx) = filter_nans(y_new);
 
+    let mut add_count = 0;
     let x_fail_points = if !invalid_idx.is_empty() {
         info!(
             "{} point(s) resulted in NaN during evaluation",
             invalid_idx.len()
         );
+        if let Some(y_pen) = y_penalized {
+            // Use penalized values for failed points
+            invalid_idx.iter().for_each(|&i| {
+                add_count += 1;
+                x_data.push_row(x_new.row(i)).unwrap();
+                y_data.push_row(y_pen.row(i)).unwrap();
+                c_data.push_row(c_new.row(i)).unwrap();
+            });
+        }
         Some(x_new.select(Axis(0), &invalid_idx).to_owned())
     } else {
         None
@@ -130,7 +132,7 @@ pub fn update_data(
         c_data.push_row(c_row.view()).unwrap();
     });
 
-    let add_count = x_eval_valid.nrows();
+    add_count += valid_idx.len();
 
     (add_count, x_fail_points)
 }
@@ -172,6 +174,7 @@ mod tests {
                 &array![[3., 4.], [1e-15, 1.]],
                 &array![[6.], [f64::NAN]],
                 &array![[8.], [9.]],
+                None
             ),
             (1, Some(array![[1e-15, 1.]]))
         );

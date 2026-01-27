@@ -289,7 +289,7 @@ where
     /// Store failed points by appending them to existing ones (if any)
     pub fn store_failed_points(self, x_fail_points: Option<Array2<F>>) -> Self {
         if let Some(fail_points) = x_fail_points {
-            log::info!("Failed points:\n{}", fail_points);
+            log::info!("Failed point(s): {}", fail_points);
             if let Some(x_fail) = self.x_fail.as_ref() {
                 let x_fail = concatenate![Axis(0), x_fail.view(), fail_points.view()];
                 self.x_fail(x_fail)
