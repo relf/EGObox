@@ -114,7 +114,7 @@ use crate::solver::trego::Phase;
 use crate::utils::{
     EGOBOX_LOG, EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER, EGOR_USE_GP_RECORDER,
     EGOR_USE_GP_VAR_PORTFOLIO, EGOR_USE_MAX_PROBA_OF_FEASIBILITY, EGOR_USE_RUN_RECORDER,
-    find_best_result_index, is_feasible,
+    filter_nans, find_best_result_index, is_feasible,
 };
 use crate::{EgoError, EgorState, MAX_POINT_ADDITION_RETRY, ValidEgorConfig};
 
@@ -190,23 +190,23 @@ where
             Xoshiro256Plus::from_entropy()
         };
 
-        let hstart_doe: Option<Array2<f64>> =
-            if self.config.warm_start && self.config.outdir.is_some() {
-                let path: &String = self.config.outdir.as_ref().unwrap();
-                let filepath = std::path::Path::new(&path).join(DOE_FILE);
-                if filepath.is_file() {
-                    info!("Reading DOE from {filepath:?}");
-                    Some(read_npy(filepath)?)
-                } else if std::path::Path::new(&path).join(DOE_INITIAL_FILE).is_file() {
-                    let filepath = std::path::Path::new(&path).join(DOE_INITIAL_FILE);
-                    info!("Reading DOE from {filepath:?}");
-                    Some(read_npy(filepath)?)
-                } else {
-                    None
-                }
+        let hstart_doe: Option<Array2<f64>> = if self.config.warm_start
+            && let Some(path) = self.config.outdir.as_ref()
+        {
+            let filepath = std::path::Path::new(&path).join(DOE_FILE);
+            if filepath.is_file() {
+                info!("Reading DOE from {filepath:?}");
+                Some(read_npy(filepath)?)
+            } else if std::path::Path::new(&path).join(DOE_INITIAL_FILE).is_file() {
+                let filepath = std::path::Path::new(&path).join(DOE_INITIAL_FILE);
+                info!("Reading DOE from {filepath:?}");
+                Some(read_npy(filepath)?)
             } else {
                 None
-            };
+            }
+        } else {
+            None
+        };
 
         let doe = hstart_doe.as_ref().or(self.config.doe.as_ref());
 
@@ -235,8 +235,7 @@ where
             (self.eval_obj(problem, &x), x)
         };
         let doe = concatenate![Axis(1), x_data, y_data];
-        if self.config.outdir.is_some() {
-            let path = self.config.outdir.as_ref().unwrap();
+        if let Some(path) = self.config.outdir.as_ref() {
             std::fs::create_dir_all(path)?;
             let filepath = std::path::Path::new(path).join(DOE_INITIAL_FILE);
             info!("Save initial doe shape {:?} in {:?}", doe.shape(), filepath);
@@ -257,15 +256,28 @@ where
             None
         };
 
+        let (valid_idx, invalid_idx) = filter_nans(&y_data);
+        let x_fail = x_data.select(Axis(0), &invalid_idx).clone();
+        let x_data = x_data.select(Axis(0), &valid_idx);
+        let y_data = y_data.select(Axis(0), &valid_idx);
+        let c_data = c_data.select(Axis(0), &valid_idx);
+        if !x_fail.is_empty() {
+            info!(
+                "{} valid points, {} failed points in initial DOE",
+                x_data.nrows(),
+                x_fail.nrows()
+            );
+        }
         let mut initial_state = state
             .data((x_data.clone(), y_data.clone(), c_data.clone()))
+            .x_fail(x_fail)
+            .count_added_points(valid_idx.len())
             .clusterings(clusterings)
             .theta_inits(theta_inits)
             .rng(rng);
 
         initial_state.doe_size = doe.nrows();
         initial_state.max_iters = self.config.max_iters as u64;
-        initial_state.added = doe.nrows();
         initial_state.no_point_added_retries = no_point_added_retries;
         initial_state.cstr_tol = self.config.cstr_tol.clone().unwrap_or(Array1::from_elem(
             self.config.n_cstr + c_data.ncols(),
@@ -275,7 +287,7 @@ where
 
         let best_index = find_best_result_index(&y_data, &c_data, &initial_state.cstr_tol);
         initial_state.best_index = Some(best_index);
-        initial_state.prev_best_index = Some(best_index);
+        initial_state.prev_best_index = initial_state.best_index;
         initial_state.last_best_iter = 0;
 
         // Use proba of feasibility require related env var to be defined

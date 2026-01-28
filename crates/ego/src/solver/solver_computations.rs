@@ -264,8 +264,12 @@ where
         (cstr_val + CSTR_DOUBT * sigma) / scale_cstr
     }
 
-    /// Return the virtual points regarding the qei strategy
-    /// The default is to return GP prediction
+    /// Return the virtual point regarding the qei strategy as a tuple:
+    /// * First element of the tuple is the objective function values
+    /// * Second element of the tuple is the penalized objective function values
+    ///   used in case of true evaluation crash
+    ///   This a the penalized prediction (pred + var) for objective
+    ///   See Forrester - Engineering Design via Surrogate Modelling (2008) Section 5.5.1
     pub(crate) fn compute_virtual_point(
         &self,
         xk: &ArrayBase<impl Data<Elem = f64>, Ix1>,
@@ -273,15 +277,12 @@ where
         obj_model: &dyn MixtureGpSurrogate,
         cstr_models: &[Box<dyn MixtureGpSurrogate>],
     ) -> Result<Vec<f64>> {
-        let mut res: Vec<f64> = vec![];
         if self.config.qei_config.strategy == QEiStrategy::ConstantLiarMinimum {
-            let index_min = y_data.slice(s![.., 0_usize]).argmin().unwrap();
-            res.push(y_data[[index_min, 0]]);
-            for ic in 1..=self.config.n_cstr {
-                res.push(y_data[[index_min, ic]]);
-            }
-            Ok(res)
+            let index_min = y_data.slice(s![.., 0]).argmin().unwrap();
+            Ok(y_data.row(index_min).to_vec())
         } else {
+            let mut res: Vec<f64> = vec![];
+
             let x = &xk.view().insert_axis(Axis(0));
             let pred = obj_model.predict(x)?[0];
             let var = obj_model.predict_var(x)?[0];
@@ -289,7 +290,7 @@ where
                 QEiStrategy::KrigingBeliever => 0.,
                 QEiStrategy::KrigingBelieverLowerBound => -3.,
                 QEiStrategy::KrigingBelieverUpperBound => 3.,
-                _ => -1., // never used
+                _ => unreachable!(), // never used
             };
             res.push(pred + conf * f64::sqrt(var));
             for cstr_model in cstr_models {
@@ -297,6 +298,24 @@ where
             }
             Ok(res)
         }
+    }
+
+    pub(crate) fn compute_penalized_point(
+        &self,
+        xk: &ArrayBase<impl Data<Elem = f64>, Ix1>,
+        obj_model: &dyn MixtureGpSurrogate,
+        cstr_models: &[Box<dyn MixtureGpSurrogate>],
+    ) -> Result<Vec<f64>> {
+        let mut res: Vec<f64> = vec![];
+
+        let x = &xk.view().insert_axis(Axis(0));
+        let pred = obj_model.predict(x)?[0];
+        let var = obj_model.predict_var(x)?[0];
+        res.push(pred + var);
+        for cstr_model in cstr_models {
+            res.push(cstr_model.predict(x)?[0]);
+        }
+        Ok(res)
     }
 
     /// The infill criterion scaling is computed using x (n points of nx dim)

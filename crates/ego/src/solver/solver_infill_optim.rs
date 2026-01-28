@@ -39,6 +39,26 @@ pub(crate) struct InfillOptProblem<'a, CstrFn> {
     pub actives: &'a Array2<usize>,
 }
 
+impl<'a, CstrFn> InfillOptProblem<'a, CstrFn> {
+    pub fn new(
+        obj_model: &'a dyn MixtureGpSurrogate,
+        cstr_models: &'a [Box<dyn MixtureGpSurrogate>],
+        cstr_funcs: &'a [CstrFn],
+        cstr_tols: &'a Array1<f64>,
+        infill_data: &'a InfillObjData<f64>,
+        actives: &'a Array2<usize>,
+    ) -> Self {
+        Self {
+            obj_model,
+            cstr_models,
+            cstr_funcs,
+            cstr_tols,
+            infill_data,
+            actives,
+        }
+    }
+}
+
 impl<SB, C> EgorSolver<SB, C>
 where
     SB: SurrogateBuilder + DeserializeOwned,
