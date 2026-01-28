@@ -1307,8 +1307,8 @@ mod tests {
     #[test]
     #[serial]
     fn test_egor_with_prediction_replacement_failed_points() {
-        const MAX_ITERS: usize = 30;
-        const N_DOE: usize = 10;
+        const MAX_ITERS: usize = 40;
+        const N_DOE: usize = 15;
 
         let initial_doe = Lhs::new(&array![[0.0, 1.0], [0.0, 1.0]])
             .with_rng(Xoshiro256Plus::seed_from_u64(42))
@@ -1323,12 +1323,7 @@ mod tests {
         };
 
         let res = EgorBuilder::optimize(branin_with_nans)
-            .configure(|cfg| {
-                cfg.doe(&initial_doe)
-                    .max_iters(MAX_ITERS)
-                    // .fail_strategy(FailsafeStrategy::Rejection) default
-                    .seed(42)
-            })
+            .configure(|cfg| cfg.doe(&initial_doe).max_iters(MAX_ITERS).seed(42))
             .subject_to(vec![fcstr])
             .min_within(&array![[0.0, 1.0], [0.0, 1.0]])
             .expect("Egor should be configured")

@@ -91,6 +91,7 @@ impl<SB: SurrogateBuilder + DeserializeOwned, C: CstrFn> EgorSolver<SB, C> {
             x_data,
             y_data,
             &c_data,
+            None,
             &cstr_tol,
             best_index,
             &fcstrs,
@@ -443,6 +444,7 @@ where
                 &x_data,
                 &y_data,
                 &c_data,
+                state.x_fail.as_ref(),
                 &state.cstr_tol,
                 state.best_index.unwrap(),
                 fcstrs,
@@ -572,6 +574,7 @@ where
         x_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
         y_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
         c_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+        x_fail_points: Option<&Array2<f64>>,
         cstr_tol: &Array1<f64>,
         best_index: usize,
         cstr_funcs: &[impl CstrFn],
@@ -650,6 +653,44 @@ where
                     )
                 });
                 let (models, inits): (Vec<_>, Vec<_>) = models_and_inits.unzip();
+
+                // On the first iteration
+                // If failsafe is PredictionImputation we have to check if
+                // xfail has already been imputed in xdata otherwise
+                // we have to predict penalization on these points
+                // and add them to data
+                // This is needed as surrogates have just been retrained
+                if iter == 0
+                    && i == 0
+                    && self.config.failsafe_strategy == FailsafeStrategy::PredictionImputation
+                    && let Some(xfail_points) = x_fail_points
+                {
+                    info!(
+                        "Impute failed initial points ({} points)...",
+                        xfail_points.nrows()
+                    );
+                    let mut y_pen_imputed =
+                        Array2::zeros((xfail_points.nrows(), 1 + self.config.n_cstr));
+                    Zip::from(y_pen_imputed.rows_mut())
+                        .and(xfail_points.rows())
+                        .for_each(|mut y_row, xfail| {
+                            let y_pred = self
+                                .compute_penalized_point(&xfail, models[0].as_ref(), &models[1..])
+                                .unwrap();
+                            y_row.assign(&Array1::from_vec(y_pred));
+                        });
+                    (x_dat, y_dat, c_dat, y_penalized) = (
+                        xfail_points.to_owned(),
+                        Array2::from_elem((xfail_points.nrows(), y_data.ncols()), f64::NAN),
+                        self.eval_fcstrs(cstr_funcs, xfail_points),
+                        y_pen_imputed,
+                    );
+
+                    // update_data(
+                    //     &mut x_dat, &mut y_dat, &mut c_dat, x_new, &y_new, &c_new, None,
+                    // );
+                }
+
                 #[cfg(feature = "persistent")]
                 if std::env::var(crate::EGOR_USE_GP_RECORDER).is_ok() {
                     use crate::utils::{EGOR_GP_FILENAME, EGOR_INITIAL_GP_FILENAME, gp_recorder};
