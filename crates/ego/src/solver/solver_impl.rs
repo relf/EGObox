@@ -519,7 +519,7 @@ where
 
         let y_actual = self.eval_obj(problem, &x_dat);
         let y_penalized = match self.config.failsafe_strategy {
-            FailsafeStrategy::PredictionImputation => Some(y_penalized),
+            FailsafeStrategy::Imputation => Some(y_penalized),
             _ => None,
         };
         let (add_count, x_fail_points) = update_data(
@@ -662,7 +662,7 @@ where
                 // This is needed as surrogates have just been retrained
                 if iter == 0
                     && i == 0
-                    && self.config.failsafe_strategy == FailsafeStrategy::PredictionImputation
+                    && self.config.failsafe_strategy == FailsafeStrategy::Imputation
                     && let Some(xfail_points) = x_fail_points
                 {
                     info!(

@@ -240,7 +240,7 @@ where
             let c_new = self.eval_problem_fcstrs(problem, &x_new);
 
             let y_penalized = match self.config.failsafe_strategy {
-                FailsafeStrategy::PredictionImputation => {
+                FailsafeStrategy::Imputation => {
                     let y_pen = self
                         .compute_penalized_point(&x_new.row(0), obj_model.as_ref(), cstr_models)
                         .unwrap();

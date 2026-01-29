@@ -115,6 +115,12 @@ use std::cmp::Ordering;
 ///         hot_start nb of iters is reached (provided the stopping criterion is max_iters)
 ///         Checkpoint information is stored in .checkpoint/egor.arg binary file.
 ///
+///     failsafe_strategy (FailsafeStrategy enum):
+///         Strategy to handle objective computation failure at a given x point
+///         Can be either FailsafeStrategy.REJECTION or FailsafeStrategy.IMPUTATION
+///         Rejection simply ignores the failed point whereas Imputation
+///         uses the objective surrogate prediction to fill the missing value
+///
 ///     seed (int >= 0):
 ///         Random generator seed to allow computation reproducibility.
 ///      
@@ -139,6 +145,7 @@ pub(crate) struct Egor {
     pub outdir: Option<String>,
     pub warm_start: bool,
     pub hot_start: Option<u64>,
+    pub failsafe_strategy: FailsafeStrategy,
     pub seed: Option<u64>,
 }
 
@@ -165,6 +172,7 @@ impl Egor {
         outdir = None,
         warm_start = false,
         hot_start = None,
+        failsafe_strategy = FailsafeStrategy::Rejection,
         seed = None
     ))]
     #[allow(clippy::too_many_arguments)]
@@ -188,6 +196,7 @@ impl Egor {
         outdir: Option<String>,
         warm_start: bool,
         hot_start: Option<u64>,
+        failsafe_strategy: FailsafeStrategy,
         seed: Option<u64>,
     ) -> Self {
         let doe = doe.map(|x| x.to_owned_array());
@@ -234,6 +243,7 @@ impl Egor {
             outdir,
             warm_start,
             hot_start,
+            failsafe_strategy,
             seed,
         }
     }
@@ -473,6 +483,13 @@ impl Egor {
         }
     }
 
+    fn failsafe_strategy(&self) -> egobox_ego::FailsafeStrategy {
+        match self.failsafe_strategy {
+            FailsafeStrategy::Rejection => egobox_ego::FailsafeStrategy::Rejection,
+            FailsafeStrategy::Imputation => egobox_ego::FailsafeStrategy::Imputation,
+        }
+    }
+
     /// Either use user defined cstr_tol or else use default tolerance for all constraints
     /// n_fcstr is the number of function constraints
     fn cstr_tol(&self, n_fcstr: usize) -> Array1<f64> {
@@ -518,6 +535,7 @@ impl Egor {
         let cstr_strategy = self.cstr_strategy();
         let qei_strategy = self.qei_strategy();
         let infill_optimizer = self.infill_optimizer();
+        let failsafe_strategy = self.failsafe_strategy();
         let coego_status = if self.coego_n_coop == 0 {
             CoegoStatus::Disabled
         } else {
@@ -558,7 +576,8 @@ impl Egor {
             .coego(coego_status)
             .target(self.target)
             .warm_start(self.warm_start)
-            .hot_start(self.hot_start.into());
+            .hot_start(self.hot_start.into())
+            .failsafe_strategy(failsafe_strategy);
 
         if let Some(trego) = self.trego.as_ref() {
             config = config.configure_trego(|_| trego.clone().into())

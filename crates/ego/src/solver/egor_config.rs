@@ -550,8 +550,8 @@ impl EgorConfig {
         self
     }
 
-    /// Sets the failure handling strategy
-    pub fn fail_strategy(mut self, failsafe_strategy: FailsafeStrategy) -> Self {
+    /// Sets the objective evaluation failure handling strategy
+    pub fn failsafe_strategy(mut self, failsafe_strategy: FailsafeStrategy) -> Self {
         self.0.failsafe_strategy = failsafe_strategy;
         self
     }

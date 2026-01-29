@@ -75,7 +75,7 @@ pub enum FailsafeStrategy {
     #[default]
     Rejection,
     /// Use objective surrogate prediction: y <- prediction(x) + variance(x)
-    PredictionImputation,
+    Imputation,
 }
 
 /// An interface for objective function to be optimized
