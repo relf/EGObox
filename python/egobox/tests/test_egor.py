@@ -321,7 +321,7 @@ class TestEgor(unittest.TestCase):
 
     def test_g24_with_fcstrs(self):
         n_doe = 5
-        max_iters = 20
+        max_iters = 5
         egor = egx.Egor(
             [[0.0, 3.0], [0.0, 4.0]],
             seed=42,

@@ -222,6 +222,15 @@
 //!     egor_config.hot_start(HotStartMode::Enabled);
 //! ```
 //!
+//! * When the objective function evaluation fails at a given `x` point (aka hidden constraint), the optimizer
+//!   can either reject the point (default) or impute the objective value.
+//!
+//! //! ```no_run
+//! # use egobox_ego::{EgorConfig, FailsafeStrategy};
+//! # let egor_config = EgorConfig::default();
+//!     egor_config.failsafe(FailsafeStrategy::Imputation);
+//! ```
+//!
 //! # Implementation notes
 //!
 //! * Mixture of experts and PLS dimension reduction is explained in \[[Bartoli2019](#Bartoli2019)\]
@@ -231,7 +240,8 @@
 //! * CoEGO approach is implemented with CCBO setting where expensive evaluations are run after context vector update.
 //!   See \[[Zhan2024](#Zhan024)\] and \[[Pretsch2024](#Pretsch2024)\]
 //! * Theta bounds are implemented as in \[[Appriou2023](#Appriou2023)\]
-//! * Logirithm of Expected Improvement is implemented as in \[[Ament2025](#Ament2025)\]
+//! * Logarithm of Expected Improvement is implemented as in \[[Ament2025](#Ament2025)\]
+//! * Hidden constraints handling are implemented as in \[[Bussemaker2024](#Bussemaker2024)\]
 //!
 //! # References
 //!
@@ -293,6 +303,10 @@
 //! \[<a id="Ament2025">Ament2025</a>\]: S Ament, S Daulton, D Eriksson, M Balandat, E Bakshy,
 //! [Unexpected improvements to expected improvement for bayesian optimization](https://arxiv.org/pdf/2310.20708),
 //! Advances in Neural Information Processing Systems, 2023
+//!
+//! \[<a id="Bussemaker2024">Bussemaker2024</a>\]: Bussemaker, Jasper H., et al. (2024)
+//! [Surrogate-based optimization of system architectures subject to hidden constraints.](https://hal.science/hal-04462408v2/file/DTIS2024-018-DTIS2024-018%20posprint-Accept%C3%A9e.pdf)
+//! AIAA AVIATION FORUM AND ASCEND 2024.
 //!
 //! smtorg. (2018). Surrogate modeling toolbox. In [GitHub repository](https://github.com/SMTOrg/smt)
 //!

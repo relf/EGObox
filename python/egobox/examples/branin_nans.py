@@ -252,7 +252,6 @@ def main():
     print("Optimization Results")
     print("=" * 70)
     print(f"Optimum found at: x = [{res.x_opt[0]:.5f}, {res.x_opt[1]:.5f}]")
-    print
     print(f"Objective value: f(x*) = {res.y_opt[0]:.6f}")
     print(
         f"Constraint value: g(x*) = {constraint_branin(res.x_opt):.6f} (should be ≤ 0)"
