@@ -228,7 +228,7 @@
 //! ```no_run
 //! # use egobox_ego::{EgorConfig, FailsafeStrategy};
 //! # let egor_config = EgorConfig::default();
-//!     egor_config.failsafe(FailsafeStrategy::Imputation);
+//!     egor_config.failsafe_strategy(FailsafeStrategy::Imputation);
 //! ```
 //!
 //! # Implementation notes
