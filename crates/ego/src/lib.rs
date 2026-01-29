@@ -225,7 +225,7 @@
 //! * When the objective function evaluation fails at a given `x` point (aka hidden constraint), the optimizer
 //!   can either reject the point (default) or impute the objective value.
 //!
-//! //! ```no_run
+//! ```no_run
 //! # use egobox_ego::{EgorConfig, FailsafeStrategy};
 //! # let egor_config = EgorConfig::default();
 //!     egor_config.failsafe(FailsafeStrategy::Imputation);
