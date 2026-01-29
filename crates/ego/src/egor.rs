@@ -938,6 +938,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_egor_g24_basic_egor_builder_slsqp() {
         let xlimits = array![[0., 3.], [0., 4.]];
         let doe = Lhs::new(&xlimits)
