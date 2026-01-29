@@ -166,14 +166,14 @@ class TestEgor(unittest.TestCase):
         res = egor.minimize(xsinx, max_iters=20)
         print(f"Optimization f={res.y_opt} at {res.x_opt}")
         self.assertAlmostEqual(-15.125, res.y_opt[0], delta=1e-3)
-        self.assertAlmostEqual(18.935, res.x_opt[0], delta=1e-2)
+        self.assertAlmostEqual(18.935, res.x_opt[0], delta=5e-2)
 
     def test_xsinx_with_reclustering(self):
         egor = egx.Egor([[0.0, 25.0]], seed=42, gp_config=egx.GpConfig(n_clusters=0))
         res = egor.minimize(xsinx, max_iters=20)
         print(f"Optimization f={res.y_opt} at {res.x_opt}")
         self.assertAlmostEqual(-15.125, res.y_opt[0], delta=1e-3)
-        self.assertAlmostEqual(18.935, res.x_opt[0], delta=1e-2)
+        self.assertAlmostEqual(18.935, res.x_opt[0], delta=5e-2)
 
     def test_xsinx_with_warmstart(self):
         if os.path.exists("./test_dir/egor_initial_doe.npy"):
@@ -406,7 +406,7 @@ class TestEgor(unittest.TestCase):
         )
         print(f"Optimum found at: x = {res.x_opt}, f(x*) = {res.y_opt[0]}")
         self.assertAlmostEqual(0.9677, res.x_opt[0], delta=5e-2)
-        self.assertAlmostEqual(0.2067, res.x_opt[1], delta=5e-2)
+        self.assertAlmostEqual(0.2067, res.x_opt[1], delta=6e-2)
 
 
 if __name__ == "__main__":

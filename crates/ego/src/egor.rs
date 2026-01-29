@@ -419,6 +419,7 @@ pub type EgorBuilder<O> = EgorFactory<O, Cstr>;
 mod tests {
     use super::*;
     use approx::assert_abs_diff_eq;
+    use argmin::core::{TerminationReason, TerminationStatus};
     use argmin_testfunctions::rosenbrock;
     use egobox_doe::{Lhs, SamplingMethod};
     use egobox_moe::NbClusters;
@@ -1353,7 +1354,14 @@ mod tests {
             .run()
             .expect("Egor should minimize branin_with_nans");
         assert_abs_diff_eq!(x_expected.row(0), res.x_opt, epsilon = 5e-2);
-        assert_eq!(N_DOE + MAX_ITERS, res.x_doe.nrows());
+        if res.state.termination_status
+            == TerminationStatus::Terminated(TerminationReason::SolverConverged)
+        {
+            // May have less points than max iters if converged
+            assert!(N_DOE + MAX_ITERS >= res.x_doe.nrows());
+        } else {
+            assert_eq!(N_DOE + MAX_ITERS, res.x_doe.nrows());
+        }
         assert!(res.state.x_fail.is_some());
     }
 }
