@@ -247,8 +247,7 @@ Reliability Engineering & System Safety, 247, 110094.
 
 Bussemaker, Jasper H., et al. (2024)
 [Surrogate-based optimization of system architectures subject to hidden constraints.](https://hal.science/hal-04462408v2/file/DTIS2024-018-DTIS2024-018%20posprint-Accept%C3%A9e.pdf)
-AIAA AVIATION FORUM AND ASCEND 2024. 
-
+AIAA AVIATION FORUM AND ASCEND 2024.
 
 smtorg. (2018). [Surrogate modeling toolbox](https://github.com/SMTOrg/smt). GitHub.
 
