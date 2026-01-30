@@ -46,7 +46,7 @@ rand_xoshiro = { version = "0.6", features = ["serde1"] }
 argmin = { version = "0.11.0", features = ["serde1", "ctrlc"] }
 bincode.workspace = true
 web-time = "1.1.0"
-libm = "0.2.6"
+libm = "0.2.16"
 finitediff.workspace = true
 # sort-axis
 rawpointer = { version = "0.2" }
