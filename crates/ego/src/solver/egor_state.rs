@@ -7,16 +7,21 @@ use egobox_moe::Clustering;
 
 use argmin::core::{ArgminFloat, Problem, State, TerminationReason, TerminationStatus};
 use linfa::Float;
-use ndarray::{Array1, Array2};
+use ndarray::{Array1, Array2, Axis, concatenate};
 use ndarray_rand::rand::SeedableRng;
 use rand_xoshiro::Xoshiro256Plus;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// DEPRECATED: to be removed in future versions
+/// (was 3 before but retry strategy is not useful anymore)
+/// Value is kept for backward compatibility and set to 1.
+/// Kept also to validate there is no point keeping this mechanism (!)
+///
 /// Max number of retry when adding a new point. Point addition may fail
 /// if new point is too close to a previous point in the growing doe used
 /// to train surrogate models modeling objective and constraints functions.
-pub(crate) const MAX_POINT_ADDITION_RETRY: i32 = 3;
+pub(crate) const MAX_POINT_ADDITION_RETRY: i32 = 1;
 
 /// Maintains the state from iteration to iteration of the [crate::EgorSolver].
 ///
@@ -83,6 +88,9 @@ pub struct EgorState<F: Float> {
     pub theta_inits: Option<Vec<Option<Array2<F>>>>,
     /// Historic data (params, objective and constraints values, function constraints)
     pub data: Option<(Array2<F>, Array2<F>, Array2<F>)>,
+    /// Points resulting in failure during objective/constraints evaluation
+    pub x_fail: Option<Array2<F>>,
+
     /// Previous index of best result in data
     pub prev_best_index: Option<usize>,
     /// index of best result in data
@@ -207,7 +215,26 @@ where
         self
     }
 
+    /// Set best index pointing to best cost found so far.
+    /// This shifts the stored best index to the previous best index.
+    #[must_use]
+    pub fn best_index(mut self, best_index: usize) -> Self {
+        self.prev_best_index = self.best_index;
+        self.best_index = Some(best_index);
+        self
+    }
+
+    /// Adds the given nb of added point to the total added points.
+    /// This shifts the total added points value to the previous total added points value.
+    #[must_use]
+    pub fn count_added_points(mut self, nb: usize) -> Self {
+        self.prev_added = self.added;
+        self.added += nb;
+        self
+    }
+
     /// Set the current clusterings used by surrogate models
+    #[must_use]
     pub fn clusterings(mut self, clustering: Vec<Option<Clustering>>) -> Self {
         self.clusterings = Some(clustering);
         self
@@ -219,6 +246,7 @@ where
     }
 
     /// Set the current theta init value used by surrogate models
+    #[must_use]
     pub fn theta_inits(mut self, theta_inits: Vec<Option<Array2<F>>>) -> Self {
         self.theta_inits = Some(theta_inits);
         self
@@ -235,6 +263,7 @@ where
     /// * xdata is a (p, nx matrix),
     /// * ydata is a (p, 1 + nb of cstr) matrix and ydata_i = fcost(xdata_i) for i in [1, p],  
     /// * cdata is a (p, nb of fcstr) matrix and cdata_i = fcstr_j(xdata_i) for i in [1, p], j in [1, nb of fcstr]
+    #[must_use]
     pub fn data(mut self, data: (Array2<F>, Array2<F>, Array2<F>)) -> Self {
         self.data = Some(data);
         self
@@ -245,7 +274,35 @@ where
         self.data.take()
     }
 
+    /// Moves the current failed points out and replaces it internally with `None`.
+    pub fn take_x_fail(&mut self) -> Option<Array2<F>> {
+        self.x_fail.take()
+    }
+
+    /// Set the points resulting in failure during objective/constraints evaluation
+    #[must_use]
+    pub fn x_fail(mut self, x_fail: Array2<F>) -> Self {
+        self.x_fail = Some(x_fail);
+        self
+    }
+
+    /// Store failed points by appending them to existing ones (if any)
+    pub fn store_failed_points(self, x_fail_points: Option<Array2<F>>) -> Self {
+        if let Some(fail_points) = x_fail_points {
+            log::info!("Failed point(s): {}", fail_points);
+            if let Some(x_fail) = self.x_fail.as_ref() {
+                let x_fail = concatenate![Axis(0), x_fail.view(), fail_points.view()];
+                self.x_fail(x_fail)
+            } else {
+                self.x_fail(fail_points)
+            }
+        } else {
+            self
+        }
+    }
+
     /// Set the activity matrix  
+    #[must_use]
     pub fn activity(mut self, activity: Array2<usize>) -> Self {
         self.activity = Some(activity);
         self
@@ -258,6 +315,7 @@ where
 
     /// Set the run data
     #[cfg(feature = "persistent")]
+    #[must_use]
     pub fn run_data(mut self, run_data: crate::utils::run_recorder::EgorRunData) -> Self {
         self.run_data = Some(run_data);
         self
@@ -270,6 +328,7 @@ where
     }
 
     /// Set the random number generator used to draw random points
+    #[must_use]
     pub fn rng(mut self, rng: Xoshiro256Plus) -> Self {
         self.rng = Some(rng);
         self
@@ -281,6 +340,7 @@ where
     }
 
     /// Set the infill criterion value    
+    #[must_use]
     pub fn infill_value(mut self, value: F) -> Self {
         self.infill_value = value;
         self
@@ -406,6 +466,7 @@ where
 
             clusterings: None,
             data: None,
+            x_fail: None,
             prev_best_index: None,
             best_index: None,
             theta_inits: None,

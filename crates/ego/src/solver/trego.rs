@@ -2,14 +2,12 @@
 use crate::CstrFn;
 use crate::EgorSolver;
 use crate::EgorState;
+use crate::FailsafeStrategy;
 use crate::InfillObjData;
 use crate::SurrogateBuilder;
 use crate::solver::solver_infill_optim::InfillOptProblem;
 use crate::types::DomainConstraints;
-use crate::utils::check_update_ok;
-use crate::utils::find_best_result_index_from;
-use crate::utils::is_feasible;
-use crate::utils::update_data;
+use crate::utils::{find_best_result_index_from, is_feasible, is_update_ok, update_data};
 
 use argmin::core::{CostFunction, Problem, State};
 
@@ -17,15 +15,11 @@ use egobox_doe::Lhs;
 use egobox_doe::SamplingMethod;
 use egobox_moe::MixtureGpSurrogate;
 
-use log::debug;
-use log::info;
-use ndarray::Zip;
-use ndarray::aview1;
-use ndarray::{Array1, Array2, Axis};
+use log::{debug, info};
+use ndarray::{Array1, Array2, Axis, Zip, aview1};
 use ndarray_stats::DeviationExt;
 
-use ndarray_rand::rand::Rng;
-use ndarray_rand::rand::SeedableRng;
+use ndarray_rand::rand::{Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256Plus;
 use serde::de::DeserializeOwned;
 
@@ -232,11 +226,12 @@ where
         let x_new = x_opt.insert_axis(Axis(0));
         debug!("x_old={} x_new={}", x_data.row(best_index), x_new.row(0));
 
-        let added = if xbest.l1_dist(&x_new.row(0)).unwrap()
+        let (add_count, x_fail_points) = if xbest.l1_dist(&x_new.row(0)).unwrap()
             > self.config.trego_config.d.0 * new_state.sigma
-            && check_update_ok(&x_data, &x_new)
+            && is_update_ok(&x_data, &x_new.row(0))
         {
             let y_new = self.eval_obj(problem, &x_new);
+
             debug!(
                 "y_old-y_new={}, rho={}",
                 y_old - y_new[[0, 0]],
@@ -244,29 +239,44 @@ where
             );
             let c_new = self.eval_problem_fcstrs(problem, &x_new);
 
+            let y_penalized = match self.config.failsafe_strategy {
+                FailsafeStrategy::Imputation => {
+                    let y_pen = self.compute_penalized_point(
+                        &x_new.row(0),
+                        obj_model.as_ref(),
+                        cstr_models,
+                    );
+                    let y_pen = y_pen.insert_axis(Axis(0));
+                    Some(y_pen)
+                }
+                _ => None,
+            };
+
             // Update DOE and best point
-            let added = update_data(
+            let (add_count, x_fail_points) = update_data(
                 &mut x_data,
                 &mut y_data,
                 &mut c_data,
                 &x_new,
                 &y_new,
                 &c_new,
+                y_penalized.as_ref(),
             );
 
             new_state = new_state
                 .param(x_new.row(0).to_owned())
                 .cost(y_new.row(0).to_owned());
-            added
+            (add_count, x_fail_points)
         } else {
-            Vec::new()
+            (0, None)
         };
 
-        new_state.prev_added = new_state.added;
-        new_state.added += added.len();
-        info!("+{} point, total: {} points", added.len(), new_state.added);
+        new_state = new_state
+            .store_failed_points(x_fail_points.clone())
+            .count_added_points(add_count);
+        info!("+{} point, total: {} points", add_count, new_state.added);
 
-        let new_best_index = if added.is_empty() {
+        let new_best_index = if add_count == 0 {
             best_index
         } else {
             find_best_result_index_from(

@@ -5,8 +5,6 @@ use linfa::traits::Transformer;
 use linfa_clustering::Dbscan;
 use ndarray::{Array1, Array2, ArrayBase, Data, Ix2};
 
-use crate::InfillObjData;
-
 /// Generate `num` points spaced evenly on a log scale between `start` and `end`.
 #[allow(dead_code)]
 pub fn logspace(start: f64, end: f64, num: usize) -> Array1<f64> {
@@ -45,20 +43,8 @@ pub fn cluster_as_indices(xdat: &ArrayBase<impl Data<Elem = f64>, Ix2>) -> Vec<u
 /// This function clusters portfolio information wrt x values then pick one member of each cluster
 #[allow(clippy::type_complexity)]
 pub fn select_from_portfolio(
-    portfolio: Vec<(
-        Array2<f64>,
-        Array2<f64>,
-        Array2<f64>,
-        f64,
-        InfillObjData<f64>,
-    )>,
-) -> (
-    Array2<f64>,
-    Array2<f64>,
-    Array2<f64>,
-    f64,
-    InfillObjData<f64>,
-) {
+    portfolio: Vec<(Array2<f64>, Array2<f64>, Array2<f64>, Array2<f64>, f64)>,
+) -> (Array2<f64>, Array2<f64>, Array2<f64>, Array2<f64>, f64) {
     let n = portfolio.len();
     let mut xdat = Array2::zeros((n, portfolio[0].0.ncols()));
 
@@ -78,21 +64,24 @@ pub fn select_from_portfolio(
     let mut xdat = Array2::zeros((nclusters.max(1), portfolio[0].0.ncols()));
     let mut ydat = Array2::zeros((nclusters.max(1), portfolio[0].1.ncols()));
     let mut cdat = Array2::zeros((nclusters.max(1), portfolio[0].2.ncols()));
+    let mut ypen = Array2::zeros((nclusters.max(1), portfolio[0].3.ncols()));
 
     if nclusters > 1 {
         for (i, index) in indices.iter().enumerate() {
             xdat.row_mut(i).assign(&portfolio[*index].0.row(0));
             ydat.row_mut(i).assign(&portfolio[*index].1.row(0));
             cdat.row_mut(i).assign(&portfolio[*index].2.row(0));
+            ypen.row_mut(i).assign(&portfolio[*index].3.row(0));
         }
     } else {
         xdat.row_mut(0).assign(&portfolio[0].0.row(0));
         ydat.row_mut(0).assign(&portfolio[0].1.row(0));
         cdat.row_mut(0).assign(&portfolio[0].2.row(0));
+        ypen.row_mut(0).assign(&portfolio[0].3.row(0));
     }
     // FIXME: Have to check if fmin and infill_data values are relevant
     // At the moment just pick the first values of portfolio
-    (xdat, ydat, cdat, portfolio[0].3, portfolio[0].4.clone())
+    (xdat, ydat, cdat, ypen, portfolio[0].4)
 }
 
 #[cfg(test)]

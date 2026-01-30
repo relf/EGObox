@@ -419,10 +419,11 @@ pub type EgorBuilder<O> = EgorFactory<O, Cstr>;
 mod tests {
     use super::*;
     use approx::assert_abs_diff_eq;
+    use argmin::core::{TerminationReason, TerminationStatus};
     use argmin_testfunctions::rosenbrock;
     use egobox_doe::{Lhs, SamplingMethod};
     use egobox_moe::NbClusters;
-    use ndarray::{Array1, Array2, ArrayView2, Ix1, Zip, array, s};
+    use ndarray::{Array1, Array2, ArrayView1, ArrayView2, Ix1, Zip, array, s};
     use ndarray_rand::rand::SeedableRng;
     use rand_xoshiro::Xoshiro256Plus;
 
@@ -704,6 +705,7 @@ mod tests {
                 config
                     .configure_gp(|gp| gp.n_clusters(NbClusters::auto()))
                     .max_iters(40)
+                    .seed(42)
             })
             .min_within(&array![[0.0, 25.0]])
             .expect("Egor configured")
@@ -936,6 +938,8 @@ mod tests {
     }
 
     #[test]
+    #[serial]
+    #[ignore = "fail on CI on windows-2025, work on windows locally"]
     fn test_egor_g24_basic_egor_builder_slsqp() {
         let xlimits = array![[0., 3.], [0., 4.]];
         let doe = Lhs::new(&xlimits)
@@ -1232,5 +1236,134 @@ mod tests {
             .expect("Egor configured")
             .run()
             .unwrap();
+    }
+
+    fn branin_forrester(x: ArrayView1<f64>) -> f64 {
+        let x1 = x[0] * 15.0 - 5.0;
+        let x2 = x[1] * 15.0;
+        (x2 - (5.1 / (4.0 * std::f64::consts::PI * std::f64::consts::PI)) * x1 * x1
+            + (5.0 / std::f64::consts::PI) * x1
+            - 6.0)
+            .powi(2)
+            + 10.0 * (1.0 - 1.0 / (8.0 * std::f64::consts::PI)) * (x1).cos()
+            + 10.0
+    }
+
+    #[allow(dead_code)]
+    fn branin(x: &ArrayView2<f64>) -> Array2<f64> {
+        x.map_axis(ndarray::Axis(1), |xi| branin_forrester(xi.view()))
+            .into_shape_with_order((x.nrows(), 1))
+            .unwrap()
+    }
+
+    fn branin_with_nans(x: &ArrayView2<f64>) -> Array2<f64> {
+        x.map_axis(ndarray::Axis(1), |xi| {
+            if xi[0] * xi[1] >= 0.2 {
+                branin_forrester(xi.view())
+            } else {
+                f64::NAN
+            }
+        })
+        .into_shape_with_order((x.nrows(), 1))
+        .unwrap()
+    }
+
+    #[test]
+    #[serial]
+    fn test_egor_with_initial_failed_points() {
+        let initial_doe = Lhs::new(&array![[0.0, 1.0], [0.0, 1.0]])
+            .with_rng(Xoshiro256Plus::seed_from_u64(42))
+            .sample(15);
+        let expected_nans = branin_with_nans(&initial_doe.view())
+            .iter()
+            .filter(|v| v.is_nan())
+            .count();
+
+        let res = EgorBuilder::optimize(branin_with_nans)
+            .configure(|cfg| cfg.doe(&initial_doe).max_iters(0).seed(42))
+            .min_within(&array![[0.0, 1.0], [0.0, 1.0]])
+            .expect("Egor should be configured")
+            .run()
+            .expect("Egor should minimize branin_with_nans");
+        // Check initial failed points are stored
+        assert!(res.state.x_fail.is_some());
+        assert_eq!(expected_nans, res.state.x_fail.unwrap().nrows());
+        // let x_expected = array![[0.96773, 0.20667]];
+        // println!("{}", branin_with_nans(&x_expected.view()));
+        // assert_abs_diff_eq!(x_expected.row(0), res.x_opt, epsilon = 5e-2);
+
+        let res = EgorBuilder::optimize(branin_with_nans)
+            .configure(|cfg| cfg.doe(&initial_doe).max_iters(1).seed(42))
+            .min_within(&array![[0.0, 1.0], [0.0, 1.0]])
+            .expect("Egor should be configured")
+            .run()
+            .expect("Egor should minimize branin_with_nans");
+        assert!(res.state.x_fail.is_some());
+        let x_fail = res.state.x_fail.as_ref().unwrap();
+        assert_eq!(expected_nans + 1, x_fail.nrows()); // the one iteration failed point added
+        assert_eq!(x_fail.row(expected_nans), res.state.get_param().unwrap());
+        let expected_valid = initial_doe.nrows() - expected_nans;
+        assert_eq!(expected_valid, res.x_doe.nrows());
+        assert_eq!(expected_valid, res.y_doe.nrows());
+    }
+
+    #[test]
+    #[serial]
+    fn test_egor_with_prediction_replacement_failed_points() {
+        const MAX_ITERS: usize = 15;
+        const N_DOE: usize = 15;
+
+        let initial_doe = Lhs::new(&array![[0.0, 1.0], [0.0, 1.0]])
+            .with_rng(Xoshiro256Plus::seed_from_u64(42))
+            .sample(N_DOE);
+
+        // Branin Constraint
+        // let fcstr = |x: &[f64], g: Option<&mut [f64]>, _u: &mut InfillObjData<f64>| {
+        //     if let Some(g) = g {
+        //         g[0] = -x[1];
+        //         g[1] = -x[0];
+        //     }
+        //     0.2 - x[0] * x[1]
+        // };
+
+        let x_expected = array![[0.96773, 0.20667]];
+
+        let res = EgorBuilder::optimize(branin_with_nans)
+            .configure(|cfg| cfg.doe(&initial_doe).max_iters(MAX_ITERS).seed(42))
+            //.subject_to(vec![fcstr])
+            .min_within(&array![[0.0, 1.0], [0.0, 1.0]])
+            .expect("Egor should be configured")
+            .run()
+            .expect("Egor should minimize branin_with_nans");
+        // The optimizer stalls with default NaNs rejection policy
+        // Only some good doe points are kept, no further point is added
+        // as the optimizer wants to peek in the bad region
+        assert_abs_diff_eq!(
+            initial_doe.nrows(),
+            res.x_doe.nrows() + res.state.x_fail.unwrap().nrows() - MAX_ITERS
+        );
+
+        let res = EgorBuilder::optimize(branin_with_nans)
+            .configure(|cfg| {
+                cfg.doe(&initial_doe)
+                    .max_iters(MAX_ITERS)
+                    .failsafe_strategy(FailsafeStrategy::Imputation)
+                    .seed(42)
+            })
+            //.subject_to(vec![fcstr])
+            .min_within(&array![[0.0, 1.0], [0.0, 1.0]])
+            .expect("Egor should be configured")
+            .run()
+            .expect("Egor should minimize branin_with_nans");
+        assert_abs_diff_eq!(x_expected.row(0), res.x_opt, epsilon = 5e-2);
+        if res.state.termination_status
+            == TerminationStatus::Terminated(TerminationReason::SolverConverged)
+        {
+            // May have less points than max iters if converged
+            assert!(N_DOE + MAX_ITERS >= res.x_doe.nrows());
+        } else {
+            assert_eq!(N_DOE + MAX_ITERS, res.x_doe.nrows());
+        }
+        assert!(res.state.x_fail.is_some());
     }
 }

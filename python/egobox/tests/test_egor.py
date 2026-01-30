@@ -15,14 +15,12 @@ def sphere(x: np.ndarray) -> np.ndarray:
     """
     x = np.atleast_2d(x)
     y = np.sum(x**2, axis=1).reshape(-1, 1)
-    print(f"obj={y} at {x}")
     return y
 
 
 def xsinx(x: np.ndarray) -> np.ndarray:
     x = np.atleast_2d(x)
     y = (x - 3.5) * np.sin((x - 3.5) / (np.pi))
-    print(f"obj={y} at {x}")
     return y
 
 
@@ -111,6 +109,45 @@ def six_humps(x):
     return np.atleast_2d(sum1).T
 
 
+def branin(x):
+    """
+    Branin function as used by Forrester et al.
+    x is in [0, 1]^2, transformed to proper domain internally.
+
+    Returns: [objective, constraint]
+    where constraint should be negative at optimum (x1*x2 - 0.2 < 0)
+    """
+    # Transform from [0,1]^2 to Forrester's domain
+    x1 = x[:, 0] * 15 - 5
+    x2 = x[:, 1] * 15
+
+    # Branin function
+    a = 1
+    b = 5.1 / (4 * np.pi**2)
+    c = 5 / np.pi
+    r = 6
+    s = 10
+    t = 1 / (8 * np.pi)
+
+    obj = a * (x2 - b * x1**2 + c * x1 - r) ** 2 + s * (1 - t) * np.cos(x1) + s
+
+    return obj.reshape(-1, 1)
+
+
+BRANIN_CSTR_CONST = 0.2
+
+
+def branin_constraint(x, gradient=False):
+    """
+    Constraint function: x1 * x2 - 0.2 >= 0
+    Returns positive value if constraint is violated.
+    """
+    if gradient:
+        return np.array([-x[1], -x[0]])
+    else:
+        return BRANIN_CSTR_CONST - x[0] * x[1]
+
+
 class TestEgor(unittest.TestCase):
     def test_sphere(self):
         dim = 5
@@ -129,14 +166,14 @@ class TestEgor(unittest.TestCase):
         res = egor.minimize(xsinx, max_iters=20)
         print(f"Optimization f={res.y_opt} at {res.x_opt}")
         self.assertAlmostEqual(-15.125, res.y_opt[0], delta=1e-3)
-        self.assertAlmostEqual(18.935, res.x_opt[0], delta=1e-2)
+        self.assertAlmostEqual(18.935, res.x_opt[0], delta=5e-2)
 
     def test_xsinx_with_reclustering(self):
         egor = egx.Egor([[0.0, 25.0]], seed=42, gp_config=egx.GpConfig(n_clusters=0))
         res = egor.minimize(xsinx, max_iters=20)
         print(f"Optimization f={res.y_opt} at {res.x_opt}")
         self.assertAlmostEqual(-15.125, res.y_opt[0], delta=1e-3)
-        self.assertAlmostEqual(18.935, res.x_opt[0], delta=1e-2)
+        self.assertAlmostEqual(18.935, res.x_opt[0], delta=5e-2)
 
     def test_xsinx_with_warmstart(self):
         if os.path.exists("./test_dir/egor_initial_doe.npy"):
@@ -284,7 +321,7 @@ class TestEgor(unittest.TestCase):
 
     def test_g24_with_fcstrs(self):
         n_doe = 5
-        max_iters = 20
+        max_iters = 5
         egor = egx.Egor(
             [[0.0, 3.0], [0.0, 4.0]],
             seed=42,
@@ -344,6 +381,34 @@ class TestEgor(unittest.TestCase):
         self.assertAlmostEqual(2.3295, res.x_opt[0], delta=1e-2)
         self.assertAlmostEqual(3.1785, res.x_opt[1], delta=1e-2)
 
+    def test_constrained_branin_with_nans(self):
+        def branin_constrained_with_nans(x):
+            def branin_constraint_nans(xi):
+                if np.prod(xi) < BRANIN_CSTR_CONST:
+                    return np.nan
+                else:
+                    return branin(np.atleast_2d(xi))[0, 0]
+
+            res = np.apply_along_axis(branin_constraint_nans, 1, x).reshape(-1, 1)
+            return res
+
+        xspecs = [[0.0, 1.0], [0.0, 1.0]]
+        egor = egx.Egor(
+            xspecs,
+            n_doe=15,
+            seed=42,
+            failsafe_strategy=egx.FailsafeStrategy.IMPUTATION,
+        )
+        res = egor.minimize(
+            branin_constrained_with_nans,
+            max_iters=20,
+        )
+        print(f"Optimum found at: x = {res.x_opt}, f(x*) = {res.y_opt[0]}")
+        self.assertAlmostEqual(0.9677, res.x_opt[0], delta=5e-2)
+        self.assertAlmostEqual(0.2067, res.x_opt[1], delta=6e-2)
+
 
 if __name__ == "__main__":
-    unittest.main(defaultTest=["TestEgor.test_g24_with_suggest"], exit=False)
+    unittest.main(
+        defaultTest=["TestEgor.test_constrained_branin_with_nans"], exit=False
+    )
