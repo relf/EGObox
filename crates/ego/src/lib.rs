@@ -241,7 +241,7 @@
 //!   See \[[Zhan2024](#Zhan024)\] and \[[Pretsch2024](#Pretsch2024)\]
 //! * Theta bounds are implemented as in \[[Appriou2023](#Appriou2023)\]
 //! * Logarithm of Expected Improvement is implemented as in \[[Ament2025](#Ament2025)\]
-//! * Hidden constraints handling are implemented as in \[[Bussemaker2024](#Bussemaker2024)\]
+//! * Hidden constraints handling is implemented as in \[[Bussemaker2024](#Bussemaker2024)\]
 //!
 //! # References
 //!

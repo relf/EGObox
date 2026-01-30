@@ -51,10 +51,8 @@ def branin_forrester(x):
 def branin_constrained_with_nans(x):
     def branin_constraint_nans(xi):
         if xi[0] * xi[1] < BRANIN_CSTR_CONST:
-            print(f"Constraint violated at {xi}, returning NaN")
             return np.nan
         else:
-            print(branin_forrester(np.atleast_2d(xi)))
             return branin_forrester(np.atleast_2d(xi))
 
     res = np.apply_along_axis(branin_constraint_nans, 1, x).reshape(-1, 1)

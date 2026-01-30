@@ -390,7 +390,6 @@ class TestEgor(unittest.TestCase):
                     return branin(np.atleast_2d(xi))[0, 0]
 
             res = np.apply_along_axis(branin_constraint_nans, 1, x).reshape(-1, 1)
-            print(x, res)
             return res
 
         xspecs = [[0.0, 1.0], [0.0, 1.0]]

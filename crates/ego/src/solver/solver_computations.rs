@@ -15,7 +15,8 @@ use egobox_moe::MixtureGpSurrogate;
 
 use log::{debug, info};
 use ndarray::{
-    Array, Array1, Array2, ArrayBase, ArrayView2, Axis, Data, Ix1, Ix2, Zip, concatenate, s, stack,
+    Array, Array1, Array2, ArrayBase, ArrayView2, Axis, Data, Ix1, Ix2, Zip, array, concatenate, s,
+    stack,
 };
 use ndarray_rand::rand::seq::SliceRandom;
 
@@ -268,7 +269,7 @@ where
     /// * First element of the tuple is the objective function values
     /// * Second element of the tuple is the penalized objective function values
     ///   used in case of true evaluation crash
-    ///   This a the penalized prediction (pred + var) for objective
+    ///   This is the penalized prediction (pred + var) for objective
     ///   See Forrester - Engineering Design via Surrogate Modelling (2008) Section 5.5.1
     pub(crate) fn compute_virtual_point(
         &self,
@@ -305,17 +306,19 @@ where
         xk: &ArrayBase<impl Data<Elem = f64>, Ix1>,
         obj_model: &dyn MixtureGpSurrogate,
         cstr_models: &[Box<dyn MixtureGpSurrogate>],
-    ) -> Result<Vec<f64>> {
-        let mut res: Vec<f64> = vec![];
+    ) -> Array1<f64> {
+        let mut res: Array1<f64> = Array1::zeros((1 + cstr_models.len(),));
 
         let x = &xk.view().insert_axis(Axis(0));
-        let pred = obj_model.predict(x)?[0];
-        let var = obj_model.predict_var(x)?[0];
-        res.push(pred + var);
-        for cstr_model in cstr_models {
-            res.push(cstr_model.predict(x)?[0]);
-        }
-        Ok(res)
+        let pred = obj_model.predict(x).unwrap_or(array![1e10])[0];
+        let var = obj_model.predict_var(x).unwrap_or(array![1e10])[0];
+        res[0] = pred + var;
+        let cstr_vals = cstr_models
+            .iter()
+            .map(|m| m.predict(x).unwrap_or(array![1e10])[0])
+            .collect::<Array1<f64>>();
+        res.slice_mut(s![1..]).assign(&cstr_vals);
+        res
     }
 
     /// The infill criterion scaling is computed using x (n points of nx dim)

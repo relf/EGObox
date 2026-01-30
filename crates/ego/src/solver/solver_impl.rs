@@ -674,10 +674,12 @@ where
                     Zip::from(y_pen_imputed.rows_mut())
                         .and(xfail_points.rows())
                         .for_each(|mut y_row, xfail| {
-                            let y_pred = self
-                                .compute_penalized_point(&xfail, models[0].as_ref(), &models[1..])
-                                .unwrap();
-                            y_row.assign(&Array1::from_vec(y_pred));
+                            let y_pred = self.compute_penalized_point(
+                                &xfail,
+                                models[0].as_ref(),
+                                &models[1..],
+                            );
+                            y_row.assign(&y_pred);
                         });
                     (x_dat, y_dat, c_dat, y_penalized) = (
                         xfail_points.to_owned(),
@@ -685,10 +687,6 @@ where
                         self.eval_fcstrs(cstr_funcs, xfail_points),
                         y_pen_imputed,
                     );
-
-                    // update_data(
-                    //     &mut x_dat, &mut y_dat, &mut c_dat, x_new, &y_new, &c_new, None,
-                    // );
                 }
 
                 #[cfg(feature = "persistent")]
@@ -805,11 +803,9 @@ where
                         let yk = Array2::from_shape_vec((1, 1 + self.config.n_cstr), yk).unwrap();
                         y_dat = concatenate![Axis(0), y_dat, yk];
 
-                        let yk_pen = self
-                            .compute_penalized_point(&xk, obj_model.as_ref(), cstr_models)
-                            .unwrap();
                         let yk_pen =
-                            Array2::from_shape_vec((1, 1 + self.config.n_cstr), yk_pen).unwrap();
+                            self.compute_penalized_point(&xk, obj_model.as_ref(), cstr_models);
+                        let yk_pen = yk_pen.insert_axis(Axis(0));
                         y_penalized = concatenate![Axis(0), y_penalized, yk_pen];
 
                         let ck = cstr_funcs

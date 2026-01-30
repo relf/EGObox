@@ -241,10 +241,12 @@ where
 
             let y_penalized = match self.config.failsafe_strategy {
                 FailsafeStrategy::Imputation => {
-                    let y_pen = self
-                        .compute_penalized_point(&x_new.row(0), obj_model.as_ref(), cstr_models)
-                        .unwrap();
-                    let y_pen = Array2::from_shape_vec((1, 1 + self.config.n_cstr), y_pen).unwrap();
+                    let y_pen = self.compute_penalized_point(
+                        &x_new.row(0),
+                        obj_model.as_ref(),
+                        cstr_models,
+                    );
+                    let y_pen = y_pen.insert_axis(Axis(0));
                     Some(y_pen)
                 }
                 _ => None,
