@@ -199,6 +199,7 @@ where
             cstr_models,
             cstr_funcs: fcstrs,
             cstr_tols: &cstr_tols,
+            viability_model: None,
             infill_data,
             actives: &actives,
         };

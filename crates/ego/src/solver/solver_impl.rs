@@ -19,7 +19,7 @@ use egobox_doe::{Lhs, LhsKind};
 use egobox_gp::ThetaTuning;
 use env_logger::{Builder, Env};
 
-use egobox_moe::{Clustering, MixtureGpSurrogate, NbClusters};
+use egobox_moe::{Clustering, CorrelationSpec, MixtureGpSurrogate, NbClusters, RegressionSpec};
 use log::{debug, info};
 use ndarray::{Array1, Array2, ArrayBase, Axis, Data, Ix1, Ix2, Zip, concatenate, s};
 use ndarray_rand::rand::{Rng, SeedableRng};
@@ -294,6 +294,41 @@ where
             model = Some(gp)
         }
         (model.expect("Surrogate model is trained"), best_theta_inits)
+    }
+
+    fn make_viability_surrogate(
+        &self,
+        x_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+        x_fail: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+    ) -> Box<dyn MixtureGpSurrogate> {
+        let mut builder = self.surrogate_builder.clone();
+
+        // Use kpls reduction if nx>10
+        if x_data.ncols() > 10 {
+            builder.set_kpls_dim(Some(10));
+        }
+
+        builder.set_regression_spec(RegressionSpec::CONSTANT);
+        builder.set_correlation_spec(CorrelationSpec::SQUAREDEXPONENTIAL);
+        builder.set_n_clusters(NbClusters::Auto { max: Some(2) });
+        builder.set_recombination(egobox_moe::Recombination::Hard);
+        // builder.set_optim_params(self.config.gp.n_start, self.config.gp.max_eval);
+
+        let xt = concatenate(Axis(0), &[x_data.view(), x_fail.view()]).unwrap();
+
+        let mut yt = Array1::ones(x_data.nrows() + x_fail.nrows());
+        yt.slice_mut(s![x_data.nrows()..]).fill(0.0); // failed points labeled as 0.0
+
+        info!("Viability GP clustering and training...");
+        let gp = builder
+            .train(xt.view(), yt.view())
+            .expect("Viability GP training failure");
+        info!(
+            "... Viability GP trained ({} / {})",
+            gp.n_clusters(),
+            gp.recombination()
+        );
+        gp
     }
 
     /// Refresh infill data used to optimize infill criterion
@@ -654,7 +689,7 @@ where
                 });
                 let (models, inits): (Vec<_>, Vec<_>) = models_and_inits.unzip();
 
-                // On the first iteration
+                // Handle failsafe imputation on the first iteration
                 // If failsafe is PredictionImputation we have to check if
                 // xfail has already been imputed in xdata otherwise
                 // we have to predict penalization on these points
@@ -777,6 +812,10 @@ where
                     })
                     .collect::<Vec<_>>();
 
+                // Make viability surrogate and dedicated constraint
+                let viability_model = x_fail_points
+                    .map(|xfail_points| self.make_viability_surrogate(&xt, xfail_points));
+
                 let sub_rng = Xoshiro256Plus::seed_from_u64(rng.r#gen());
                 // let multistarter = GlobalMultiStarter::new(&self.xlimits, sub_rng);
                 let xsamples = x_data.to_owned();
@@ -787,6 +826,7 @@ where
                     cstr_models,
                     &cstr_funcs,
                     cstr_tol,
+                    viability_model,
                     &infill_data,
                     &actives,
                 );
