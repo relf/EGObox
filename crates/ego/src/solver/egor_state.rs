@@ -1,13 +1,13 @@
 /// Implementation of `argmin::IterState` for Egor optimizer
 use crate::{
     InfillObjData,
-    utils::{find_best_result_index, run_recorder::EgorRunData},
+    utils::{find_best_result_index, is_update_ok, run_recorder::EgorRunData},
 };
 use egobox_moe::Clustering;
 
 use argmin::core::{ArgminFloat, Problem, State, TerminationReason, TerminationStatus};
 use linfa::Float;
-use ndarray::{Array1, Array2, Axis, concatenate};
+use ndarray::{Array1, Array2};
 use ndarray_rand::rand::SeedableRng;
 use rand_xoshiro::Xoshiro256Plus;
 use serde::{Deserialize, Serialize};
@@ -291,7 +291,16 @@ where
         if let Some(fail_points) = x_fail_points {
             log::info!("Failed point(s): {}", fail_points);
             if let Some(x_fail) = self.x_fail.as_ref() {
-                let x_fail = concatenate![Axis(0), x_fail.view(), fail_points.view()];
+                // Append failed points if not too close to existing failed points
+                let mut x_fail = x_fail.clone();
+                fail_points.outer_iter().for_each(|x_new| {
+                    if is_update_ok(&x_fail, &x_new) {
+                        log::info!("Appending failed point {}", x_new);
+                        x_fail.push_row(x_new).unwrap();
+                    } else {
+                        log::info!("Failed point {} too close to existing failed points", x_new);
+                    }
+                });
                 self.x_fail(x_fail)
             } else {
                 self.x_fail(fail_points)

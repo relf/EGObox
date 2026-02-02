@@ -1309,9 +1309,9 @@ mod tests {
 
     #[test]
     #[serial]
-    fn test_egor_with_prediction_replacement_failed_points() {
+    fn test_egor_with_failsafe_failed_points() {
         const MAX_ITERS: usize = 15;
-        const N_DOE: usize = 15;
+        const N_DOE: usize = 20;
 
         let initial_doe = Lhs::new(&array![[0.0, 1.0], [0.0, 1.0]])
             .with_rng(Xoshiro256Plus::seed_from_u64(42))
@@ -1338,10 +1338,7 @@ mod tests {
         // The optimizer stalls with default NaNs rejection policy
         // Only some good doe points are kept, no further point is added
         // as the optimizer wants to peek in the bad region
-        assert_abs_diff_eq!(
-            initial_doe.nrows(),
-            res.x_doe.nrows() + res.state.x_fail.unwrap().nrows() - MAX_ITERS
-        );
+        assert!(N_DOE + MAX_ITERS >= res.x_doe.nrows());
 
         let res = EgorBuilder::optimize(branin_with_nans)
             .configure(|cfg| {
@@ -1364,6 +1361,22 @@ mod tests {
         } else {
             assert_eq!(N_DOE + MAX_ITERS, res.x_doe.nrows());
         }
+        assert!(res.state.x_fail.is_some());
+
+        let res = EgorBuilder::optimize(branin_with_nans)
+            .configure(|cfg| {
+                cfg.doe(&initial_doe)
+                    .max_iters(MAX_ITERS)
+                    .failsafe_strategy(FailsafeStrategy::Viability)
+                    .seed(42)
+            })
+            //.subject_to(vec![fcstr])
+            .min_within(&array![[0.0, 1.0], [0.0, 1.0]])
+            .expect("Egor should be configured")
+            .run()
+            .expect("Egor should minimize branin_with_nans");
+        assert_abs_diff_eq!(x_expected.row(0), res.x_opt, epsilon = 5e-2);
+        assert!(N_DOE + MAX_ITERS >= res.x_doe.nrows());
         assert!(res.state.x_fail.is_some());
     }
 }

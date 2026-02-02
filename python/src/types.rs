@@ -97,6 +97,7 @@ pub(crate) enum InfillOptimizer {
 pub(crate) enum FailsafeStrategy {
     Rejection = 1,
     Imputation = 2,
+    Viability = 3,
 }
 
 #[gen_stub_pyclass]

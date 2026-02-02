@@ -5,6 +5,7 @@ use crate::EgorSolver;
 
 #[cfg(not(feature = "nlopt"))]
 use crate::types::ObjFn;
+use ndarray::array;
 #[cfg(feature = "nlopt")]
 use nlopt::ObjFn;
 
@@ -233,6 +234,12 @@ where
                 .collect::<Vec<_>>();
             cstr_refs.extend(cstr_funcs.clone());
 
+            if let Some(ref viab_model) = viability_model {
+                let points = array![[0.25, 0.25], [0.75, 0.75], [0.605, 0.118]];
+                let pred = viab_model.predict(&points.view());
+                info!("Viability model check at {:?}: {:?}", points, pred);
+            }
+
             // If viability model is provided, we add the corresponding constraint
             let viability_cstr =
                 |x: &[f64], gradient: Option<&mut [f64]>, params: &mut InfillObjData<f64>| -> f64 {
@@ -241,7 +248,8 @@ where
                         let InfillObjData { xbest: xcoop, .. } = params;
                         let mut xcoop = xcoop.clone();
                         coego::set_active_x(&mut xcoop, &active, x);
-                        Self::mean_cstr(&**viab_model, &xcoop, gradient, 1.0, &active)
+                        0.25 - Self::mean_cstr(&**viab_model, &xcoop, gradient, 1.0, &active)
+                            .clamp(0.0, 1.0)
                     } else {
                         -1.0
                     }

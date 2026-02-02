@@ -117,9 +117,11 @@ use std::cmp::Ordering;
 ///
 ///     failsafe_strategy (FailsafeStrategy enum):
 ///         Strategy to handle objective computation failure at a given x point
-///         Can be either FailsafeStrategy.REJECTION or FailsafeStrategy.IMPUTATION
+///         Can be either FailsafeStrategy.REJECTION, FailsafeStrategy.IMPUTATION, or FailsafeStrategy.VIABILITY
 ///         Rejection simply ignores the failed point whereas Imputation
-///         uses the objective surrogate prediction to fill the missing value
+///         uses the objective surrogate prediction to fill the missing value.
+///         In the third case Viability, a viability surrogate is used to model the failure region
+///         which is used as a constraint and drive the optimization toward the feasible region.
 ///
 ///     seed (int >= 0):
 ///         Random generator seed to allow computation reproducibility.
@@ -487,6 +489,7 @@ impl Egor {
         match self.failsafe_strategy {
             FailsafeStrategy::Rejection => egobox_ego::FailsafeStrategy::Rejection,
             FailsafeStrategy::Imputation => egobox_ego::FailsafeStrategy::Imputation,
+            FailsafeStrategy::Viability => egobox_ego::FailsafeStrategy::Viability,
         }
     }
 
