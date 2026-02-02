@@ -108,10 +108,13 @@ class Egor:
         Checkpoint information is stored in .checkpoint/egor.arg binary file.
     
     failsafe_strategy (FailsafeStrategy enum):
-        Strategy to handle objective computation failure at a given x point
-        Can be either FailsafeStrategy.REJECTION or FailsafeStrategy.IMPUTATION
+        Strategy to handle objective computation failure at a given x point.
+        A failure is detected when the objective function returns NaN value(s).
+        Can be either FailsafeStrategy.REJECTION, FailsafeStrategy.IMPUTATION, or FailsafeStrategy.VIABILITY
         Rejection simply ignores the failed point whereas Imputation
-        uses the objective surrogate prediction to fill the missing value
+        uses the objective surrogate prediction to fill the missing value.
+        In the third case Viability, a surrogate is used to model the failure region
+        which is used as a constraint and drive the optimization toward the viable region.
     
     seed (int >= 0):
         Random generator seed to allow computation reproducibility.
@@ -913,6 +916,7 @@ class ConstraintStrategy(enum.Enum):
 class FailsafeStrategy(enum.Enum):
     REJECTION = ...
     IMPUTATION = ...
+    VIABILITY = ...
 
 @typing.final
 class InfillOptimizer(enum.Enum):
