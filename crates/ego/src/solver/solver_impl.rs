@@ -309,8 +309,8 @@ where
         }
 
         builder.set_regression_spec(RegressionSpec::CONSTANT);
-        builder.set_correlation_spec(CorrelationSpec::SQUAREDEXPONENTIAL);
-        builder.set_n_clusters(NbClusters::Auto { max: Some(2) });
+        builder.set_correlation_spec(CorrelationSpec::ABSOLUTEEXPONENTIAL);
+        builder.set_n_clusters(NbClusters::Fixed { nb: 1 });
         builder.set_recombination(egobox_moe::Recombination::Hard);
         // builder.set_optim_params(self.config.gp.n_start, self.config.gp.max_eval);
 
@@ -769,8 +769,8 @@ where
                     fmin,
                     *sigma_weight,
                 );
-
-                let all_scale_cstr = concatenate![Axis(0), scale_cstr, scale_fcstr];
+                let scale_pov_cstr = Array1::ones((1,)); // PoV cstr is normalized 
+                let all_scale_cstr = concatenate![Axis(0), scale_cstr, scale_fcstr, scale_pov_cstr];
 
                 // fmin and xbest are kept the same for all q points
                 // Would it be best to update them with regard to predicted virtual points?
@@ -813,8 +813,19 @@ where
                     .collect::<Vec<_>>();
 
                 // Make viability surrogate and dedicated constraint
-                let viability_model = x_fail_points
-                    .map(|xfail_points| self.make_viability_surrogate(&xt, xfail_points));
+                let viability_model = if let Some(points) = x_fail_points
+                    && points.nrows() > 0
+                {
+                    info!(
+                        "Build viability surrogate with {} safe and {} failed points...",
+                        x_data.nrows(),
+                        points.nrows()
+                    );
+                    x_fail_points
+                        .map(|xfail_points| self.make_viability_surrogate(&xt, xfail_points))
+                } else {
+                    None
+                };
 
                 let sub_rng = Xoshiro256Plus::seed_from_u64(rng.r#gen());
                 // let multistarter = GlobalMultiStarter::new(&self.xlimits, sub_rng);
