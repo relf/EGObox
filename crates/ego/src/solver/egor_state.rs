@@ -295,7 +295,6 @@ where
                 let mut x_fail = x_fail.clone();
                 fail_points.outer_iter().for_each(|x_new| {
                     if is_update_ok(&x_fail, &x_new) {
-                        log::info!("Appending failed point {}", x_new);
                         x_fail.push_row(x_new).unwrap();
                     } else {
                         log::info!("Failed point {} too close to existing failed points", x_new);

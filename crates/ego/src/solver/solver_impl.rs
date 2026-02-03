@@ -319,7 +319,7 @@ where
         let mut yt = Array1::ones(x_data.nrows() + x_fail.nrows());
         yt.slice_mut(s![x_data.nrows()..]).fill(0.0); // failed points labeled as 0.0
 
-        info!("Viability GP clustering and training...");
+        info!("Viability GP training...");
         let gp = builder
             .train(xt.view(), yt.view())
             .expect("Viability GP training failure");
@@ -567,9 +567,26 @@ where
             y_penalized.as_ref(), // penalized values in case of crash
         );
 
-        new_state = new_state
-            .store_failed_points(x_fail_points)
-            .count_added_points(add_count);
+        new_state = if state.get_iter() == 0
+            && self.config.failsafe_strategy == FailsafeStrategy::Imputation
+            && let Some(ref xfail) = x_fail_points
+            && let Some(ref xfail_doe) = new_state.x_fail
+        {
+            // In first iteration, we had doe failed points stored
+            // Store only new failed points (not in doe)
+            info!("Initial DOE had {} failed point(s)", xfail_doe.nrows());
+            info!("Total failed points after eval: {}", xfail.nrows());
+            info!("{} new failed point(s)", xfail.nrows() - xfail_doe.nrows());
+            let new_fails = xfail.slice(s![xfail_doe.nrows().., ..]).to_owned();
+            new_state.store_failed_points(Some(new_fails))
+        } else {
+            new_state.store_failed_points(x_fail_points)
+        }
+        .count_added_points(add_count);
+
+        // new_state = new_state
+        //     .store_failed_points(x_fail_points)
+        //     .count_added_points(add_count);
         info!("+{} point(s), total: {} points", add_count, new_state.added);
         new_state.no_point_added_retries = MAX_POINT_ADDITION_RETRY;
 
@@ -690,39 +707,41 @@ where
                 let (models, inits): (Vec<_>, Vec<_>) = models_and_inits.unzip();
 
                 // Handle failsafe imputation on the first iteration
-                // If failsafe is PredictionImputation we have to check if
-                // xfail has already been imputed in xdata otherwise
-                // we have to predict penalization on these points
-                // and add them to data
-                // This is needed as surrogates have just been retrained
                 if iter == 0
                     && i == 0
-                    && self.config.failsafe_strategy == FailsafeStrategy::Imputation
                     && let Some(xfail_points) = x_fail_points
                 {
-                    info!(
-                        "Impute failed initial points ({} points)...",
-                        xfail_points.nrows()
-                    );
-                    let mut y_pen_imputed =
-                        Array2::zeros((xfail_points.nrows(), 1 + self.config.n_cstr));
-                    Zip::from(y_pen_imputed.rows_mut())
-                        .and(xfail_points.rows())
-                        .for_each(|mut y_row, xfail| {
-                            let y_pred = self.compute_penalized_point(
-                                &xfail,
-                                models[0].as_ref(),
-                                &models[1..],
+                    match self.config.failsafe_strategy {
+                        FailsafeStrategy::Imputation => {
+                            // we have to predict penalization on these points
+                            // and add them to data
+
+                            info!(
+                                "Impute failed initial points ({} points)...",
+                                xfail_points.nrows()
                             );
-                            y_row.assign(&y_pred);
-                        });
-                    (x_dat, y_dat, c_dat, y_penalized) = (
-                        xfail_points.to_owned(),
-                        Array2::from_elem((xfail_points.nrows(), y_data.ncols()), f64::NAN),
-                        self.eval_fcstrs(cstr_funcs, xfail_points),
-                        y_pen_imputed,
-                    );
-                }
+                            let mut y_pen_imputed =
+                                Array2::zeros((xfail_points.nrows(), 1 + self.config.n_cstr));
+                            Zip::from(y_pen_imputed.rows_mut())
+                                .and(xfail_points.rows())
+                                .for_each(|mut y_row, xfail| {
+                                    let y_pred = self.compute_penalized_point(
+                                        &xfail,
+                                        models[0].as_ref(),
+                                        &models[1..],
+                                    );
+                                    y_row.assign(&y_pred);
+                                });
+                            (x_dat, y_dat, c_dat, y_penalized) = (
+                                xfail_points.to_owned(),
+                                Array2::from_elem((xfail_points.nrows(), y_data.ncols()), f64::NAN),
+                                self.eval_fcstrs(cstr_funcs, xfail_points),
+                                y_pen_imputed,
+                            );
+                        }
+                        FailsafeStrategy::Rejection | FailsafeStrategy::Viability => (),
+                    }
+                };
 
                 #[cfg(feature = "persistent")]
                 if std::env::var(crate::EGOR_USE_GP_RECORDER).is_ok() {
@@ -813,7 +832,9 @@ where
                     .collect::<Vec<_>>();
 
                 // Make viability surrogate and dedicated constraint
-                let viability_model = if let Some(points) = x_fail_points
+                let viability_model = if self.config.failsafe_strategy
+                    == FailsafeStrategy::Viability
+                    && let Some(points) = x_fail_points
                     && points.nrows() > 0
                 {
                     info!(

@@ -5,7 +5,6 @@ use crate::EgorSolver;
 
 #[cfg(not(feature = "nlopt"))]
 use crate::types::ObjFn;
-use ndarray::array;
 #[cfg(feature = "nlopt")]
 use nlopt::ObjFn;
 
@@ -233,12 +232,6 @@ where
                 .map(|cstr| cstr as &(dyn ObjFn<InfillObjData<f64>> + Sync))
                 .collect::<Vec<_>>();
             cstr_refs.extend(cstr_funcs.clone());
-
-            if let Some(ref viab_model) = viability_model {
-                let points = array![[0.25, 0.25], [0.75, 0.75], [0.605, 0.118]];
-                let pred = viab_model.predict(&points.view());
-                info!("Viability model check at {:?}: {:?}", points, pred);
-            }
 
             // If viability model is provided, we add the corresponding constraint
             let viability_cstr =

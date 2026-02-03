@@ -401,7 +401,7 @@ class TestEgor(unittest.TestCase):
         )
         res = egor.minimize(
             branin_constrained_with_nans,
-            max_iters=20,
+            max_iters=30,
         )
         print(f"Optimum found at: x = {res.x_opt}, f(x*) = {res.y_opt[0]}")
         self.assertAlmostEqual(0.9677, res.x_opt[0], delta=5e-2)

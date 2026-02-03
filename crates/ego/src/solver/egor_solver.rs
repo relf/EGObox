@@ -261,11 +261,11 @@ where
         let x_data = x_data.select(Axis(0), &valid_idx);
         let y_data = y_data.select(Axis(0), &valid_idx);
         let c_data = c_data.select(Axis(0), &valid_idx);
-        if !x_fail.is_empty() {
-            info!(
-                "{} valid points, {} failed points in initial DOE",
-                x_data.nrows(),
-                x_fail.nrows()
+        if !invalid_idx.is_empty() {
+            log::warn!(
+                "{} failed points out of {} points in initial DOE ",
+                x_fail.nrows(),
+                x_data.nrows() + x_fail.nrows()
             );
         }
         let mut initial_state = state

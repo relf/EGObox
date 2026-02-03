@@ -2,7 +2,6 @@ use crate::types::XType;
 use egobox_moe::MixtureGpSurrogate;
 use libm::erfc;
 use linfa::Float;
-use log::info;
 use ndarray::{Array1, Array2, ArrayBase, ArrayView2, Axis, Data, Ix1, Ix2, Zip};
 use ndarray_stats::{DeviationExt, QuantileExt};
 use rayon::prelude::*;
@@ -102,10 +101,6 @@ pub fn update_data(
 
     let mut add_count = 0;
     let x_fail_points = if !invalid_idx.is_empty() {
-        info!(
-            "{} point(s) resulted in NaN during evaluation",
-            invalid_idx.len()
-        );
         if let Some(y_pen) = y_penalized {
             // Use penalized values for failed points
             invalid_idx.iter().for_each(|&i| {

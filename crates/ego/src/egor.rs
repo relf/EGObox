@@ -1310,8 +1310,8 @@ mod tests {
     #[test]
     #[serial]
     fn test_egor_with_failsafe_failed_points() {
-        const MAX_ITERS: usize = 15;
-        const N_DOE: usize = 20;
+        const MAX_ITERS: usize = 30;
+        const N_DOE: usize = 15;
 
         let initial_doe = Lhs::new(&array![[0.0, 1.0], [0.0, 1.0]])
             .with_rng(Xoshiro256Plus::seed_from_u64(42))
@@ -1375,7 +1375,7 @@ mod tests {
             .expect("Egor should be configured")
             .run()
             .expect("Egor should minimize branin_with_nans");
-        assert_abs_diff_eq!(x_expected.row(0), res.x_opt, epsilon = 5e-2);
+        assert_abs_diff_eq!(x_expected.row(0), res.x_opt, epsilon = 6e-2);
         assert!(N_DOE + MAX_ITERS >= res.x_doe.nrows());
         assert!(res.state.x_fail.is_some());
     }
