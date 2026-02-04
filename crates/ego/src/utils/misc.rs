@@ -1,7 +1,7 @@
 use crate::types::XType;
 use egobox_moe::MixtureGpSurrogate;
 use libm::erfc;
-use log::info;
+use linfa::Float;
 use ndarray::{Array1, Array2, ArrayBase, ArrayView2, Axis, Data, Ix1, Ix2, Zip};
 use ndarray_stats::{DeviationExt, QuantileExt};
 use rayon::prelude::*;
@@ -44,12 +44,12 @@ pub fn norm_pdf(x: f64) -> f64 {
 const MIN_DISTANCE: f64 = 1e-10;
 
 /// Check if new point is not too close to previous ones `x_data`
-pub fn is_update_ok(
-    x_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
-    x_new: &ArrayBase<impl Data<Elem = f64>, Ix1>,
+pub fn is_update_ok<F: Float>(
+    x_data: &ArrayBase<impl Data<Elem = F>, Ix2>,
+    x_new: &ArrayBase<impl Data<Elem = F>, Ix1>,
 ) -> bool {
     for row in x_data.rows() {
-        if row.l1_dist(x_new).unwrap() < MIN_DISTANCE {
+        if row.l1_dist(x_new).unwrap() < F::cast(MIN_DISTANCE) {
             log::info!("Point {} too close to existing data point {}", x_new, row);
             return false;
         }
@@ -101,10 +101,6 @@ pub fn update_data(
 
     let mut add_count = 0;
     let x_fail_points = if !invalid_idx.is_empty() {
-        info!(
-            "{} point(s) resulted in NaN during evaluation",
-            invalid_idx.len()
-        );
         if let Some(y_pen) = y_penalized {
             // Use penalized values for failed points
             invalid_idx.iter().for_each(|&i| {

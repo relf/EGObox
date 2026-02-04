@@ -19,7 +19,7 @@ use egobox_doe::{Lhs, LhsKind};
 use egobox_gp::ThetaTuning;
 use env_logger::{Builder, Env};
 
-use egobox_moe::{Clustering, MixtureGpSurrogate, NbClusters};
+use egobox_moe::{Clustering, CorrelationSpec, MixtureGpSurrogate, NbClusters, RegressionSpec};
 use log::{debug, info};
 use ndarray::{Array1, Array2, ArrayBase, Axis, Data, Ix1, Ix2, Zip, concatenate, s};
 use ndarray_rand::rand::{Rng, SeedableRng};
@@ -296,6 +296,41 @@ where
         (model.expect("Surrogate model is trained"), best_theta_inits)
     }
 
+    fn make_viability_surrogate(
+        &self,
+        x_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+        x_fail: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+    ) -> Box<dyn MixtureGpSurrogate> {
+        let mut builder = self.surrogate_builder.clone();
+
+        // Use kpls reduction if nx>10
+        if x_data.ncols() > 10 {
+            builder.set_kpls_dim(Some(10));
+        }
+
+        builder.set_regression_spec(RegressionSpec::CONSTANT);
+        builder.set_correlation_spec(CorrelationSpec::ABSOLUTEEXPONENTIAL);
+        builder.set_n_clusters(NbClusters::Fixed { nb: 2 });
+        builder.set_recombination(egobox_moe::Recombination::Hard);
+        // builder.set_optim_params(self.config.gp.n_start, self.config.gp.max_eval);
+
+        let xt = concatenate(Axis(0), &[x_data.view(), x_fail.view()]).unwrap();
+
+        let mut yt = Array1::ones(x_data.nrows() + x_fail.nrows());
+        yt.slice_mut(s![x_data.nrows()..]).fill(0.0); // failed points labeled as 0.0
+
+        info!("Viability GP training...");
+        let gp = builder
+            .train(xt.view(), yt.view())
+            .expect("Viability GP training failure");
+        info!(
+            "... Viability GP trained ({} / {})",
+            gp.n_clusters(),
+            gp.recombination()
+        );
+        gp
+    }
+
     /// Refresh infill data used to optimize infill criterion
     pub fn refresh_infill_data<
         O: CostFunction<Param = Array2<f64>, Output = Array2<f64>> + DomainConstraints<C>,
@@ -532,9 +567,26 @@ where
             y_penalized.as_ref(), // penalized values in case of crash
         );
 
-        new_state = new_state
-            .store_failed_points(x_fail_points)
-            .count_added_points(add_count);
+        new_state = if state.get_iter() == 0
+            && self.config.failsafe_strategy == FailsafeStrategy::Imputation
+            && let Some(ref xfail) = x_fail_points
+            && let Some(ref xfail_doe) = new_state.x_fail
+        {
+            // In first iteration, we had doe failed points stored
+            // Store only new failed points (not in doe)
+            info!("Initial DOE had {} failed point(s)", xfail_doe.nrows());
+            info!("Total failed points after eval: {}", xfail.nrows());
+            info!("{} new failed point(s)", xfail.nrows() - xfail_doe.nrows());
+            let new_fails = xfail.slice(s![xfail_doe.nrows().., ..]).to_owned();
+            new_state.store_failed_points(Some(new_fails))
+        } else {
+            new_state.store_failed_points(x_fail_points)
+        }
+        .count_added_points(add_count);
+
+        // new_state = new_state
+        //     .store_failed_points(x_fail_points)
+        //     .count_added_points(add_count);
         info!("+{} point(s), total: {} points", add_count, new_state.added);
         new_state.no_point_added_retries = MAX_POINT_ADDITION_RETRY;
 
@@ -654,40 +706,42 @@ where
                 });
                 let (models, inits): (Vec<_>, Vec<_>) = models_and_inits.unzip();
 
-                // On the first iteration
-                // If failsafe is PredictionImputation we have to check if
-                // xfail has already been imputed in xdata otherwise
-                // we have to predict penalization on these points
-                // and add them to data
-                // This is needed as surrogates have just been retrained
+                // Handle failsafe imputation on the first iteration
                 if iter == 0
                     && i == 0
-                    && self.config.failsafe_strategy == FailsafeStrategy::Imputation
                     && let Some(xfail_points) = x_fail_points
                 {
-                    info!(
-                        "Impute failed initial points ({} points)...",
-                        xfail_points.nrows()
-                    );
-                    let mut y_pen_imputed =
-                        Array2::zeros((xfail_points.nrows(), 1 + self.config.n_cstr));
-                    Zip::from(y_pen_imputed.rows_mut())
-                        .and(xfail_points.rows())
-                        .for_each(|mut y_row, xfail| {
-                            let y_pred = self.compute_penalized_point(
-                                &xfail,
-                                models[0].as_ref(),
-                                &models[1..],
+                    match self.config.failsafe_strategy {
+                        FailsafeStrategy::Imputation => {
+                            // we have to predict penalization on these points
+                            // and add them to data
+
+                            info!(
+                                "Impute failed initial points ({} points)...",
+                                xfail_points.nrows()
                             );
-                            y_row.assign(&y_pred);
-                        });
-                    (x_dat, y_dat, c_dat, y_penalized) = (
-                        xfail_points.to_owned(),
-                        Array2::from_elem((xfail_points.nrows(), y_data.ncols()), f64::NAN),
-                        self.eval_fcstrs(cstr_funcs, xfail_points),
-                        y_pen_imputed,
-                    );
-                }
+                            let mut y_pen_imputed =
+                                Array2::zeros((xfail_points.nrows(), 1 + self.config.n_cstr));
+                            Zip::from(y_pen_imputed.rows_mut())
+                                .and(xfail_points.rows())
+                                .for_each(|mut y_row, xfail| {
+                                    let y_pred = self.compute_penalized_point(
+                                        &xfail,
+                                        models[0].as_ref(),
+                                        &models[1..],
+                                    );
+                                    y_row.assign(&y_pred);
+                                });
+                            (x_dat, y_dat, c_dat, y_penalized) = (
+                                xfail_points.to_owned(),
+                                Array2::from_elem((xfail_points.nrows(), y_data.ncols()), f64::NAN),
+                                self.eval_fcstrs(cstr_funcs, xfail_points),
+                                y_pen_imputed,
+                            );
+                        }
+                        FailsafeStrategy::Rejection | FailsafeStrategy::Viability => (),
+                    }
+                };
 
                 #[cfg(feature = "persistent")]
                 if std::env::var(crate::EGOR_USE_GP_RECORDER).is_ok() {
@@ -734,8 +788,8 @@ where
                     fmin,
                     *sigma_weight,
                 );
-
-                let all_scale_cstr = concatenate![Axis(0), scale_cstr, scale_fcstr];
+                let scale_pov_cstr = Array1::ones((1,)); // PoV cstr is normalized 
+                let all_scale_cstr = concatenate![Axis(0), scale_cstr, scale_fcstr, scale_pov_cstr];
 
                 // fmin and xbest are kept the same for all q points
                 // Would it be best to update them with regard to predicted virtual points?
@@ -777,6 +831,23 @@ where
                     })
                     .collect::<Vec<_>>();
 
+                // Make viability surrogate and dedicated constraint
+                let viability_model = if self.config.failsafe_strategy
+                    == FailsafeStrategy::Viability
+                    && let Some(points) = x_fail_points
+                    && points.nrows() > 0
+                {
+                    info!(
+                        "Build viability surrogate with {} safe and {} failed points...",
+                        x_data.nrows(),
+                        points.nrows()
+                    );
+                    x_fail_points
+                        .map(|xfail_points| self.make_viability_surrogate(&xt, xfail_points))
+                } else {
+                    None
+                };
+
                 let sub_rng = Xoshiro256Plus::seed_from_u64(rng.r#gen());
                 // let multistarter = GlobalMultiStarter::new(&self.xlimits, sub_rng);
                 let xsamples = x_data.to_owned();
@@ -787,6 +858,7 @@ where
                     cstr_models,
                     &cstr_funcs,
                     cstr_tol,
+                    viability_model,
                     &infill_data,
                     &actives,
                 );
