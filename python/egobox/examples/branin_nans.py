@@ -9,8 +9,10 @@ This illustrates the management of hidden constraints by Egor
 See Section 5.5.1 Imputing Data for infeasible design
 """
 
+import os
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib import animation
 import egobox as egx
 
 import logging
@@ -81,7 +83,15 @@ def branin_grouped(point):
     return np.column_stack([branin_forrester(p), cstr])
 
 
-def plot_constrained_branin(res, initial_doe):
+def plot_constrained_branin(
+    res,
+    initial_doe,
+    animate=True,
+    interval_ms=150,
+    save_gif=False,
+    gif_path="branin_nans_animation.gif",
+    gif_fps=5,
+):
     """
     Plot Branin function contours, constraint boundary, and optimum.
     """
@@ -146,13 +156,13 @@ def plot_constrained_branin(res, initial_doe):
 
     print(f"Plotting optimization path with {path_points.shape[0]} points.")
 
-    ax.plot(
-        path_points[:, 0],
-        path_points[:, 1],
+    (path_line,) = ax.plot(
+        [],
+        [],
         "ko-",
         markersize=4,
         linewidth=1,
-        alpha=0.5,
+        alpha=0.6,
         label="Optimization path",
     )
 
@@ -215,9 +225,39 @@ def plot_constrained_branin(res, initial_doe):
     cbar.set_label("Objective value", rotation=270, labelpad=20)
 
     plt.tight_layout()
+
+    if animate and path_points.shape[0] > 0:
+
+        def init():
+            path_line.set_data([], [])
+            return (path_line,)
+
+        def update(frame):
+            pts = path_points[: frame + 1]
+            path_line.set_data(pts[:, 0], pts[:, 1])
+            return (path_line,)
+
+        anim = animation.FuncAnimation(
+            fig,
+            update,
+            init_func=init,
+            frames=path_points.shape[0],
+            interval=interval_ms,
+            blit=True,
+            repeat=False,
+        )
+        if save_gif:
+            print(f"Saving animation to {gif_path}...")
+            anim.save(gif_path, writer="pillow", fps=gif_fps)
+            print("Animation saved!")
+        plt.show()
+        return fig, anim
+
+    if path_points.shape[0] > 0:
+        path_line.set_data(path_points[:, 0], path_points[:, 1])
     plt.show()
 
-    return fig
+    return fig, None
 
 
 def main():
@@ -302,7 +342,15 @@ def main():
 
     # Plot results
     print("\nGenerating visualization...")
-    plot_constrained_branin(res, initial_doe)
+    gif_path = os.path.join(os.getcwd(), "branin_nans_animation.gif")
+    _fig, _anim = plot_constrained_branin(
+        res,
+        initial_doe,
+        animate=True,
+        save_gif=False,
+        gif_path=gif_path,
+        gif_fps=5,
+    )
 
 
 if __name__ == "__main__":
