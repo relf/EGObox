@@ -16,6 +16,7 @@ Such evaluation outcome are now handled to keep the optimizer going, so wrt a ch
 See this [paper](<https://hal.science/hal-04462408v2/file/DTIS2024-018-DTIS2024-018%20posprint-Accept%C3%A9e.pdf>) for reference.
 
 Implementation details:
+
 * Implementation of hidden constraints handling by @relf in <https://github.com/relf/EGObox/pull/377>
 * Add probability of viability constraint as failsafe strategy by @relf in <https://github.com/relf/EGObox/pull/378>
 
