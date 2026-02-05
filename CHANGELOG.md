@@ -1,6 +1,24 @@
 # Changes
 
-## Version 0.36.0 - unreleased
+## Version 0.37.0 - unreleased
+
+## Version 0.36.0 - 05/02/2026
+
+This release introduces hidden constraint management.
+When objective function evaluation fails (i.e. returns NaN) we can consider we hit an hidden constraint
+(aka unknown or crash constraint).
+Such evaluation outcome are now handled to keep the optimizer going, so wrt a choosen failsafe strategy:
+
+* `Rejection`: the point is ignored but the optimizer may be stuck in a bad region
+* `Imputation`: an imputed value is assigned to move the optimizer away from the bad region
+* `Viability`: a probaility of viability is computed to constrained the optimization
+
+See this [paper](<https://hal.science/hal-04462408v2/file/DTIS2024-018-DTIS2024-018%20posprint-Accept%C3%A9e.pdf>) for reference.
+
+Implementation details:
+
+* Implementation of hidden constraints handling by @relf in <https://github.com/relf/EGObox/pull/377>
+* Add probability of viability constraint as failsafe strategy by @relf in <https://github.com/relf/EGObox/pull/378>
 
 ## Version 0.35.0 - 14/01/2026
 
