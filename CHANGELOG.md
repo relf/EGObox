@@ -4,10 +4,11 @@
 
 ## Version 0.36.0 - 05/02/2026
 
-This release introduces hidden constraint management. 
-When objective function evaluation fails (i.e. returns NaN) we can consider we hit an hidden constraint 
-(aka unknown or crash constraint). 
+This release introduces hidden constraint management.
+When objective function evaluation fails (i.e. returns NaN) we can consider we hit an hidden constraint
+(aka unknown or crash constraint).
 Such evaluation outcome are now handled to keep the optimizer going, so wrt a choosen failsafe strategy:
+
 * `Rejection`: the point is ignored but the optimizer may be stuck in a bad region
 * `Imputation`: an imputed value is assigned to move the optimizer away from the bad region
 * `Viability`: a probaility of viability is computed to constrained the optimization
