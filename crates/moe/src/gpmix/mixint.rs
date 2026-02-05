@@ -343,6 +343,7 @@ impl MixintGpMixtureParams {
 }
 
 impl MixintGpMixtureValidParams {
+    /// Train a mixed-integer GP mixture model
     pub fn _train(
         &self,
         xt: &ArrayBase<impl Data<Elem = f64>, Ix2>,
@@ -368,6 +369,7 @@ impl MixintGpMixtureValidParams {
         Ok(mixmoe)
     }
 
+    /// Train a mixed-integer GP mixture model on pre-defined clusters
     pub fn _train_on_clusters(
         &self,
         xt: &ArrayBase<impl Data<Elem = f64>, Ix2>,
