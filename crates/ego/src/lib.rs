@@ -326,6 +326,7 @@ pub use crate::errors::*;
 pub use crate::gpmix::spec::{CorrelationSpec, RegressionSpec};
 pub use crate::solver::*;
 pub use crate::types::*;
+pub use egobox_moe::XType;
 pub use crate::utils::{
     CHECKPOINT_FILE, Checkpoint, CheckpointingFrequency, EGOBOX_LOG, EGOR_GP_FILENAME,
     EGOR_INITIAL_GP_FILENAME, EGOR_USE_GP_RECORDER, EGOR_USE_GP_VAR_PORTFOLIO,

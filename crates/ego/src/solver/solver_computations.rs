@@ -1,5 +1,5 @@
 use crate::errors::Result;
-use crate::gpmix::mixint::to_discrete_space;
+use crate::gpmix::to_discrete_space;
 use crate::{types::*, utils};
 
 use crate::utils::{

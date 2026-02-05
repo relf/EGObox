@@ -294,12 +294,12 @@ pub type MoeBuilder = GpMixtureParams<f64>;
 #[cfg_attr(feature = "serializable", derive(Serialize, Deserialize))]
 pub struct MixintGpMixtureValidParams {
     /// The surrogate factory
-    surrogate_builder: GpMixtureParams<f64>,
+    pub surrogate_builder: GpMixtureParams<f64>,
     /// The input specifications
-    xtypes: Vec<XType>,
+    pub xtypes: Vec<XType>,
     /// whether data are in given in folded space (enum indexes) or not (enum masks)
     /// i.e for "blue" in ["red", "green", "blue"] either \[2\] or [0, 0, 1]
-    work_in_folded_space: bool,
+    pub work_in_folded_space: bool,
 }
 
 impl MixintGpMixtureValidParams {
@@ -318,7 +318,7 @@ impl MixintGpMixtureValidParams {
 /// Parameters for mixture of experts surrogate model
 #[derive(Clone)]
 #[cfg_attr(feature = "serializable", derive(Serialize, Deserialize))]
-pub struct MixintGpMixtureParams(MixintGpMixtureValidParams);
+pub struct MixintGpMixtureParams(pub MixintGpMixtureValidParams);
 
 impl MixintGpMixtureParams {
     /// Constructor given `xtypes` specifications and given surrogate builder
@@ -343,7 +343,7 @@ impl MixintGpMixtureParams {
 }
 
 impl MixintGpMixtureValidParams {
-    fn _train(
+    pub fn _train(
         &self,
         xt: &ArrayBase<impl Data<Elem = f64>, Ix2>,
         yt: &ArrayBase<impl Data<Elem = f64>, Ix1>,
@@ -368,7 +368,7 @@ impl MixintGpMixtureValidParams {
         Ok(mixmoe)
     }
 
-    fn _train_on_clusters(
+    pub fn _train_on_clusters(
         &self,
         xt: &ArrayBase<impl Data<Elem = f64>, Ix2>,
         yt: &ArrayBase<impl Data<Elem = f64>, Ix1>,

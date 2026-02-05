@@ -44,9 +44,14 @@
 //!
 use std::marker::PhantomData;
 
-use crate::{EgorConfig, EgorSolver, errors::Result, gpmix::mixint::*, to_xtypes, types::*};
+use crate::{
+    EgorConfig, EgorSolver, errors::Result, gpmix::{
+        MixintGpMixtureParams, to_continuous_space, to_discrete_space
+    }, 
+    to_xtypes, types::*
+};
 
-use egobox_moe::GpMixtureParams;
+use egobox_moe::{GpMixtureParams, XType};
 use ndarray::{Array2, ArrayBase, Data, Ix2};
 
 use serde::de::DeserializeOwned;
@@ -136,7 +141,7 @@ pub type EgorServiceBuilder = EgorServiceFactory<Cstr>;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gpmix::spec::*;
+    use crate::{CorrelationSpec, RegressionSpec};
     use approx::assert_abs_diff_eq;
     use ndarray::{ArrayView2, Axis, array, concatenate};
 

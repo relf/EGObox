@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::errors::{EgoError, Result};
 use crate::find_best_result_index;
-use crate::gpmix::mixint::{as_continuous_limits, to_discrete_space};
+use crate::gpmix::{as_continuous_limits, to_discrete_space};
 use crate::solver::solver_computations::MiddlePickerMultiStarter;
 use crate::solver::solver_infill_optim::InfillOptProblem;
 use crate::utils::{

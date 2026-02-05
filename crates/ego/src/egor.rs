@@ -105,14 +105,14 @@ use crate::EgorConfig;
 use crate::EgorState;
 use crate::HotStartMode;
 use crate::errors::Result;
-use crate::gpmix::mixint::*;
+use crate::gpmix::{MixintGpMixtureParams, to_discrete_space};
 use crate::types::*;
 use crate::{CHECKPOINT_FILE, CheckpointingFrequency, HotStartCheckpoint};
 use crate::{EgorSolver, to_xtypes};
 
 use argmin::core::observers::ObserverMode;
 
-use egobox_moe::GpMixtureParams;
+use egobox_moe::{GpMixtureParams, XType};
 use log::info;
 use ndarray::{Array2, ArrayBase, Axis, Data, Ix2, concatenate};
 
@@ -432,7 +432,7 @@ mod tests {
     use serial_test::serial;
     use std::time::Instant;
 
-    use crate::{CoegoStatus, DOE_FILE, DOE_INITIAL_FILE, gpmix::spec::*, utils::EGOBOX_LOG};
+    use crate::{CoegoStatus, DOE_FILE, DOE_INITIAL_FILE, CorrelationSpec, RegressionSpec, utils::EGOBOX_LOG};
 
     #[cfg(not(feature = "blas"))]
     use linfa_linalg::norm::*;

@@ -1,7 +1,7 @@
-use crate::gpmix::spec::*;
+use egobox_moe::{Clustering, MixtureGpSurrogate, NbClusters, Recombination, ThetaTuning, CorrelationSpec, RegressionSpec};
+pub use egobox_moe::XType;
 use crate::{EgorState, errors::Result};
 use argmin::core::CostFunction;
-use egobox_moe::{Clustering, MixtureGpSurrogate, NbClusters, Recombination, ThetaTuning};
 use linfa::Float;
 use ndarray::{Array1, Array2, ArrayView1, ArrayView2};
 use serde::{Deserialize, Serialize};
@@ -135,20 +135,6 @@ impl<O: GroupFunc, C: CstrFn> DomainConstraints<C> for ObjFunc<O, C> {
     fn fn_constraints(&self) -> &[impl CstrFn] {
         &self.fcstrs
     }
-}
-
-/// An enumeration to define the type of an input variable component
-/// with its domain definition
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum XType {
-    /// Continuous variable in [lower bound, upper bound]
-    Float(f64, f64),
-    /// Integer variable in lower bound .. upper bound
-    Int(i32, i32),
-    /// An Ordered variable in { float_1, float_2, ..., float_n }
-    Ord(Vec<f64>),
-    /// An Enum variable in { 1, 2, ..., int_n }
-    Enum(usize),
 }
 
 /// A trait for surrogate training
