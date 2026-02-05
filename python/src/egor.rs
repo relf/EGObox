@@ -318,7 +318,7 @@ impl Egor {
             })
             .collect::<Vec<_>>();
 
-        let xtypes: Vec<egobox_ego::XType> = parse(py, self.xspecs.clone_ref(py));
+        let xtypes: Vec<egobox_moe::XType> = parse(py, self.xspecs.clone_ref(py));
 
         let mixintegor = egobox_ego::EgorFactory::optimize(obj)
             .subject_to(fcstrs)
@@ -376,7 +376,7 @@ impl Egor {
         let x_doe = x_doe.as_array();
         let y_doe = y_doe.as_array();
         let doe = concatenate(Axis(1), &[x_doe.view(), y_doe.view()]).unwrap();
-        let xtypes: Vec<egobox_ego::XType> = parse(py, self.xspecs.clone_ref(py));
+        let xtypes: Vec<egobox_moe::XType> = parse(py, self.xspecs.clone_ref(py));
 
         let mixintegor = egobox_ego::EgorServiceBuilder::optimize()
             .configure(|config| self.apply_config(config, Some(1), 0, Some(&doe)))

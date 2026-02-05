@@ -173,7 +173,7 @@ impl<O, SB, C> Solver<O, EgorState<f64>> for EgorSolver<SB, C>
 where
     O: CostFunction<Param = Array2<f64>, Output = Array2<f64>> + DomainConstraints<C>,
     C: CstrFn,
-    SB: SurrogateBuilder + DeserializeOwned,
+    SB: SurrogateBuilder + Serialize + DeserializeOwned,
 {
     fn name(&self) -> &str {
         "Egor"
@@ -446,7 +446,7 @@ where
 
 impl<SB, C: CstrFn> EgorSolver<SB, C>
 where
-    SB: SurrogateBuilder + DeserializeOwned,
+    SB: SurrogateBuilder + Serialize + DeserializeOwned,
 {
     /// Iteration of EGO algorithm
     fn ego_iteration<

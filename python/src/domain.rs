@@ -30,7 +30,7 @@ impl Domain<'_> {
 }
 
 /// Translate Python domain specifications into a vector of `XType`
-pub(crate) fn parse(py: Python, xspecs: Py<PyAny>) -> Vec<egobox_ego::XType> {
+pub(crate) fn parse(py: Python, xspecs: Py<PyAny>) -> Vec<egobox_moe::XType> {
     let domain: Domain = xspecs.extract(py).expect("Error in xspecs conversion");
     if domain.is_empty() {
         panic!("Error: domain argument cannot be empty")
@@ -46,33 +46,33 @@ pub(crate) fn parse(py: Python, xspecs: Py<PyAny>) -> Vec<egobox_ego::XType> {
     }
 }
 
-fn xtypes_from_floats(floats: Vec<Vec<f64>>) -> Vec<egobox_ego::XType> {
+fn xtypes_from_floats(floats: Vec<Vec<f64>>) -> Vec<egobox_moe::XType> {
     floats
         .iter()
-        .map(|v| egobox_ego::XType::Float(v[0], v[1]))
+        .map(|v| egobox_moe::XType::Float(v[0], v[1]))
         .collect()
 }
 
-fn xtypes_from_ndarray(xlimits: PyReadonlyArray2<f64>) -> Vec<egobox_ego::XType> {
+fn xtypes_from_ndarray(xlimits: PyReadonlyArray2<f64>) -> Vec<egobox_moe::XType> {
     let ary = xlimits.as_array();
     ary.outer_iter().fold(Vec::new(), |mut acc, row| {
-        acc.push(egobox_ego::XType::Float(row[0], row[1]));
+        acc.push(egobox_moe::XType::Float(row[0], row[1]));
         acc
     })
 }
 
-fn xtypes_from_xspecs(xspecs: Vec<XSpec>) -> Vec<egobox_ego::XType> {
+fn xtypes_from_xspecs(xspecs: Vec<XSpec>) -> Vec<egobox_moe::XType> {
     xspecs
         .iter()
         .map(|spec| match spec.xtype {
-            XType::Float => egobox_ego::XType::Float(spec.xlimits[0], spec.xlimits[1]),
-            XType::Int => egobox_ego::XType::Int(spec.xlimits[0] as i32, spec.xlimits[1] as i32),
-            XType::Ord => egobox_ego::XType::Ord(spec.xlimits.clone()),
+            XType::Float => egobox_moe::XType::Float(spec.xlimits[0], spec.xlimits[1]),
+            XType::Int => egobox_moe::XType::Int(spec.xlimits[0] as i32, spec.xlimits[1] as i32),
+            XType::Ord => egobox_moe::XType::Ord(spec.xlimits.clone()),
             XType::Enum => {
                 if spec.tags.is_empty() {
-                    egobox_ego::XType::Enum(spec.xlimits[0] as usize)
+                    egobox_moe::XType::Enum(spec.xlimits[0] as usize)
                 } else {
-                    egobox_ego::XType::Enum(spec.tags.len())
+                    egobox_moe::XType::Enum(spec.tags.len())
                 }
             }
         })

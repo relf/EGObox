@@ -13,7 +13,7 @@ use log::info;
 use ndarray::{Array, Array1, Array2};
 
 use rayon::prelude::*;
-use serde::de::DeserializeOwned;
+use serde::{Serialize, de::DeserializeOwned};
 
 use super::coego;
 
@@ -64,7 +64,7 @@ impl<'a, CstrFn> InfillOptProblem<'a, CstrFn> {
 
 impl<SB, C> EgorSolver<SB, C>
 where
-    SB: SurrogateBuilder + DeserializeOwned,
+    SB: SurrogateBuilder + Serialize + DeserializeOwned,
     C: CstrFn,
 {
     /// Find best x promising points by optimizing the chosen infill criterion

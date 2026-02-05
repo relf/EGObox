@@ -314,7 +314,6 @@
 #![warn(rustdoc::broken_intra_doc_links)]
 
 pub mod criteria;
-pub mod gpmix;
 
 mod egor;
 mod errors;
@@ -323,7 +322,6 @@ mod types;
 
 pub use crate::egor::*;
 pub use crate::errors::*;
-pub use crate::gpmix::spec::{CorrelationSpec, RegressionSpec};
 pub use crate::solver::*;
 pub use crate::types::*;
 pub use crate::utils::{
@@ -331,6 +329,7 @@ pub use crate::utils::{
     EGOR_INITIAL_GP_FILENAME, EGOR_USE_GP_RECORDER, EGOR_USE_GP_VAR_PORTFOLIO,
     EGOR_USE_MAX_PROBA_OF_FEASIBILITY, HotStartCheckpoint, HotStartMode, find_best_result_index,
 };
+pub use egobox_moe::{CorrelationSpec, RegressionSpec};
 
 mod optimizers;
 mod utils;
