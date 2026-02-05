@@ -98,6 +98,8 @@ mod algorithm;
 mod metrics;
 mod parameters;
 
+pub mod gpmix;
+
 pub use clustering::*;
 pub use errors::*;
 pub use gaussian_mixture::*;
@@ -107,3 +109,4 @@ pub use types::*;
 
 pub use algorithm::*;
 pub use parameters::*;
+pub use gpmix::{XType, MixintGpMixture, MixintGpMixtureParams, as_continuous_limits, to_continuous_space, to_discrete_space};
