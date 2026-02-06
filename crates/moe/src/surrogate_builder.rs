@@ -10,10 +10,7 @@ use crate::{
 use egobox_gp::ThetaTuning;
 use ndarray::{ArrayView1, ArrayView2};
 
-/// A trait for surrogate training
-///
-/// The output surrogate used by Egor is expected to model either
-/// objective function or constraint functions
+/// A trait for mixture of gp surrogate builder (aka gp configuration and training).
 pub trait SurrogateBuilder: Clone + Sync {
     /// Constructor from domain space specified with types.
     fn new_with_xtypes(xtypes: &[XType]) -> Self;
