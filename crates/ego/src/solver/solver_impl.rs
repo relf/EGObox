@@ -340,12 +340,12 @@ where
         state: &mut EgorState<f64>,
         models: &[Box<dyn egobox_moe::MixtureGpSurrogate>],
     ) -> InfillObjData<f64> {
-        let y_data = state.data.as_ref().unwrap().1.clone();
-        let x_data = state.data.as_ref().unwrap().0.clone();
+        let y_data = state.surrogate.data.as_ref().unwrap().1.clone();
+        let x_data = state.surrogate.data.as_ref().unwrap().0.clone();
         let (obj_model, cstr_models) = models.split_first().unwrap();
 
-        let fmin = y_data[[state.best_index.unwrap(), 0]];
-        let xbest = x_data.row(state.best_index.unwrap()).to_vec();
+        let fmin = y_data[[state.surrogate.best_index.unwrap(), 0]];
+        let xbest = x_data.row(state.surrogate.best_index.unwrap()).to_vec();
 
         let pb = problem.take_problem().unwrap();
         let fcstrs = pb.fn_constraints();
@@ -394,11 +394,11 @@ where
     ) -> Vec<Box<dyn egobox_moe::MixtureGpSurrogate>> {
         info!(
             "Train surrogates with {} points...",
-            &state.data.as_ref().unwrap().0.nrows()
+            &state.surrogate.data.as_ref().unwrap().0.nrows()
         );
 
         let actives = state
-            .activity
+            .coego.activity
             .as_ref()
             .unwrap_or(&self.full_activity())
             .to_owned();
@@ -413,12 +413,12 @@ where
                 };
                 self.make_clustered_surrogate(
                     &name,
-                    &state.data.as_ref().unwrap().0,
-                    &state.data.as_ref().unwrap().1.slice(s![.., k]).to_owned(),
+                    &state.surrogate.data.as_ref().unwrap().0,
+                    &state.surrogate.data.as_ref().unwrap().1.slice(s![.., k]).to_owned(),
                     false,
                     true,
-                    state.clusterings.as_ref().unwrap()[k].as_ref(),
-                    state.theta_inits.as_ref().unwrap()[k].as_ref(),
+                    state.surrogate.clusterings.as_ref().unwrap()[k].as_ref(),
+                    state.surrogate.theta_inits.as_ref().unwrap()[k].as_ref(),
                     &actives,
                 )
                 .0
@@ -460,7 +460,7 @@ where
             .ok_or_else(argmin_error_closure!(PotentialBug, "EgorSolver: No data!"))?;
 
         let (x_dat, c_dat, y_penalized) = loop {
-            let recluster = self.have_to_recluster(new_state.added, new_state.prev_added);
+            let recluster = self.have_to_recluster(new_state.doe.added, new_state.doe.prev_added);
             if recluster {
                 info!("Reclustering surrogates...");
             }
@@ -479,9 +479,9 @@ where
                 &x_data,
                 &y_data,
                 &c_data,
-                state.x_fail.as_ref(),
-                &state.cstr_tol,
-                state.best_index.unwrap(),
+                state.surrogate.x_fail.as_ref(),
+                &state.doe.cstr_tol,
+                state.surrogate.best_index.unwrap(),
                 fcstrs,
                 state.feasibility,
                 &mut rng,
@@ -538,8 +538,8 @@ where
                 );
             }
             if rejected_count == x_dat.nrows() {
-                new_state.no_point_added_retries -= 1;
-                if new_state.no_point_added_retries == 0 {
+                new_state.doe.no_point_added_retries -= 1;
+                if new_state.doe.no_point_added_retries == 0 {
                     info!("Max number of retries ({}) without adding point", 3);
                     info!("Consider solver has converged");
                     return Err(EgoError::NoMorePointToAddError(Box::new(new_state)));
@@ -570,7 +570,7 @@ where
         new_state = if state.get_iter() == 0
             && self.config.failsafe_strategy == FailsafeStrategy::Imputation
             && let Some(ref xfail) = x_fail_points
-            && let Some(ref xfail_doe) = new_state.x_fail
+            && let Some(ref xfail_doe) = new_state.surrogate.x_fail
         {
             // In first iteration, we had doe failed points stored
             // Store only new failed points (not in doe)
@@ -587,15 +587,15 @@ where
         // new_state = new_state
         //     .store_failed_points(x_fail_points)
         //     .count_added_points(add_count);
-        info!("+{} point(s), total: {} points", add_count, new_state.added);
-        new_state.no_point_added_retries = MAX_POINT_ADDITION_RETRY;
+        info!("+{} point(s), total: {} points", add_count, new_state.doe.added);
+        new_state.doe.no_point_added_retries = MAX_POINT_ADDITION_RETRY;
 
         let best_index = find_best_result_index_from(
-            state.best_index.unwrap(),
+            state.surrogate.best_index.unwrap(),
             y_data.nrows() - add_count,
             &y_data,
             &c_data,
-            &new_state.cstr_tol,
+            &new_state.doe.cstr_tol,
         );
         new_state =
             new_state
@@ -605,7 +605,7 @@ where
             || is_feasible(
                 &y_data.row(best_index),
                 &c_data.row(best_index),
-                &new_state.cstr_tol,
+                &new_state.doe.cstr_tol,
             );
         Ok(new_state)
     }

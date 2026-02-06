@@ -23,11 +23,137 @@ use std::collections::HashMap;
 /// to train surrogate models modeling objective and constraints functions.
 pub(crate) const MAX_POINT_ADDITION_RETRY: i32 = 1;
 
+// =============================================================================
+// Sub-state structs for better organization (SRP - Single Responsibility Principle)
+// =============================================================================
+
+/// State related to Design of Experiments (DOE) management.
+///
+/// Tracks the growing DOE as points are added during optimization.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DoeState<F: Float> {
+    /// Initial doe size
+    pub doe_size: usize,
+    /// Number of added points
+    pub added: usize,
+    /// Previous number of added points
+    pub prev_added: usize,
+    /// Current number of retry without adding point
+    pub no_point_added_retries: i32,
+    /// Flag to trigger LHS optimization
+    pub lhs_optim: bool,
+    /// Constraint tolerance cstr < cstr_tol.
+    /// It used to assess the validity of the param point and hence the corresponding cost
+    pub cstr_tol: Array1<F>,
+}
+
+impl<F: Float> Default for DoeState<F> {
+    fn default() -> Self {
+        DoeState {
+            doe_size: 0,
+            added: 0,
+            prev_added: 0,
+            no_point_added_retries: MAX_POINT_ADDITION_RETRY,
+            lhs_optim: false,
+            cstr_tol: Array1::zeros(0),
+        }
+    }
+}
+
+/// State related to surrogate model management.
+///
+/// Tracks clusterings, hyperparameters, and training data for GP mixture surrogates.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SurrogateState<F: Float> {
+    /// Current clusterings for objective and constraints GP mixture surrogate models
+    pub clusterings: Option<Vec<Option<Clustering>>>,
+    /// ThetaTunings controlled by q_optmod configuration triggering
+    /// GP surrogate models hyperparameters optimization or reusing previous ones
+    pub theta_inits: Option<Vec<Option<Array2<F>>>>,
+    /// Historic data (params, objective and constraints values, function constraints)
+    pub data: Option<(Array2<F>, Array2<F>, Array2<F>)>,
+    /// Points resulting in failure during objective/constraints evaluation
+    pub x_fail: Option<Array2<F>>,
+    /// Previous index of best result in data
+    pub prev_best_index: Option<usize>,
+    /// index of best result in data
+    pub best_index: Option<usize>,
+    /// Infill data used to optimized infill criterion
+    pub infill_data: InfillObjData<F>,
+    /// Infill criterion value
+    pub infill_value: F,
+}
+
+impl<F: Float> Default for SurrogateState<F> {
+    fn default() -> Self {
+        SurrogateState {
+            clusterings: None,
+            theta_inits: None,
+            data: None,
+            x_fail: None,
+            prev_best_index: None,
+            best_index: None,
+            infill_data: Default::default(),
+            infill_value: F::infinity(),
+        }
+    }
+}
+
+/// State specific to the TREGO algorithm variant.
+///
+/// TREGO (Trust Region EGO) alternates between global and local search phases.
+/// See [Diouane2023] for details.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TregoState<F: Float> {
+    /// Trust region size parameter
+    pub sigma: F,
+    /// Counter for global TREGO iterations in current phase
+    pub global_trego_iter: usize,
+    /// Counter for local TREGO iterations in current phase
+    pub local_trego_iter: usize,
+    /// Cumulative decrease of best value over a trego global or local phase
+    pub best_decrease: f64,
+}
+
+impl<F: Float> Default for TregoState<F> {
+    fn default() -> Self {
+        TregoState {
+            sigma: F::cast(1e-1),
+            global_trego_iter: 0,
+            local_trego_iter: 0,
+            best_decrease: 0.0,
+        }
+    }
+}
+
+/// State specific to the CoEGO algorithm variant.
+///
+/// CoEGO (Cooperative EGO) decomposes the problem into subproblems.
+/// See [Zhan2024] for details.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct CoegoState {
+    /// Activity matrix tracking which variables are active in each subproblem
+    pub activity: Option<Array2<usize>>,
+}
+
+// =============================================================================
+// Main EgorState struct - composed from sub-states
+// =============================================================================
+
 /// Maintains the state from iteration to iteration of the [crate::EgorSolver].
 ///
 /// This struct is passed from one iteration of an algorithm to the next.
+/// It is organized into logical sub-states for better maintainability:
+/// - Core iteration state (param, cost, iter, etc.) - required by argmin `State` trait
+/// - [`DoeState`]: Design of Experiments management
+/// - [`SurrogateState`]: GP surrogate model state
+/// - [`TregoState`]: TREGO algorithm variant state
+/// - [`CoegoState`]: CoEGO algorithm variant state
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EgorState<F: Float> {
+    // -------------------------------------------------------------------------
+    // Core iteration state (required by argmin State trait)
+    // -------------------------------------------------------------------------
     /// Current parameter vector
     pub param: Option<Array1<F>>,
     /// Previous parameter vector
@@ -65,50 +191,31 @@ pub struct EgorState<F: Float> {
     /// Optimization status
     pub termination_status: TerminationStatus,
 
-    /// Initial doe size
-    pub doe_size: usize,
-    /// Number of added points
-    pub added: usize,
-    /// Previous number of added points
-    pub prev_added: usize,
-    /// Current number of retry without adding point
-    pub no_point_added_retries: i32,
-    /// Flag to trigger LHS optimization
-    pub lhs_optim: bool,
-    /// Constraint tolerance cstr < cstr_tol.
-    /// It used to assess the validity of the param point and hence the corresponding cost
-    pub cstr_tol: Array1<F>,
-    /// Infill criterion value
-    pub infill_value: F,
+    // -------------------------------------------------------------------------
+    // DOE state - Design of Experiments management
+    // -------------------------------------------------------------------------
+    /// DOE-related state (size, added points, retries, constraints tolerance)
+    pub doe: DoeState<F>,
 
-    /// Current clusterings for objective and constraints GP mixture surrogate models
-    pub clusterings: Option<Vec<Option<Clustering>>>,
-    /// ThetaTunings controlled by q_optmod configuration triggering
-    /// GP surrogate models hyperparameters optimization or reusing previous ones
-    pub theta_inits: Option<Vec<Option<Array2<F>>>>,
-    /// Historic data (params, objective and constraints values, function constraints)
-    pub data: Option<(Array2<F>, Array2<F>, Array2<F>)>,
-    /// Points resulting in failure during objective/constraints evaluation
-    pub x_fail: Option<Array2<F>>,
+    // -------------------------------------------------------------------------
+    // Surrogate state - GP model management
+    // -------------------------------------------------------------------------
+    /// Surrogate model state (clusterings, theta, data, infill)
+    pub surrogate: SurrogateState<F>,
 
-    /// Previous index of best result in data
-    pub prev_best_index: Option<usize>,
-    /// index of best result in data
-    pub best_index: Option<usize>,
-    /// Infill data used to optimized infill criterion
-    pub infill_data: InfillObjData<F>,
+    // -------------------------------------------------------------------------
+    // Algorithm variant states
+    // -------------------------------------------------------------------------
+    /// TREGO algorithm state (trust region optimization)
+    pub trego: TregoState<F>,
 
-    /// Trego state
-    pub sigma: F,
-    /// Prev step flag marking an EGO global set
-    pub global_trego_iter: usize,
-    /// Prev step flag marking an EGO local set
-    pub local_trego_iter: usize,
-    /// Cumulative decrease of best value over a trego global or local phase
-    pub best_decrease: f64,
-    /// Coego state
-    pub activity: Option<Array2<usize>>,
-    /// Run data
+    /// CoEGO algorithm state (cooperative optimization)
+    pub coego: CoegoState,
+
+    // -------------------------------------------------------------------------
+    // Persistence and RNG
+    // -------------------------------------------------------------------------
+    /// Run data for persistent logging
     #[cfg(feature = "persistent")]
     pub run_data: Option<EgorRunData>,
 
@@ -219,8 +326,8 @@ where
     /// This shifts the stored best index to the previous best index.
     #[must_use]
     pub fn best_index(mut self, best_index: usize) -> Self {
-        self.prev_best_index = self.best_index;
-        self.best_index = Some(best_index);
+        self.surrogate.prev_best_index = self.surrogate.best_index;
+        self.surrogate.best_index = Some(best_index);
         self
     }
 
@@ -228,33 +335,33 @@ where
     /// This shifts the total added points value to the previous total added points value.
     #[must_use]
     pub fn count_added_points(mut self, nb: usize) -> Self {
-        self.prev_added = self.added;
-        self.added += nb;
+        self.doe.prev_added = self.doe.added;
+        self.doe.added += nb;
         self
     }
 
     /// Set the current clusterings used by surrogate models
     #[must_use]
     pub fn clusterings(mut self, clustering: Vec<Option<Clustering>>) -> Self {
-        self.clusterings = Some(clustering);
+        self.surrogate.clusterings = Some(clustering);
         self
     }
 
     /// Moves the current clusterings out and replaces it internally with `None`.
     pub fn take_clusterings(&mut self) -> Option<Vec<Option<Clustering>>> {
-        self.clusterings.take()
+        self.surrogate.clusterings.take()
     }
 
     /// Set the current theta init value used by surrogate models
     #[must_use]
     pub fn theta_inits(mut self, theta_inits: Vec<Option<Array2<F>>>) -> Self {
-        self.theta_inits = Some(theta_inits);
+        self.surrogate.theta_inits = Some(theta_inits);
         self
     }
 
     /// Moves the current theta inits out and replaces it internally with `None`.
     pub fn take_theta_inits(&mut self) -> Option<Vec<Option<Array2<F>>>> {
-        self.theta_inits.take()
+        self.surrogate.theta_inits.take()
     }
 
     /// Set the current data points as training points for the surrogate models
@@ -265,24 +372,24 @@ where
     /// * cdata is a (p, nb of fcstr) matrix and cdata_i = fcstr_j(xdata_i) for i in [1, p], j in [1, nb of fcstr]
     #[must_use]
     pub fn data(mut self, data: (Array2<F>, Array2<F>, Array2<F>)) -> Self {
-        self.data = Some(data);
+        self.surrogate.data = Some(data);
         self
     }
 
     /// Moves the current data out and replaces it internally with `None`.
     pub fn take_data(&mut self) -> Option<(Array2<F>, Array2<F>, Array2<F>)> {
-        self.data.take()
+        self.surrogate.data.take()
     }
 
     /// Moves the current failed points out and replaces it internally with `None`.
     pub fn take_x_fail(&mut self) -> Option<Array2<F>> {
-        self.x_fail.take()
+        self.surrogate.x_fail.take()
     }
 
     /// Set the points resulting in failure during objective/constraints evaluation
     #[must_use]
     pub fn x_fail(mut self, x_fail: Array2<F>) -> Self {
-        self.x_fail = Some(x_fail);
+        self.surrogate.x_fail = Some(x_fail);
         self
     }
 
@@ -290,7 +397,7 @@ where
     pub fn store_failed_points(self, x_fail_points: Option<Array2<F>>) -> Self {
         if let Some(fail_points) = x_fail_points {
             log::info!("Failed point(s): {}", fail_points);
-            if let Some(x_fail) = self.x_fail.as_ref() {
+            if let Some(x_fail) = self.surrogate.x_fail.as_ref() {
                 // Append failed points if not too close to existing failed points
                 let mut x_fail = x_fail.clone();
                 fail_points.outer_iter().for_each(|x_new| {
@@ -312,13 +419,13 @@ where
     /// Set the activity matrix  
     #[must_use]
     pub fn activity(mut self, activity: Array2<usize>) -> Self {
-        self.activity = Some(activity);
+        self.coego.activity = Some(activity);
         self
     }
 
     /// Moves the current activity out and replaces it internally with `None`.
     pub fn take_activity(&mut self) -> Option<Array2<usize>> {
-        self.activity.take()
+        self.coego.activity.take()
     }
 
     /// Set the run data
@@ -350,13 +457,13 @@ where
     /// Set the infill criterion value    
     #[must_use]
     pub fn infill_value(mut self, value: F) -> Self {
-        self.infill_value = value;
+        self.surrogate.infill_value = value;
         self
     }
 
     /// Returns the infill criterion value
     pub fn get_infill_value(&self) -> F {
-        self.infill_value
+        self.surrogate.infill_value
     }
 
     /// Returns current cost (ie objective) function and constraint values.
@@ -464,27 +571,11 @@ where
             time: Some(web_time::Duration::new(0, 0)),
             termination_status: TerminationStatus::NotTerminated,
 
-            doe_size: 0,
-            added: 0,
-            prev_added: 0,
-            no_point_added_retries: MAX_POINT_ADDITION_RETRY,
-            lhs_optim: false,
-            cstr_tol: Array1::zeros(0),
-            infill_value: F::infinity(),
+            doe: DoeState::default(),
+            surrogate: SurrogateState::default(),
+            trego: TregoState::default(),
+            coego: CoegoState::default(),
 
-            clusterings: None,
-            data: None,
-            x_fail: None,
-            prev_best_index: None,
-            best_index: None,
-            theta_inits: None,
-            infill_data: Default::default(),
-
-            sigma: F::cast(1e-1),
-            activity: None,
-            global_trego_iter: 0,
-            local_trego_iter: 0,
-            best_decrease: 0.0,
             #[cfg(feature = "persistent")]
             run_data: None,
             rng: Some(Xoshiro256Plus::from_entropy()),
@@ -506,8 +597,8 @@ where
     /// // Simulating a new, better parameter vector
     /// let mut state = state.data((array![[1.0f64], [2.0f64], [3.0]], array![[10.0], [5.0], [0.5]], array![[], [], []]));
     /// state.iter = 2;
-    /// state.prev_best_index = Some(0);
-    /// state.best_index = Some(2);
+    /// state.surrogate.prev_best_index = Some(0);
+    /// state.surrogate.best_index = Some(2);
     /// state.param = Some(array![10.0f64]);
     /// state.cost = Some(array![5.0]);
     ///
@@ -520,10 +611,11 @@ where
     /// assert!(state.is_best());
     /// ```
     fn update(&mut self) {
-        if let Some((x_data, y_data, c_data)) = self.data.as_ref() {
+        if let Some((x_data, y_data, c_data)) = self.surrogate.data.as_ref() {
             let best_index = self
+                .surrogate
                 .best_index
-                .unwrap_or_else(|| find_best_result_index(y_data, c_data, &self.cstr_tol));
+                .unwrap_or_else(|| find_best_result_index(y_data, c_data, &self.doe.cstr_tol));
 
             let param = x_data.row(best_index).to_owned();
             std::mem::swap(&mut self.prev_best_param, &mut self.best_param);
@@ -533,8 +625,8 @@ where
             std::mem::swap(&mut self.prev_best_cost, &mut self.best_cost);
             self.best_cost = Some(cost);
 
-            if best_index > self.doe_size {
-                if let Some(prev_best_index) = self.prev_best_index
+            if best_index > self.doe.doe_size {
+                if let Some(prev_best_index) = self.surrogate.prev_best_index
                     && best_index != prev_best_index
                 {
                     self.last_best_iter = self.iter + 1;

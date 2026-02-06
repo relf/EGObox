@@ -99,7 +99,7 @@ pub(crate) fn init_run_info(
     config: ValidEgorConfig,
     state: &EgorState<f64>,
 ) -> EgorRunData {
-    let data = state.data.clone().unwrap();
+    let data = state.surrogate.data.clone().unwrap();
     let version = env!("CARGO_PKG_VERSION");
     let name = env!("CARGO_PKG_NAME");
 
