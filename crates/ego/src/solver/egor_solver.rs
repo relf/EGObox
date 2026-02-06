@@ -290,17 +290,17 @@ where
         initial_state.surrogate.prev_best_index = initial_state.surrogate.best_index;
         initial_state.last_best_iter = 0;
 
-        // Use proba of feasibility require related env var to be defined
-        // (err to get var means not defined, means feasability is set to true whatever,
+        // Use proba of feasibility when corresponding flag is enabled
+        // (when disabled, feasibility is set to true whatever,
         // means given infill criterion is used whatever)
-        initial_state.feasibility = std::env::var(EGOR_USE_MAX_PROBA_OF_FEASIBILITY).is_err() || {
+        initial_state.feasibility = !self.config.runtime_flags.use_max_proba_of_feasibility || {
             is_feasible(
                 &y_data.row(best_index),
                 &c_data.row(best_index),
                 &initial_state.doe.cstr_tol,
             )
         };
-        if std::env::var(EGOR_USE_MAX_PROBA_OF_FEASIBILITY).is_ok() {
+        if self.config.runtime_flags.use_max_proba_of_feasibility {
             info!("Using max proba of feasibility for infill criterion");
             info!(
                 "Initial best point feasibility = {}",
@@ -315,37 +315,33 @@ where
         debug!("Initial State = {initial_state:?}");
         info!(
             "{} setting: {}",
-            EGOBOX_LOG,
-            std::env::var(EGOBOX_LOG).is_ok()
+            EGOBOX_LOG, self.config.runtime_flags.enable_logging
         );
         info!(
             "{} setting: {}",
             EGOR_USE_MAX_PROBA_OF_FEASIBILITY,
-            std::env::var(EGOR_USE_MAX_PROBA_OF_FEASIBILITY).is_ok()
+            self.config.runtime_flags.use_max_proba_of_feasibility
         );
         info!(
             "{} setting: {}",
-            EGOR_USE_GP_VAR_PORTFOLIO,
-            std::env::var(EGOR_USE_GP_VAR_PORTFOLIO).is_ok()
+            EGOR_USE_GP_VAR_PORTFOLIO, self.config.runtime_flags.use_gp_var_portfolio
         );
         info!(
             "{} setting: {}",
             EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER,
-            std::env::var(EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER).is_ok()
+            self.config.runtime_flags.disable_middlepicker_multistarter
         );
         info!(
             "{} setting: {}",
-            EGOR_USE_GP_RECORDER,
-            std::env::var(EGOR_USE_GP_RECORDER).is_ok()
+            EGOR_USE_GP_RECORDER, self.config.runtime_flags.use_gp_recorder
         );
         info!(
             "{} setting: {}",
-            EGOR_USE_RUN_RECORDER,
-            std::env::var(EGOR_USE_RUN_RECORDER).is_ok()
+            EGOR_USE_RUN_RECORDER, self.config.runtime_flags.use_run_recorder
         );
 
         #[cfg(feature = "persistent")]
-        if std::env::var(crate::utils::EGOR_USE_RUN_RECORDER).is_ok() {
+        if self.config.runtime_flags.use_run_recorder {
             let run_data = crate::utils::run_recorder::init_run_info(
                 self.xlimits.clone(),
                 self.config.clone(),
@@ -413,7 +409,7 @@ where
         );
 
         #[cfg(feature = "persistent")]
-        if std::env::var(crate::utils::EGOR_USE_RUN_RECORDER).is_ok() {
+        if self.config.runtime_flags.use_run_recorder {
             use crate::utils::run_recorder;
 
             let mut run_data = res.0.take_run_data().unwrap();

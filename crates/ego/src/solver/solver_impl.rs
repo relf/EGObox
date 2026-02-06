@@ -5,8 +5,8 @@ use crate::find_best_result_index;
 use crate::solver::solver_computations::MiddlePickerMultiStarter;
 use crate::solver::solver_infill_optim::InfillOptProblem;
 use crate::utils::{
-    EGOBOX_LOG, EGOR_USE_GP_VAR_PORTFOLIO, find_best_result_index_from, is_feasible,
-    select_from_portfolio, update_data, usable_data,
+    EGOBOX_LOG, find_best_result_index_from, is_feasible, select_from_portfolio, update_data,
+    usable_data,
 };
 use crate::{DEFAULT_CSTR_TOL, EgorSolver, MAX_POINT_ADDITION_RETRY, ValidEgorConfig};
 use crate::{EgorState, types::*};
@@ -398,7 +398,8 @@ where
         );
 
         let actives = state
-            .coego.activity
+            .coego
+            .activity
             .as_ref()
             .unwrap_or(&self.full_activity())
             .to_owned();
@@ -414,7 +415,14 @@ where
                 self.make_clustered_surrogate(
                     &name,
                     &state.surrogate.data.as_ref().unwrap().0,
-                    &state.surrogate.data.as_ref().unwrap().1.slice(s![.., k]).to_owned(),
+                    &state
+                        .surrogate
+                        .data
+                        .as_ref()
+                        .unwrap()
+                        .1
+                        .slice(s![.., k])
+                        .to_owned(),
                     false,
                     true,
                     state.surrogate.clusterings.as_ref().unwrap()[k].as_ref(),
@@ -587,7 +595,10 @@ where
         // new_state = new_state
         //     .store_failed_points(x_fail_points)
         //     .count_added_points(add_count);
-        info!("+{} point(s), total: {} points", add_count, new_state.doe.added);
+        info!(
+            "+{} point(s), total: {} points",
+            add_count, new_state.doe.added
+        );
         new_state.doe.no_point_added_retries = MAX_POINT_ADDITION_RETRY;
 
         let best_index = find_best_result_index_from(
@@ -635,7 +646,7 @@ where
     ) -> (Array2<f64>, Array2<f64>, Array2<f64>, Array2<f64>, f64) {
         let mut portfolio = vec![];
 
-        let sigma_weights = if std::env::var(EGOR_USE_GP_VAR_PORTFOLIO).is_ok()
+        let sigma_weights = if self.config.runtime_flags.use_gp_var_portfolio
             && self.config.qei_config.batch == 1
         {
             // Do not believe GP variance, weight it to generate possibly several clusters
@@ -744,7 +755,7 @@ where
                 };
 
                 #[cfg(feature = "persistent")]
-                if std::env::var(crate::EGOR_USE_GP_RECORDER).is_ok() {
+                if self.config.runtime_flags.use_gp_recorder {
                     use crate::utils::{EGOR_GP_FILENAME, EGOR_INITIAL_GP_FILENAME, gp_recorder};
 
                     let default_dir = String::from("./");
@@ -851,7 +862,12 @@ where
                 let sub_rng = Xoshiro256Plus::seed_from_u64(rng.r#gen());
                 // let multistarter = GlobalMultiStarter::new(&self.xlimits, sub_rng);
                 let xsamples = x_data.to_owned();
-                let multistarter = MiddlePickerMultiStarter::new(&self.xlimits, &xsamples, sub_rng);
+                let multistarter = MiddlePickerMultiStarter::new(
+                    &self.xlimits,
+                    &xsamples,
+                    sub_rng,
+                    self.config.runtime_flags.disable_middlepicker_multistarter,
+                );
 
                 let infill_optpb = InfillOptProblem::new(
                     obj_model.as_ref(),

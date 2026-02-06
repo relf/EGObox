@@ -1,4 +1,8 @@
 //! Egor optimizer configuration.
+use crate::utils::{
+    EGOBOX_LOG, EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER, EGOR_USE_GP_RECORDER,
+    EGOR_USE_GP_VAR_PORTFOLIO, EGOR_USE_MAX_PROBA_OF_FEASIBILITY, EGOR_USE_RUN_RECORDER,
+};
 use crate::{HotStartMode, criteria::*, errors::Result, types::*};
 use egobox_gp::ThetaTuning;
 use egobox_moe::NbClusters;
@@ -261,6 +265,98 @@ pub const EGO_DEFAULT_MAX_ITERS: usize = 20;
 /// Number of restart for optimization of the infill criterion (aka multistart)
 pub const EGO_DEFAULT_N_START: usize = 20;
 
+// =============================================================================
+// Runtime flags for behavior control (DIP - Dependency Inversion Principle)
+// =============================================================================
+
+/// Runtime flags controlling optimizer behavior.
+///
+/// These flags replace environment variable checks, allowing programmatic control
+/// of runtime behavior while maintaining backward compatibility through the Default
+/// implementation which reads from environment variables.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RuntimeFlags {
+    /// Enable verbose logging (env: EGOBOX_LOG)
+    pub enable_logging: bool,
+    /// Use max probability of feasibility for infill criterion (env: EGOR_USE_MAX_PROBA_OF_FEASIBILITY)
+    pub use_max_proba_of_feasibility: bool,
+    /// Use GP variance portfolio for infill optimization (env: EGOR_USE_GP_VAR_PORTFOLIO)
+    pub use_gp_var_portfolio: bool,
+    /// Disable middle-picker multistarter for infill optimization (env: EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER)
+    pub disable_middlepicker_multistarter: bool,
+    /// Enable GP model recording to files (env: EGOR_USE_GP_RECORDER)
+    pub use_gp_recorder: bool,
+    /// Enable run data recording to JSON (env: EGOR_USE_RUN_RECORDER)
+    pub use_run_recorder: bool,
+}
+
+impl Default for RuntimeFlags {
+    /// Creates RuntimeFlags by reading from environment variables for backward compatibility.
+    fn default() -> Self {
+        RuntimeFlags {
+            enable_logging: std::env::var(EGOBOX_LOG).is_ok(),
+            use_max_proba_of_feasibility: std::env::var(EGOR_USE_MAX_PROBA_OF_FEASIBILITY).is_ok(),
+            use_gp_var_portfolio: std::env::var(EGOR_USE_GP_VAR_PORTFOLIO).is_ok(),
+            disable_middlepicker_multistarter: std::env::var(
+                EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER,
+            )
+            .is_ok(),
+            use_gp_recorder: std::env::var(EGOR_USE_GP_RECORDER).is_ok(),
+            use_run_recorder: std::env::var(EGOR_USE_RUN_RECORDER).is_ok(),
+        }
+    }
+}
+
+impl RuntimeFlags {
+    /// Creates RuntimeFlags with all flags disabled.
+    pub fn none() -> Self {
+        RuntimeFlags {
+            enable_logging: false,
+            use_max_proba_of_feasibility: false,
+            use_gp_var_portfolio: false,
+            disable_middlepicker_multistarter: false,
+            use_gp_recorder: false,
+            use_run_recorder: false,
+        }
+    }
+
+    /// Enable verbose logging.
+    pub fn enable_logging(mut self, enabled: bool) -> Self {
+        self.enable_logging = enabled;
+        self
+    }
+
+    /// Use max probability of feasibility for infill criterion.
+    pub fn use_max_proba_of_feasibility(mut self, enabled: bool) -> Self {
+        self.use_max_proba_of_feasibility = enabled;
+        self
+    }
+
+    /// Use GP variance portfolio for infill optimization.
+    pub fn use_gp_var_portfolio(mut self, enabled: bool) -> Self {
+        self.use_gp_var_portfolio = enabled;
+        self
+    }
+
+    /// Disable middle-picker multistarter.
+    pub fn disable_middlepicker_multistarter(mut self, enabled: bool) -> Self {
+        self.disable_middlepicker_multistarter = enabled;
+        self
+    }
+
+    /// Enable GP model recording.
+    pub fn use_gp_recorder(mut self, enabled: bool) -> Self {
+        self.use_gp_recorder = enabled;
+        self
+    }
+
+    /// Enable run data recording.
+    pub fn use_run_recorder(mut self, enabled: bool) -> Self {
+        self.use_run_recorder = enabled;
+        self
+    }
+}
+
 /// Valid Egor optimizer configuration
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ValidEgorConfig {
@@ -312,6 +408,8 @@ pub struct ValidEgorConfig {
     pub(crate) cstr_strategy: ConstraintStrategy,
     /// Failure handling strategy
     pub(crate) failsafe_strategy: FailsafeStrategy,
+    /// Runtime behavior flags (replaces environment variable checks)
+    pub(crate) runtime_flags: RuntimeFlags,
 }
 
 impl Default for ValidEgorConfig {
@@ -338,6 +436,7 @@ impl Default for ValidEgorConfig {
             cstr_infill: false,
             cstr_strategy: ConstraintStrategy::MeanConstraint,
             failsafe_strategy: FailsafeStrategy::Rejection,
+            runtime_flags: RuntimeFlags::default(),
         }
     }
 }
@@ -553,6 +652,32 @@ impl EgorConfig {
     /// Sets the objective evaluation failure handling strategy
     pub fn failsafe_strategy(mut self, failsafe_strategy: FailsafeStrategy) -> Self {
         self.0.failsafe_strategy = failsafe_strategy;
+        self
+    }
+
+    /// Configure runtime behavior flags.
+    ///
+    /// These flags control various runtime behaviors that were previously
+    /// controlled by environment variables. Using this method allows
+    /// programmatic control without relying on environment.
+    ///
+    /// # Example
+    /// ```ignore
+    /// config.configure_runtime_flags(|flags| flags
+    ///     .enable_logging(true)
+    ///     .use_gp_var_portfolio(true))
+    /// ```
+    pub fn configure_runtime_flags<F: FnOnce(RuntimeFlags) -> RuntimeFlags>(
+        mut self,
+        init: F,
+    ) -> Self {
+        self.0.runtime_flags = init(self.0.runtime_flags);
+        self
+    }
+
+    /// Sets runtime flags directly.
+    pub fn runtime_flags(mut self, flags: RuntimeFlags) -> Self {
+        self.0.runtime_flags = flags;
         self
     }
 
