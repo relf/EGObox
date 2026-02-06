@@ -7,9 +7,10 @@
 //! - [`EgorConfig`] - Builder for configuring the optimizer
 //! - [`ValidEgorConfig`] - Validated configuration (after `.check()`)
 //! - [`GpConfig`] - Gaussian Process surrogate model settings
-//! - [`TregoConfig`] - Trust Region EGO algorithm parameters  
 //! - [`QEiConfig`] - Parallel (q-EI) evaluation settings
 //! - [`RuntimeFlags`] - Runtime behavior flags (replaces environment variables)
+//! - [`IterationStrategy`] / [`TregoStrategy`] - Trust Region EGO algorithm control
+//! - [`ActivityStrategy`] / [`CooperativeActivity`] - Variable activity for CoEGO
 //!
 //! ## Runtime Flags
 //!
@@ -169,76 +170,6 @@ impl GpConfig {
     }
 }
 
-/// A structure to handle TREGO method parameterization
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TregoConfig {
-    /// Whether the TReGO algorithm is activated
-    pub(crate) activated: bool,
-    /// Number of global and local optimization steps.
-    /// number of steps should be strictly positive
-    pub(crate) n_gl_steps: (usize, usize),
-    /// Trust region size bounds (min, max)
-    pub(crate) d: (f64, f64),
-    /// Threshold ratio for iteration acceptance used in trust region criteria
-    /// rho(sigma) = alpha * sigma * sigma
-    pub(crate) alpha: f64,
-    /// Trust region contraction factor in ]0, 1.[.
-    pub(crate) beta: f64,
-    /// Initial trust region radius
-    pub(crate) sigma0: f64,
-}
-
-impl Default for TregoConfig {
-    fn default() -> Self {
-        TregoConfig {
-            activated: false,
-            n_gl_steps: (1, 4),
-            d: (1e-6, 1.),
-            alpha: 1.0,
-            beta: 0.9,
-            sigma0: 1e-1,
-        }
-    }
-}
-
-impl TregoConfig {
-    /// Sets whether TReGO is activated
-    pub fn activated(mut self, activated: bool) -> Self {
-        self.activated = activated;
-        self
-    }
-
-    /// Sets the number of global optimization steps
-    pub fn n_gl_steps(mut self, n_gl_steps: (usize, usize)) -> Self {
-        self.n_gl_steps = n_gl_steps;
-        self
-    }
-
-    /// Sets the trust region size bounds (min, max)
-    pub fn d(mut self, d: (f64, f64)) -> Self {
-        self.d = d;
-        self
-    }
-
-    /// Sets the threshold ratio for iteration acceptance
-    pub fn alpha(mut self, alpha: f64) -> Self {
-        self.alpha = alpha;
-        self
-    }
-
-    /// Sets the trust region contraction factor
-    pub fn beta(mut self, beta: f64) -> Self {
-        self.beta = beta;
-        self
-    }
-
-    /// Sets the initial trust region radius
-    pub fn sigma0(mut self, sigma0: f64) -> Self {
-        self.sigma0 = sigma0;
-        self
-    }
-}
-
 /// A structure to handle qEI (parallel infill criterion) method parameterization
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct QEiConfig {
@@ -289,24 +220,6 @@ pub enum CoegoStatus {
     /// Apply CoEGO algorithm with a specified number of groups of components
     /// meaning at most nx / n_coop components will be optimized at a time
     Enabled(usize),
-}
-
-/// A structure to handle CoEGO method parameterization
-/// CoEGO variant is intended to be used for high dimensional problems
-/// with dim > 100
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub(crate) struct CoegoConfig {
-    pub(crate) activated: bool,
-    pub(crate) n_coop: usize,
-}
-
-impl Default for CoegoConfig {
-    fn default() -> Self {
-        CoegoConfig {
-            activated: false,
-            n_coop: 5,
-        }
-    }
 }
 
 /// Max number of iterations of EGO algorithm (aka iteration budget)
@@ -447,10 +360,6 @@ pub struct ValidEgorConfig {
     pub(crate) xtypes: Vec<XType>,
     /// A random generator seed used to get reproductible results.
     pub(crate) seed: Option<u64>,
-    /// TREGO parameterization
-    pub(crate) trego_config: TregoConfig,
-    /// CoEGO  parameterization
-    pub(crate) coego: CoegoConfig,
     /// Constrained infill criterion activation
     pub(crate) cstr_infill: bool,
     /// Constraints criterion
@@ -484,8 +393,6 @@ impl Default for ValidEgorConfig {
             hot_start: HotStartMode::Disabled,
             xtypes: vec![],
             seed: None,
-            trego_config: TregoConfig::default(),
-            coego: CoegoConfig::default(),
             cstr_infill: false,
             cstr_strategy: ConstraintStrategy::MeanConstraint,
             failsafe_strategy: FailsafeStrategy::Rejection,
@@ -675,7 +582,6 @@ impl EgorConfig {
     /// For custom TREGO parameters, use [`configure_trego`](Self::configure_trego) or
     /// [`iteration_strategy`](Self::iteration_strategy) directly.
     pub fn trego(mut self, activated: bool) -> Self {
-        self.0.trego_config.activated = activated;
         if activated {
             self.0.iteration_strategy = Box::new(TregoStrategy::default());
         } else {
@@ -686,23 +592,19 @@ impl EgorConfig {
 
     /// Configure TREGO parameters. TREGO is automatically activated by this method.
     ///
-    /// The closure receives a [`TregoConfig`] for backward compatibility. The resulting
-    /// parameters are also used to configure a [`TregoStrategy`] internally.
+    /// The closure receives a [`TregoStrategy`] for configuration.
+    ///
+    /// # Example
+    /// ```ignore
+    /// use egobox_ego::EgorConfig;
+    ///
+    /// let config = EgorConfig::default()
+    ///     .configure_trego(|trego| trego.beta(0.8).n_gl_steps((2, 5)));
+    /// ```
     ///
     /// For direct strategy configuration, use [`iteration_strategy`](Self::iteration_strategy).
-    pub fn configure_trego<F: FnOnce(TregoConfig) -> TregoConfig>(mut self, init: F) -> Self {
-        self.0.trego_config = init(self.0.trego_config);
-        self.0.trego_config.activated = true;
-        // Sync iteration strategy from TregoConfig parameters
-        let tc = &self.0.trego_config;
-        self.0.iteration_strategy = Box::new(
-            TregoStrategy::default()
-                .n_gl_steps(tc.n_gl_steps)
-                .d(tc.d)
-                .alpha(tc.alpha)
-                .beta(tc.beta)
-                .sigma0(tc.sigma0),
-        );
+    pub fn configure_trego<F: FnOnce(TregoStrategy) -> TregoStrategy>(mut self, init: F) -> Self {
+        self.0.iteration_strategy = Box::new(init(TregoStrategy::default()));
         self
     }
 
@@ -731,12 +633,9 @@ impl EgorConfig {
     pub fn coego(mut self, status: CoegoStatus) -> Self {
         match status {
             CoegoStatus::Disabled => {
-                self.0.coego.activated = false;
                 self.0.activity_strategy = Box::new(FullActivity);
             }
             CoegoStatus::Enabled(n) => {
-                self.0.coego.activated = true;
-                self.0.coego.n_coop = n;
                 self.0.activity_strategy = Box::new(CooperativeActivity::new(n));
             }
         }

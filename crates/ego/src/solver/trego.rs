@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use crate::CstrFn;
 use crate::EgorSolver;
 use crate::EgorState;
@@ -9,7 +8,7 @@ use crate::solver::solver_infill_optim::InfillOptProblem;
 use crate::types::DomainConstraints;
 use crate::utils::{find_best_result_index_from, is_feasible, is_update_ok, update_data};
 
-use argmin::core::{CostFunction, Problem, State};
+use argmin::core::{CostFunction, Problem};
 
 use egobox_doe::Lhs;
 use egobox_doe::SamplingMethod;
@@ -81,81 +80,6 @@ where
     SB: SurrogateBuilder + Serialize + DeserializeOwned,
     C: CstrFn,
 {
-    pub(crate) fn update_trego_state(&mut self, state: &EgorState<f64>) -> (Phase, EgorState<f64>) {
-        let rho = |sigma| sigma * sigma;
-        let (_, y_data, _) = state.surrogate.data.as_ref().unwrap();
-        // initialized in init
-        let best = state.surrogate.best_index.unwrap();
-        // initialized in init
-        let prev_best = state.surrogate.prev_best_index.unwrap();
-        // initialized in init
-
-        let mut new_state = state.clone();
-
-        // Update cumulative decrease over the trego phase
-        let decrease = y_data[[prev_best, 0]] - y_data[[best, 0]];
-        new_state.trego.best_decrease += decrease.max(0.0);
-        let sufficient_decrease = new_state.trego.best_decrease >= rho(state.trego.sigma);
-
-        if state.trego.global_trego_iter == self.config.trego_config.n_gl_steps.0
-            || state.trego.local_trego_iter == self.config.trego_config.n_gl_steps.1
-        {
-            log::info!(
-                "Cumulative decrease: {}, required {}",
-                new_state.trego.best_decrease,
-                rho(state.trego.sigma)
-            );
-        }
-
-        log::debug!(
-            "TREGO update: iter={}, global_ego_iter = {}, local_trego_iter = {}",
-            state.get_iter(),
-            state.trego.global_trego_iter,
-            state.trego.local_trego_iter
-        );
-
-        // Check step success and update trust region
-        if state.get_iter() > 0 {
-            // Check end global or local phase
-            if state.trego.global_trego_iter == self.config.trego_config.n_gl_steps.0 {
-                // Adjust trust region wrt global step success
-                if sufficient_decrease {
-                    let old = state.trego.sigma;
-                    new_state.trego.sigma *= 1. / self.config.trego_config.beta;
-                    info!(
-                        "Previous EGO global step successful: sigma {} -> {}",
-                        old, new_state.trego.sigma
-                    );
-                } else {
-                    info!("Previous EGO global step progress fail");
-                }
-                // Reset cumulative decrease
-                new_state.trego.best_decrease = 0.0;
-            } else if state.trego.local_trego_iter == self.config.trego_config.n_gl_steps.1 {
-                // Adjust trust region wrt local step success
-                if sufficient_decrease {
-                    let old = state.trego.sigma;
-                    new_state.trego.sigma *= 1. / self.config.trego_config.beta;
-                    info!(
-                        "Previous TREGO local step successful: sigma {} -> {}",
-                        old, new_state.trego.sigma
-                    );
-                } else {
-                    let old = state.trego.sigma;
-                    new_state.trego.sigma *= self.config.trego_config.beta;
-                    info!(
-                        "Previous TREGO local step progress fail: sigma {} -> {}",
-                        old, new_state.trego.sigma
-                    );
-                }
-                // Reset cumulative decrease
-                new_state.trego.best_decrease = 0.0;
-            }
-        }
-        let phase = self.next_phase(sufficient_decrease, &mut new_state);
-        (phase, new_state)
-    }
-
     /// Local step where infill criterion is optimized within trust region
     pub fn trego_step<
         O: CostFunction<Param = Array2<f64>, Output = Array2<f64>> + DomainConstraints<C>,
@@ -188,12 +112,8 @@ where
 
         let mut rng = new_state.take_rng().unwrap();
         let sub_rng = Xoshiro256Plus::seed_from_u64(rng.r#gen());
-        let multistarter = LocalLhsMultiStarter::new(
-            self.xlimits.clone(),
-            xbest.to_owned(),
-            max_dist,
-            sub_rng,
-        );
+        let multistarter =
+            LocalLhsMultiStarter::new(self.xlimits.clone(), xbest.to_owned(), max_dist, sub_rng);
 
         let infill_optpb = InfillOptProblem {
             obj_model: obj_model.as_ref(),
@@ -234,10 +154,7 @@ where
         {
             let y_new = self.eval_obj(problem, &x_new);
 
-            debug!(
-                "y_old-y_new={}",
-                y_old - y_new[[0, 0]],
-            );
+            debug!("y_old-y_new={}", y_old - y_new[[0, 0]],);
             let c_new = self.eval_problem_fcstrs(problem, &x_new);
 
             let y_penalized = match self.config.failsafe_strategy {
@@ -303,19 +220,6 @@ where
         new_state.surrogate.prev_best_index = new_state.surrogate.best_index;
         new_state.surrogate.best_index = Some(new_best_index);
         new_state
-    }
-
-    fn next_phase(&self, sufficient_decrease: bool, state: &mut EgorState<f64>) -> Phase {
-        let (phase, global_iter, local_iter) = next_phase(
-            sufficient_decrease,
-            state.trego.global_trego_iter,
-            state.trego.local_trego_iter,
-            self.config.trego_config.n_gl_steps.0,
-            self.config.trego_config.n_gl_steps.1,
-        );
-        state.trego.global_trego_iter = global_iter;
-        state.trego.local_trego_iter = local_iter;
-        phase
     }
 }
 

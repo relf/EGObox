@@ -250,7 +250,10 @@ where
 
         let activity = {
             let nx = self.xlimits.nrows();
-            let act = self.config.activity_strategy.generate_activity(nx, &mut rng);
+            let act = self
+                .config
+                .activity_strategy
+                .generate_activity(nx, &mut rng);
             if let Some(ref a) = act {
                 debug!("Component activity = {a:?}");
             }
@@ -310,7 +313,9 @@ where
         }
 
         // Initialize iteration strategy state (e.g., TREGO sigma)
-        self.config.iteration_strategy.init_state(&mut initial_state, &self.xlimits);
+        self.config
+            .iteration_strategy
+            .init_state(&mut initial_state, &self.xlimits);
 
         initial_state.coego.activity = activity;
         debug!("Initial State = {initial_state:?}");
@@ -377,7 +382,10 @@ where
 
         // Use iteration strategy to determine global vs local step
         let mut state = state;
-        let mode = self.config.iteration_strategy.prepare(&mut state, &self.xlimits);
+        let mode = self
+            .config
+            .iteration_strategy
+            .prepare(&mut state, &self.xlimits);
         let mut res = match mode {
             IterationMode::Global => self.ego_iteration(problem, state)?,
             IterationMode::Local {
@@ -394,7 +402,11 @@ where
         let mut res = {
             let nx = self.xlimits.nrows();
             let mut rng = res.0.take_rng().unwrap();
-            if let Some(activity) = self.config.activity_strategy.generate_activity(nx, &mut rng) {
+            if let Some(activity) = self
+                .config
+                .activity_strategy
+                .generate_activity(nx, &mut rng)
+            {
                 debug!("Component activity = {activity:?}");
                 (res.0.rng(rng).activity(activity), res.1)
             } else {

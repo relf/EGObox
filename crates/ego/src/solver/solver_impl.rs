@@ -166,7 +166,9 @@ where
                 match self.config.gp.n_clusters {
                     NbClusters::Auto { max: _ } => {
                         if !self.config.activity_strategy.supports_auto_clustering() {
-                            log::warn!("Automated clustering not available with cooperative activity strategy")
+                            log::warn!(
+                                "Automated clustering not available with cooperative activity strategy"
+                            )
                         }
                     }
                     NbClusters::Fixed { nb: _ } => {
@@ -224,7 +226,9 @@ where
                         })
                         .collect::<Vec<_>>();
                     if self.config.activity_strategy.is_cooperative() {
-                        self.config.activity_strategy.adjust_theta_tuning(&active.to_vec(), &mut inits);
+                        self.config
+                            .activity_strategy
+                            .adjust_theta_tuning(&active.to_vec(), &mut inits);
                     }
                     if i == 0 && model_name == "Objective" {
                         info!("Objective model hyperparameters optim init >>> {inits:?}");

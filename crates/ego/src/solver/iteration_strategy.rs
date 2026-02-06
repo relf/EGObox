@@ -37,9 +37,9 @@ use ndarray::Array2;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
-use argmin::core::State;
 use super::egor_state::EgorState;
 use super::trego::{Phase, next_phase};
+use argmin::core::State;
 
 /// Describes the mode of the current iteration as determined by the
 /// [`IterationStrategy`].
@@ -95,11 +95,7 @@ pub trait IterationStrategy: Clone + Sync + Debug {
     /// # Arguments
     /// * `state` - Mutable reference to the optimizer state
     /// * `xlimits` - Design space bounds
-    fn prepare(
-        &self,
-        state: &mut EgorState<f64>,
-        xlimits: &Array2<f64>,
-    ) -> IterationMode;
+    fn prepare(&self, state: &mut EgorState<f64>, xlimits: &Array2<f64>) -> IterationMode;
 
     /// Post-iteration hook called after the iteration completes.
     ///
@@ -125,11 +121,7 @@ impl IterationStrategy for StandardEgoStrategy {
         "Standard EGO"
     }
 
-    fn prepare(
-        &self,
-        _state: &mut EgorState<f64>,
-        _xlimits: &Array2<f64>,
-    ) -> IterationMode {
+    fn prepare(&self, _state: &mut EgorState<f64>, _xlimits: &Array2<f64>) -> IterationMode {
         IterationMode::Global
     }
 }
@@ -224,11 +216,7 @@ impl IterationStrategy for TregoStrategy {
         state.trego.sigma = 0.5 * (0.2f64).powf(1.0 / xlimits.nrows() as f64);
     }
 
-    fn prepare(
-        &self,
-        state: &mut EgorState<f64>,
-        _xlimits: &Array2<f64>,
-    ) -> IterationMode {
+    fn prepare(&self, state: &mut EgorState<f64>, _xlimits: &Array2<f64>) -> IterationMode {
         let rho = |sigma: f64| self.alpha * sigma * sigma;
         let (_, y_data, _) = state.surrogate.data.as_ref().unwrap();
         let best = state.surrogate.best_index.unwrap();
@@ -265,7 +253,8 @@ impl IterationStrategy for TregoStrategy {
                     state.trego.sigma *= 1. / self.beta;
                     log::info!(
                         "Previous EGO global step successful: sigma {} -> {}",
-                        old, state.trego.sigma
+                        old,
+                        state.trego.sigma
                     );
                 } else {
                     log::info!("Previous EGO global step progress fail");
@@ -278,14 +267,16 @@ impl IterationStrategy for TregoStrategy {
                     state.trego.sigma *= 1. / self.beta;
                     log::info!(
                         "Previous TREGO local step successful: sigma {} -> {}",
-                        old, state.trego.sigma
+                        old,
+                        state.trego.sigma
                     );
                 } else {
                     let old = state.trego.sigma;
                     state.trego.sigma *= self.beta;
                     log::info!(
                         "Previous TREGO local step progress fail: sigma {} -> {}",
-                        old, state.trego.sigma
+                        old,
+                        state.trego.sigma
                     );
                 }
                 state.trego.best_decrease = 0.0;
@@ -307,14 +298,16 @@ impl IterationStrategy for TregoStrategy {
             Phase::Global => {
                 log::info!(
                     ">>> EGO global step {}/{}",
-                    state.trego.global_trego_iter, self.n_gl_steps.0
+                    state.trego.global_trego_iter,
+                    self.n_gl_steps.0
                 );
                 IterationMode::Global
             }
             Phase::Local => {
                 log::info!(
                     ">>> TREGO local step {}/{}",
-                    state.trego.local_trego_iter, self.n_gl_steps.1
+                    state.trego.local_trego_iter,
+                    self.n_gl_steps.1
                 );
                 IterationMode::Local {
                     max_dist: self.d.1 * state.trego.sigma,

@@ -81,4 +81,6 @@ pub use egor_config::*;
 pub use egor_service::*;
 pub use egor_solver::*;
 pub use egor_state::*;
-pub use iteration_strategy::{IterationMode, IterationStrategy, StandardEgoStrategy, TregoStrategy};
+pub use iteration_strategy::{
+    IterationMode, IterationStrategy, StandardEgoStrategy, TregoStrategy,
+};

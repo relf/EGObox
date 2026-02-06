@@ -66,11 +66,7 @@ pub trait ActivityStrategy: Clone + Sync + Debug {
     /// # Arguments
     /// * `active` - Indices of currently active variables
     /// * `theta_tunings` - Mutable slice of theta tuning parameters to adjust
-    fn adjust_theta_tuning(
-        &self,
-        _active: &[usize],
-        _theta_tunings: &mut [ThetaTuning<f64>],
-    ) {
+    fn adjust_theta_tuning(&self, _active: &[usize], _theta_tunings: &mut [ThetaTuning<f64>]) {
         // Default: no-op
     }
 
@@ -188,11 +184,7 @@ impl ActivityStrategy for CooperativeActivity {
         Some(activity)
     }
 
-    fn adjust_theta_tuning(
-        &self,
-        active: &[usize],
-        theta_tunings: &mut [ThetaTuning<f64>],
-    ) {
+    fn adjust_theta_tuning(&self, active: &[usize], theta_tunings: &mut [ThetaTuning<f64>]) {
         theta_tunings.iter_mut().for_each(|theta| {
             *theta = match theta {
                 ThetaTuning::Fixed(init) => ThetaTuning::Partial {
