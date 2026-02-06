@@ -1,4 +1,24 @@
-/// Implementation of `argmin::IterState` for Egor optimizer
+//! # EgorState - Optimizer State Implementation
+//!
+//! This module implements the [`EgorState`] struct which tracks all state information
+//! during EGO optimization. It implements the `argmin::State` trait for integration
+//! with the argmin optimization framework.
+//!
+//! ## State Organization
+//!
+//! The state is decomposed into logical sub-states following the Single Responsibility
+//! Principle (SRP):
+//!
+//! - [`DoeState`] - Design of Experiments management (point tracking, retries)
+//! - [`SurrogateState`] - GP surrogate models (clusterings, hyperparameters, data)
+//! - [`TregoState`] - TREGO algorithm variant state (trust region parameters)
+//! - [`CoegoState`] - CoEGO algorithm variant state (component activity)
+//!
+//! ## Serialization
+//!
+//! All state structs support serialization via serde. Sub-states use `#[serde(flatten)]`
+//! for backward-compatible JSON format where all fields appear at the top level.
+
 use crate::{
     InfillObjData,
     utils::{find_best_result_index, is_update_ok, run_recorder::EgorRunData},
@@ -102,7 +122,7 @@ impl<F: Float> Default for SurrogateState<F> {
 /// State specific to the TREGO algorithm variant.
 ///
 /// TREGO (Trust Region EGO) alternates between global and local search phases.
-/// See [Diouane2023] for details.
+/// See Diouane et al. (2023) for algorithm details.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TregoState<F: Float> {
     /// Trust region size parameter
@@ -129,7 +149,7 @@ impl<F: Float> Default for TregoState<F> {
 /// State specific to the CoEGO algorithm variant.
 ///
 /// CoEGO (Cooperative EGO) decomposes the problem into subproblems.
-/// See [Zhan2024] for details.
+/// See Zhan et al. (2024) for algorithm details.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct CoegoState {
     /// Activity matrix tracking which variables are active in each subproblem

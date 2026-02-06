@@ -1,4 +1,50 @@
-//! Egor optimizer configuration.
+//! # EgorConfig - Optimizer Configuration
+//!
+//! This module provides the configuration system for the EGO optimizer.
+//!
+//! ## Configuration Types
+//!
+//! - [`EgorConfig`] - Builder for configuring the optimizer
+//! - [`ValidEgorConfig`] - Validated configuration (after `.check()`)
+//! - [`GpConfig`] - Gaussian Process surrogate model settings
+//! - [`TregoConfig`] - Trust Region EGO algorithm parameters  
+//! - [`QEiConfig`] - Parallel (q-EI) evaluation settings
+//! - [`RuntimeFlags`] - Runtime behavior flags (replaces environment variables)
+//!
+//! ## Runtime Flags
+//!
+//! [`RuntimeFlags`] provides programmatic control over behaviors previously controlled
+//! by environment variables. This follows the Dependency Inversion Principle (DIP)
+//! by injecting configuration rather than reading from global state.
+//!
+//! ```ignore
+//! use egobox_ego::RuntimeFlags;
+//!
+//! // All flags disabled
+//! let flags = RuntimeFlags::none();
+//!
+//! // Configure specific flags
+//! let flags = RuntimeFlags::none()
+//!     .enable_logging(true)
+//!     .use_gp_var_portfolio(true);
+//!
+//! // Or use default (reads from environment variables for backward compatibility)
+//! let flags = RuntimeFlags::default();
+//! ```
+//!
+//! ## Example
+//!
+//! ```ignore
+//! use egobox_ego::EgorConfig;
+//!
+//! let config = EgorConfig::default()
+//!     .max_iters(50)
+//!     .n_doe(10)
+//!     .configure_gp(|gp| gp.n_clusters(NbClusters::Auto))
+//!     .configure_runtime_flags(|f| f.enable_logging(true))
+//!     .check()?;
+//! ```
+
 use crate::utils::{
     EGOBOX_LOG, EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER, EGOR_USE_GP_RECORDER,
     EGOR_USE_GP_VAR_PORTFOLIO, EGOR_USE_MAX_PROBA_OF_FEASIBILITY, EGOR_USE_RUN_RECORDER,
