@@ -2,7 +2,6 @@ use std::marker::PhantomData;
 
 use crate::errors::{EgoError, Result};
 use crate::find_best_result_index;
-use crate::gpmix::mixint::{as_continuous_limits, to_discrete_space};
 use crate::solver::solver_computations::MiddlePickerMultiStarter;
 use crate::solver::solver_infill_optim::InfillOptProblem;
 use crate::utils::{
@@ -11,6 +10,7 @@ use crate::utils::{
 };
 use crate::{DEFAULT_CSTR_TOL, EgorSolver, MAX_POINT_ADDITION_RETRY, ValidEgorConfig};
 use crate::{EgorState, types::*};
+use egobox_moe::{as_continuous_limits, to_discrete_space};
 
 use argmin::argmin_error_closure;
 use argmin::core::{CostFunction, Problem, State};
@@ -25,11 +25,11 @@ use ndarray::{Array1, Array2, ArrayBase, Axis, Data, Ix1, Ix2, Zip, concatenate,
 use ndarray_rand::rand::{Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256Plus;
 use rayon::prelude::*;
-use serde::de::DeserializeOwned;
+use serde::{Serialize, de::DeserializeOwned};
 
 use super::coego::COEGO_IMPROVEMENT_CHECK;
 
-impl<SB: SurrogateBuilder + DeserializeOwned, C: CstrFn> EgorSolver<SB, C> {
+impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<SB, C> {
     /// Constructor of the optimization of the function `f` with specified random generator
     /// to get reproducibility.
     ///
@@ -104,7 +104,7 @@ impl<SB: SurrogateBuilder + DeserializeOwned, C: CstrFn> EgorSolver<SB, C> {
 
 impl<SB, C> EgorSolver<SB, C>
 where
-    SB: SurrogateBuilder + DeserializeOwned,
+    SB: SurrogateBuilder + Serialize + DeserializeOwned,
     C: CstrFn,
 {
     /// Whether we have to recluster the data

@@ -1,6 +1,6 @@
 use crate::errors::Result;
-use crate::gpmix::mixint::to_discrete_space;
 use crate::{types::*, utils};
+use egobox_moe::to_discrete_space;
 
 use crate::utils::{
     EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER, compute_cstr_scales, logpofs, logpofs_grad, pofs,

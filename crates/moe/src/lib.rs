@@ -96,7 +96,11 @@ mod types;
 
 mod algorithm;
 mod metrics;
+mod mixint;
 mod parameters;
+mod xtypes;
+
+mod surrogate_builder;
 
 pub use clustering::*;
 pub use errors::*;
@@ -107,3 +111,10 @@ pub use types::*;
 
 pub use algorithm::*;
 pub use parameters::*;
+pub use xtypes::*;
+
+pub use mixint::{
+    MixintContext, MixintGpMixture, MixintGpMixtureParams, MixintGpMixtureValidParams,
+    MixintSampling, MoeBuilder, as_continuous_limits, to_continuous_space, to_discrete_space,
+};
+pub use surrogate_builder::*;

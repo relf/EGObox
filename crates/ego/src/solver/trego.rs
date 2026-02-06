@@ -21,7 +21,7 @@ use ndarray_stats::DeviationExt;
 
 use ndarray_rand::rand::{Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256Plus;
-use serde::de::DeserializeOwned;
+use serde::{Serialize, de::DeserializeOwned};
 
 use super::coego;
 use super::solver_infill_optim::MultiStarter;
@@ -78,7 +78,7 @@ impl<R: Rng + Clone> MultiStarter for LocalLhsMultiStarter<R> {
 
 impl<SB, C> EgorSolver<SB, C>
 where
-    SB: SurrogateBuilder + DeserializeOwned,
+    SB: SurrogateBuilder + Serialize + DeserializeOwned,
     C: CstrFn,
 {
     pub(crate) fn update_trego_state(&mut self, state: &EgorState<f64>) -> (Phase, EgorState<f64>) {

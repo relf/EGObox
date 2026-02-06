@@ -1,6 +1,6 @@
 use crate::domain;
 use egobox_doe::{LhsKind, SamplingMethod};
-use egobox_ego::gpmix::mixint::MixintContext;
+use egobox_moe::MixintContext;
 use numpy::{IntoPyArray, PyArray2};
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::{gen_stub_pyclass_enum, gen_stub_pyfunction};
@@ -41,7 +41,7 @@ pub fn sampling(
     n_samples: usize,
     seed: Option<u64>,
 ) -> Bound<'_, PyArray2<f64>> {
-    let xtypes: Vec<egobox_ego::XType> = domain::parse(py, xspecs);
+    let xtypes: Vec<egobox_moe::XType> = domain::parse(py, xspecs);
     let mixin = MixintContext::new(&xtypes);
     let doe = match method {
         Sampling::Lhs => Box::new(mixin.create_lhs_sampling(LhsKind::default(), seed))

@@ -176,11 +176,9 @@ pub const LOG_EI: LogExpectedImprovement = LogExpectedImprovement {};
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        gpmix::mixint::{MixintContext, MoeBuilder},
-        types::*,
-    };
+    use crate::types::*;
     use approx::assert_abs_diff_eq;
+    use egobox_moe::{MixintContext, MoeBuilder};
     // use egobox_moe::GpSurrogate;
     use finitediff::vec;
     use linfa::Dataset;

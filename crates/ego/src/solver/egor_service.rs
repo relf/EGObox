@@ -44,12 +44,11 @@
 //!
 use std::marker::PhantomData;
 
-use crate::{EgorConfig, EgorSolver, errors::Result, gpmix::mixint::*, to_xtypes, types::*};
-
-use egobox_moe::GpMixtureParams;
+use crate::{EgorConfig, EgorSolver, errors::Result, to_xtypes, types::*};
+use egobox_moe::{GpMixtureParams, MixintGpMixtureParams, to_continuous_space, to_discrete_space};
 use ndarray::{Array2, ArrayBase, Data, Ix2};
 
-use serde::de::DeserializeOwned;
+use serde::{Serialize, de::DeserializeOwned};
 
 /// EGO optimizer service builder allowing to use Egor optimizer
 /// as a service.
@@ -109,11 +108,11 @@ impl<C: CstrFn> EgorServiceFactory<C> {
 
 /// Egor optimizer service API.
 #[derive(Clone)]
-pub struct EgorServiceApi<SB: SurrogateBuilder + DeserializeOwned, C: CstrFn = Cstr> {
+pub struct EgorServiceApi<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn = Cstr> {
     solver: EgorSolver<SB, C>,
 }
 
-impl<SB: SurrogateBuilder + DeserializeOwned, C: CstrFn> EgorServiceApi<SB, C> {
+impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorServiceApi<SB, C> {
     /// Given an evaluated doe (x, y) data, return the next promising x point
     /// where optimum may be located with regard to the infill criterion.
     /// This function inverses the control of the optimization and can be used
@@ -136,8 +135,8 @@ pub type EgorServiceBuilder = EgorServiceFactory<Cstr>;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gpmix::spec::*;
     use approx::assert_abs_diff_eq;
+    use egobox_moe::{CorrelationSpec, RegressionSpec};
     use ndarray::{ArrayView2, Axis, array, concatenate};
 
     use ndarray_stats::QuantileExt;

@@ -105,10 +105,10 @@ use crate::EgorConfig;
 use crate::EgorState;
 use crate::HotStartMode;
 use crate::errors::Result;
-use crate::gpmix::mixint::*;
 use crate::types::*;
 use crate::{CHECKPOINT_FILE, CheckpointingFrequency, HotStartCheckpoint};
 use crate::{EgorSolver, to_xtypes};
+use egobox_moe::{MixintGpMixtureParams, to_discrete_space};
 
 use argmin::core::observers::ObserverMode;
 
@@ -117,7 +117,7 @@ use log::info;
 use ndarray::{Array2, ArrayBase, Axis, Data, Ix2, concatenate};
 
 use argmin::core::{Error, Executor, KV, State, observers::Observe};
-use serde::de::DeserializeOwned;
+use serde::{Serialize, de::DeserializeOwned};
 
 use ndarray_npy::write_npy;
 use std::path::PathBuf;
@@ -219,14 +219,14 @@ impl<O: GroupFunc, C: CstrFn> EgorFactory<O, C> {
 pub struct Egor<
     O: GroupFunc,
     C: CstrFn = Cstr,
-    SB: SurrogateBuilder + DeserializeOwned = GpMixtureParams<f64>,
+    SB: SurrogateBuilder + Serialize + DeserializeOwned = GpMixtureParams<f64>,
 > {
     fobj: ObjFunc<O, C>,
     solver: EgorSolver<SB, C>,
     run_info: Option<RunInfo>,
 }
 
-impl<O: GroupFunc, C: CstrFn, SB: SurrogateBuilder + DeserializeOwned> Egor<O, C, SB> {
+impl<O: GroupFunc, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> Egor<O, C, SB> {
     /// Runs the (constrained) optimization of the objective function.
     pub fn run(&self) -> Result<OptimResult<f64>> {
         let xtypes = self.solver.config.xtypes.clone();
@@ -422,7 +422,7 @@ mod tests {
     use argmin::core::{TerminationReason, TerminationStatus};
     use argmin_testfunctions::rosenbrock;
     use egobox_doe::{Lhs, SamplingMethod};
-    use egobox_moe::NbClusters;
+    use egobox_moe::{NbClusters, as_continuous_limits};
     use ndarray::{Array1, Array2, ArrayView1, ArrayView2, Ix1, Zip, array, s};
     use ndarray_rand::rand::SeedableRng;
     use rand_xoshiro::Xoshiro256Plus;
@@ -432,7 +432,8 @@ mod tests {
     use serial_test::serial;
     use std::time::Instant;
 
-    use crate::{CoegoStatus, DOE_FILE, DOE_INITIAL_FILE, gpmix::spec::*, utils::EGOBOX_LOG};
+    use crate::{CoegoStatus, DOE_FILE, DOE_INITIAL_FILE, utils::EGOBOX_LOG};
+    use egobox_moe::{CorrelationSpec, RegressionSpec};
 
     #[cfg(not(feature = "blas"))]
     use linfa_linalg::norm::*;

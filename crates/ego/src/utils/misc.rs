@@ -1,4 +1,3 @@
-use crate::types::XType;
 use egobox_moe::MixtureGpSurrogate;
 use libm::erfc;
 use linfa::Float;
@@ -133,11 +132,8 @@ pub fn update_data(
     (add_count, x_fail_points)
 }
 
-pub fn discrete(xtypes: &[XType]) -> bool {
-    xtypes
-        .iter()
-        .any(|t| matches!(t, &XType::Int(_, _) | &XType::Ord(_) | &XType::Enum(_)))
-}
+// Re-export from egobox_moe for backward compatibility
+pub use egobox_moe::discrete;
 
 #[cfg(test)]
 mod tests {

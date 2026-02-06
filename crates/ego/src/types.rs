@@ -1,10 +1,14 @@
-use crate::gpmix::spec::*;
-use crate::{EgorState, errors::Result};
+use crate::EgorState;
 use argmin::core::CostFunction;
-use egobox_moe::{Clustering, MixtureGpSurrogate, NbClusters, Recombination, ThetaTuning};
 use linfa::Float;
-use ndarray::{Array1, Array2, ArrayView1, ArrayView2};
+use ndarray::{Array1, Array2, ArrayView2};
 use serde::{Deserialize, Serialize};
+
+// Re-export from egobox_moe for backward compatibility
+#[deprecated(since = "0.36.1", note = "Use `egobox_moe::SurrogateBuilder` instead")]
+pub use egobox_moe::SurrogateBuilder;
+#[deprecated(since = "0.36.1", note = "Use `egobox_moe::XType` instead")]
+pub use egobox_moe::XType;
 
 /// Optimization result
 #[derive(Clone, Debug)]
@@ -135,65 +139,6 @@ impl<O: GroupFunc, C: CstrFn> DomainConstraints<C> for ObjFunc<O, C> {
     fn fn_constraints(&self) -> &[impl CstrFn] {
         &self.fcstrs
     }
-}
-
-/// An enumeration to define the type of an input variable component
-/// with its domain definition
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum XType {
-    /// Continuous variable in [lower bound, upper bound]
-    Float(f64, f64),
-    /// Integer variable in lower bound .. upper bound
-    Int(i32, i32),
-    /// An Ordered variable in { float_1, float_2, ..., float_n }
-    Ord(Vec<f64>),
-    /// An Enum variable in { 1, 2, ..., int_n }
-    Enum(usize),
-}
-
-/// A trait for surrogate training
-///
-/// The output surrogate used by [crate::Egor] is expected to model either
-/// objective function or constraint functions
-pub trait SurrogateBuilder: Clone + Serialize + Sync {
-    /// Constructor from domain space specified with types.
-    fn new_with_xtypes(xtypes: &[XType]) -> Self;
-
-    /// Sets the allowed regression models used in gaussian processes.
-    fn set_regression_spec(&mut self, regression_spec: RegressionSpec);
-
-    /// Sets the allowed correlation models used in gaussian processes.
-    fn set_correlation_spec(&mut self, correlation_spec: CorrelationSpec);
-
-    /// Sets the number of components to be used specifiying PLS projection is used (a.k.a KPLS method).
-    fn set_kpls_dim(&mut self, kpls_dim: Option<usize>);
-
-    /// Sets the number of clusters used by the mixture of surrogate experts.
-    fn set_n_clusters(&mut self, n_clusters: NbClusters);
-
-    /// Sets the mode of recombination to get the output prediction from experts prediction
-    fn set_recombination(&mut self, recombination: Recombination<f64>);
-
-    /// Sets the hyperparameters tuning strategy
-    fn set_theta_tunings(&mut self, theta_tunings: &[ThetaTuning<f64>]);
-
-    /// Set likelihood optimization parameters
-    fn set_optim_params(&mut self, n_start: usize, max_eval: usize);
-
-    /// Train the surrogate with given training dataset (x, y)
-    fn train(
-        &self,
-        xt: ArrayView2<f64>,
-        yt: ArrayView1<f64>,
-    ) -> Result<Box<dyn MixtureGpSurrogate>>;
-
-    /// Train the surrogate with given training dataset (x, y) and given clustering
-    fn train_on_clusters(
-        &self,
-        xt: ArrayView2<f64>,
-        yt: ArrayView1<f64>,
-        clustering: &Clustering,
-    ) -> Result<Box<dyn MixtureGpSurrogate>>;
 }
 
 /// A trait for functions used by internal optimizers

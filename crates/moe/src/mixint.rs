@@ -3,15 +3,16 @@
 //! This module exposes a GP mixture model featuring continuous relaxation to handle mixed-interger variables
 
 #![allow(dead_code)]
-use crate::errors::{EgoError, Result};
-use crate::types::{SurrogateBuilder, XType};
-use egobox_doe::{FullFactorial, Lhs, LhsKind, Random};
-use egobox_gp::ThetaTuning;
-use egobox_moe::{
+use crate::SurrogateBuilder;
+use crate::errors::{MoeError, Result};
+use crate::xtypes::{XType, discrete};
+use crate::{
     Clustered, Clustering, CorrelationSpec, FullGpSurrogate, GpMetrics, GpMixture, GpMixtureParams,
     GpQualityAssurance, GpSurrogate, GpSurrogateExt, IaeAlphaPlotData, MixtureGpSurrogate,
     NbClusters, Recombination, RegressionSpec,
 };
+use egobox_doe::{FullFactorial, Lhs, LhsKind, Random};
+use egobox_gp::ThetaTuning;
 use linfa::traits::{Fit, PredictInplace};
 use linfa::{DatasetBase, Float, ParamGuard};
 use ndarray::{
@@ -22,10 +23,11 @@ use ndarray_stats::QuantileExt;
 use rand_xoshiro::Xoshiro256Plus;
 use std::marker::PhantomData;
 
+#[cfg(feature = "serializable")]
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "persistent")]
-use egobox_moe::{GpFileFormat, MoeError};
+use crate::{GpFileFormat, MoeError as MoeErrorType};
 #[cfg(feature = "persistent")]
 use std::fs;
 #[cfg(feature = "persistent")]
@@ -233,7 +235,7 @@ enum Method {
 
 /// A decorator of LHS sampling that takes into account XType specifications
 /// casting continuous LHS result from floats to discrete types.
-#[derive(Serialize, Deserialize)]
+#[cfg_attr(feature = "serializable", derive(Serialize, Deserialize))]
 pub struct MixintSampling<F: Float, S: egobox_doe::SamplingMethod<F>> {
     /// The continuous sampling method
     method: S,
@@ -291,7 +293,8 @@ pub type MoeBuilder = GpMixtureParams<f64>;
 /// A decorator of Moe surrogate builder that takes into account XType specifications
 ///
 /// It allows to implement continuous relaxation over continuous Moe builder.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serializable", derive(Serialize, Deserialize))]
 pub struct MixintGpMixtureValidParams {
     /// The surrogate factory
     surrogate_builder: GpMixtureParams<f64>,
@@ -316,7 +319,8 @@ impl MixintGpMixtureValidParams {
 }
 
 /// Parameters for mixture of experts surrogate model
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serializable", derive(Serialize, Deserialize))]
 pub struct MixintGpMixtureParams(MixintGpMixtureValidParams);
 
 impl MixintGpMixtureParams {
@@ -371,7 +375,7 @@ impl MixintGpMixtureValidParams {
         &self,
         xt: &ArrayBase<impl Data<Elem = f64>, Ix2>,
         yt: &ArrayBase<impl Data<Elem = f64>, Ix1>,
-        clustering: &egobox_moe::Clustering,
+        clustering: &Clustering,
     ) -> Result<MixintGpMixture> {
         let mut xcast = if self.work_in_folded_space {
             unfold_with_enum_mask(&self.xtypes, &xt.view())
@@ -503,7 +507,7 @@ impl SurrogateBuilder for MixintGpMixtureParams {
     }
 }
 
-impl<D: Data<Elem = f64>> Fit<ArrayBase<D, Ix2>, ArrayBase<D, Ix1>, EgoError>
+impl<D: Data<Elem = f64>> Fit<ArrayBase<D, Ix2>, ArrayBase<D, Ix1>, MoeError>
     for MixintGpMixtureValidParams
 {
     type Object = MixintGpMixture;
@@ -520,7 +524,7 @@ impl<D: Data<Elem = f64>> Fit<ArrayBase<D, Ix2>, ArrayBase<D, Ix1>, EgoError>
 
 impl ParamGuard for MixintGpMixtureParams {
     type Checked = MixintGpMixtureValidParams;
-    type Error = EgoError;
+    type Error = MoeError;
 
     fn check_ref(&self) -> Result<&Self::Checked> {
         Ok(&self.0)
@@ -539,7 +543,7 @@ impl From<MixintGpMixtureValidParams> for MixintGpMixtureParams {
 }
 
 /// The Moe model that takes into account XType specifications
-#[derive(Serialize, Deserialize)]
+#[cfg_attr(feature = "serializable", derive(Serialize, Deserialize))]
 pub struct MixintGpMixture {
     /// the decorated Moe
     moe: GpMixture,
@@ -556,11 +560,7 @@ pub struct MixintGpMixture {
 
 impl std::fmt::Display for MixintGpMixture {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let prefix = if crate::utils::discrete(&self.xtypes) {
-            "MixInt"
-        } else {
-            ""
-        };
+        let prefix = if discrete(&self.xtypes) { "MixInt" } else { "" };
         write!(f, "{}{}", prefix, &self.moe)
     }
 }
@@ -570,7 +570,7 @@ impl Clustered for MixintGpMixture {
         self.moe.n_clusters()
     }
 
-    fn recombination(&self) -> egobox_moe::Recombination<f64> {
+    fn recombination(&self) -> Recombination<f64> {
         self.moe.recombination()
     }
 
@@ -580,13 +580,13 @@ impl Clustered for MixintGpMixture {
     }
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serializable", typetag::serde)]
 impl GpSurrogate for MixintGpMixture {
     fn dims(&self) -> (usize, usize) {
         self.moe.dims()
     }
 
-    fn predict(&self, x: &ArrayView2<f64>) -> egobox_moe::Result<Array1<f64>> {
+    fn predict(&self, x: &ArrayView2<f64>) -> Result<Array1<f64>> {
         let mut xcast = if self.work_in_folded_space {
             unfold_with_enum_mask(&self.xtypes, x)
         } else {
@@ -596,7 +596,7 @@ impl GpSurrogate for MixintGpMixture {
         self.moe.predict(&xcast)
     }
 
-    fn predict_var(&self, x: &ArrayView2<f64>) -> egobox_moe::Result<Array1<f64>> {
+    fn predict_var(&self, x: &ArrayView2<f64>) -> Result<Array1<f64>> {
         let mut xcast = if self.work_in_folded_space {
             unfold_with_enum_mask(&self.xtypes, x)
         } else {
@@ -606,10 +606,7 @@ impl GpSurrogate for MixintGpMixture {
         self.moe.predict_var(&xcast)
     }
 
-    fn predict_valvar(
-        &self,
-        x: &ArrayView2<f64>,
-    ) -> egobox_moe::Result<(Array1<f64>, Array1<f64>)> {
+    fn predict_valvar(&self, x: &ArrayView2<f64>) -> Result<(Array1<f64>, Array1<f64>)> {
         let mut xcast = if self.work_in_folded_space {
             unfold_with_enum_mask(&self.xtypes, x)
         } else {
@@ -621,13 +618,13 @@ impl GpSurrogate for MixintGpMixture {
 
     /// Save Moe model in given file.
     #[cfg(feature = "persistent")]
-    fn save(&self, path: &str, format: GpFileFormat) -> egobox_moe::Result<()> {
+    fn save(&self, path: &str, format: GpFileFormat) -> Result<()> {
         let mut file = fs::File::create(path).unwrap();
         let bytes = match format {
-            GpFileFormat::Json => serde_json::to_vec(self).map_err(MoeError::SaveJsonError)?,
+            GpFileFormat::Json => serde_json::to_vec(self).map_err(MoeErrorType::SaveJsonError)?,
             GpFileFormat::Binary => {
                 bincode::serde::encode_to_vec(self, bincode::config::standard())
-                    .map_err(MoeError::SaveBinaryError)?
+                    .map_err(MoeErrorType::SaveBinaryError)?
             }
         };
         file.write_all(&bytes)?;
@@ -651,9 +648,9 @@ impl MixintGpMixture {
     }
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serializable", typetag::serde)]
 impl GpSurrogateExt for MixintGpMixture {
-    fn predict_gradients(&self, x: &ArrayView2<f64>) -> egobox_moe::Result<Array2<f64>> {
+    fn predict_gradients(&self, x: &ArrayView2<f64>) -> Result<Array2<f64>> {
         let mut xcast = if self.work_in_folded_space {
             unfold_with_enum_mask(&self.xtypes, x)
         } else {
@@ -663,7 +660,7 @@ impl GpSurrogateExt for MixintGpMixture {
         self.moe.predict_gradients(&xcast)
     }
 
-    fn predict_var_gradients(&self, x: &ArrayView2<f64>) -> egobox_moe::Result<Array2<f64>> {
+    fn predict_var_gradients(&self, x: &ArrayView2<f64>) -> Result<Array2<f64>> {
         let mut xcast = if self.work_in_folded_space {
             unfold_with_enum_mask(&self.xtypes, x)
         } else {
@@ -673,10 +670,7 @@ impl GpSurrogateExt for MixintGpMixture {
         self.moe.predict_var_gradients(&xcast)
     }
 
-    fn predict_valvar_gradients(
-        &self,
-        x: &ArrayView2<f64>,
-    ) -> egobox_moe::Result<(Array2<f64>, Array2<f64>)> {
+    fn predict_valvar_gradients(&self, x: &ArrayView2<f64>) -> Result<(Array2<f64>, Array2<f64>)> {
         let mut xcast = if self.work_in_folded_space {
             unfold_with_enum_mask(&self.xtypes, x)
         } else {
@@ -686,7 +680,7 @@ impl GpSurrogateExt for MixintGpMixture {
         self.moe.predict_valvar_gradients(&xcast)
     }
 
-    fn sample(&self, x: &ArrayView2<f64>, n_traj: usize) -> egobox_moe::Result<Array2<f64>> {
+    fn sample(&self, x: &ArrayView2<f64>, n_traj: usize) -> Result<Array2<f64>> {
         let mut xcast = if self.work_in_folded_space {
             unfold_with_enum_mask(&self.xtypes, x)
         } else {
@@ -697,7 +691,7 @@ impl GpSurrogateExt for MixintGpMixture {
     }
 }
 
-impl GpMetrics<EgoError, MixintGpMixtureParams, Self> for MixintGpMixture {
+impl GpMetrics<MoeError, MixintGpMixtureParams, Self> for MixintGpMixture {
     fn params(&self) -> MixintGpMixtureParams {
         self.params.clone().into()
     }
@@ -707,7 +701,7 @@ impl GpMetrics<EgoError, MixintGpMixtureParams, Self> for MixintGpMixture {
     }
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serializable", typetag::serde)]
 impl GpQualityAssurance for MixintGpMixture {
     fn training_data(&self) -> &(Array2<f64>, Array1<f64>) {
         (self as &dyn GpMetrics<_, _, _>).training_data()
@@ -738,7 +732,7 @@ impl GpQualityAssurance for MixintGpMixture {
     }
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serializable", typetag::serde)]
 impl MixtureGpSurrogate for MixintGpMixture {
     fn experts(&self) -> &Vec<Box<dyn FullGpSurrogate>> {
         self.moe.experts()
@@ -873,9 +867,9 @@ impl MixintContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::CorrelationSpec;
     use approx::assert_abs_diff_eq;
     use egobox_doe::SamplingMethod;
-    use egobox_moe::CorrelationSpec;
     use linfa::Dataset;
     use ndarray::array;
 

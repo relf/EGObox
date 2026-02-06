@@ -7,7 +7,7 @@ use egobox_gp::ThetaTuning;
 use egobox_moe::MixtureGpSurrogate;
 use ndarray::{Array, Array1, Array2, ArrayBase, Axis, Data, Ix1, RemoveAxis, s};
 use rand_xoshiro::Xoshiro256Plus;
-use serde::de::DeserializeOwned;
+use serde::{Serialize, de::DeserializeOwned};
 
 use ndarray_rand::rand::seq::SliceRandom;
 
@@ -45,7 +45,7 @@ where
 
 impl<SB, C> EgorSolver<SB, C>
 where
-    SB: SurrogateBuilder + DeserializeOwned,
+    SB: SurrogateBuilder + Serialize + DeserializeOwned,
     C: CstrFn,
 {
     /// Compute array of components indices each row being used as

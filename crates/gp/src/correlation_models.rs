@@ -18,10 +18,12 @@ use std::fmt;
 /// A trait for using a correlation model in GP regression
 pub trait CorrelationModel<F: Float>: Clone + Copy + Default + fmt::Display + Sync {
     /// Compute correlation function matrix r(x, x') given distances `d` between x and x',
-    /// `theta` parameters, and PLS `weights`, where:
-    /// `theta`   : hyperparameters (1xd)
-    /// `d`     : distances (nxd)
-    /// `weight`: PLS weights (dxh)
+    /// `theta` parameters, and PLS `weights` with:
+    ///
+    /// * `theta`   : hyperparameters (1xd)
+    /// * `d`     : distances (nxd)
+    /// * `weight`: PLS weights (dxh)
+    ///
     /// where d is the initial dimension and h (<d) is the reduced dimension when PLS is used (kpls_dim)
     fn value(
         &self,
