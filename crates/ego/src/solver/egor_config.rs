@@ -59,6 +59,9 @@ use ndarray::Array2;
 
 use serde::{Deserialize, Serialize};
 
+use super::activity_strategy::{ActivityStrategy, CooperativeActivity, FullActivity};
+use super::iteration_strategy::{IterationStrategy, StandardEgoStrategy, TregoStrategy};
+
 /// Default number of starts for multistart approach used for optimization
 pub const EGO_GP_OPTIM_N_START: usize = 10;
 /// Default number of likelihood evaluation during one internal optimization
@@ -456,6 +459,10 @@ pub struct ValidEgorConfig {
     pub(crate) failsafe_strategy: FailsafeStrategy,
     /// Runtime behavior flags (replaces environment variable checks)
     pub(crate) runtime_flags: RuntimeFlags,
+    /// Strategy controlling iteration flow (Standard EGO vs TREGO)
+    pub(crate) iteration_strategy: Box<dyn IterationStrategy>,
+    /// Strategy controlling variable activity (Full vs Cooperative/CoEGO)
+    pub(crate) activity_strategy: Box<dyn ActivityStrategy>,
 }
 
 impl Default for ValidEgorConfig {
@@ -483,6 +490,8 @@ impl Default for ValidEgorConfig {
             cstr_strategy: ConstraintStrategy::MeanConstraint,
             failsafe_strategy: FailsafeStrategy::Rejection,
             runtime_flags: RuntimeFlags::default(),
+            iteration_strategy: Box::new(StandardEgoStrategy),
+            activity_strategy: Box::new(FullActivity),
         }
     }
 }
@@ -658,28 +667,95 @@ impl EgorConfig {
         self
     }
 
-    /// Activate or deactivate TREGO method
+    /// Activate or deactivate TREGO method.
+    ///
+    /// When `activated` is true, sets the iteration strategy to [`TregoStrategy`] with
+    /// default parameters. When false, resets to [`StandardEgoStrategy`].
+    ///
+    /// For custom TREGO parameters, use [`configure_trego`](Self::configure_trego) or
+    /// [`iteration_strategy`](Self::iteration_strategy) directly.
     pub fn trego(mut self, activated: bool) -> Self {
         self.0.trego_config.activated = activated;
+        if activated {
+            self.0.iteration_strategy = Box::new(TregoStrategy::default());
+        } else {
+            self.0.iteration_strategy = Box::new(StandardEgoStrategy);
+        }
         self
     }
 
-    /// Configure TREGO parameters. TREGO is automatically activated by this method
+    /// Configure TREGO parameters. TREGO is automatically activated by this method.
+    ///
+    /// The closure receives a [`TregoConfig`] for backward compatibility. The resulting
+    /// parameters are also used to configure a [`TregoStrategy`] internally.
+    ///
+    /// For direct strategy configuration, use [`iteration_strategy`](Self::iteration_strategy).
     pub fn configure_trego<F: FnOnce(TregoConfig) -> TregoConfig>(mut self, init: F) -> Self {
         self.0.trego_config = init(self.0.trego_config);
         self.0.trego_config.activated = true;
+        // Sync iteration strategy from TregoConfig parameters
+        let tc = &self.0.trego_config;
+        self.0.iteration_strategy = Box::new(
+            TregoStrategy::default()
+                .n_gl_steps(tc.n_gl_steps)
+                .d(tc.d)
+                .alpha(tc.alpha)
+                .beta(tc.beta)
+                .sigma0(tc.sigma0),
+        );
         self
     }
 
-    /// Activate CoEGO method
+    /// Sets the iteration strategy directly.
+    ///
+    /// This is the preferred way to configure algorithm variants like TREGO.
+    ///
+    /// # Example
+    /// ```ignore
+    /// use egobox_ego::{EgorConfig, TregoStrategy};
+    ///
+    /// let config = EgorConfig::default()
+    ///     .iteration_strategy(Box::new(TregoStrategy::default().beta(0.8)));
+    /// ```
+    pub fn iteration_strategy(mut self, strategy: Box<dyn IterationStrategy>) -> Self {
+        self.0.iteration_strategy = strategy;
+        self
+    }
+
+    /// Activate CoEGO method.
+    ///
+    /// When enabled, sets the activity strategy to [`CooperativeActivity`] with the
+    /// specified number of groups. When disabled, resets to [`FullActivity`].
+    ///
+    /// For direct strategy configuration, use [`activity_strategy`](Self::activity_strategy).
     pub fn coego(mut self, status: CoegoStatus) -> Self {
         match status {
-            CoegoStatus::Disabled => self.0.coego.activated = false,
+            CoegoStatus::Disabled => {
+                self.0.coego.activated = false;
+                self.0.activity_strategy = Box::new(FullActivity);
+            }
             CoegoStatus::Enabled(n) => {
                 self.0.coego.activated = true;
                 self.0.coego.n_coop = n;
+                self.0.activity_strategy = Box::new(CooperativeActivity::new(n));
             }
         }
+        self
+    }
+
+    /// Sets the activity strategy directly.
+    ///
+    /// This is the preferred way to configure variable grouping strategies like CoEGO.
+    ///
+    /// # Example
+    /// ```ignore
+    /// use egobox_ego::{EgorConfig, CooperativeActivity};
+    ///
+    /// let config = EgorConfig::default()
+    ///     .activity_strategy(Box::new(CooperativeActivity::new(5)));
+    /// ```
+    pub fn activity_strategy(mut self, strategy: Box<dyn ActivityStrategy>) -> Self {
+        self.0.activity_strategy = strategy;
         self
     }
 
@@ -742,8 +818,8 @@ impl EgorConfig {
             )));
         }
 
-        // Check exclusicve use of coego and gp_config kpls
-        if config.coego.activated && config.gp.kpls_dim.is_some() {
+        // Check exclusive use of cooperative activity strategy and KPLS
+        if config.activity_strategy.is_cooperative() && config.gp.kpls_dim.is_some() {
             return Err(crate::EgoError::InvalidConfigError(
                 "EgorConfig invalid: CoEGO and KPLS cannot be used together".to_string(),
             ));
