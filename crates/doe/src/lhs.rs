@@ -34,9 +34,9 @@ pub enum LhsKind {
 
 type RngRef<R> = Arc<RwLock<R>>;
 
-/// The LHS design is built as follows: each dimension space is divided into ns sections
-/// where ns is the number of sampling points, and one point in selected in each section.
-/// The selection method gives different kind of LHS (see [LhsKind])
+/// The LHS design is built as follows: each dimension space is divided into `ns` sections
+/// where `ns` is the number of sampling points, and one point is selected in each section.
+/// The selection method corresponds to different kinds of LHS: see [`LhsKind`]
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serializable", derive(Serialize, Deserialize))]
 pub struct Lhs<F: Float, R: Rng> {
