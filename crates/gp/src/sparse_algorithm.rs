@@ -226,7 +226,7 @@ impl<F: Float, Corr: CorrelationModel<F>> SparseGaussianProcess<F, Corr> {
         // Get pairwise componentwise L1-distances to the input training set
         let dx = pairwise_differences(a, b);
         // Compute the correlation function
-        let r = self.corr.value(&dx, theta, w_star);
+        let r = self.corr.rval_from_distances(&dx, theta, w_star);
         r.into_shape_with_order((a.nrows(), b.nrows()))
             .unwrap()
             .mapv(|v| v * sigma2)
@@ -684,7 +684,7 @@ impl<F: Float, Corr: CorrelationModel<F>> SgpValidParams<F, Corr> {
         // Get pairwise componentwise L1-distances to the input training set
         let dx = pairwise_differences(a, b);
         // Compute the correlation function
-        let r = self.corr().value(&dx, theta, w_star);
+        let r = self.corr().rval_from_distances(&dx, theta, w_star);
         r.into_shape_with_order((a.nrows(), b.nrows()))
             .unwrap()
             .mapv(|v| v * sigma2)

@@ -207,17 +207,25 @@ Dubreuil, S., Bartoli, N., Gogu, C., & Lefebvre, T. (2020).
 [Towards an efficient global multi-disciplinary design optimization algorithm](https://doi.org/10.1007/s00158-020-02514-6)
 Structural and Multidisciplinary Optimization, 62(4), 1739–1765.
 
+Jin, R. and Chen, W. and Sudjianto, A. (2005).
+[An efficient algorithm for constructing optimal design of computer experiments](https://doi.org/10.1016/j.jspi.2004.02.01) Journal of Statistical Planning and Inference, 134:268-287.
+
+Bettebghor, Dimitri, et al. (2011).
+[Surrogate modeling approximation using a mixture of experts based on EM joint estimation](https://hal.archives-ouvertes.fr/hal-01852300/document)
+Structural and multidisciplinary optimization 43.2 (2011): 243-259.
+
 Jones, D. R., Schonlau, M., & Welch, W. J. (1998).
 [Efficient global optimization of expensive black-box functions. Journal of Global Optimization](https://www.researchgate.net/publication/235709802_Efficient_Global_Optimization_of_Expensive_Black-Box_Functions), 13(4), 455–492.
 
-Diouane, Youssef, et al. [TREGO: a trust-region framework for efficient global optimization](https://arxiv.org/pdf/2101.06808).
+Diouane, Youssef, et al. (2023).
+[TREGO: a trust-region framework for efficient global optimization](https://arxiv.org/pdf/2101.06808).
 Journal of Global Optimization 86.1 (2023): 1-23.
 
-Priem, Rémy, Nathalie Bartoli, and Youssef Diouane.
+Priem, Rémy, Nathalie Bartoli, and Youssef Diouane. (2019)
 [On the use of upper trust bounds in constrained Bayesian optimization infill criteria](https://hal.science/hal-02182492v1/file/Priem_24049.pdf).
 AIAA aviation 2019 forum. 2019.
 
-Sasena M., Papalambros P., Goovaerts P., 2002.
+Sasena M., Papalambros P., Goovaerts P., (2002).
 [Global optimization of problems with disconnected feasible regions via surrogate modeling](https://deepblue.lib.umich.edu/handle/2027.42/77089).
 AIAA Paper.
 
@@ -227,17 +235,18 @@ Ginsbourger, D., Le Riche, R., & Carraro, L. (2010).
 E.C. Garrido-Merchan and D. Hernandez-Lobato.
 [Dealing with categorical and integer-valued variables in Bayesian Optimization with Gaussian processes](https://arxiv.org/pdf/1805.03463).
 
-Zhan, Dawei, et al. 
-[A cooperative approach to efficient global optimization](https://link.springer.com/article/10.1007/s10898-023-01316-6). Journal of Global Optimization 88.2 (2024): 327-357
+Zhan, Dawei, et al. (2024).
+[A cooperative approach to efficient global optimization](https://link.springer.com/article/10.1007/s10898-023-01316-6).
+Journal of Global Optimization 88.2 (2024): 327-357
 
-Lisa Pretsch et al.
+Lisa Pretsch et al. (2025)
 [Bayesian optimization of cooperative components for multi-stage aero-structural compressor blade design](https://www.researchgate.net/publication/391492598_Bayesian_optimization_of_cooperative_components_for_multi-stage_aero-structural_compressor_blade_design). Struct Multidisc Optim 68, 84 (2025)
 
-Appriou, T., Rullière, D. & Gaudrie, D,
+Appriou, T., Rullière, D. & Gaudrie, D, (2024)
 [Combination of optimization-free kriging models for high-dimensional problems](https://doi.org/10.1007/s00180-023-01424-7),
 Comput Stat 39, 3049–3071 (2024).
 
-S. Ament, S. Daulton, D. Eriksson, M. Balandat, E. Bakshy,
+S. Ament, S. Daulton, D. Eriksson, M. Balandat, E. Bakshy, (2023).
 [Unexpected improvements to expected improvement for bayesian optimization](https://arxiv.org/pdf/2310.20708),
 Advances in Neural Information Processing Systems, 2023
 
@@ -245,9 +254,9 @@ Marrel, A., & Iooss, B. (2024).
 [Probabilistic surrogate modeling by Gaussian process: A review on recent insights in estimation and validation.](https://www.sciencedirect.com/science/article/pii/S0951832024001686?casa_token=l-YuUssKYfsAAAAA:WpEZkMh7bf0Ago2rDi0I_E5BydKDTmjluPOP0KfAratwka89IRqu09U1J6OnpG1gc_8FIafRzA)
 Reliability Engineering & System Safety, 247, 110094.
 
-Bussemaker, Jasper H., et al. (2024)
+Bussemaker, Jasper H., et al. (2024).
 [Surrogate-based optimization of system architectures subject to hidden constraints.](https://hal.science/hal-04462408v2/file/DTIS2024-018-DTIS2024-018%20posprint-Accept%C3%A9e.pdf)
-AIAA AVIATION FORUM AND ASCEND 2024.
+AIAA Aviation forum and Ascend 2024.
 
 smtorg. (2018). [Surrogate modeling toolbox](https://github.com/SMTOrg/smt). GitHub.
 

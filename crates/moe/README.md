@@ -17,6 +17,7 @@ It is a Rust port of mixture of expert of the [SMT](https://smt.readthedocs.io) 
 * Clustering (`linfa-clustering/gmm`)
 * Hard recombination / Smooth recombination
 * Gaussian processe model choice: specify regression and correlation allowed models 
+* Mixed-interger variables handling through continuous relaxation
 
 ## Examples
 

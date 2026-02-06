@@ -1,5 +1,7 @@
-//! A module for metrics to evaluate Gaussian Process models performances
+//! A module for metrics to evaluate Gaussian Process models performances.
+//!
 //! It implements metrics from the following paper:
+//!
 //! Marrel, Amandine, and Bertrand Iooss.
 //! "Probabilistic surrogate modeling by Gaussian process: A review on recent insights in estimation and validation."
 //! Reliability Engineering & System Safety 247 (2024): 110094.

@@ -25,6 +25,7 @@ pub enum GpError {
     /// When a linfa error occurs
     #[error(transparent)]
     LinfaError(#[from] linfa::error::Error),
+    /// When error during saving
     #[cfg(feature = "persistent")]
     #[error("Save error: {0}")]
     SaveError(#[from] serde_json::Error),

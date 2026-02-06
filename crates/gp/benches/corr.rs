@@ -16,7 +16,7 @@ fn bench_matern32_value(c: &mut Criterion) {
 
     let corr = Matern32Corr::default();
     group.bench_function(BenchmarkId::from_parameter(dim), |b| {
-        b.iter(|| corr.value(&dm.d, &theta, &weights));
+        b.iter(|| corr.rval_from_distances(&dm.d, &theta, &weights));
     });
     group.finish();
 }
@@ -32,7 +32,7 @@ fn bench_matern52_value(c: &mut Criterion) {
 
     let corr = Matern52Corr::default();
     group.bench_function(BenchmarkId::from_parameter(dim), |b| {
-        b.iter(|| corr.value(&dm.d, &theta, &weights));
+        b.iter(|| corr.rval_from_distances(&dm.d, &theta, &weights));
     });
     group.finish();
 }
@@ -51,7 +51,7 @@ fn bench_matern32_jacobian(c: &mut Criterion) {
     let corr = Matern32Corr::default();
 
     group.bench_function(BenchmarkId::from_parameter(dim), |b| {
-        b.iter(|| corr.jacobian(&x, &xtrain, &theta, &weights));
+        b.iter(|| corr.jac(&x, &xtrain, &theta, &weights));
     });
     group.finish();
 }
@@ -70,7 +70,7 @@ fn bench_matern52_jacobian(c: &mut Criterion) {
     let corr = Matern52Corr::default();
 
     group.bench_function(BenchmarkId::from_parameter(dim), |b| {
-        b.iter(|| corr.jacobian(&x, &xtrain, &theta, &weights));
+        b.iter(|| corr.jac(&x, &xtrain, &theta, &weights));
     });
     group.finish();
 }
