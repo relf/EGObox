@@ -21,7 +21,7 @@
 //! * Clusters are defined by clustering the training data with
 //!   [linfa-clustering](https://docs.rs/linfa-clustering/latest/linfa_clustering/)
 //!   gaussian mixture model.
-//! * This library is a port of the
+//! * This library is inspired from the
 //!   [SMT MoE method](https://smt.readthedocs.io/en/latest/_src_docs/applications/moe.html)
 //!   using egobox GP models as experts.
 //! * It leverages on the egobox GP PLS reduction feature to handle high dimensional problems.

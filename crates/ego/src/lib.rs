@@ -1,5 +1,6 @@
-//! This library implements Efficient Global Optimization method,
-//! it started as a port of the [EGO algorithm](https://smt.readthedocs.io/en/stable/_src_docs/applications/ego.html)
+//! This library implements Efficient Global Optimization method with
+//! various variants and options.
+//! It started as a port of the [EGO algorithm](https://smt.readthedocs.io/en/stable/_src_docs/applications/ego.html)
 //! implemented as an application example in [SMT](https://smt.readthedocs.io/en/stable).
 //!
 //! The optimizer is able to deal with inequality constraints.
@@ -14,6 +15,7 @@
 //! * save intermediate results and allow warm/hot restart,
 //! * handling of mixed-integer variables
 //! * activation of TREGO algorithm variation
+//! * activation of CoEGO algorithm variation
 //!
 //! # Examples
 //!
