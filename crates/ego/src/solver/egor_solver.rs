@@ -276,31 +276,31 @@ where
             .theta_inits(theta_inits)
             .rng(rng);
 
-        initial_state.doe_size = doe.nrows();
+        initial_state.doe.doe_size = doe.nrows();
         initial_state.max_iters = self.config.max_iters as u64;
-        initial_state.no_point_added_retries = no_point_added_retries;
-        initial_state.cstr_tol = self.config.cstr_tol.clone().unwrap_or(Array1::from_elem(
+        initial_state.doe.no_point_added_retries = no_point_added_retries;
+        initial_state.doe.cstr_tol = self.config.cstr_tol.clone().unwrap_or(Array1::from_elem(
             self.config.n_cstr + c_data.ncols(),
             DEFAULT_CSTR_TOL,
         ));
         initial_state.target_cost = self.config.target;
 
-        let best_index = find_best_result_index(&y_data, &c_data, &initial_state.cstr_tol);
-        initial_state.best_index = Some(best_index);
-        initial_state.prev_best_index = initial_state.best_index;
+        let best_index = find_best_result_index(&y_data, &c_data, &initial_state.doe.cstr_tol);
+        initial_state.surrogate.best_index = Some(best_index);
+        initial_state.surrogate.prev_best_index = initial_state.surrogate.best_index;
         initial_state.last_best_iter = 0;
 
-        // Use proba of feasibility require related env var to be defined
-        // (err to get var means not defined, means feasability is set to true whatever,
+        // Use proba of feasibility when corresponding flag is enabled
+        // (when disabled, feasibility is set to true whatever,
         // means given infill criterion is used whatever)
-        initial_state.feasibility = std::env::var(EGOR_USE_MAX_PROBA_OF_FEASIBILITY).is_err() || {
+        initial_state.feasibility = !self.config.runtime_flags.use_max_proba_of_feasibility || {
             is_feasible(
                 &y_data.row(best_index),
                 &c_data.row(best_index),
-                &initial_state.cstr_tol,
+                &initial_state.doe.cstr_tol,
             )
         };
-        if std::env::var(EGOR_USE_MAX_PROBA_OF_FEASIBILITY).is_ok() {
+        if self.config.runtime_flags.use_max_proba_of_feasibility {
             info!("Using max proba of feasibility for infill criterion");
             info!(
                 "Initial best point feasibility = {}",
@@ -309,43 +309,39 @@ where
         }
 
         // TREGO initial sigma = sigma0 = 0.5 * (0.2)^(1/nx)
-        initial_state.sigma = 0.5 * (0.2f64).powf(1.0 / self.xlimits.nrows() as f64);
+        initial_state.trego.sigma = 0.5 * (0.2f64).powf(1.0 / self.xlimits.nrows() as f64);
 
-        initial_state.activity = activity;
+        initial_state.coego.activity = activity;
         debug!("Initial State = {initial_state:?}");
         info!(
             "{} setting: {}",
-            EGOBOX_LOG,
-            std::env::var(EGOBOX_LOG).is_ok()
+            EGOBOX_LOG, self.config.runtime_flags.enable_logging
         );
         info!(
             "{} setting: {}",
             EGOR_USE_MAX_PROBA_OF_FEASIBILITY,
-            std::env::var(EGOR_USE_MAX_PROBA_OF_FEASIBILITY).is_ok()
+            self.config.runtime_flags.use_max_proba_of_feasibility
         );
         info!(
             "{} setting: {}",
-            EGOR_USE_GP_VAR_PORTFOLIO,
-            std::env::var(EGOR_USE_GP_VAR_PORTFOLIO).is_ok()
+            EGOR_USE_GP_VAR_PORTFOLIO, self.config.runtime_flags.use_gp_var_portfolio
         );
         info!(
             "{} setting: {}",
             EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER,
-            std::env::var(EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER).is_ok()
+            self.config.runtime_flags.disable_middlepicker_multistarter
         );
         info!(
             "{} setting: {}",
-            EGOR_USE_GP_RECORDER,
-            std::env::var(EGOR_USE_GP_RECORDER).is_ok()
+            EGOR_USE_GP_RECORDER, self.config.runtime_flags.use_gp_recorder
         );
         info!(
             "{} setting: {}",
-            EGOR_USE_RUN_RECORDER,
-            std::env::var(EGOR_USE_RUN_RECORDER).is_ok()
+            EGOR_USE_RUN_RECORDER, self.config.runtime_flags.use_run_recorder
         );
 
         #[cfg(feature = "persistent")]
-        if std::env::var(crate::utils::EGOR_USE_RUN_RECORDER).is_ok() {
+        if self.config.runtime_flags.use_run_recorder {
             let run_data = crate::utils::run_recorder::init_run_info(
                 self.xlimits.clone(),
                 self.config.clone(),
@@ -383,7 +379,7 @@ where
         } else {
             self.ego_iteration(problem, state)?
         };
-        let (x_data, y_data, _c_data) = res.0.data.clone().unwrap();
+        let (x_data, y_data, _c_data) = res.0.surrogate.data.clone().unwrap();
 
         // Update Coop activity
         let mut res = if self.config.coego.activated {
@@ -407,20 +403,20 @@ where
             res.0.get_iter() + 1,
             res.0.get_max_iters(),
             now.elapsed().as_secs_f64(),
-            res.0.best_index.unwrap(),
-            y_data.row(res.0.best_index.unwrap()),
-            x_data.row(res.0.best_index.unwrap())
+            res.0.surrogate.best_index.unwrap(),
+            y_data.row(res.0.surrogate.best_index.unwrap()),
+            x_data.row(res.0.surrogate.best_index.unwrap())
         );
 
         #[cfg(feature = "persistent")]
-        if std::env::var(crate::utils::EGOR_USE_RUN_RECORDER).is_ok() {
+        if self.config.runtime_flags.use_run_recorder {
             use crate::utils::run_recorder;
 
             let mut run_data = res.0.take_run_data().unwrap();
 
-            let data = res.0.data.as_ref().unwrap();
+            let data = res.0.surrogate.data.as_ref().unwrap();
             let n_points = data.0.nrows();
-            let n_added = res.0.added - res.0.prev_added;
+            let n_added = res.0.doe.added - res.0.doe.prev_added;
             let xdata = data.0.slice(s![n_points - n_added.., ..]).to_owned();
             let ydata = data.1.slice(s![n_points - n_added.., ..]).to_owned();
 
@@ -437,8 +433,8 @@ where
         debug!(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> end iteration");
         debug!("Current Cost {:?}", state.get_cost());
         debug!("Best cost {:?}", state.get_best_cost());
-        debug!("Best index {:?}", state.best_index);
-        debug!("Data {:?}", state.data.as_ref().unwrap());
+        debug!("Best index {:?}", state.surrogate.best_index);
+        debug!("Data {:?}", state.surrogate.data.as_ref().unwrap());
 
         TerminationStatus::NotTerminated
     }
@@ -480,14 +476,14 @@ where
             // Global step
             info!(
                 ">>> EGO global step {}/{}",
-                new_state.global_trego_iter, self.config.trego_config.n_gl_steps.0
+                new_state.trego.global_trego_iter, self.config.trego_config.n_gl_steps.0
             );
             let res = self.ego_iteration(problem, new_state)?;
             Ok(res)
         } else {
             info!(
                 ">>> TREGO local step {}/{}",
-                new_state.local_trego_iter, self.config.trego_config.n_gl_steps.1
+                new_state.trego.local_trego_iter, self.config.trego_config.n_gl_steps.1
             );
             // Local step
             let models = self.refresh_surrogates(&new_state);

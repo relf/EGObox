@@ -352,7 +352,7 @@ impl OptimizationObserver {
 
 impl Observe<EgorState<f64>> for OptimizationObserver {
     fn observe_iter(&mut self, state: &EgorState<f64>, _kv: &KV) -> std::result::Result<(), Error> {
-        if let Some((xdata, ydata, cdata)) = &state.data {
+        if let Some((xdata, ydata, cdata)) = &state.surrogate.data {
             let doe = concatenate![Axis(1), xdata.view(), ydata.view(), cdata.view()];
             if !self.dir.exists() {
                 std::fs::create_dir_all(&self.dir)?
@@ -501,11 +501,13 @@ mod tests {
         // it would be around 1.28 after first iteration
         dbg!(res.state.clone());
         assert_eq!(
-            res.state.theta_inits.unwrap()[0].as_ref().unwrap(),
+            res.state.surrogate.theta_inits.unwrap()[0]
+                .as_ref()
+                .unwrap(),
             array![[LOWER_BOUND]]
         );
         assert_eq!(
-            res.state.clusterings.unwrap()[0]
+            res.state.surrogate.clusterings.unwrap()[0]
                 .as_ref()
                 .unwrap()
                 .recombination(),
@@ -1287,8 +1289,8 @@ mod tests {
             .run()
             .expect("Egor should minimize branin_with_nans");
         // Check initial failed points are stored
-        assert!(res.state.x_fail.is_some());
-        assert_eq!(expected_nans, res.state.x_fail.unwrap().nrows());
+        assert!(res.state.surrogate.x_fail.is_some());
+        assert_eq!(expected_nans, res.state.surrogate.x_fail.unwrap().nrows());
         // let x_expected = array![[0.96773, 0.20667]];
         // println!("{}", branin_with_nans(&x_expected.view()));
         // assert_abs_diff_eq!(x_expected.row(0), res.x_opt, epsilon = 5e-2);
@@ -1299,8 +1301,8 @@ mod tests {
             .expect("Egor should be configured")
             .run()
             .expect("Egor should minimize branin_with_nans");
-        assert!(res.state.x_fail.is_some());
-        let x_fail = res.state.x_fail.as_ref().unwrap();
+        assert!(res.state.surrogate.x_fail.is_some());
+        let x_fail = res.state.surrogate.x_fail.as_ref().unwrap();
         assert_eq!(expected_nans + 1, x_fail.nrows()); // the one iteration failed point added
         assert_eq!(x_fail.row(expected_nans), res.state.get_param().unwrap());
         let expected_valid = initial_doe.nrows() - expected_nans;
@@ -1362,7 +1364,7 @@ mod tests {
         } else {
             assert_eq!(N_DOE + MAX_ITERS, res.x_doe.nrows());
         }
-        assert!(res.state.x_fail.is_some());
+        assert!(res.state.surrogate.x_fail.is_some());
 
         let res = EgorBuilder::optimize(branin_with_nans)
             .configure(|cfg| {
@@ -1378,6 +1380,6 @@ mod tests {
             .expect("Egor should minimize branin_with_nans");
         assert_abs_diff_eq!(x_expected.row(0), res.x_opt, epsilon = 6e-2);
         assert!(N_DOE + MAX_ITERS >= res.x_doe.nrows());
-        assert!(res.state.x_fail.is_some());
+        assert!(res.state.surrogate.x_fail.is_some());
     }
 }

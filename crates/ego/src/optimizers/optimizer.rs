@@ -1,3 +1,28 @@
+//! # Infill Criterion Optimizer
+//!
+//! This module provides optimization backends for the infill criterion.
+//!
+//! ## Design
+//!
+//! The optimizer follows the Strategy pattern with the [`InfillOptimizerTrait`] trait
+//! defining the interface for optimization backends. This allows:
+//!
+//! - **Open/Closed Principle**: New optimizers can be added by implementing the trait
+//! - **Dependency Inversion**: Code depends on the trait abstraction, not concrete types
+//!
+//! ## Available Backends
+//!
+//! - [`Algorithm::Slsqp`] - Sequential Least Squares Programming (gradient-based)
+//! - [`Algorithm::Cobyla`] - Constrained Optimization BY Linear Approximations (derivative-free)
+//!
+//! When the `nlopt` feature is enabled, these use the NLopt library.
+//! Otherwise, pure-Rust implementations from `slsqp` and `cobyla` crates are used.
+//!
+//! ## Usage
+//!
+//! The optimizer is used internally by [`EgorSolver`](crate::EgorSolver) to optimize
+//! the infill criterion at each iteration.
+
 use crate::InfillObjData;
 use ndarray::{Array1, Array2, ArrayView1, arr1};
 

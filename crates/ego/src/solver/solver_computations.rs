@@ -2,10 +2,7 @@ use crate::errors::Result;
 use crate::{types::*, utils};
 use egobox_moe::to_discrete_space;
 
-use crate::utils::{
-    EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER, compute_cstr_scales, logpofs, logpofs_grad, pofs,
-    pofs_grad,
-};
+use crate::utils::{compute_cstr_scales, logpofs, logpofs_grad, pofs, pofs_grad};
 use crate::{EgorSolver, solver::coego};
 
 use argmin::core::{CostFunction, Problem};
@@ -61,6 +58,8 @@ pub(crate) struct MiddlePickerMultiStarter<'a, 'b, R: Rng + Clone> {
     xlimits: &'a Array2<f64>,
     xtrain: &'b Array2<f64>,
     rng: R,
+    /// If true, disable middle-picker and fallback to LHS
+    disable_middlepicker: bool,
 }
 
 impl<R: Rng + Clone> super::solver_infill_optim::MultiStarter
@@ -69,7 +68,7 @@ impl<R: Rng + Clone> super::solver_infill_optim::MultiStarter
     fn multistart(&mut self, n_start: usize, active: &[usize]) -> Array2<f64> {
         let xlimits = coego::get_active_x(Axis(0), self.xlimits, active);
 
-        if std::env::var(EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER).is_err() {
+        if !self.disable_middlepicker {
             let nt = self.xtrain.nrows();
             // Compute the maximum number of points n to consider to generate midpoints
             // to avoid too much computation when large training set
@@ -123,11 +122,17 @@ impl<R: Rng + Clone> super::solver_infill_optim::MultiStarter
 }
 
 impl<'a, 'b, R: Rng + Clone> MiddlePickerMultiStarter<'a, 'b, R> {
-    pub fn new(xlimits: &'a Array2<f64>, xtrain: &'b Array2<f64>, rng: R) -> Self {
+    pub fn new(
+        xlimits: &'a Array2<f64>,
+        xtrain: &'b Array2<f64>,
+        rng: R,
+        disable_middlepicker: bool,
+    ) -> Self {
         MiddlePickerMultiStarter {
             xlimits,
             xtrain,
             rng,
+            disable_middlepicker,
         }
     }
 }
