@@ -207,6 +207,13 @@ Dubreuil, S., Bartoli, N., Gogu, C., & Lefebvre, T. (2020).
 [Towards an efficient global multi-disciplinary design optimization algorithm](https://doi.org/10.1007/s00158-020-02514-6)
 Structural and Multidisciplinary Optimization, 62(4), 1739–1765.
 
+Jin, R. and Chen, W. and Sudjianto, A. (2005), 
+[An efficient algorithm for constructing optimal design of computer experiments](https://doi.org/10.1016/j.jspi.2004.02.01) Journal of Statistical Planning and Inference, 134:268-287.
+
+Bettebghor, Dimitri, et al. 
+[Surrogate modeling approximation using a mixture of experts based on EM joint estimation](https://hal.archives-ouvertes.fr/hal-01852300/document)
+Structural and multidisciplinary optimization 43.2 (2011): 243-259.
+
 Jones, D. R., Schonlau, M., & Welch, W. J. (1998).
 [Efficient global optimization of expensive black-box functions. Journal of Global Optimization](https://www.researchgate.net/publication/235709802_Efficient_Global_Optimization_of_Expensive_Black-Box_Functions), 13(4), 455–492.
 
