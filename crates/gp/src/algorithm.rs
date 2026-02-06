@@ -313,7 +313,10 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GaussianProc
         let (rt, u) = self._compute_rt_u(&xnorm, &corr);
 
         let cross_dx = pairwise_differences(&xnorm, &xnorm);
-        let k = self.params.corr.value(&cross_dx, &self.theta, &self.w_star);
+        let k = self
+            .params
+            .corr
+            .rval_from_distances(&cross_dx, &self.theta, &self.w_star);
         let k = k
             .into_shape_with_order((xnorm.nrows(), xnorm.nrows()))
             .unwrap();
@@ -373,7 +376,10 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GaussianProc
         // Get pairwise componentwise L1-distances to the input training set
         let dx = pairwise_differences(xnorm, &self.xt_norm.data);
         // Compute the correlation function
-        let r = self.params.corr.value(&dx, &self.theta, &self.w_star);
+        let r = self
+            .params
+            .corr
+            .rval_from_distances(&dx, &self.theta, &self.w_star);
         let n_obs = xnorm.nrows();
         let nt = self.xt_norm.data.nrows();
         r.into_shape_with_order((n_obs, nt)).unwrap().to_owned()
@@ -532,10 +538,10 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GaussianProc
         let df = self.params.mean.jacobian(&xnorm.row(0));
         let df_dx = df.t().dot(beta);
 
-        let dr =
-            self.params
-                .corr
-                .jacobian(&xnorm.row(0), &self.xt_norm.data, &self.theta, &self.w_star);
+        let dr = self
+            .params
+            .corr
+            .jac(&xnorm.row(0), &self.xt_norm.data, &self.theta, &self.w_star);
 
         let dr_dx = df_dx + dr.t().dot(gamma);
         Zip::from(jac.rows_mut())
@@ -561,10 +567,12 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GaussianProc
         let sigma2 = self.inner_params.sigma2;
         let r_chol = &self.inner_params.r_chol;
 
-        let (r, dr) =
-            self.params
-                .corr
-                .valjac(&xnorm.row(0), &self.xt_norm.data, &self.theta, &self.w_star);
+        let (r, dr) = self.params.corr.rval_with_jac(
+            &xnorm.row(0),
+            &self.xt_norm.data,
+            &self.theta,
+            &self.w_star,
+        );
 
         // rho1 = Rc^-1 . r(x, X)
         let rho1 = r_chol.solve_triangular(&r, UPLO::Lower).unwrap();
@@ -889,7 +897,9 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>, D: Data<Elem
                             return f64::INFINITY;
                         }
                     }
-                    let rxx = self.corr().value(&x_distances.d, &theta, &w_star);
+                    let rxx = self
+                        .corr()
+                        .rval_from_distances(&x_distances.d, &theta, &w_star);
                     match reduced_likelihood(&fx, rxx, &x_distances, &ytrain, self.nugget()) {
                         Ok(r) => unsafe { -(*(&r.0 as *const F as *const f64)) },
                         Err(_) => f64::INFINITY,
@@ -963,7 +973,9 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>, D: Data<Elem
             }
         };
 
-        let rxx = self.corr().value(&x_distances.d, &opt_params, &w_star);
+        let rxx = self
+            .corr()
+            .rval_from_distances(&x_distances.d, &opt_params, &w_star);
         let (lkh, inner_params) =
             reduced_likelihood(&fx, rxx, &x_distances, &ytrain, self.nugget())?;
         Ok(GaussianProcess {
