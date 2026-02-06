@@ -253,7 +253,7 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GaussianProc
     pub fn predict(&self, x: &ArrayBase<impl Data<Elem = F>, Ix2>) -> Result<Array1<F>> {
         let xnorm = (x - &self.xt_norm.mean) / &self.xt_norm.std;
         // Compute the mean term at x
-        let f = self.params.mean.value(&xnorm);
+        let f = self.params.mean.coefs(&xnorm);
         // Compute the correlation term at x
         let corr = self._compute_correlation(&xnorm);
         // Scaled predictor
@@ -285,7 +285,7 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GaussianProc
     ) -> Result<(Array1<F>, Array1<F>)> {
         let xnorm = (x - &self.xt_norm.mean) / &self.xt_norm.std;
         // Compute the mean term at x
-        let f = self.params.mean.value(&xnorm);
+        let f = self.params.mean.coefs(&xnorm);
         // Compute the correlation term at x
         let corr = self._compute_correlation(&xnorm);
         // Scaled predictor
@@ -352,7 +352,7 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GaussianProc
             .solve_triangular(&corr_t, UPLO::Lower)
             .unwrap();
 
-        let rhs = inners.ft.t().dot(&rt) - self.params.mean.value(xnorm).t();
+        let rhs = inners.ft.t().dot(&rt) - self.params.mean.coefs(xnorm).t();
         #[cfg(feature = "blas")]
         let u = inners
             .ft_qr_r
@@ -459,7 +459,7 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GaussianProc
 
         let df_dx_kx = if self.inner_params.beta.nrows() <= 1 + self.xt_norm.data.ncols() {
             // for constant or linear: df/dx = cst ([0] or [1]) for all x, so takes use x[0] to get the constant
-            let df = self.params.mean.jacobian(&x.row(0));
+            let df = self.params.mean.jac(&x.row(0));
             let df_dx = df.t().row(kx).dot(beta);
             df_dx.broadcast((x.nrows(), 1)).unwrap().to_owned()
         } else {
@@ -468,7 +468,7 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GaussianProc
             Zip::from(dfdx.rows_mut())
                 .and(xnorm.rows())
                 .for_each(|mut dfxi, xi| {
-                    let df = self.params.mean.jacobian(&xi);
+                    let df = self.params.mean.jac(&xi);
                     let df_dx = (df.t().row(kx)).dot(beta);
                     dfxi.assign(&df_dx);
                 });
@@ -535,7 +535,7 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GaussianProc
         let beta = &self.inner_params.beta;
         let gamma = &self.inner_params.gamma;
 
-        let df = self.params.mean.jacobian(&xnorm.row(0));
+        let df = self.params.mean.jac(&xnorm.row(0));
         let df_dx = df.t().dot(beta);
 
         let dr = self
@@ -586,8 +586,8 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GaussianProc
         // p2 = ((R^-1 . r(x, X))^t . dr(x, X)/dx)^t = dr(x, X)/dx)^t . R^-1 . r(x, X) = p1
         let p2 = inv_kr.t().dot(&dr);
 
-        let f_x = self.params.mean.value(&xnorm).t().to_owned();
-        let f_mean = self.params.mean.value(&self.xt_norm.data);
+        let f_x = self.params.mean.coefs(&xnorm).t().to_owned();
+        let f_mean = self.params.mean.coefs(&self.xt_norm.data);
 
         // rho2 = Rc^-1 . F(X)
         let rho2 = r_chol.solve_triangular(&f_mean, UPLO::Lower).unwrap();
@@ -606,7 +606,7 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GaussianProc
         // D = Bc^t-1 . Bc^-1 . A^t = B^-1 . A^t
         let d_mat = rho3.t().solve_triangular(&inv_bat, UPLO::Upper).unwrap();
 
-        let df = self.params.mean.jacobian(&xnorm.row(0));
+        let df = self.params.mean.jac(&xnorm.row(0));
 
         // dA/dx = df(x)/dx^t - dr(x, X)/dx^t . R^-1 . F
         let d_a = df.t().to_owned() - dr.t().dot(&inv_kf);
@@ -871,7 +871,7 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>, D: Data<Elem
                 "Warning: multiple x input features have the same value (at least same row twice)."
             );
         }
-        let fx = self.mean().value(&xtrain.data);
+        let fx = self.mean().coefs(&xtrain.data);
 
         let opt_params = match self.theta_tuning() {
             ThetaTuning::Fixed(init) => {
