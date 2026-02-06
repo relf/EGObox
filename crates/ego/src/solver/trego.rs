@@ -165,13 +165,14 @@ where
         state: EgorState<f64>,
         models: Vec<Box<dyn MixtureGpSurrogate>>,
         infill_data: &InfillObjData<f64>,
+        max_dist: f64,
+        min_acceptance_distance: f64,
     ) -> EgorState<f64> {
         let mut new_state = state.clone();
         let (mut x_data, mut y_data, mut c_data) = new_state.take_data().expect("DOE data");
 
         let best_index = new_state.surrogate.best_index.unwrap();
         let y_old = y_data[[best_index, 0]];
-        let rho = |sigma| self.config.trego_config.alpha * sigma * sigma;
         let (obj_model, cstr_models) = models.split_first().unwrap();
         let cstr_tols = new_state.doe.cstr_tol.clone();
 
@@ -190,7 +191,7 @@ where
         let multistarter = LocalLhsMultiStarter::new(
             self.xlimits.clone(),
             xbest.to_owned(),
-            self.config.trego_config.d.1 * new_state.trego.sigma,
+            max_dist,
             sub_rng,
         );
 
@@ -228,15 +229,14 @@ where
         debug!("x_old={} x_new={}", x_data.row(best_index), x_new.row(0));
 
         let (add_count, x_fail_points) = if xbest.l1_dist(&x_new.row(0)).unwrap()
-            > self.config.trego_config.d.0 * new_state.trego.sigma
+            > min_acceptance_distance
             && is_update_ok(&x_data, &x_new.row(0))
         {
             let y_new = self.eval_obj(problem, &x_new);
 
             debug!(
-                "y_old-y_new={}, rho={}",
+                "y_old-y_new={}",
                 y_old - y_new[[0, 0]],
-                rho(new_state.trego.sigma)
             );
             let c_new = self.eval_problem_fcstrs(problem, &x_new);
 

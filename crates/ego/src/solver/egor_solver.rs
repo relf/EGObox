@@ -110,7 +110,7 @@
 //! println!("G24 min result = {:?}", res.state);
 //! ```
 //!
-use crate::solver::trego::Phase;
+use crate::solver::iteration_strategy::IterationMode;
 use crate::utils::{
     EGOBOX_LOG, EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER, EGOR_USE_GP_RECORDER,
     EGOR_USE_GP_VAR_PORTFOLIO, EGOR_USE_MAX_PROBA_OF_FEASIBILITY, EGOR_USE_RUN_RECORDER,
@@ -248,12 +248,13 @@ where
 
         let c_data = self.eval_problem_fcstrs(problem, &x_data);
 
-        let activity = if self.config.coego.activated {
-            let activity = self.get_random_activity(&mut rng);
-            debug!("Component activity = {activity:?}");
-            Some(activity)
-        } else {
-            None
+        let activity = {
+            let nx = self.xlimits.nrows();
+            let act = self.config.activity_strategy.generate_activity(nx, &mut rng);
+            if let Some(ref a) = act {
+                debug!("Component activity = {a:?}");
+            }
+            act
         };
 
         let (valid_idx, invalid_idx) = filter_nans(&y_data);
@@ -308,8 +309,8 @@ where
             );
         }
 
-        // TREGO initial sigma = sigma0 = 0.5 * (0.2)^(1/nx)
-        initial_state.trego.sigma = 0.5 * (0.2f64).powf(1.0 / self.xlimits.nrows() as f64);
+        // Initialize iteration strategy state (e.g., TREGO sigma)
+        self.config.iteration_strategy.init_state(&mut initial_state, &self.xlimits);
 
         initial_state.coego.activity = activity;
         debug!("Initial State = {initial_state:?}");
@@ -374,21 +375,31 @@ where
 
         let feasibility = state.feasibility;
 
-        let mut res = if self.config.trego_config.activated {
-            self.trego_iteration(problem, state)?
-        } else {
-            self.ego_iteration(problem, state)?
+        // Use iteration strategy to determine global vs local step
+        let mut state = state;
+        let mode = self.config.iteration_strategy.prepare(&mut state, &self.xlimits);
+        let mut res = match mode {
+            IterationMode::Global => self.ego_iteration(problem, state)?,
+            IterationMode::Local {
+                max_dist,
+                min_acceptance_distance,
+            } => self.local_iteration(problem, state, max_dist, min_acceptance_distance)?,
         };
         let (x_data, y_data, _c_data) = res.0.surrogate.data.clone().unwrap();
 
-        // Update Coop activity
-        let mut res = if self.config.coego.activated {
+        // Post-iteration hook
+        self.config.iteration_strategy.finalize(&mut res.0);
+
+        // Update cooperative activity for next iteration
+        let mut res = {
+            let nx = self.xlimits.nrows();
             let mut rng = res.0.take_rng().unwrap();
-            let activity = self.get_random_activity(&mut rng);
-            debug!("Component activity = {activity:?}");
-            (res.0.rng(rng).activity(activity), res.1)
-        } else {
-            res
+            if let Some(activity) = self.config.activity_strategy.generate_activity(nx, &mut rng) {
+                debug!("Component activity = {activity:?}");
+                (res.0.rng(rng).activity(activity), res.1)
+            } else {
+                (res.0.rng(rng), res.1)
+            }
         };
 
         // Update feasibility
@@ -462,34 +473,32 @@ where
         }
     }
 
-    /// Iteration of TREGO algorithm
-    fn trego_iteration<
+    /// Iteration of TREGO/local algorithm using trust region bounds.
+    ///
+    /// Performs a local search within the trust region defined by `max_dist`
+    /// around the current best point. Uses `min_acceptance_distance` to
+    /// decide whether a candidate point is sufficiently far from the best.
+    fn local_iteration<
         O: CostFunction<Param = Array2<f64>, Output = Array2<f64>> + DomainConstraints<C>,
     >(
         &mut self,
         problem: &mut Problem<O>,
         state: EgorState<f64>,
+        max_dist: f64,
+        min_acceptance_distance: f64,
     ) -> std::result::Result<(EgorState<f64>, Option<KV>), argmin::core::Error> {
-        let (phase, mut new_state) = self.update_trego_state(&state);
-
-        if phase == Phase::Global {
-            // Global step
-            info!(
-                ">>> EGO global step {}/{}",
-                new_state.trego.global_trego_iter, self.config.trego_config.n_gl_steps.0
-            );
-            let res = self.ego_iteration(problem, new_state)?;
-            Ok(res)
-        } else {
-            info!(
-                ">>> TREGO local step {}/{}",
-                new_state.trego.local_trego_iter, self.config.trego_config.n_gl_steps.1
-            );
-            // Local step
-            let models = self.refresh_surrogates(&new_state);
-            let infill_data = self.refresh_infill_data(problem, &mut new_state, &models);
-            let new_state = self.trego_step(problem, new_state, models, &infill_data);
-            Ok((new_state, None))
-        }
+        // Local step
+        let models = self.refresh_surrogates(&state);
+        let mut local_state = state;
+        let infill_data = self.refresh_infill_data(problem, &mut local_state, &models);
+        let new_state = self.trego_step(
+            problem,
+            local_state,
+            models,
+            &infill_data,
+            max_dist,
+            min_acceptance_distance,
+        );
+        Ok((new_state, None))
     }
 }

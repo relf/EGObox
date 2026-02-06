@@ -165,8 +165,8 @@ where
                 /* init || recluster */
                 match self.config.gp.n_clusters {
                     NbClusters::Auto { max: _ } => {
-                        if self.config.coego.activated {
-                            log::warn!("Automated clustering not available with CoEGO")
+                        if !self.config.activity_strategy.supports_auto_clustering() {
+                            log::warn!("Automated clustering not available with cooperative activity strategy")
                         }
                     }
                     NbClusters::Fixed { nb: _ } => {
@@ -223,8 +223,8 @@ where
                             bounds: theta_bounds.to_owned(),
                         })
                         .collect::<Vec<_>>();
-                    if self.config.coego.activated {
-                        self.set_partial_theta_tuning(&active.to_vec(), &mut inits);
+                    if self.config.activity_strategy.is_cooperative() {
+                        self.config.activity_strategy.adjust_theta_tuning(&active.to_vec(), &mut inits);
                     }
                     if i == 0 && model_name == "Objective" {
                         info!("Objective model hyperparameters optim init >>> {inits:?}");
@@ -249,8 +249,8 @@ where
                     .expect("GP training failure")
             };
 
-            // CoEGO only in mono cluster, update theta if better likelihood
-            if self.config.coego.activated {
+            // Cooperative activity: update theta in mono cluster setting
+            if self.config.activity_strategy.is_cooperative() {
                 if self.config.gp.n_clusters.is_mono() {
                     if COEGO_IMPROVEMENT_CHECK {
                         let likelihood = gp.experts()[0].likelihood();
@@ -287,7 +287,7 @@ where
                     }
                 } else {
                     log::warn!(
-                        "CoEGO theta update wrt likelihood not implemented in multi-cluster setting"
+                        "Cooperative activity theta update wrt likelihood not implemented in multi-cluster setting"
                     );
                 }
             };
