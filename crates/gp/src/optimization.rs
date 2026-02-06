@@ -89,7 +89,7 @@ where
     let mut optimizer = Nlopt::new(Algorithm::Cobyla, param0.len(), objfn, Target::Minimize, ());
     let mut param = param0
         .map(|v| unsafe { *(v as *const F as *const f64) })
-        .into_raw_vec();
+        .into_raw_vec_and_offset().0;
 
     let lower_bounds = bounds.iter().map(|b| into_f64(&b.0)).collect::<Vec<_>>();
     optimizer.set_lower_bounds(&lower_bounds).unwrap();

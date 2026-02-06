@@ -641,12 +641,12 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GaussianProc
         let r = self
             .params
             .corr
-            .value(&dx, &self.theta, &self.w_star)
+            .rval_from_distances(&dx, &self.theta, &self.w_star)
             .with_lapack();
         let dr = self
             .params
             .corr
-            .jacobian(&xnorm.row(0), &self.xt_norm.data, &self.theta, &self.w_star)
+            .jac(&xnorm.row(0), &self.xt_norm.data, &self.theta, &self.w_star)
             .with_lapack();
 
         let rho1 = r_chol
@@ -661,8 +661,8 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GaussianProc
 
         let p2 = inv_kr.t().dot(&dr);
 
-        let f_x = self.params.mean.value(x).t().to_owned();
-        let f_mean = self.params.mean.value(&self.xt_norm.data).with_lapack();
+        let f_x = self.params.mean.coefs(x).t().to_owned();
+        let f_mean = self.params.mean.coefs(&self.xt_norm.data).with_lapack();
 
         let rho2 = r_chol
             .solve_triangular(UPLO::Lower, Diag::NonUnit, &f_mean)
@@ -691,7 +691,7 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GaussianProc
             }
         };
 
-        let df = self.params.mean.jacobian(&xnorm.row(0)).with_lapack();
+        let df = self.params.mean.jac(&xnorm.row(0)).with_lapack();
 
         let d_a = df.t().to_owned() - dr.t().dot(&inv_kf);
         // let p3 = d_a.dot(&d_mat).t();
