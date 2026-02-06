@@ -64,17 +64,21 @@
 //!     .run()?;
 //! ```
 
+pub mod activity_strategy;
 mod coego;
 mod egor_config;
 mod egor_service;
 mod egor_solver;
 mod egor_state;
+pub mod iteration_strategy;
 mod solver_computations;
 mod solver_impl;
 mod solver_infill_optim;
 mod trego;
 
+pub use activity_strategy::{ActivityStrategy, CooperativeActivity, FullActivity};
 pub use egor_config::*;
 pub use egor_service::*;
 pub use egor_solver::*;
 pub use egor_state::*;
+pub use iteration_strategy::{IterationMode, IterationStrategy, StandardEgoStrategy, TregoStrategy};
