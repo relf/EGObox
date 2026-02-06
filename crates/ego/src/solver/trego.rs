@@ -275,7 +275,10 @@ where
         new_state = new_state
             .store_failed_points(x_fail_points.clone())
             .count_added_points(add_count);
-        info!("+{} point, total: {} points", add_count, new_state.doe.added);
+        info!(
+            "+{} point, total: {} points",
+            add_count, new_state.doe.added
+        );
 
         let new_best_index = if add_count == 0 {
             best_index

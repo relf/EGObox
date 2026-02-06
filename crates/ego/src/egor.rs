@@ -501,7 +501,9 @@ mod tests {
         // it would be around 1.28 after first iteration
         dbg!(res.state.clone());
         assert_eq!(
-            res.state.surrogate.theta_inits.unwrap()[0].as_ref().unwrap(),
+            res.state.surrogate.theta_inits.unwrap()[0]
+                .as_ref()
+                .unwrap(),
             array![[LOWER_BOUND]]
         );
         assert_eq!(
