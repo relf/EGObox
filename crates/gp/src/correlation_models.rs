@@ -17,7 +17,7 @@ use std::fmt;
 
 /// A trait for using a correlation model in GP regression
 pub trait CorrelationModel<F: Float>: Clone + Copy + Default + fmt::Display + Sync {
-    /// Compute correlation function matrix r(x, x') given x and a set of `x'` training samples, aka `xtrain`
+    /// Compute correlation function r(x, x') given x and a set of `x'` training samples, aka `xtrain`
     /// `theta` parameters, and PLS `weights` with:
     ///
     /// * `x`      : point at which to compute correlation (shape nx)
@@ -39,11 +39,11 @@ pub trait CorrelationModel<F: Float>: Clone + Copy + Default + fmt::Display + Sy
         self.rval_from_distances(&d, theta, weights)
     }
 
-    /// Compute correlation function matrix r(x, x') given distances `distances` between x and x',
+    /// Compute correlation function r(x, x') given distances `distances` between x and x',
     /// `theta` parameters, and PLS `weights` with:
     ///
     /// * `distances`     : distances (nxd)
-    /// * `theta`   : hyperparameters (1xd)
+    /// * `theta`   : hyperparameters (d,)
     /// * `weights` : PLS weights (dxh)
     ///   where d is the initial dimension and h (<d) is the reduced dimension when PLS is used (kpls_dim)
     ///
@@ -56,7 +56,7 @@ pub trait CorrelationModel<F: Float>: Clone + Copy + Default + fmt::Display + Sy
         weights: &ArrayBase<impl Data<Elem = F>, Ix2>,
     ) -> Array2<F>;
 
-    /// Compute gradients of `r(x, x')` at given `x` given a set of `x`in`` training samples, aka `xtra
+    /// Compute gradients of `r(x, x')` at given `x` given a set of `x`in`` training samples, aka `xtrain`,
     /// `theta` parameters, and PLS `weights`.
     /// The returned jacobian matrix is dr/dx where r is the correlation function vector between x and xtrain (shape nt).
     /// Gradients are computed with respect to `x` and returned as a matrix of shape (nt, nx)
