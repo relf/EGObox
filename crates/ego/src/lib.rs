@@ -193,9 +193,17 @@
 //! or with a custom configuration, here gl4-1 and beta=0.8
 //!
 //! ```no_run
-//! # use egobox_ego::{EgorConfig, RegressionSpec, CorrelationSpec};
+//! # use egobox_ego::{EgorConfig, TregoStrategy};
 //! # let egor_config = EgorConfig::default();
-//!    egor_config.configure_trego(|trego_cfg| trego_cfg.n_gl_steps((4, 1)).beta(0.8));
+//!    egor_config.configure_trego(|trego| trego.n_gl_steps((4, 1)).beta(0.8));
+//! ```
+//!
+//! or using the strategy directly
+//!
+//! ```no_run
+//! # use egobox_ego::{EgorConfig, TregoStrategy};
+//! # let egor_config = EgorConfig::default();
+//!    egor_config.iteration_strategy(Box::new(TregoStrategy::default().n_gl_steps((4, 1)).beta(0.8)));
 //! ```
 //!
 //! * Intermediate results can be logged at each iteration when `outdir` directory is specified.

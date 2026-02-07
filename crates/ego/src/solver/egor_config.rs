@@ -36,13 +36,23 @@
 //! ## Example
 //!
 //! ```ignore
-//! use egobox_ego::EgorConfig;
+//! use egobox_ego::{EgorConfig, TregoStrategy, CooperativeActivity};
 //!
 //! let config = EgorConfig::default()
 //!     .max_iters(50)
 //!     .n_doe(10)
 //!     .configure_gp(|gp| gp.n_clusters(NbClusters::Auto))
 //!     .configure_runtime_flags(|f| f.enable_logging(true))
+//!     .check()?;
+//!
+//! // TREGO with custom parameters
+//! let config = EgorConfig::default()
+//!     .configure_trego(|trego| trego.beta(0.8).n_gl_steps((2, 5)))
+//!     .check()?;
+//!
+//! // CoEGO for high-dimensional problems
+//! let config = EgorConfig::default()
+//!     .activity_strategy(Box::new(CooperativeActivity::new(5)))
 //!     .check()?;
 //! ```
 
