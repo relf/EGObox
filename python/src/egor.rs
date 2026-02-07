@@ -14,8 +14,9 @@
 use crate::domain::*;
 use crate::gp_config::*;
 use crate::qei_config::*;
-use crate::trego_config::TregoConfig;
-use crate::trego_config::TregoConfigSpec;
+use crate::strategy_config::CooperativeActivity;
+use crate::strategy_config::TregoStrategy;
+use crate::strategy_config::TregoStrategySpec;
 use crate::types::*;
 use egobox_ego::{CoegoStatus, InfillObjData, find_best_result_index};
 use egobox_gp::ThetaTuning;
@@ -84,13 +85,20 @@ use std::cmp::Ordering;
 ///         q points are selected at each iteration of the EGO algorithm.
 ///         See QEiConfig for details.
 ///
-///     trego (TregoConfig, bool or None):
-///         TREGO configuration to activate TREGO strategy for global optimization.
+///     trego (TregoStrategy, TregoConfig, bool or None):
+///         TREGO strategy to activate trust region EGO for global optimization.
 ///         When True activate TREGO with default configuration.
-///         To activate TREGO with custom configuration see TregoConfig for details.
+///         To activate TREGO with custom configuration see TregoStrategy (or deprecated TregoConfig) for details.
 ///         When None or False TREGO is not used.
 ///
+///     activity (CooperativeActivity or None):
+///         Activity strategy for cooperative variable grouping (CoEGO).
+///         When set, the optimizer will randomly decompose the design space into
+///         cooperative groups for high-dimensional optimization.
+///         Preferred over the deprecated ``coego_n_coop`` parameter.
+///
 ///     coego_n_coop (int >= 0):
+///         Deprecated: use ``activity=CooperativeActivity(n_coop=N)`` instead.
 ///         Number of cooperative components groups which will be used by the CoEGO algorithm.
 ///         Better to have n_coop a divider of nx or if not with a remainder as large as possible.  
 ///         The CoEGO algorithm is used to tackle high-dimensional problems turning it in a set of
@@ -142,7 +150,8 @@ pub(crate) struct Egor {
     pub cstr_strategy: ConstraintStrategy,
     pub qei_config: QEiConfig,
     pub infill_optimizer: InfillOptimizer,
-    pub trego: Option<TregoConfig>,
+    pub trego: Option<TregoStrategy>,
+    pub activity: Option<CooperativeActivity>,
     pub coego_n_coop: usize,
     pub target: f64,
     pub outdir: Option<String>,
@@ -170,6 +179,7 @@ impl Egor {
         qei_config = QEiConfig::default(),
         infill_optimizer = InfillOptimizer::Cobyla,
         trego = None,
+        activity = None,
         coego_n_coop = 0,
         target = f64::MIN,
         outdir = None,
@@ -194,6 +204,7 @@ impl Egor {
         qei_config: QEiConfig,
         infill_optimizer: InfillOptimizer,
         trego: Option<Py<PyAny>>,
+        activity: Option<CooperativeActivity>,
         coego_n_coop: usize,
         target: f64,
         outdir: Option<String>,
@@ -204,28 +215,28 @@ impl Egor {
     ) -> Self {
         let doe = doe.map(|x| x.to_owned_array());
 
-        // Parse trego configuration: boolean or custom configuration
+        // Parse trego strategy: boolean or custom configuration
         let trego = match trego {
             Some(trego_py) => {
-                let trego_typ: TregoConfigSpec =
+                let trego_typ: TregoStrategySpec =
                     trego_py.extract(py).expect("Bad TREGO configuration");
                 match trego_typ {
-                    TregoConfigSpec::Activated(active) => {
+                    TregoStrategySpec::Activated(active) => {
                         if active {
                             // True case
-                            Some(TregoConfig::default())
+                            Some(TregoStrategy::default())
                         } else {
                             // False case
                             None
                         }
                     }
-                    TregoConfigSpec::Custom(cfg) => Some(cfg.into()),
+                    TregoStrategySpec::Custom(cfg) => Some(cfg),
                 }
             }
             // None case
             None => None,
         };
-        log::info!("TREGO config: {:?}", trego);
+        log::info!("TREGO strategy: {:?}", trego);
 
         Egor {
             xspecs,
@@ -241,6 +252,7 @@ impl Egor {
             qei_config,
             infill_optimizer,
             trego,
+            activity,
             coego_n_coop,
             target,
             outdir,
@@ -540,7 +552,10 @@ impl Egor {
         let qei_strategy = self.qei_strategy();
         let infill_optimizer = self.infill_optimizer();
         let failsafe_strategy = self.failsafe_strategy();
-        let coego_status = if self.coego_n_coop == 0 {
+        // Activity strategy: prefer explicit activity parameter over deprecated coego_n_coop
+        let coego_status = if let Some(ref activity) = self.activity {
+            CoegoStatus::Enabled(activity.n_coop)
+        } else if self.coego_n_coop == 0 {
             CoegoStatus::Disabled
         } else {
             CoegoStatus::Enabled(self.coego_n_coop)
@@ -586,6 +601,11 @@ impl Egor {
         if let Some(trego) = self.trego.as_ref() {
             let strategy: egobox_ego::TregoStrategy = trego.clone().into();
             config = config.iteration_strategy(Box::new(strategy))
+        }
+
+        if let Some(ref activity) = self.activity {
+            let strategy: egobox_ego::CooperativeActivity = activity.clone().into();
+            config = config.activity_strategy(Box::new(strategy))
         }
 
         if let Some(doe) = doe {

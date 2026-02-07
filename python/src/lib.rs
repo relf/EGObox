@@ -7,7 +7,7 @@ mod gp_mix;
 mod qei_config;
 mod sampling;
 mod sparse_gp_mix;
-mod trego_config;
+mod strategy_config;
 pub(crate) mod types;
 
 use egobox_ego::EGOBOX_LOG;
@@ -39,7 +39,11 @@ fn egobox(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<sampling::Sampling>()?;
     m.add_class::<gp_config::GpConfig>()?;
     m.add_class::<qei_config::QEiConfig>()?;
-    m.add_class::<trego_config::TregoConfig>()?;
+    m.add_class::<strategy_config::TregoStrategy>()?;
+    m.add_class::<strategy_config::CooperativeActivity>()?;
+    // Deprecated alias: TregoConfig -> TregoStrategy
+    let trego_cls = m.getattr("TregoStrategy")?;
+    m.setattr("TregoConfig", trego_cls)?;
     m.add_class::<RegressionSpec>()?;
     m.add_class::<CorrelationSpec>()?;
     m.add_class::<InfillStrategy>()?;

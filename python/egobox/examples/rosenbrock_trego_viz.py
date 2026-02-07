@@ -49,7 +49,7 @@ opt = egx.Egor(
     bounds,
     n_doe=N_DOE,
     infill_strategy=egx.InfillStrategy.LOG_EI,  # default infill strategy
-    trego=egx.TregoConfig(
+    trego=egx.TregoStrategy(
         n_gl_steps=(1, 4), beta=0.9, alpha=1.0, d=(DMIN, DMAX)
     ),  # Enable TREGO with default parameter values
     outdir=outdir,

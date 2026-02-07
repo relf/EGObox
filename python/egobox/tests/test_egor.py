@@ -250,13 +250,14 @@ class TestEgor(unittest.TestCase):
         n_doe = 5
         max_iters = 20
         n_cstr = 2
+        # Test with new TregoStrategy name
         egor = egx.Egor(
             [[0.0, 3.0], [0.0, 4.0]],
             cstr_tol=np.array([1e-3, 1e-3]),
             n_cstr=n_cstr,
             seed=42,
             n_doe=n_doe,
-            trego=egx.TregoConfig((4, 1)),
+            trego=egx.TregoStrategy((4, 1)),
         )
         start = time.process_time()
         res = egor.minimize(g24, max_iters=max_iters)
@@ -265,6 +266,18 @@ class TestEgor(unittest.TestCase):
         self.assertAlmostEqual(-5.5080, res.y_opt[0], delta=1e-2)
         self.assertAlmostEqual(2.3295, res.x_opt[0], delta=1e-2)
         self.assertAlmostEqual(3.1785, res.x_opt[1], delta=1e-2)
+
+        # Test deprecated TregoConfig alias still works
+        egor = egx.Egor(
+            [[0.0, 3.0], [0.0, 4.0]],
+            cstr_tol=np.array([1e-3, 1e-3]),
+            n_cstr=n_cstr,
+            seed=42,
+            n_doe=n_doe,
+            trego=egx.TregoConfig((4, 1)),
+        )
+        res = egor.minimize(g24, max_iters=max_iters)
+        self.assertAlmostEqual(-5.5080, res.y_opt[0], delta=1e-2)
 
         # Test with default TREGO parameters
         egor = egx.Egor(
