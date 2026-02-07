@@ -88,7 +88,7 @@ def load_state_files(outdir):
 def extract_trust_region_bounds(state, xlimits, delta_scale):
     """Extract trust region bounds from state."""
     # Trust region only used when local optimization is active
-    if state.get("local_trego_iter") == 0:
+    if state.get("trego", {}).get("local_trego_iter") == 0:
         return None
 
     # Trust region is centered on current best x within dmax * sigma L1 distance
@@ -98,7 +98,7 @@ def extract_trust_region_bounds(state, xlimits, delta_scale):
     param_json = state["best_param"]
     current_x = np.array(param_json["data"]).reshape(*param_json["dim"])
 
-    sigma = state.get("sigma", 1.0)
+    sigma = state.get("trego", {}).get("sigma", 1.0)
 
     # Trust region bounds: current_x +/- delta_scale * sigma (L1 distance)
     delta = delta_scale * sigma
@@ -311,8 +311,11 @@ def animate(frame):
     n_doe = N_DOE  # Initial DOE size
 
     # Get evaluated points up to this iteration
-    if state.get("data") is not None and len(state["data"]) > 0:
-        x_data_json = state["data"][
+    if (
+        state.get("surrogate", {}).get("data") is not None
+        and len(state["surrogate"]["data"]) > 0
+    ):
+        x_data_json = state["surrogate"]["data"][
             0
         ]  # data is list [x, y, c] where each is ndarray JSON
         x_data = np.array(x_data_json["data"]).reshape(*x_data_json["dim"])
