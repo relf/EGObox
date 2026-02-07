@@ -109,10 +109,9 @@ impl TregoConfig {
     }
 }
 
-impl From<TregoConfig> for egobox_ego::TregoConfig {
+impl From<TregoConfig> for egobox_ego::TregoStrategy {
     fn from(config: TregoConfig) -> Self {
-        egobox_ego::TregoConfig::default()
-            .activated(true)
+        egobox_ego::TregoStrategy::default()
             .n_gl_steps(config.n_gl_steps)
             .d(config.d)
             .alpha(config.alpha)

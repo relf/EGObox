@@ -584,7 +584,8 @@ impl Egor {
             .failsafe_strategy(failsafe_strategy);
 
         if let Some(trego) = self.trego.as_ref() {
-            config = config.configure_trego(|_| trego.clone().into())
+            let strategy: egobox_ego::TregoStrategy = trego.clone().into();
+            config = config.iteration_strategy(Box::new(strategy))
         }
 
         if let Some(doe) = doe {

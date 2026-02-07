@@ -3,13 +3,9 @@ use crate::errors::Result;
 use crate::types::*;
 use crate::utils::find_best_result_index_from;
 
-use egobox_gp::ThetaTuning;
 use egobox_moe::MixtureGpSurrogate;
 use ndarray::{Array, Array1, Array2, ArrayBase, Axis, Data, Ix1, RemoveAxis, s};
-use rand_xoshiro::Xoshiro256Plus;
 use serde::{Serialize, de::DeserializeOwned};
-
-use ndarray_rand::rand::seq::SliceRandom;
 
 #[cfg(not(feature = "nlopt"))]
 use crate::types::ObjFn;
@@ -48,41 +44,6 @@ where
     SB: SurrogateBuilder + Serialize + DeserializeOwned,
     C: CstrFn,
 {
-    /// Compute array of components indices each row being used as
-    /// active component during partial optimizations
-    /// Array is (group nb, group size) where nb and size are computed
-    /// from nx dimension and n_coop configuration.  
-    pub(crate) fn get_random_activity(&mut self, rng: &mut Xoshiro256Plus) -> Array2<usize> {
-        let xdim = self.xlimits.nrows();
-        let g_nb = self.config.coego.n_coop.min(xdim);
-        let remainder = xdim % g_nb;
-        if remainder == 0 {
-            let g_size = xdim / g_nb;
-            let mut idx: Vec<usize> = (0..xdim).collect();
-            idx.shuffle(rng);
-            Array2::from_shape_vec((g_nb, g_size), idx.to_vec()).unwrap()
-        } else {
-            let g_size = xdim / g_nb + 1;
-            // When n_coop is not a diviser of xdim, indice is set to xdim
-            // (ie out of range) as to be filtered when handling last activity row
-            let mut idx: Vec<usize> = (0..xdim).collect();
-            idx.shuffle(rng);
-            let cut = g_nb * (g_size - 1);
-            let fill = Array::from_shape_vec((g_nb, g_size - 1), idx[..cut].to_vec()).unwrap();
-            let last_vals = Array1::from_vec(idx[cut..].to_vec());
-
-            // Start with matrix of g_nb x g_size of <xdim> values
-            let mut indices = Array::from_elem((g_nb, g_size), xdim);
-            // Patch g_nb x (g_size - 1) indices
-            indices.slice_mut(s![.., ..(g_size - 1)]).assign(&fill);
-            // Patch last values in the last column
-            indices
-                .slice_mut(s![..remainder, g_size - 1])
-                .assign(&last_vals);
-            indices
-        }
-    }
-
     /// Returns activity when optimization is not partial, that is
     /// all components are activated hence the result is an (1, nx) array
     /// containing [0, nx-1] integers.
@@ -92,37 +53,6 @@ where
             (0..self.xlimits.nrows()).collect(),
         )
         .unwrap()
-    }
-
-    /// Set partial theta tuning from previous theta tuning and given activity
-    pub(crate) fn set_partial_theta_tuning(
-        &self,
-        active: &[usize],
-        theta_tunings: &mut [ThetaTuning<f64>],
-    ) {
-        theta_tunings.iter_mut().for_each(|theta| {
-            *theta = match theta {
-                ThetaTuning::Fixed(init) => ThetaTuning::Partial {
-                    init: init.clone(),
-                    bounds: Array1::from_vec(vec![ThetaTuning::<f64>::DEFAULT_BOUNDS; init.len()]),
-                    active: Self::strip(active, init.len()),
-                },
-                ThetaTuning::Full { init, bounds } => ThetaTuning::Partial {
-                    init: init.clone(),
-                    bounds: bounds.clone(),
-                    active: Self::strip(active, init.len()),
-                },
-                ThetaTuning::Partial {
-                    init,
-                    bounds,
-                    active: _,
-                } => ThetaTuning::Partial {
-                    init: init.clone(),
-                    bounds: bounds.clone(),
-                    active: Self::strip(active, init.len()),
-                },
-            };
-        });
     }
 
     /// Used to remove out of range indices from activity last row
@@ -215,24 +145,19 @@ where
 }
 #[cfg(test)]
 mod tests {
-    use egobox_moe::GpMixtureParams;
     use ndarray_rand::rand::SeedableRng;
+    use rand_xoshiro::Xoshiro256Plus;
 
-    use super::*;
-    use crate::EgorConfig;
-    use crate::EgorSolver;
+    use crate::solver::activity_strategy::ActivityStrategy;
+    use crate::solver::activity_strategy::CooperativeActivity;
 
     #[test]
     fn test_coego_activity_balanced() {
         let dim = 125;
         let ng = 5;
-        let xtypes = vec![XType::Float(0., 1.); dim];
-        let config = EgorConfig::default()
-            .coego(crate::CoegoStatus::Enabled(ng))
-            .xtypes(&xtypes);
-        let mut solver: EgorSolver<GpMixtureParams<f64>> = EgorSolver::new(config.check().unwrap());
+        let strategy = CooperativeActivity::new(ng);
         let mut rng = Xoshiro256Plus::from_entropy();
-        let activity = solver.get_random_activity(&mut rng);
+        let activity = strategy.generate_activity(dim, &mut rng).unwrap();
         assert_eq!(activity.nrows(), ng);
         let expected_ncols = 25;
         assert_eq!(activity.ncols(), expected_ncols);
@@ -243,13 +168,9 @@ mod tests {
     fn test_coego_activity() {
         let dim = 123;
         let ng = 5;
-        let xtypes = vec![XType::Float(0., 1.); dim];
-        let config = EgorConfig::default()
-            .coego(crate::CoegoStatus::Enabled(ng))
-            .xtypes(&xtypes);
-        let mut solver: EgorSolver<GpMixtureParams<f64>> = EgorSolver::new(config.check().unwrap());
+        let strategy = CooperativeActivity::new(ng);
         let mut rng = Xoshiro256Plus::from_entropy();
-        let activity = solver.get_random_activity(&mut rng);
+        let activity = strategy.generate_activity(dim, &mut rng).unwrap();
         assert_eq!(activity.nrows(), ng);
         let expected_ncols = 25;
         assert_eq!(activity.ncols(), expected_ncols);
