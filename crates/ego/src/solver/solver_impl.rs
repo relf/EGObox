@@ -105,7 +105,7 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
 enum DataClustering {
     /// Clustering is not updated given values are used as is
     Disabled,
-    /// Clustering is updated with given values as initialization
+    /// Clustering is recomputed
     Enabled,
 }
 
@@ -352,7 +352,7 @@ where
 
         builder.set_regression_spec(RegressionSpec::CONSTANT);
         builder.set_correlation_spec(CorrelationSpec::ABSOLUTEEXPONENTIAL);
-        builder.set_n_clusters(NbClusters::Fixed { nb: 2 });
+        builder.set_n_clusters(NbClusters::Fixed { nb: 1 });
         builder.set_recombination(egobox_moe::Recombination::Hard);
         // builder.set_optim_params(self.config.gp.n_start, self.config.gp.max_eval);
 
