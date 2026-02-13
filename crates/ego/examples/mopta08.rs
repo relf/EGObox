@@ -232,7 +232,7 @@ fn mopta124d(x: &ArrayView2<f64>) -> Array2<f64> {
     mopta(x, None)
 }
 
-fn mopta_func(dim: usize) -> impl Fn(&ArrayView2<f64>) -> Array2<f64> + GroupFunc {
+fn mopta_func(dim: usize) -> impl GroupFunc {
     match dim {
         30 => mopta30d,
         50 => mopta50d,

@@ -1,4 +1,4 @@
-use crate::EgorState;
+use crate::{EgoError, EgorState, Result};
 use argmin::core::CostFunction;
 use linfa::Float;
 use ndarray::{Array1, Array2, ArrayView2};
@@ -84,12 +84,48 @@ pub enum FailsafeStrategy {
     Viability,
 }
 
+/// A trait for types that can be returned by an objective function.
+///
+/// This allows objective functions to return either `Array2<f64>` directly
+/// (infallible) or `Result<Array2<f64>, E>` (fallible) where E implements `Display`.
+pub trait ObjFuncResponse {
+    /// Convert the response into a `Result<Array2<f64>, EgoError>`.
+    fn into_obj_result(self) -> Result<Array2<f64>>;
+}
+
+impl ObjFuncResponse for Array2<f64> {
+    fn into_obj_result(self) -> Result<Array2<f64>> {
+        Ok(self)
+    }
+}
+
+impl<E: std::fmt::Display> ObjFuncResponse for std::result::Result<Array2<f64>, E> {
+    fn into_obj_result(self) -> Result<Array2<f64>> {
+        self.map_err(|e| EgoError::EgoError(e.to_string()))
+    }
+}
+
 /// An interface for objective function to be optimized
 ///
 /// The function is expected to return a matrix allowing nrows evaluations at once.
 /// A row of the output matrix is expected to contain [objective, cstr_1, ... cstr_n] values.
-pub trait GroupFunc: Clone + Fn(&ArrayView2<f64>) -> Array2<f64> {}
-impl<T> GroupFunc for T where T: Clone + Fn(&ArrayView2<f64>) -> Array2<f64> {}
+///
+/// The function can return either `Array2<f64>` directly (infallible evaluation)
+/// or `Result<Array2<f64>, E>` (fallible evaluation) where `E` implements `Display`.
+/// On error, the optimizer handles the failure according to the configured [`FailsafeStrategy`].
+pub trait GroupFunc: Clone {
+    /// Evaluate the objective function at the given points.
+    fn eval(&self, x: &ArrayView2<f64>) -> crate::errors::Result<Array2<f64>>;
+}
+
+impl<T, R: ObjFuncResponse> GroupFunc for T
+where
+    T: Clone + Fn(&ArrayView2<f64>) -> R,
+{
+    fn eval(&self, x: &ArrayView2<f64>) -> crate::errors::Result<Array2<f64>> {
+        (self)(x).into_obj_result()
+    }
+}
 
 /// A trait to retrieve functions constraints specifying
 /// the domain of the input variables.
@@ -130,8 +166,10 @@ impl<O: GroupFunc, C: CstrFn> CostFunction for ObjFunc<O, C> {
 
     /// Apply the cost function to a parameter `p`
     fn cost(&self, p: &Self::Param) -> std::result::Result<Self::Output, argmin::core::Error> {
-        // Evaluate objective function
-        Ok((self.fobj)(&p.view()))
+        // Evaluate objective function, forward error on failure
+        self.fobj
+            .eval(&p.view())
+            .map_err(|e| argmin::core::Error::msg(e.to_string()))
     }
 }
 
