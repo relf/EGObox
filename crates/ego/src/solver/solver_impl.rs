@@ -102,6 +102,40 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
     }
 }
 
+enum DataClustering {
+    /// Clustering is not updated given values are used as is
+    Disabled,
+    /// Clustering is updated with given values as initialization
+    Enabled,
+}
+
+impl From<bool> for DataClustering {
+    fn from(value: bool) -> Self {
+        if value {
+            DataClustering::Enabled
+        } else {
+            DataClustering::Disabled
+        }
+    }
+}
+
+enum ThetaOptimization {
+    /// Theta is not optimized given values are used as is
+    Disabled,
+    /// Theta is optimized with given values as initialization
+    Enabled,
+}
+
+impl From<bool> for ThetaOptimization {
+    fn from(value: bool) -> Self {
+        if value {
+            ThetaOptimization::Enabled
+        } else {
+            ThetaOptimization::Disabled
+        }
+    }
+}
+
 impl<SB, C> EgorSolver<SB, C>
 where
     SB: SurrogateBuilder + Serialize + DeserializeOwned,
@@ -124,8 +158,8 @@ where
         model_name: &str,
         xt: &ArrayBase<impl Data<Elem = f64>, Ix2>,
         yt: &ArrayBase<impl Data<Elem = f64>, Ix1>,
-        make_clustering: bool,
-        optimize_theta: bool,
+        make_clustering: DataClustering,
+        optimize_theta: ThetaOptimization,
         clustering: Option<&Clustering>,
         theta_inits: Option<&Array2<f64>>,
         actives: &Array2<usize>,
@@ -161,94 +195,100 @@ where
         );
 
         for (i, active) in actives.outer_iter().enumerate() {
-            let gp = if make_clustering {
-                /* init || recluster */
-                match self.config.gp.n_clusters {
-                    NbClusters::Auto { max: _ } => {
-                        if !self.config.activity_strategy.supports_auto_clustering() {
-                            log::warn!(
-                                "Automated clustering not available with cooperative activity strategy"
-                            )
+            let gp = match make_clustering {
+                DataClustering::Enabled => {
+                    /* init || recluster */
+                    match self.config.gp.n_clusters {
+                        NbClusters::Auto { max: _ } => {
+                            if !self.config.activity_strategy.supports_auto_clustering() {
+                                log::warn!(
+                                    "Automated clustering not available with cooperative activity strategy"
+                                )
+                            }
+                        }
+                        NbClusters::Fixed { nb: _ } => {
+                            let theta_tunings = best_theta_inits
+                                .outer_iter()
+                                .map(|init| ThetaTuning::Partial {
+                                    init: init.to_owned(),
+                                    bounds: theta_bounds.to_owned(),
+                                    active: Self::strip(&active.to_vec(), init.len()),
+                                })
+                                .collect::<Vec<_>>();
+                            builder.set_theta_tunings(&theta_tunings);
+                            if i == 0 && model_name == "Objective" {
+                                info!(
+                                    "Objective model hyperparameters optim init >>> {theta_tunings:?}"
+                                );
+                            }
                         }
                     }
-                    NbClusters::Fixed { nb: _ } => {
-                        let theta_tunings = best_theta_inits
-                            .outer_iter()
-                            .map(|init| ThetaTuning::Partial {
-                                init: init.to_owned(),
-                                bounds: theta_bounds.to_owned(),
-                                active: Self::strip(&active.to_vec(), init.len()),
-                            })
-                            .collect::<Vec<_>>();
-                        builder.set_theta_tunings(&theta_tunings);
-                        if i == 0 && model_name == "Objective" {
-                            info!(
-                                "Objective model hyperparameters optim init >>> {theta_tunings:?}"
-                            );
+
+                    if i == 0 {
+                        info!("{model_name} clustering and training...");
+                    }
+                    let gp = builder
+                        .train(xt.view(), yt.view())
+                        .expect("GP training failure");
+                    best_theta_inits = Array2::from_shape_vec(
+                        (gp.experts().len(), gp.experts()[0].theta().len()),
+                        gp.experts()
+                            .iter()
+                            .flat_map(|expert| expert.theta().to_vec())
+                            .collect(),
+                    )
+                    .expect("Theta initialization failure");
+
+                    if i == 0 {
+                        info!(
+                            "... {} trained ({} / {})",
+                            model_name,
+                            gp.n_clusters(),
+                            gp.recombination()
+                        );
+                    }
+                    gp
+                }
+                DataClustering::Disabled => {
+                    let clustering = clustering.unwrap();
+
+                    let theta_tunings = match optimize_theta {
+                        ThetaOptimization::Enabled => {
+                            // set hyperparameters optimization
+                            let mut inits = best_theta_inits
+                                .outer_iter()
+                                .map(|init| ThetaTuning::Full {
+                                    init: init.to_owned(),
+                                    bounds: theta_bounds.to_owned(),
+                                })
+                                .collect::<Vec<_>>();
+                            self.config
+                                .activity_strategy
+                                .adjust_theta_tuning(&active.to_vec(), &mut inits);
+                            if i == 0 && model_name == "Objective" {
+                                info!("Objective model hyperparameters optim init >>> {inits:?}");
+                            }
+                            inits
                         }
-                    }
+                        ThetaOptimization::Disabled => {
+                            // just use previous hyperparameters
+                            let inits = best_theta_inits
+                                .outer_iter()
+                                .map(|init| ThetaTuning::Fixed(init.to_owned()))
+                                .collect::<Vec<_>>();
+                            if i == 0 && model_name == "Objective" {
+                                info!("Objective model hyperparameters reused >>> {inits:?}");
+                            }
+                            inits
+                        }
+                    };
+
+                    builder.set_theta_tunings(&theta_tunings);
+
+                    builder
+                        .train_on_clusters(xt.view(), yt.view(), clustering)
+                        .expect("GP training failure")
                 }
-
-                if i == 0 {
-                    info!("{model_name} clustering and training...");
-                }
-                let gp = builder
-                    .train(xt.view(), yt.view())
-                    .expect("GP training failure");
-                best_theta_inits = Array2::from_shape_vec(
-                    (gp.experts().len(), gp.experts()[0].theta().len()),
-                    gp.experts()
-                        .iter()
-                        .flat_map(|expert| expert.theta().to_vec())
-                        .collect(),
-                )
-                .expect("Theta initialization failure");
-
-                if i == 0 {
-                    info!(
-                        "... {} trained ({} / {})",
-                        model_name,
-                        gp.n_clusters(),
-                        gp.recombination()
-                    );
-                }
-                gp
-            } else {
-                let clustering = clustering.unwrap();
-
-                let theta_tunings = if optimize_theta {
-                    // set hyperparameters optimization
-                    let mut inits = best_theta_inits
-                        .outer_iter()
-                        .map(|init| ThetaTuning::Full {
-                            init: init.to_owned(),
-                            bounds: theta_bounds.to_owned(),
-                        })
-                        .collect::<Vec<_>>();
-                    self.config
-                        .activity_strategy
-                        .adjust_theta_tuning(&active.to_vec(), &mut inits);
-                    if i == 0 && model_name == "Objective" {
-                        info!("Objective model hyperparameters optim init >>> {inits:?}");
-                    }
-                    inits
-                } else {
-                    // just use previous hyperparameters
-                    let inits = best_theta_inits
-                        .outer_iter()
-                        .map(|init| ThetaTuning::Fixed(init.to_owned()))
-                        .collect::<Vec<_>>();
-                    if i == 0 && model_name == "Objective" {
-                        info!("Objective model hyperparameters reused >>> {inits:?}");
-                    }
-                    inits
-                };
-
-                builder.set_theta_tunings(&theta_tunings);
-
-                builder
-                    .train_on_clusters(xt.view(), yt.view(), clustering)
-                    .expect("GP training failure")
             };
 
             // Cooperative activity: update theta in mono cluster setting
@@ -418,8 +458,8 @@ where
                         .1
                         .slice(s![.., k])
                         .to_owned(),
-                    false,
-                    true,
+                    DataClustering::Disabled,
+                    ThetaOptimization::Enabled,
                     state.surrogate.clusterings.as_ref().unwrap()[k].as_ref(),
                     state.surrogate.theta_inits.as_ref().unwrap()[k].as_ref(),
                     &state.coego.activity,
@@ -695,15 +735,17 @@ where
                     } else {
                         format!("Constraint[{k}]")
                     };
-                    let make_clustering = (init && i == 0) || recluster;
-                    let optimize_theta = (iter as usize * self.config.qei_config.batch + i)
+                    let do_clustering = ((init && i == 0) || recluster).into();
+                    let optimize_theta = ((iter as usize * self.config.qei_config.batch + i)
                         .is_multiple_of(self.config.qei_config.optmod)
-                        && j == 0;
+                        && j == 0)
+                        .into();
+
                     self.make_clustered_surrogate(
                         &name,
                         &xt,
                         &yt.slice(s![.., k]).to_owned(),
-                        make_clustering,
+                        do_clustering,
                         optimize_theta,
                         clusterings[k].as_ref(),
                         theta_inits[k].as_ref(),
