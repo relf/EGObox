@@ -10,7 +10,7 @@ use argmin::core::{CostFunction, Problem};
 use egobox_doe::{Lhs, LhsKind, SamplingMethod};
 use egobox_moe::MixtureGpSurrogate;
 
-use log::{debug, info};
+use log::{debug, info, warn};
 use ndarray::{
     Array, Array1, Array2, ArrayBase, ArrayView2, Axis, Data, Ix1, Ix2, Zip, array, concatenate, s,
     stack,
@@ -519,7 +519,14 @@ where
             x.to_owned()
         };
         pb.problem("cost_count", |problem| problem.cost(&x))
-            .expect("Objective evaluation")
+            .unwrap_or_else(|err| {
+                warn!("Objective function evaluation failed at x = {x:?} with error: {err}");
+                Array::from_shape_vec(
+                    (x.nrows(), 1 + self.config.n_cstr),
+                    vec![f64::NAN; x.nrows() * (1 + self.config.n_cstr)],
+                )
+                .unwrap()
+            })
     }
 
     /// Evaluate the constraints given as function at given x points
