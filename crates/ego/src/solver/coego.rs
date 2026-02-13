@@ -44,17 +44,6 @@ where
     SB: SurrogateBuilder + Serialize + DeserializeOwned,
     C: CstrFn,
 {
-    /// Returns activity when optimization is not partial, that is
-    /// all components are activated hence the result is an (1, nx) array
-    /// containing [0, nx-1] integers.
-    pub(crate) fn full_activity(&self) -> Array2<usize> {
-        Array2::from_shape_vec(
-            (1, self.xlimits.nrows()),
-            (0..self.xlimits.nrows()).collect(),
-        )
-        .unwrap()
-    }
-
     /// Used to remove out of range indices from activity last row
     /// Indeed the last row of activity matrix may be incomplete
     /// as n_coop might not be a divider of nx. so this last row
@@ -157,7 +146,7 @@ mod tests {
         let ng = 5;
         let strategy = CooperativeActivity::new(ng);
         let mut rng = Xoshiro256Plus::from_entropy();
-        let activity = strategy.generate_activity(dim, &mut rng).unwrap();
+        let activity = strategy.generate_activity(dim, &mut rng);
         assert_eq!(activity.nrows(), ng);
         let expected_ncols = 25;
         assert_eq!(activity.ncols(), expected_ncols);
@@ -170,7 +159,7 @@ mod tests {
         let ng = 5;
         let strategy = CooperativeActivity::new(ng);
         let mut rng = Xoshiro256Plus::from_entropy();
-        let activity = strategy.generate_activity(dim, &mut rng).unwrap();
+        let activity = strategy.generate_activity(dim, &mut rng);
         assert_eq!(activity.nrows(), ng);
         let expected_ncols = 25;
         assert_eq!(activity.ncols(), expected_ncols);

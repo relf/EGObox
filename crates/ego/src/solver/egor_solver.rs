@@ -248,17 +248,11 @@ where
 
         let c_data = self.eval_problem_fcstrs(problem, &x_data);
 
-        let activity = {
-            let nx = self.xlimits.nrows();
-            let act = self
-                .config
-                .activity_strategy
-                .generate_activity(nx, &mut rng);
-            if let Some(ref a) = act {
-                debug!("Component activity = {a:?}");
-            }
-            act
-        };
+        let activity = self
+            .config
+            .activity_strategy
+            .generate_activity(self.xlimits.nrows(), &mut rng);
+        debug!("Component activity = {activity:?}");
 
         let (valid_idx, invalid_idx) = filter_nans(&y_data);
         let x_fail = x_data.select(Axis(0), &invalid_idx).clone();
@@ -402,16 +396,12 @@ where
         let mut res = {
             let nx = self.xlimits.nrows();
             let mut rng = res.0.take_rng().unwrap();
-            if let Some(activity) = self
+            let activity = self
                 .config
                 .activity_strategy
-                .generate_activity(nx, &mut rng)
-            {
-                debug!("Component activity = {activity:?}");
-                (res.0.rng(rng).activity(activity), res.1)
-            } else {
-                (res.0.rng(rng), res.1)
-            }
+                .generate_activity(nx, &mut rng);
+            debug!("Component activity = {activity:?}");
+            (res.0.rng(rng).activity(activity), res.1)
         };
 
         // Update feasibility

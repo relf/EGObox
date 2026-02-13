@@ -153,7 +153,7 @@ impl<F: Float> Default for TregoState<F> {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct CoegoState {
     /// Activity matrix tracking which variables are active in each subproblem
-    pub activity: Option<Array2<usize>>,
+    pub activity: Array2<usize>,
 }
 
 // =============================================================================
@@ -439,13 +439,8 @@ where
     /// Set the activity matrix  
     #[must_use]
     pub fn activity(mut self, activity: Array2<usize>) -> Self {
-        self.coego.activity = Some(activity);
+        self.coego.activity = activity;
         self
-    }
-
-    /// Moves the current activity out and replaces it internally with `None`.
-    pub fn take_activity(&mut self) -> Option<Array2<usize>> {
-        self.coego.activity.take()
     }
 
     /// Set the run data

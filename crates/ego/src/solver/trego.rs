@@ -107,9 +107,6 @@ where
         let pb = problem.take_problem().unwrap();
         let fcstrs = pb.fn_constraints();
         // Optimize infill criterion
-        let activity = new_state.coego.activity.clone();
-        let actives = activity.unwrap_or(self.full_activity()).to_owned();
-
         let mut rng = new_state.take_rng().unwrap();
         let sub_rng = Xoshiro256Plus::seed_from_u64(rng.r#gen());
         let multistarter =
@@ -122,7 +119,7 @@ where
             cstr_tols: &cstr_tols,
             viability_model: None,
             infill_data,
-            actives: &actives,
+            actives: &state.coego.activity,
         };
 
         let (infill_obj, x_opt) = self.optimize_infill_criterion(

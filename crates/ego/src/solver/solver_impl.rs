@@ -1,13 +1,13 @@
 use std::marker::PhantomData;
 
 use crate::errors::{EgoError, Result};
-use crate::find_best_result_index;
 use crate::solver::solver_computations::MiddlePickerMultiStarter;
 use crate::solver::solver_infill_optim::InfillOptProblem;
 use crate::utils::{
     EGOBOX_LOG, find_best_result_index_from, is_feasible, select_from_portfolio, update_data,
     usable_data,
 };
+use crate::{ActivityStrategy, FullActivity, find_best_result_index};
 use crate::{DEFAULT_CSTR_TOL, EgorSolver, MAX_POINT_ADDITION_RETRY, ValidEgorConfig};
 use crate::{EgorState, types::*};
 use egobox_moe::{as_continuous_limits, to_discrete_space};
@@ -76,7 +76,7 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
         // TODO: c_data has to be passed as argument or better computed using fcstrs(x_data)
         let c_data = Array2::zeros((x_data.nrows(), 0));
         // TODO: Coego not implemented
-        let activity = None;
+        let activity = FullActivity.generate_activity(x_data.ncols(), &mut rng);
 
         let best_index = find_best_result_index(y_data, &c_data, &cstr_tol);
         let feasibility = is_feasible(&y_data.row(best_index), &c_data.row(best_index), &cstr_tol);
@@ -87,7 +87,7 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
             false, // done anyway
             &mut clusterings,
             &mut theta_tunings,
-            activity,
+            &activity,
             x_data,
             y_data,
             &c_data,
@@ -225,11 +225,9 @@ where
                             bounds: theta_bounds.to_owned(),
                         })
                         .collect::<Vec<_>>();
-                    if self.config.activity_strategy.is_cooperative() {
-                        self.config
-                            .activity_strategy
-                            .adjust_theta_tuning(&active.to_vec(), &mut inits);
-                    }
+                    self.config
+                        .activity_strategy
+                        .adjust_theta_tuning(&active.to_vec(), &mut inits);
                     if i == 0 && model_name == "Objective" {
                         info!("Objective model hyperparameters optim init >>> {inits:?}");
                     }
@@ -401,13 +399,6 @@ where
             &state.surrogate.data.as_ref().unwrap().0.nrows()
         );
 
-        let actives = state
-            .coego
-            .activity
-            .as_ref()
-            .unwrap_or(&self.full_activity())
-            .to_owned();
-
         (0..=self.config.n_cstr)
             .into_par_iter()
             .map(|k| {
@@ -431,7 +422,7 @@ where
                     true,
                     state.surrogate.clusterings.as_ref().unwrap()[k].as_ref(),
                     state.surrogate.theta_inits.as_ref().unwrap()[k].as_ref(),
-                    &actives,
+                    &state.coego.activity,
                 )
                 .0
             })
@@ -463,7 +454,7 @@ where
                 PotentialBug,
                 "EgorSolver: No theta inits!"
             ))?;
-        let activity = new_state.take_activity();
+
         let mut rng = new_state
             .take_rng()
             .ok_or_else(argmin_error_closure!(PotentialBug, "EgorSolver: No rng!"))?;
@@ -487,7 +478,7 @@ where
                 recluster,
                 &mut clusterings,
                 &mut theta_inits,
-                activity.as_ref(),
+                &state.coego.activity,
                 &x_data,
                 &y_data,
                 &c_data,
@@ -637,7 +628,7 @@ where
         recluster: bool,
         clusterings: &mut [Option<Clustering>],
         theta_inits: &mut [Option<Array2<f64>>],
-        activity: Option<&Array2<usize>>,
+        activity: &Array2<usize>,
         x_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
         y_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
         c_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
@@ -695,7 +686,7 @@ where
                 };
 
                 log::debug!("activity: {activity:?}");
-                let actives = activity.unwrap_or(&self.full_activity()).to_owned();
+                let actives = activity;
 
                 info!("Train surrogates with {} points...", xt.nrows());
                 let models_and_inits = (0..=self.config.n_cstr).into_par_iter().map(|k| {
@@ -716,7 +707,7 @@ where
                         optimize_theta,
                         clusterings[k].as_ref(),
                         theta_inits[k].as_ref(),
-                        &actives,
+                        actives,
                     )
                 });
                 let (models, inits): (Vec<_>, Vec<_>) = models_and_inits.unzip();
@@ -880,7 +871,7 @@ where
                     cstr_tol,
                     viability_model,
                     &infill_data,
-                    &actives,
+                    actives,
                 );
 
                 let (infill_obj, xk) = self.optimize_infill_criterion(
