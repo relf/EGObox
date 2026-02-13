@@ -49,14 +49,16 @@ pub trait ActivityStrategy: Clone + Sync + Debug {
 
     /// Generate an activity matrix for the current iteration.
     ///
-    /// Returns `None` when all variables are always active (full activity),
-    /// or `Some(activity)` with a matrix of shape `(n_groups, group_size)`
+    /// Returns variable activity with a matrix of shape `(n_groups, group_size)`
     /// containing variable indices for cooperative optimization.
+    /// Returns one row with all indices for full activity (standard EGO).
     ///
     /// # Arguments
     /// * `nx` - Total number of variables (dimension of design space)
     /// * `rng` - Random number generator for shuffling
-    fn generate_activity(&self, nx: usize, rng: &mut Xoshiro256Plus) -> Option<Array2<usize>>;
+    fn generate_activity(&self, nx: usize, _rng: &mut Xoshiro256Plus) -> Array2<usize> {
+        Array2::from_shape_vec((1, nx), (0..nx).collect()).unwrap()
+    }
 
     /// Adjust theta tuning parameters for partial optimization.
     ///
@@ -101,10 +103,6 @@ pub struct FullActivity;
 impl ActivityStrategy for FullActivity {
     fn name(&self) -> &str {
         "Full Activity"
-    }
-
-    fn generate_activity(&self, _nx: usize, _rng: &mut Xoshiro256Plus) -> Option<Array2<usize>> {
-        None
     }
 }
 
@@ -158,10 +156,10 @@ impl ActivityStrategy for CooperativeActivity {
         "Cooperative Activity (CoEGO)"
     }
 
-    fn generate_activity(&self, nx: usize, rng: &mut Xoshiro256Plus) -> Option<Array2<usize>> {
+    fn generate_activity(&self, nx: usize, rng: &mut Xoshiro256Plus) -> Array2<usize> {
         let g_nb = self.n_coop.min(nx);
         let remainder = nx % g_nb;
-        let activity = if remainder == 0 {
+        if remainder == 0 {
             let g_size = nx / g_nb;
             let mut idx: Vec<usize> = (0..nx).collect();
             idx.shuffle(rng);
@@ -180,8 +178,7 @@ impl ActivityStrategy for CooperativeActivity {
                 .slice_mut(s![..remainder, g_size - 1])
                 .assign(&last_vals);
             indices
-        };
-        Some(activity)
+        }
     }
 
     fn adjust_theta_tuning(&self, active: &[usize], theta_tunings: &mut [ThetaTuning<f64>]) {
