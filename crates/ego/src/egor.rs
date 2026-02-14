@@ -139,14 +139,14 @@ pub struct RunInfo {
 /// EGO optimizer builder allowing to specify function to be minimized
 /// subject to constraints intended to be negative.
 ///
-pub struct EgorFactory<O: GroupFunc, C: CstrFn = Cstr> {
+pub struct EgorFactory<O: ObjFn, C: CstrFn = Cstr> {
     fobj: O,
     fcstrs: Vec<C>,
     config: EgorConfig,
     run_info: Option<RunInfo>,
 }
 
-impl<O: GroupFunc, C: CstrFn> EgorFactory<O, C> {
+impl<O: ObjFn, C: CstrFn> EgorFactory<O, C> {
     /// Function to be minimized domain should be basically R^nx -> R^ny
     /// where nx is the dimension of input x and ny the output dimension
     /// equal to 1 (obj) + n (cstrs).
@@ -191,7 +191,7 @@ impl<O: GroupFunc, C: CstrFn> EgorFactory<O, C> {
     ) -> Result<Egor<O, C, GpMixtureParams<f64>>> {
         let config = self.config.xtypes(&to_xtypes(xlimits));
         Ok(Egor {
-            fobj: ObjFunc::new(self.fobj).subject_to(self.fcstrs),
+            fobj: ProblemFunc::new(self.fobj).subject_to(self.fcstrs),
             solver: EgorSolver::new(config.check()?),
             run_info: self.run_info,
         })
@@ -206,7 +206,7 @@ impl<O: GroupFunc, C: CstrFn> EgorFactory<O, C> {
     ) -> Result<Egor<O, C, MixintGpMixtureParams>> {
         let config = self.config.xtypes(xtypes);
         Ok(Egor {
-            fobj: ObjFunc::new(self.fobj).subject_to(self.fcstrs),
+            fobj: ProblemFunc::new(self.fobj).subject_to(self.fcstrs),
             solver: EgorSolver::new(config.check()?),
             run_info: self.run_info,
         })
@@ -217,16 +217,16 @@ impl<O: GroupFunc, C: CstrFn> EgorFactory<O, C> {
 /// and trigger the optimization using `argmin::Executor`.
 #[derive(Clone)]
 pub struct Egor<
-    O: GroupFunc,
+    O: ObjFn,
     C: CstrFn = Cstr,
     SB: SurrogateBuilder + Serialize + DeserializeOwned = GpMixtureParams<f64>,
 > {
-    fobj: ObjFunc<O, C>,
+    fobj: ProblemFunc<O, C>,
     solver: EgorSolver<SB, C>,
     run_info: Option<RunInfo>,
 }
 
-impl<O: GroupFunc, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> Egor<O, C, SB> {
+impl<O: ObjFn, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> Egor<O, C, SB> {
     /// Runs the (constrained) optimization of the objective function.
     pub fn run(&self) -> Result<OptimResult<f64>> {
         let xtypes = self.solver.config.xtypes.clone();
@@ -437,8 +437,11 @@ mod tests {
 
     #[cfg(not(feature = "blas"))]
     use linfa_linalg::norm::*;
+
     #[cfg(feature = "blas")]
     use ndarray_linalg::Norm;
+
+    use std::path::PathBuf;
 
     fn xsinx(x: &ArrayView2<f64>) -> Array2<f64> {
         (x - 3.5) * ((x - 3.5) / std::f64::consts::PI).mapv(|v| v.sin())
@@ -1233,12 +1236,14 @@ mod tests {
 
         // Check that with no iteration, obj function is never called
         // as the DOE does not need to be evaluated!
-        EgorBuilder::optimize(|_x| panic!("Should not call objective function!"))
-            .configure(|config| config.outdir(outdir).warm_start(true).max_iters(0).seed(42))
-            .min_within_mixint_space(&xtypes)
-            .expect("Egor configured")
-            .run()
-            .unwrap();
+        EgorBuilder::optimize(|_x: &ArrayView2<f64>| -> Array2<f64> {
+            panic!("Should not call objective function!")
+        })
+        .configure(|config| config.outdir(outdir).warm_start(true).max_iters(0).seed(42))
+        .min_within_mixint_space(&xtypes)
+        .expect("Egor configured")
+        .run()
+        .unwrap();
     }
 
     fn branin_forrester(x: ArrayView1<f64>) -> f64 {
@@ -1381,5 +1386,60 @@ mod tests {
         assert_abs_diff_eq!(x_expected.row(0), res.x_opt, epsilon = 6e-2);
         assert!(N_DOE + MAX_ITERS >= res.x_doe.nrows());
         assert!(res.state.surrogate.x_fail.is_some());
+    }
+
+    // sphere function which save nb of calls in temporary file
+    // then read it to fail every 5 calls, to test periodic fails
+    #[test]
+    #[serial]
+    fn test_sphere_periodic_failures() {
+        // Temp file to count calls
+        let mut counter_path: PathBuf = std::env::temp_dir();
+        counter_path.push("egobox_sphere_periodic_calls.txt");
+        let _ = std::fs::remove_file(&counter_path);
+
+        fn sphere_periodic_fail(
+            x: &ArrayView2<f64>,
+            counter_path: &PathBuf,
+        ) -> std::result::Result<Array2<f64>, String> {
+            // Increment counter stored in temp file
+            let mut count: usize = std::fs::read_to_string(counter_path)
+                .ok()
+                .and_then(|s| s.trim().parse::<usize>().ok())
+                .unwrap_or(0);
+            count += 1;
+            let _ = std::fs::write(counter_path, count.to_string());
+
+            // Fail every 5th call by returning an error (simulates evaluation failure)
+            if count.is_multiple_of(5) {
+                Err(format!("Simulated periodic failure on call {count}"))
+            } else {
+                let s = (x * x).sum_axis(Axis(1));
+                Ok(s.insert_axis(Axis(1)))
+            }
+        }
+
+        let dim = 4;
+        let xlimits = Array2::from_shape_vec((dim, 2), [-10.0, 10.0].repeat(dim)).unwrap();
+        let init_doe = Lhs::new(&xlimits)
+            .with_rng(Xoshiro256Plus::seed_from_u64(42))
+            .sample(dim + 1);
+
+        // Wrap the closure to capture counter_path
+        let f = |x: &ArrayView2<f64>| sphere_periodic_fail(x, &counter_path);
+
+        let max_iters = 12usize;
+        let res = EgorBuilder::optimize(f)
+            .configure(|cfg| cfg.doe(&init_doe).max_iters(max_iters).seed(42))
+            .min_within(&xlimits)
+            .expect("Egor configured")
+            .run()
+            .expect("Egor should run with periodic failures");
+
+        // Expect failed evaluations to have been recorded
+        assert!(res.state.surrogate.x_fail.is_some());
+
+        // Cleanup
+        let _ = std::fs::remove_file(&counter_path);
     }
 }

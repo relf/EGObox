@@ -1,6 +1,6 @@
 use clap::Parser;
 use egobox_ego::{
-    CoegoStatus, EgorBuilder, GroupFunc, HotStartMode, InfillOptimizer, InfillStrategy, QEiStrategy,
+    CoegoStatus, EgorBuilder, HotStartMode, InfillOptimizer, InfillStrategy, ObjFn, QEiStrategy,
 };
 use egobox_moe::{CorrelationSpec, NbClusters, RegressionSpec};
 use ndarray::{Array1, Array2, ArrayView1, ArrayView2, s};
@@ -232,7 +232,7 @@ fn mopta124d(x: &ArrayView2<f64>) -> Array2<f64> {
     mopta(x, None)
 }
 
-fn mopta_func(dim: usize) -> impl Fn(&ArrayView2<f64>) -> Array2<f64> + GroupFunc {
+fn mopta_func(dim: usize) -> impl ObjFn {
     match dim {
         30 => mopta30d,
         50 => mopta50d,

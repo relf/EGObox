@@ -5,7 +5,7 @@ use crate::FailsafeStrategy;
 use crate::InfillObjData;
 use crate::SurrogateBuilder;
 use crate::solver::solver_infill_optim::InfillOptProblem;
-use crate::types::DomainConstraints;
+use crate::types::Constraints;
 use crate::utils::{find_best_result_index_from, is_feasible, is_update_ok, update_data};
 
 use argmin::core::{CostFunction, Problem};
@@ -82,7 +82,7 @@ where
 {
     /// Local step where infill criterion is optimized within trust region
     pub fn trego_step<
-        O: CostFunction<Param = Array2<f64>, Output = Array2<f64>> + DomainConstraints<C>,
+        O: CostFunction<Param = Array2<f64>, Output = Array2<f64>> + Constraints<C>,
     >(
         &mut self,
         problem: &mut Problem<O>,
@@ -105,7 +105,7 @@ where
         let cbest = c_data.row(best_index).to_owned();
 
         let pb = problem.take_problem().unwrap();
-        let fcstrs = pb.fn_constraints();
+        let fcstrs = pb.constraints();
         // Optimize infill criterion
         let mut rng = new_state.take_rng().unwrap();
         let sub_rng = Xoshiro256Plus::seed_from_u64(rng.r#gen());
