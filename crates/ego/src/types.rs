@@ -127,11 +127,11 @@ where
     }
 }
 
-/// A trait to retrieve functions constraints specifying
-/// the domain of the input variables.
-pub trait DomainConstraints<C: CstrFn> {
+/// A trait to retrieve functions constraints
+/// provided by the user and used by the internal optimizer
+pub trait Constraints<C: CstrFn> {
     /// Returns the list of constraints functions
-    fn fn_constraints(&self) -> &[impl CstrFn];
+    fn constraints(&self) -> &[impl CstrFn];
 }
 
 /// As structure to handle the objective and constraints functions for implementing
@@ -173,8 +173,8 @@ impl<O: GroupFunc, C: CstrFn> CostFunction for ProblemFunc<O, C> {
     }
 }
 
-impl<O: GroupFunc, C: CstrFn> DomainConstraints<C> for ProblemFunc<O, C> {
-    fn fn_constraints(&self) -> &[impl CstrFn] {
+impl<O: GroupFunc, C: CstrFn> Constraints<C> for ProblemFunc<O, C> {
+    fn constraints(&self) -> &[impl CstrFn] {
         &self.fcstrs
     }
 }

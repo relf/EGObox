@@ -375,7 +375,7 @@ where
 
     /// Refresh infill data used to optimize infill criterion
     pub fn refresh_infill_data<
-        O: CostFunction<Param = Array2<f64>, Output = Array2<f64>> + DomainConstraints<C>,
+        O: CostFunction<Param = Array2<f64>, Output = Array2<f64>> + Constraints<C>,
     >(
         &self,
         problem: &mut Problem<O>,
@@ -390,7 +390,7 @@ where
         let xbest = x_data.row(state.surrogate.best_index.unwrap()).to_vec();
 
         let pb = problem.take_problem().unwrap();
-        let fcstrs = pb.fn_constraints();
+        let fcstrs = pb.constraints();
 
         let mut rng = state.take_rng().unwrap();
         let sub_rng = Xoshiro256Plus::seed_from_u64(rng.r#gen());
@@ -474,9 +474,7 @@ where
     /// * Find next promising location(s) of optimum
     /// * Update state: Evaluate true function, update doe and optimum
     #[allow(clippy::type_complexity)]
-    pub fn ego_step<
-        O: CostFunction<Param = Array2<f64>, Output = Array2<f64>> + DomainConstraints<C>,
-    >(
+    pub fn ego_step<O: CostFunction<Param = Array2<f64>, Output = Array2<f64>> + Constraints<C>>(
         &mut self,
         problem: &mut Problem<O>,
         state: EgorState<f64>,
@@ -510,7 +508,7 @@ where
 
             let init = new_state.get_iter() == 0;
             let pb = problem.take_problem().unwrap();
-            let fcstrs = pb.fn_constraints();
+            let fcstrs = pb.constraints();
 
             let (x_dat, y_dat, c_dat, y_penalized, infill_value) = self.select_next_points(
                 init,

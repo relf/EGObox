@@ -171,7 +171,7 @@ pub fn to_xtypes(xlimits: &ArrayBase<impl Data<Elem = f64>, Ix2>) -> Vec<XType> 
 
 impl<O, SB, C> Solver<O, EgorState<f64>> for EgorSolver<SB, C>
 where
-    O: CostFunction<Param = Array2<f64>, Output = Array2<f64>> + DomainConstraints<C>,
+    O: CostFunction<Param = Array2<f64>, Output = Array2<f64>> + Constraints<C>,
     C: CstrFn,
     SB: SurrogateBuilder + Serialize + DeserializeOwned,
 {
@@ -459,7 +459,7 @@ where
 {
     /// Iteration of EGO algorithm
     fn ego_iteration<
-        O: CostFunction<Param = Array2<f64>, Output = Array2<f64>> + DomainConstraints<C>,
+        O: CostFunction<Param = Array2<f64>, Output = Array2<f64>> + Constraints<C>,
     >(
         &mut self,
         problem: &mut Problem<O>,
@@ -481,7 +481,7 @@ where
     /// around the current best point. Uses `min_acceptance_distance` to
     /// decide whether a candidate point is sufficiently far from the best.
     fn local_iteration<
-        O: CostFunction<Param = Array2<f64>, Output = Array2<f64>> + DomainConstraints<C>,
+        O: CostFunction<Param = Array2<f64>, Output = Array2<f64>> + Constraints<C>,
     >(
         &mut self,
         problem: &mut Problem<O>,

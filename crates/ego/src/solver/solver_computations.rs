@@ -567,13 +567,13 @@ where
 
     /// Evaluate the constraints given as function at given x points
     /// within the problem structure so that the function is taken from there
-    pub fn eval_problem_fcstrs<O: DomainConstraints<C>>(
+    pub fn eval_problem_fcstrs<O: Constraints<C>>(
         &self,
         pb: &mut Problem<O>,
         x: &ArrayBase<impl Data<Elem = f64>, Ix2>,
     ) -> Array2<f64> {
         let problem = pb.take_problem().unwrap();
-        let fcstrs = problem.fn_constraints();
+        let fcstrs = problem.constraints();
 
         let res = self.eval_fcstrs(fcstrs, x);
 
