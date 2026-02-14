@@ -135,17 +135,17 @@ pub trait DomainConstraints<C: CstrFn> {
 }
 
 /// As structure to handle the objective and constraints functions for implementing
-/// `argmin::CostFunction` to be used with argmin framework.
+/// the optimization problem and `argmin::CostFunction` to be used with argmin framework.
 #[derive(Clone)]
-pub struct ObjFunc<O: GroupFunc, C: CstrFn> {
+pub struct ProblemFunc<O: GroupFunc, C: CstrFn> {
     fobj: O,
     fcstrs: Vec<C>,
 }
 
-impl<O: GroupFunc, C: CstrFn> ObjFunc<O, C> {
+impl<O: GroupFunc, C: CstrFn> ProblemFunc<O, C> {
     /// Constructor given the objective function
     pub fn new(fobj: O) -> Self {
-        ObjFunc {
+        ProblemFunc {
             fobj,
             fcstrs: vec![],
         }
@@ -158,7 +158,7 @@ impl<O: GroupFunc, C: CstrFn> ObjFunc<O, C> {
     }
 }
 
-impl<O: GroupFunc, C: CstrFn> CostFunction for ObjFunc<O, C> {
+impl<O: GroupFunc, C: CstrFn> CostFunction for ProblemFunc<O, C> {
     /// Type of the parameter vector
     type Param = Array2<f64>;
     /// Type of the return value computed by the cost function
@@ -173,28 +173,36 @@ impl<O: GroupFunc, C: CstrFn> CostFunction for ObjFunc<O, C> {
     }
 }
 
-impl<O: GroupFunc, C: CstrFn> DomainConstraints<C> for ObjFunc<O, C> {
+impl<O: GroupFunc, C: CstrFn> DomainConstraints<C> for ProblemFunc<O, C> {
     fn fn_constraints(&self) -> &[impl CstrFn] {
         &self.fcstrs
     }
 }
 
-/// A trait for functions used by internal optimizers
+/// A trait for functions provided by the user
 /// Functions are expected to be defined as `g(x, g, u)` where
 /// * `x` is the input information,
 /// * `g` an optional gradient information to be updated if present
 /// * `u` information provided by the user
 #[cfg(not(feature = "nlopt"))]
-pub trait ObjFn<U>: Fn(&[f64], Option<&mut [f64]>, &mut U) -> f64 {}
+pub trait UserFn<U>: Fn(&[f64], Option<&mut [f64]>, &mut U) -> f64 {}
 #[cfg(feature = "nlopt")]
 use nlopt::ObjFn;
 
 #[cfg(not(feature = "nlopt"))]
-impl<T, U> ObjFn<U> for T where T: Fn(&[f64], Option<&mut [f64]>, &mut U) -> f64 {}
+impl<T, U> UserFn<U> for T where T: Fn(&[f64], Option<&mut [f64]>, &mut U) -> f64 {}
 
-/// A function trait for domain constraints used by the internal optimizer
-/// It is a specialized version of [`ObjFn`] with [`InfillObjData`] as user information
+/// A function trait for constraints provided by the user and used by the internal optimizer
+/// It is a specialized version of [`UserFn`] with [`InfillObjData`] as user information
+#[cfg(not(feature = "nlopt"))]
+pub trait CstrFn: Clone + UserFn<InfillObjData<f64>> + Sync {}
+#[cfg(not(feature = "nlopt"))]
+impl<T> CstrFn for T where T: Clone + UserFn<InfillObjData<f64>> + Sync {}
+/// A function trait for constraints used by the internal optimizer
+/// It is a specialized version of [`ObjFn`] with [`InfillObjData`] as user informati
+#[cfg(feature = "nlopt")]
 pub trait CstrFn: Clone + ObjFn<InfillObjData<f64>> + Sync {}
+#[cfg(feature = "nlopt")]
 impl<T> CstrFn for T where T: Clone + ObjFn<InfillObjData<f64>> + Sync {}
 
 /// A function type for domain constraints which will be used by the internal optimizer

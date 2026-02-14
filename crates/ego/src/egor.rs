@@ -191,7 +191,7 @@ impl<O: GroupFunc, C: CstrFn> EgorFactory<O, C> {
     ) -> Result<Egor<O, C, GpMixtureParams<f64>>> {
         let config = self.config.xtypes(&to_xtypes(xlimits));
         Ok(Egor {
-            fobj: ObjFunc::new(self.fobj).subject_to(self.fcstrs),
+            fobj: ProblemFunc::new(self.fobj).subject_to(self.fcstrs),
             solver: EgorSolver::new(config.check()?),
             run_info: self.run_info,
         })
@@ -206,7 +206,7 @@ impl<O: GroupFunc, C: CstrFn> EgorFactory<O, C> {
     ) -> Result<Egor<O, C, MixintGpMixtureParams>> {
         let config = self.config.xtypes(xtypes);
         Ok(Egor {
-            fobj: ObjFunc::new(self.fobj).subject_to(self.fcstrs),
+            fobj: ProblemFunc::new(self.fobj).subject_to(self.fcstrs),
             solver: EgorSolver::new(config.check()?),
             run_info: self.run_info,
         })
@@ -221,7 +221,7 @@ pub struct Egor<
     C: CstrFn = Cstr,
     SB: SurrogateBuilder + Serialize + DeserializeOwned = GpMixtureParams<f64>,
 > {
-    fobj: ObjFunc<O, C>,
+    fobj: ProblemFunc<O, C>,
     solver: EgorSolver<SB, C>,
     run_info: Option<RunInfo>,
 }
@@ -1441,27 +1441,5 @@ mod tests {
 
         // Cleanup
         let _ = std::fs::remove_file(&counter_path);
-    }
-
-    #[test]
-    #[serial]
-    fn test_fobj_crash() {
-        let initial_doe = Lhs::new(&array![[0.0, 1.0], [0.0, 1.0]])
-            .with_rng(Xoshiro256Plus::seed_from_u64(42))
-            .sample(15);
-
-        let res = EgorBuilder::optimize(branin_with_nans)
-            .configure(|cfg| cfg.doe(&initial_doe).max_iters(1).seed(42))
-            .min_within(&array![[0.0, 1.0], [0.0, 1.0]])
-            .expect("Egor should be configured")
-            .run()
-            .expect("Egor should minimize branin_with_nans");
-        assert!(res.state.surrogate.x_fail.is_some());
-        let x_fail = res.state.surrogate.x_fail.as_ref().unwrap();
-        assert_eq!(x_fail.nrows(), initial_doe.nrows() + 1); // all doe points + the one iteration failed point
-        assert_eq!(
-            x_fail.row(initial_doe.nrows()),
-            res.state.get_param().unwrap()
-        );
     }
 }

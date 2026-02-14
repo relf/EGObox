@@ -1,16 +1,11 @@
-use crate::EgorSolver;
 use crate::errors::Result;
 use crate::types::*;
 use crate::utils::find_best_result_index_from;
+use crate::{EgorSolver, optimizers::OptFn};
 
 use egobox_moe::MixtureGpSurrogate;
 use ndarray::{Array, Array1, Array2, ArrayBase, Axis, Data, Ix1, RemoveAxis, s};
 use serde::{Serialize, de::DeserializeOwned};
-
-#[cfg(not(feature = "nlopt"))]
-use crate::types::ObjFn;
-#[cfg(feature = "nlopt")]
-use nlopt::ObjFn;
 
 /// Whether GP objective improves when setting a component set
 /// TODO: at the moment not sure improvement check is required, to be validated
@@ -66,7 +61,7 @@ where
         obj_model: &dyn MixtureGpSurrogate,
         cstr_models: &[Box<dyn MixtureGpSurrogate>],
         cstr_tols: &Array1<f64>,
-        cstr_funcs: &[&(dyn ObjFn<InfillObjData<f64>> + Sync)],
+        cstr_funcs: &[&(dyn OptFn<InfillObjData<f64>> + Sync)],
     ) -> (bool, (Array1<f64>, Array1<f64>, Array1<f64>)) {
         // Assign metamodelized objective (1) and constraints (n_cstr) values
         let mut y_data = Array2::zeros((2, 1 + self.config.n_cstr));

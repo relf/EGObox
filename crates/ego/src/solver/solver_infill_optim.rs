@@ -3,11 +3,6 @@ use crate::types::*;
 
 use crate::EgorSolver;
 
-#[cfg(not(feature = "nlopt"))]
-use crate::types::ObjFn;
-#[cfg(feature = "nlopt")]
-use nlopt::ObjFn;
-
 use egobox_moe::MixtureGpSurrogate;
 use log::info;
 use ndarray::{Array, Array1, Array2};
@@ -212,15 +207,8 @@ where
                                 )
                             }
                         };
-                        #[cfg(feature = "nlopt")]
-                        {
-                            Box::new(cstr) as Box<dyn nlopt::ObjFn<InfillObjData<f64>> + Sync>
-                        }
-                        #[cfg(not(feature = "nlopt"))]
-                        {
-                            Box::new(cstr)
-                                as Box<dyn crate::types::ObjFn<InfillObjData<f64>> + Sync>
-                        }
+
+                        Box::new(cstr) as Box<dyn OptFn<InfillObjData<f64>> + Sync>
                     })
                     .collect()
             };
@@ -229,7 +217,7 @@ where
             let mut cstr_refs: Vec<_> = cstrs.iter().map(|c| c.as_ref()).collect();
             let cstr_funcs = cstr_funcs
                 .iter()
-                .map(|cstr| cstr as &(dyn ObjFn<InfillObjData<f64>> + Sync))
+                .map(|cstr| cstr as &(dyn OptFn<InfillObjData<f64>> + Sync))
                 .collect::<Vec<_>>();
             cstr_refs.extend(cstr_funcs.clone());
 
@@ -248,17 +236,7 @@ where
                     }
                 };
             if viability_model.is_some() {
-                #[cfg(feature = "nlopt")]
-                {
-                    cstr_refs
-                        .push(&viability_cstr as &(dyn nlopt::ObjFn<InfillObjData<f64>> + Sync));
-                }
-                #[cfg(not(feature = "nlopt"))]
-                {
-                    cstr_refs.push(
-                        &viability_cstr as &(dyn crate::types::ObjFn<InfillObjData<f64>> + Sync),
-                    );
-                }
+                cstr_refs.push(&viability_cstr as &(dyn OptFn<InfillObjData<f64>> + Sync));
             }
             // Limits of activated components
             let xbounds = multistarter.xbounds(&active).to_owned();

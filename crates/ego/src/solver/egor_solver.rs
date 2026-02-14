@@ -8,7 +8,7 @@
 //! ```no_run
 //! use ndarray::{array, Array2, ArrayView1, ArrayView2, Zip};
 //! use egobox_doe::{Lhs, SamplingMethod};
-//! use egobox_ego::{EgorBuilder, EgorConfig, InfillStrategy, InfillOptimizer, ObjFunc, EgorSolver, to_xtypes};
+//! use egobox_ego::{EgorBuilder, EgorConfig, InfillStrategy, InfillOptimizer, ProblemFunc, EgorSolver, to_xtypes};
 //! use egobox_moe::GpMixtureParams;
 //! use rand_xoshiro::Xoshiro256Plus;
 //! use ndarray_rand::rand::SeedableRng;
@@ -25,7 +25,7 @@
 //!     y
 //! }
 //! let xtypes = to_xtypes(&array![[-2., 2.], [-2., 2.]]);
-//! let fobj = ObjFunc::new(rosenb);
+//! let fobj = ProblemFunc::new(rosenb);
 //! let config = EgorConfig::default()
 //!                .xtypes(&xtypes)
 //!                .seed(42)
@@ -50,7 +50,7 @@
 //! ```no_run
 //! use ndarray::{array, Array2, ArrayView1, ArrayView2, Zip};
 //! use egobox_doe::{Lhs, SamplingMethod};
-//! use egobox_ego::{EgorBuilder, EgorConfig, InfillStrategy, InfillOptimizer, ObjFunc, EgorSolver, to_xtypes};
+//! use egobox_ego::{EgorBuilder, EgorConfig, InfillStrategy, InfillOptimizer, ProblemFunc, EgorSolver, to_xtypes};
 //! use egobox_moe::GpMixtureParams;
 //! use rand_xoshiro::Xoshiro256Plus;
 //! use ndarray_rand::rand::SeedableRng;
@@ -87,7 +87,7 @@
 //! let doe = Lhs::new(&xlimits).sample(10);
 //! let xtypes = to_xtypes(&xlimits);
 //!
-//! let fobj = ObjFunc::new(f_g24);
+//! let fobj = ProblemFunc::new(f_g24);
 //!
 //! let config = EgorConfig::default()
 //!     .xtypes(&xtypes)
