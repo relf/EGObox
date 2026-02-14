@@ -88,18 +88,18 @@ pub enum FailsafeStrategy {
 ///
 /// This allows objective functions to return either `Array2<f64>` directly
 /// (infallible) or `Result<Array2<f64>, E>` (fallible) where E implements `Display`.
-pub trait ObjFuncResponse {
+pub trait ObjFnResponse {
     /// Convert the response into a `Result<Array2<f64>, EgoError>`.
     fn into_obj_result(self) -> Result<Array2<f64>>;
 }
 
-impl ObjFuncResponse for Array2<f64> {
+impl ObjFnResponse for Array2<f64> {
     fn into_obj_result(self) -> Result<Array2<f64>> {
         Ok(self)
     }
 }
 
-impl<E: std::fmt::Display> ObjFuncResponse for std::result::Result<Array2<f64>, E> {
+impl<E: std::fmt::Display> ObjFnResponse for std::result::Result<Array2<f64>, E> {
     fn into_obj_result(self) -> Result<Array2<f64>> {
         self.map_err(|e| EgoError::EgoError(e.to_string()))
     }
@@ -113,12 +113,12 @@ impl<E: std::fmt::Display> ObjFuncResponse for std::result::Result<Array2<f64>, 
 /// The function can return either `Array2<f64>` directly (infallible evaluation)
 /// or `Result<Array2<f64>, E>` (fallible evaluation) where `E` implements `Display`.
 /// On error, the optimizer handles the failure according to the configured [`FailsafeStrategy`].
-pub trait GroupFunc: Clone {
+pub trait ObjFn: Clone {
     /// Evaluate the objective function at the given points.
     fn eval(&self, x: &ArrayView2<f64>) -> crate::errors::Result<Array2<f64>>;
 }
 
-impl<T, R: ObjFuncResponse> GroupFunc for T
+impl<T, R: ObjFnResponse> ObjFn for T
 where
     T: Clone + Fn(&ArrayView2<f64>) -> R,
 {
@@ -137,12 +137,12 @@ pub trait Constraints<C: CstrFn> {
 /// As structure to handle the objective and constraints functions for implementing
 /// the optimization problem and `argmin::CostFunction` to be used with argmin framework.
 #[derive(Clone)]
-pub struct ProblemFunc<O: GroupFunc, C: CstrFn> {
+pub struct ProblemFunc<O: ObjFn, C: CstrFn> {
     fobj: O,
     fcstrs: Vec<C>,
 }
 
-impl<O: GroupFunc, C: CstrFn> ProblemFunc<O, C> {
+impl<O: ObjFn, C: CstrFn> ProblemFunc<O, C> {
     /// Constructor given the objective function
     pub fn new(fobj: O) -> Self {
         ProblemFunc {
@@ -158,7 +158,7 @@ impl<O: GroupFunc, C: CstrFn> ProblemFunc<O, C> {
     }
 }
 
-impl<O: GroupFunc, C: CstrFn> CostFunction for ProblemFunc<O, C> {
+impl<O: ObjFn, C: CstrFn> CostFunction for ProblemFunc<O, C> {
     /// Type of the parameter vector
     type Param = Array2<f64>;
     /// Type of the return value computed by the cost function
@@ -173,7 +173,7 @@ impl<O: GroupFunc, C: CstrFn> CostFunction for ProblemFunc<O, C> {
     }
 }
 
-impl<O: GroupFunc, C: CstrFn> Constraints<C> for ProblemFunc<O, C> {
+impl<O: ObjFn, C: CstrFn> Constraints<C> for ProblemFunc<O, C> {
     fn constraints(&self) -> &[impl CstrFn] {
         &self.fcstrs
     }

@@ -139,14 +139,14 @@ pub struct RunInfo {
 /// EGO optimizer builder allowing to specify function to be minimized
 /// subject to constraints intended to be negative.
 ///
-pub struct EgorFactory<O: GroupFunc, C: CstrFn = Cstr> {
+pub struct EgorFactory<O: ObjFn, C: CstrFn = Cstr> {
     fobj: O,
     fcstrs: Vec<C>,
     config: EgorConfig,
     run_info: Option<RunInfo>,
 }
 
-impl<O: GroupFunc, C: CstrFn> EgorFactory<O, C> {
+impl<O: ObjFn, C: CstrFn> EgorFactory<O, C> {
     /// Function to be minimized domain should be basically R^nx -> R^ny
     /// where nx is the dimension of input x and ny the output dimension
     /// equal to 1 (obj) + n (cstrs).
@@ -217,7 +217,7 @@ impl<O: GroupFunc, C: CstrFn> EgorFactory<O, C> {
 /// and trigger the optimization using `argmin::Executor`.
 #[derive(Clone)]
 pub struct Egor<
-    O: GroupFunc,
+    O: ObjFn,
     C: CstrFn = Cstr,
     SB: SurrogateBuilder + Serialize + DeserializeOwned = GpMixtureParams<f64>,
 > {
@@ -226,7 +226,7 @@ pub struct Egor<
     run_info: Option<RunInfo>,
 }
 
-impl<O: GroupFunc, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> Egor<O, C, SB> {
+impl<O: ObjFn, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> Egor<O, C, SB> {
     /// Runs the (constrained) optimization of the objective function.
     pub fn run(&self) -> Result<OptimResult<f64>> {
         let xtypes = self.solver.config.xtypes.clone();
