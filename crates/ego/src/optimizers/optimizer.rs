@@ -37,11 +37,9 @@ impl<T, U> OptFn<U> for T where T: UserFn<U> + Sync {}
 use cobyla::RhoBeg;
 
 #[cfg(feature = "nlopt")]
-use nlopt::ObjFn;
+pub(crate) trait OptFn<U>: nlopt::ObjFn<U> + Sync {}
 #[cfg(feature = "nlopt")]
-pub(crate) trait OptFn<U>: ObjFn<U> + Sync {}
-#[cfg(feature = "nlopt")]
-impl<T, U> OptFn<U> for T where T: ObjFn<U> + Sync {}
+impl<T, U> OptFn<U> for T where T: nlopt::ObjFn<U> + Sync {}
 
 #[derive(Copy, Clone, Debug)]
 pub enum Algorithm {
