@@ -416,6 +416,7 @@ class TestEgor(unittest.TestCase):
             if self.nb_calls > 1 and np.prod(x) < BRANIN_CSTR_CONST:
                 # Force a crash for points violating the constraint after the first call
                 error = 1 / 0  # noqa
+                print(error)  # to use the variable and avoid "unused variable" warning
             else:
                 return branin(np.atleast_2d(x))
 
