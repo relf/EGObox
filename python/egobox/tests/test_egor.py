@@ -414,7 +414,8 @@ class TestEgor(unittest.TestCase):
             self.nb_calls = self.nb_calls + 1
             print(self.nb_calls)
             if self.nb_calls > 1 and np.prod(x) < BRANIN_CSTR_CONST:
-                1 / 0  # Force a crash for points violating the constraint after the first call
+                # Force a crash for points violating the constraint after the first call
+                1 / 0  # noqa
             else:
                 return branin(np.atleast_2d(x))
 
