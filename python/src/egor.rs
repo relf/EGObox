@@ -14,10 +14,9 @@
 use crate::domain::*;
 use crate::gp_config::*;
 use crate::qei_config::*;
-use crate::trego_config::TregoConfig;
-use crate::trego_config::TregoConfigSpec;
+use crate::trego_config::{TregoConfig, TregoConfigSpec};
 use crate::types::*;
-use egobox_ego::{CoegoStatus, InfillObjData, find_best_result_index};
+use egobox_ego::{CoegoStatus, InfillObjData, Result, find_best_result_index};
 use egobox_gp::ThetaTuning;
 use egobox_moe::NbClusters;
 use ndarray::{Array1, Array2, ArrayView2, Axis, array, concatenate};
@@ -290,12 +289,20 @@ impl Egor {
         max_iters: usize,
         run_info: Option<Py<PyAny>>,
     ) -> PyResult<OptimResult> {
-        let obj = |x: &ArrayView2<f64>| -> Array2<f64> {
+        let obj = |x: &ArrayView2<f64>| -> Result<Array2<f64>> {
             Python::attach(|py| {
                 let args = (x.to_owned().into_pyarray(py),);
-                let res = fun.bind(py).call1(args).unwrap();
-                let pyarray = res.downcast_into::<PyArray2<f64>>().unwrap();
-                pyarray.to_owned_array()
+                let res = fun.bind(py).call1(args);
+                match res {
+                    Ok(res) => {
+                        let pyarray = res.downcast_into::<PyArray2<f64>>().unwrap();
+                        Ok(pyarray.to_owned_array())
+                    }
+                    Err(e) => {
+                        log::error!("Error during objective function evaluation: {:?}", e);
+                        Err(egobox_ego::EgoError::UserFnError(e.to_string()))
+                    }
+                }
             })
         };
 

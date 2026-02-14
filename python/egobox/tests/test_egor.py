@@ -407,8 +407,32 @@ class TestEgor(unittest.TestCase):
         self.assertAlmostEqual(0.9677, res.x_opt[0], delta=5e-2)
         self.assertAlmostEqual(0.2067, res.x_opt[1], delta=6e-2)
 
+    nb_calls = 0
+
+    def test_fobj_crash(self):
+        def fobj_crash(x):
+            self.nb_calls = self.nb_calls + 1
+            print(self.nb_calls)
+            if self.nb_calls > 1 and np.prod(x) < BRANIN_CSTR_CONST:
+                1 / 0  # Force a crash for points violating the constraint after the first call
+            else:
+                return branin(np.atleast_2d(x))
+
+        xspecs = [[0.0, 1.0], [0.0, 1.0]]
+        egor = egx.Egor(
+            xspecs,
+            n_doe=15,
+            seed=42,
+            failsafe_strategy=egx.FailsafeStrategy.IMPUTATION,
+        )
+        res = egor.minimize(
+            fobj_crash,
+            max_iters=30,
+        )
+        print(f"Optimum found at: x = {res.x_opt}, f(x*) = {res.y_opt[0]}")
+        self.assertAlmostEqual(0.9677, res.x_opt[0], delta=5e-2)
+        self.assertAlmostEqual(0.2067, res.x_opt[1], delta=6e-2)
+
 
 if __name__ == "__main__":
-    unittest.main(
-        defaultTest=["TestEgor.test_constrained_branin_with_nans"], exit=False
-    )
+    unittest.main(defaultTest=["TestEgor.test_fobj_crash"], exit=False)

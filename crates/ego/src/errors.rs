@@ -14,9 +14,9 @@ pub enum EgoError {
     /// When LikelihoodComputation computation fails
     #[error("GP error")]
     GpError(#[from] egobox_gp::GpError),
-    /// When EGO fails
-    #[error("EGO error: {0}")]
-    EgoError(String),
+    /// When a user function evaluation fails
+    #[error("User function error: {0}")]
+    UserFnError(String),
     /// When an invalid value is encountered
     #[error("Value error: {0}")]
     InvalidValue(String),

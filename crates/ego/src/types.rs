@@ -101,7 +101,7 @@ impl ObjFnResponse for Array2<f64> {
 
 impl<E: std::fmt::Display> ObjFnResponse for std::result::Result<Array2<f64>, E> {
     fn into_obj_result(self) -> Result<Array2<f64>> {
-        self.map_err(|e| EgoError::EgoError(e.to_string()))
+        self.map_err(|e| EgoError::UserFnError(e.to_string()))
     }
 }
 
