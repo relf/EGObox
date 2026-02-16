@@ -34,10 +34,10 @@ def mixobj(X):
 
 class TestMixintEgx(unittest.TestCase):
     def test_int(self):
-        xtypes = [egx.XSpec(egx.XType.INT, [0.0, 25.0])]
+        xspecs = [egx.XSpec(egx.XType.INT, [0.0, 25.0])]
 
         egor = egx.Egor(
-            xtypes,
+            xspecs,
             infill_strategy=egx.InfillStrategy.EI,
             seed=42,
             doe=np.array([[0.0], [7.0], [25.0]]),
@@ -49,13 +49,13 @@ class TestMixintEgx(unittest.TestCase):
         self.assertAlmostEqual(19, res.x_opt[0], delta=1)
 
     def test_ord_enum(self):
-        xtypes = [
+        xspecs = [
             egx.XSpec(egx.XType.FLOAT, [-5.0, 5.0]),
             egx.XSpec(egx.XType.ENUM, tags=["blue", "red", "green"]),
             egx.XSpec(egx.XType.ENUM, xlimits=[2]),
             egx.XSpec(egx.XType.ORD, [0, 2, 3]),
         ]
-        egor = egx.Egor(xtypes, infill_strategy=egx.InfillStrategy.WB2, seed=42)
+        egor = egx.Egor(xspecs, infill_strategy=egx.InfillStrategy.WB2, seed=42)
         res = egor.minimize(mixobj, max_iters=10)
         self.assertAlmostEqual(-14.25, res.y_opt[0])
         self.assertAlmostEqual(-5, res.x_opt[0])
