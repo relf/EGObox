@@ -19,113 +19,120 @@ class CorrelationSpec:
 class Egor:
     r"""
     Optimizer constructor
-    xspecs (list(XSpec)) where XSpec(xtype=FLOAT|INT|ORD|ENUM, xlimits=[<f(xtype)>] or tags=[strings]):
-        Specifications of the nx components of the input x (eg. len(xspecs) == nx)
-        Depending on the x type we get the following for xlimits:
-        * when FLOAT: xlimits is [float lower_bound, float upper_bound],
-        * when INT: xlimits is [int lower_bound, int upper_bound],
-        * when ORD: xlimits is [float_1, float_2, ..., float_n],
-        * when ENUM: xlimits is just the int size of the enumeration otherwise a list of tags is specified
-          (eg xlimits=[3] or tags=["red", "green", "blue"], tags are there for documention purpose but
-           tags specific values themselves are not used only indices in the enum are used hence
-           we can just specify the size of the enum, xlimits=[3]),
     
-    gp_config (GpConfig):
-       GP configuration used by the optimizer, see GpConfig for details.
+    # Parameters
     
-    n_cstr (int):
-        the number of constraints which will be approximated by surrogates (see `fun` argument)
+        xspecs (list(XSpec)) where XSpec(xtype=FLOAT|INT|ORD|ENUM, xlimits=[<f(xtype)>] or tags=[strings]):
+            Specifications of the nx components of the input x (eg. len(xspecs) == nx)
+            Depending on the x type we get the following for xlimits:
+            * when FLOAT: xlimits is [float lower_bound, float upper_bound],
+            * when INT: xlimits is [int lower_bound, int upper_bound],
+            * when ORD: xlimits is [float_1, float_2, ..., float_n],
+            * when ENUM: xlimits is just the int size of the enumeration otherwise a list of tags is specified
+              (eg xlimits=[3] or tags=["red", "green", "blue"], tags are there for documention purpose but
+               tags specific values themselves are not used only indices in the enum are used hence
+               we can just specify the size of the enum, xlimits=[3]),
     
-    cstr_tol (list(n_cstr + n_fcstr,)):
-        List of tolerances for constraints to be satisfied (cstr < tol),
-        list size should be equal to n_cstr + n_fctrs where n_cstr is the `n_cstr` argument
-        and `n_fcstr` the number of constraints passed as functions.
-        When None, tolerances default to DEFAULT_CSTR_TOL=1e-4.
+        gp_config (GpConfig):
+           GP configuration used by the optimizer, see GpConfig for details.
     
-    n_start (int > 0):
-        Number of runs of infill strategy optimizations (best result taken)
+        n_cstr (int):
+            the number of constraints which will be approximated by surrogates (see `fun` argument)
     
-    n_doe (int >= 0):
-        Number of samples of initial LHS sampling (used when DOE not provided by the user).
-        When 0 a number of points is computed automatically regarding the number of input variables
-        of the function under optimization.
+        cstr_tol (list(n_cstr + n_fcstr,)):
+            List of tolerances for constraints to be satisfied (cstr < tol),
+            list size should be equal to n_cstr + n_fctrs where n_cstr is the `n_cstr` argument
+            and `n_fcstr` the number of constraints passed as functions.
+            When None, tolerances default to DEFAULT_CSTR_TOL=1e-4.
     
-    doe (array[ns, nt]):
-        Initial DOE containing ns samples:
-            either nt = nx then only x are specified and ns evals are done to get y doe values,
-            or nt = nx + ny then x = doe[:, :nx] and y = doe[:, nx:] are specified
+        n_start (int > 0):
+            Number of runs of infill strategy optimizations (best result taken)
     
-    infill_strategy (InfillStrategy enum):
-        Infill criteria to decide best next promising point.
-        Can be either InfillStrategy.LOG_EI, InfillStrategy.EI, InfillStrategy.WB2, InfillStrategy.WB2S
+        n_doe (int >= 0):
+            Number of samples of initial LHS sampling (used when DOE not provided by the user).
+            When 0 a number of points is computed automatically regarding the number of input variables
+            of the function under optimization.
     
-    infill_optimizer (InfillOptimizer enum):
-        Internal optimizer used to optimize infill criteria.
-        Can be either InfillOptimizer.COBYLA or InfillOptimizer.SLSQP
+        doe (array[ns, nt]):
+            Initial DOE containing ns samples:
+                either nt = nx then only x are specified and ns evals are done to get y doe values,
+                or nt = nx + ny then x = doe[:, :nx] and y = doe[:, nx:] are specified
     
-    cstr_infill (bool):
-        Activate constrained infill criterion where the product of probability of feasibility of constraints
-        used as a factor of the infill criterion specified via infill_strategy
+        infill_strategy (InfillStrategy enum):
+            Infill criteria to decide best next promising point.
+            Can be either InfillStrategy.LOG_EI, InfillStrategy.EI, InfillStrategy.WB2, InfillStrategy.WB2S
     
-    cstr_strategy (ConstraintStrategy enum):
-        Constraint management either use the mean value or upper bound
-        Can be either ConstraintStrategy.MeanValue or ConstraintStrategy.UpperTrustedBound.
+        infill_optimizer (InfillOptimizer enum):
+            Internal optimizer used to optimize infill criteria.
+            Can be either InfillOptimizer.COBYLA or InfillOptimizer.SLSQP
     
-    qei_config (QEiConfig):
-        Configuration for parallel (qEI) evaluation also known as batch or multipoint evaluation.
-        q points are selected at each iteration of the EGO algorithm.
-        See QEiConfig for details.
+        cstr_infill (bool):
+            Activate constrained infill criterion where the product of probability of feasibility of constraints
+            used as a factor of the infill criterion specified via infill_strategy
     
-    trego (TregoConfig, bool or None):
-        TREGO configuration to activate TREGO strategy for global optimization.
-        When True activate TREGO with default configuration.
-        To activate TREGO with custom configuration see TregoConfig for details.
-        When None or False TREGO is not used.
+        cstr_strategy (ConstraintStrategy enum):
+            Constraint management either use the mean value or upper bound
+            Can be either ConstraintStrategy.MeanValue or ConstraintStrategy.UpperTrustedBound.
     
-    coego_n_coop (int >= 0):
-        Number of cooperative components groups which will be used by the CoEGO algorithm.
-        Better to have n_coop a divider of nx or if not with a remainder as large as possible.  
-        The CoEGO algorithm is used to tackle high-dimensional problems turning it in a set of
-        partial optimizations using only nx / n_coop components at a time.
-        The default value is 0 meaning that the CoEGO algorithm is not used.
+        qei_config (QEiConfig):
+            Configuration for parallel (qEI) evaluation also known as batch or multipoint evaluation.
+            q points are selected at each iteration of the EGO algorithm.
+            See QEiConfig for details.
     
-    target (float):
-        Known optimum used as stopping criterion.
+        trego (TregoConfig, bool or None):
+            TREGO configuration to activate TREGO strategy for global optimization.
+            When True activate TREGO with default configuration.
+            To activate TREGO with custom configuration see TregoConfig for details.
+            When None or False TREGO is not used.
     
-    outdir (String):
-        Directory to write optimization history and used as search path for warm start doe
+        coego_n_coop (int >= 0):
+            Number of cooperative components groups which will be used by the CoEGO algorithm.
+            Better to have n_coop a divider of nx or if not with a remainder as large as possible.  
+            The CoEGO algorithm is used to tackle high-dimensional problems turning it in a set of
+            partial optimizations using only nx / n_coop components at a time.
+            The default value is 0 meaning that the CoEGO algorithm is not used.
     
-    warm_start (bool):
-        Start by loading initial doe from <outdir> directory
+        target (float):
+            Known optimum used as stopping criterion.
     
-    hot_start (int >= 0 or None):
-        When hot_start>=0 saves optimizer state at each iteration and starts from a previous checkpoint
-        if any for the given hot_start number of iterations beyond the max_iters nb of iterations.
-        In an unstable environment were there can be crashes it allows to restart the optimization
-        from the last iteration till stopping criterion is reached. Just use hot_start=0 in this case.
-        When specifying an extended nb of iterations (hot_start > 0) it can allow to continue till max_iters +
-        hot_start nb of iters is reached (provided the stopping criterion is max_iters)
-        Checkpoint information is stored in .checkpoint/egor.arg binary file.
+        outdir (String):
+            Directory to write optimization history and used as search path for warm start doe
     
-    failsafe_strategy (FailsafeStrategy enum):
-        Strategy to handle objective computation failure at a given x point.
-        A failure is detected when the objective function returns NaN value(s).
-        Can be either FailsafeStrategy.REJECTION, FailsafeStrategy.IMPUTATION, or FailsafeStrategy.VIABILITY
-        Rejection simply ignores the failed point whereas Imputation
-        uses the objective surrogate prediction to fill the missing value.
-        In the third case Viability, a surrogate is used to model the failure region
-        which is used as a constraint and drive the optimization toward the viable region.
+        warm_start (bool):
+            Start by loading initial doe from <outdir> directory
     
-    seed (int >= 0):
-        Random generator seed to allow computation reproducibility.
+        hot_start (int >= 0 or None):
+            When hot_start>=0 saves optimizer state at each iteration and starts from a previous checkpoint
+            if any for the given hot_start number of iterations beyond the max_iters nb of iterations.
+            In an unstable environment were there can be crashes it allows to restart the optimization
+            from the last iteration till stopping criterion is reached. Just use hot_start=0 in this case.
+            When specifying an extended nb of iterations (hot_start > 0) it can allow to continue till max_iters +
+            hot_start nb of iters is reached (provided the stopping criterion is max_iters)
+            Checkpoint information is stored in .checkpoint/egor.arg binary file.
+    
+        failsafe_strategy (FailsafeStrategy enum):
+            Strategy to handle objective computation failure at a given x point.
+            A failure is detected when the objective function returns NaN value(s).
+            Can be either FailsafeStrategy.REJECTION, FailsafeStrategy.IMPUTATION, or FailsafeStrategy.VIABILITY
+            Rejection simply ignores the failed point whereas Imputation
+            uses the objective surrogate prediction to fill the missing value.
+            In the third case Viability, a surrogate is used to model the failure region
+            which is used as a constraint and drive the optimization toward the viable region.
+    
+        seed (int >= 0):
+            Random generator seed to allow computation reproducibility.
+    
+    # Returns
+    
+        Egor object which can be used to optimize a function using the minimize method.
     """
     def __new__(cls, xspecs: typing.Any, gp_config: GpConfig = ..., n_cstr: builtins.int = 0, cstr_tol: typing.Optional[typing.Sequence[builtins.float]] = None, n_start: builtins.int = 20, n_doe: builtins.int = 0, doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, infill_strategy: InfillStrategy = InfillStrategy.LOG_EI, cstr_infill: builtins.bool = False, cstr_strategy: ConstraintStrategy = ConstraintStrategy.MC, qei_config: QEiConfig = ..., infill_optimizer: InfillOptimizer = InfillOptimizer.COBYLA, trego: typing.Optional[typing.Any] = None, coego_n_coop: builtins.int = 0, target: builtins.float = -1.7976931348623157e+308, outdir: typing.Optional[builtins.str] = None, warm_start: builtins.bool = False, hot_start: typing.Optional[builtins.int] = None, failsafe_strategy: FailsafeStrategy = FailsafeStrategy.REJECTION, seed: typing.Optional[builtins.int] = None) -> Egor: ...
     def minimize(self, fun: typing.Any, fcstrs: typing.Sequence[typing.Any] = [], max_iters: builtins.int = 20, run_info: typing.Optional[typing.Any] = None) -> OptimResult:
         r"""
-        ```ignore
         This function finds the minimum of a given function "fun"
         
-        Parameters
+        # Parameters
+        
             fun: (array[n, nx] -> array[n, ny])
                 the function to be minimized
                 fun(x) = [obj(x), cstr_1(x), ... cstr_k(x)] where
@@ -147,7 +154,8 @@ class Egor:
                 Otherwise the function has to return the gradient (ndarray[nx,]) of the constraint function
                 wrt the "nx" components of "x".
         
-        Returns
+        # Returns
+        
             optimization result
                 x_opt (array[1, nx]): x value where fun is at its minimum subject to constraints
                 y_opt (array[1, nx]): fun(x_opt)
@@ -158,11 +166,11 @@ class Egor:
         under optimization wrt to previous evaluations.
         The function returns several point when multi point qEI strategy is used.
         
-        Parameters
+        # Parameters
             x_doe (array[ns, nx]): ns samples where function has been evaluated
             y_doe (array[ns, 1 + n_cstr]): ns values of objecctive and constraints
         
-        Returns
+        # Returns
             (array[1, nx]): suggested location where to evaluate objective and constraints
         """
     def get_result_index(self, y_doe: numpy.typing.NDArray[numpy.float64]) -> builtins.int:
@@ -171,10 +179,10 @@ class Egor:
         of the function (objective wrt constraints) under minimization.
         Caveat: This function does not take into account function constraints values
         
-        Parameters
+        # Parameters
             y_doe (array[ns, 1 + n_cstr]): ns values of objective and constraints
         
-        Returns
+        # Returns
             index in y_doe of the best evaluation
         """
     def get_result(self, x_doe: numpy.typing.NDArray[numpy.float64], y_doe: numpy.typing.NDArray[numpy.float64]) -> OptimResult:
@@ -183,14 +191,16 @@ class Egor:
         of the function (objective wrt constraints) under minimization.
         Caveat: This function does not take into account function constraints values
         
-        Parameters
+        # Parameters
             x_doe (array[ns, nx]): ns samples where function has been evaluated
             y_doe (array[ns, 1 + n_cstr]): ns values of objective and constraints
         
-        Returns
+        # Returns
             result
                 x_opt (array[1, nx]): x value where fun is at its minimum subject to constraints
                 y_opt (array[1, nx]): fun(x_opt)
+                x_doe (array[ns, nx]): x values of the final DOE
+                y_doe (array[ns, 1 + n_cstr]): y values of the final DOE
         """
 
 @typing.final
@@ -354,57 +364,77 @@ class GpConfig:
 
 @typing.final
 class GpMix:
-    def __new__(cls, regr_spec: builtins.int = 1, corr_spec: builtins.int = 1, kpls_dim: typing.Optional[builtins.int] = None, n_clusters: builtins.int = 1, recombination: Recombination = Recombination.HARD, theta_init: typing.Optional[typing.Sequence[builtins.float]] = None, theta_bounds: typing.Optional[typing.Sequence[typing.Sequence[builtins.float]]] = None, n_start: builtins.int = 10, max_eval: builtins.int = 50, seed: typing.Optional[builtins.int] = None) -> GpMix:
+    def __new__(cls, xspecs: typing.Optional[typing.Any] = None, regr_spec: builtins.int = 1, corr_spec: builtins.int = 1, kpls_dim: typing.Optional[builtins.int] = None, n_clusters: builtins.int = 1, recombination: Recombination = Recombination.HARD, theta_init: typing.Optional[typing.Sequence[builtins.float]] = None, theta_bounds: typing.Optional[typing.Sequence[typing.Sequence[builtins.float]]] = None, n_start: builtins.int = 10, max_eval: builtins.int = 50, seed: typing.Optional[builtins.int] = None) -> GpMix:
         r"""
         Gaussian processes mixture builder
         
-        regr_spec (RegressionSpec flags, an int in [1, 7]):
-            Specification of regression models used in mixture.
-            Can be RegressionSpec.CONSTANT (1), RegressionSpec.LINEAR (2), RegressionSpec.QUADRATIC (4) or
-            any bit-wise union of these values (e.g. RegressionSpec.CONSTANT | RegressionSpec.LINEAR)
+        # Parameters
         
-        corr_spec (CorrelationSpec flags, an int in [1, 15]):
-            Specification of correlation models used in mixture.
-            Can be CorrelationSpec.SQUARED_EXPONENTIAL (1), CorrelationSpec.ABSOLUTE_EXPONENTIAL (2),
-            CorrelationSpec.MATERN32 (4), CorrelationSpec.MATERN52 (8) or
-            any bit-wise union of these values (e.g. CorrelationSpec.MATERN32 | CorrelationSpec.MATERN52)
+            xspecs (list(XSpec)) where XSpec(xtype=FLOAT|INT|ORD|ENUM, xlimits=[<f(xtype)>] or tags=[strings]):
+                Specifications of the nx components of the input x (eg. len(xspecs) == nx)
+                Depending on the x type we get the following for xlimits:
+                * when FLOAT: xlimits is [float lower_bound, float upper_bound],
+                * when INT: xlimits is [int lower_bound, int upper_bound],
+                * when ORD: xlimits is [float_1, float_2, ..., float_n],
+                * when ENUM: xlimits is just the int size of the enumeration otherwise a list of tags is specified
+                  (eg xlimits=[3] or tags=["red", "green", "blue"], tags are there for documention purpose but
+                   tags specific values themselves are not used only indices in the enum are used hence
+                   we can just specify the size of the enum, xlimits=[3]),
         
-        n_clusters (int):
-            Number of clusters used by the mixture of surrogate experts (default is 1).
-            When set to 0, the number of cluster is determined automatically and refreshed every
-            10-points addition (should say 'tentative addition' because addition may fail for some points
-            but it is counted anyway).
-            When set to negative number -n, the number of clusters is determined automatically in [1, n]
-            this is used to limit the number of trials hence the execution time.
+                When None, inputs are expected to be floats and no input space restriction is applied
+                (ie. xlimits is [-inf, inf] for all components).
         
-        recombination (Recombination.Smooth or Recombination.Hard (default)):
-            Specify how the various experts predictions are recombined
-            * Smooth: prediction is a combination of experts prediction wrt their responsabilities,
-            the heaviside factor which controls steepness of the change between experts regions is optimized
-            to get best mixture quality.
-            * Hard: prediction is taken from the expert with highest responsability
-            resulting in a model with discontinuities.
+            regr_spec (RegressionSpec flags, an int in [1, 7]):
+                Specification of regression models used in mixture.
+                Can be RegressionSpec.CONSTANT (1), RegressionSpec.LINEAR (2), RegressionSpec.QUADRATIC (4) or
+                any bit-wise union of these values (e.g. RegressionSpec.CONSTANT | RegressionSpec.LINEAR)
         
-        theta_init ([nx] where nx is the dimension of inputs x):
-            Initial guess for GP theta hyperparameters.
-            When None the default is 1e-2 for all components
+            corr_spec (CorrelationSpec flags, an int in [1, 15]):
+                Specification of correlation models used in mixture.
+                Can be CorrelationSpec.SQUARED_EXPONENTIAL (1), CorrelationSpec.ABSOLUTE_EXPONENTIAL (2),
+                CorrelationSpec.MATERN32 (4), CorrelationSpec.MATERN52 (8) or
+                any bit-wise union of these values (e.g. CorrelationSpec.MATERN32 | CorrelationSpec.MATERN52)
         
-        theta_bounds ([[lower_1, upper_1], ..., [lower_nx, upper_nx]] where nx is the dimension of inputs x):
-            Space search when optimizing theta GP hyperparameters
-            When None the default is [1e-6, 1e2] for all components
+            n_clusters (int):
+                Number of clusters used by the mixture of surrogate experts (default is 1).
+                When set to 0, the number of cluster is determined automatically and refreshed every
+                10-points addition (should say 'tentative addition' because addition may fail for some points
+                but it is counted anyway).
+                When set to negative number -n, the number of clusters is determined automatically in [1, n]
+                this is used to limit the number of trials hence the execution time.
         
-        kpls_dim (0 < int < nx where nx is the dimension of inputs x):
-            Number of components to be used when PLS projection is used (a.k.a KPLS method).
-            This is used to address high-dimensional problems typically when nx > 9.
+            recombination (Recombination.Smooth or Recombination.Hard (default)):
+                Specify how the various experts predictions are recombined
+                * Smooth: prediction is a combination of experts prediction wrt their responsabilities,
+                the heaviside factor which controls steepness of the change between experts regions is optimized
+                to get best mixture quality.
+                * Hard: prediction is taken from the expert with highest responsability
+                resulting in a model with discontinuities.
         
-        n_start (int >= 0):
-            Number of internal GP hyperpameters optimization restart (multistart)
+            theta_init ([nx] where nx is the dimension of inputs x):
+                Initial guess for GP theta hyperparameters.
+                When None the default is 1e-2 for all components
         
-        max_eval (int >= 0):
-            Max number of likelihood evaluations during GP hyperparameters optimization
+            theta_bounds ([[lower_1, upper_1], ..., [lower_nx, upper_nx]] where nx is the dimension of inputs x):
+                Space search when optimizing theta GP hyperparameters
+                When None the default is [1e-6, 1e2] for all components
         
-        seed (int >= 0):
-            Random generator seed to allow computation reproducibility.
+            kpls_dim (0 < int < nx where nx is the dimension of inputs x):
+                Number of components to be used when PLS projection is used (a.k.a KPLS method).
+                This is used to address high-dimensional problems typically when nx > 9.
+        
+            n_start (int >= 0):
+                Number of internal GP hyperpameters optimization restart (multistart)
+        
+            max_eval (int >= 0):
+                Max number of likelihood evaluations during GP hyperparameters optimization
+        
+            seed (int >= 0):
+                Random generator seed to allow computation reproducibility.
+        
+        # Returns
+        
+            GpMix object which can be fitted to data to get a Gpx object (a trained Gaussian processes mixture)
         """
     def fit(self, xt: numpy.typing.NDArray[numpy.float64], yt: numpy.typing.NDArray[numpy.float64]) -> Gpx:
         r"""
@@ -424,7 +454,7 @@ class Gpx:
     A trained Gaussian processes mixture
     """
     @staticmethod
-    def builder(regr_spec: builtins.int = 1, corr_spec: builtins.int = 1, kpls_dim: typing.Optional[builtins.int] = None, n_clusters: builtins.int = 1, recombination: Recombination = Recombination.HARD, theta_init: typing.Optional[typing.Sequence[builtins.float]] = None, theta_bounds: typing.Optional[typing.Sequence[typing.Sequence[builtins.float]]] = None, n_start: builtins.int = 10, max_eval: builtins.int = 50, seed: typing.Optional[builtins.int] = None) -> GpMix:
+    def builder(xspecs: typing.Optional[typing.Any] = None, regr_spec: builtins.int = 1, corr_spec: builtins.int = 1, kpls_dim: typing.Optional[builtins.int] = None, n_clusters: builtins.int = 1, recombination: Recombination = Recombination.HARD, theta_init: typing.Optional[typing.Sequence[builtins.float]] = None, theta_bounds: typing.Optional[typing.Sequence[typing.Sequence[builtins.float]]] = None, n_start: builtins.int = 10, max_eval: builtins.int = 50, seed: typing.Optional[builtins.int] = None) -> GpMix:
         r"""
         Get Gaussian processes mixture builder aka `GpMix`
         
