@@ -3,7 +3,6 @@
 //! This module exposes a GP mixture model featuring continuous relaxation to handle mixed-interger variables
 
 #![allow(dead_code)]
-use crate::SurrogateBuilder;
 use crate::errors::{MoeError, Result};
 use crate::xtypes::{XType, discrete};
 use crate::{
@@ -11,6 +10,7 @@ use crate::{
     GpQualityAssurance, GpSurrogate, GpSurrogateExt, IaeAlphaPlotData, MixtureGpSurrogate,
     NbClusters, Recombination, RegressionSpec,
 };
+use crate::{GpType, SurrogateBuilder};
 use egobox_doe::{FullFactorial, Lhs, LhsKind, Random};
 use egobox_gp::ThetaTuning;
 use linfa::traits::{Fit, PredictInplace};
@@ -297,7 +297,7 @@ pub type MoeBuilder = GpMixtureParams<f64>;
 #[cfg_attr(feature = "serializable", derive(Serialize, Deserialize))]
 pub struct MixintGpMixtureValidParams {
     /// The surrogate factory
-    surrogate_builder: GpMixtureParams<f64>,
+    gpmix_params: GpMixtureParams<f64>,
     /// The input specifications
     xtypes: Vec<XType>,
     /// whether data are in given in folded space (enum indexes) or not (enum masks)
@@ -327,7 +327,7 @@ impl MixintGpMixtureParams {
     /// Constructor given `xtypes` specifications and given surrogate builder
     pub fn new(xtypes: &[XType], surrogate_builder: &MoeBuilder) -> Self {
         MixintGpMixtureParams(MixintGpMixtureValidParams {
-            surrogate_builder: surrogate_builder.clone(),
+            gpmix_params: surrogate_builder.clone(),
             xtypes: xtypes.to_vec(),
             work_in_folded_space: false,
         })
@@ -342,6 +342,72 @@ impl MixintGpMixtureParams {
     /// Gets the domain specification
     pub fn xtypes(&self) -> &[XType] {
         &self.0.xtypes
+    }
+
+    /// Sets the number of clusters
+    pub fn gp_type(mut self, gp_type: GpType<f64>) -> Self {
+        self.0.gpmix_params = self.0.gpmix_params.gp_type(gp_type);
+        self
+    }
+
+    /// Sets the number of clusters
+    pub fn n_clusters(mut self, n_clusters: NbClusters) -> Self {
+        self.0.gpmix_params = self.0.gpmix_params.n_clusters(n_clusters);
+        self
+    }
+
+    /// Sets the recombination mode
+    pub fn recombination(mut self, recombination: Recombination<f64>) -> Self {
+        self.0.gpmix_params = self.0.gpmix_params.recombination(recombination);
+        self
+    }
+
+    /// Sets the regression models used in the mixture.
+    ///
+    /// Only GP models with regression models allowed by this specification
+    /// will be used in the mixture.  
+    pub fn regression_spec(mut self, regression_spec: RegressionSpec) -> Self {
+        self.0.gpmix_params = self.0.gpmix_params.regression_spec(regression_spec);
+        self
+    }
+
+    /// Sets the correlation models used in the mixture.
+    ///
+    /// Only GP models with correlation models allowed by this specification
+    /// will be used in the mixture.  
+    pub fn correlation_spec(mut self, correlation_spec: CorrelationSpec) -> Self {
+        self.0.gpmix_params = self.0.gpmix_params.correlation_spec(correlation_spec);
+        self
+    }
+
+    /// Sets the number of componenets retained during PLS dimension reduction.
+    pub fn kpls_dim(mut self, kpls_dim: Option<usize>) -> Self {
+        self.0.gpmix_params = self.0.gpmix_params.kpls_dim(kpls_dim);
+        self
+    }
+
+    /// Set theta hyper parameter tuning
+    pub fn theta_tunings(mut self, theta_tunings: &[ThetaTuning<f64>]) -> Self {
+        self.0.gpmix_params = self.0.gpmix_params.theta_tunings(theta_tunings);
+        self
+    }
+
+    /// Sets the number of hyperparameters optimization restarts
+    pub fn n_start(mut self, n_start: usize) -> Self {
+        self.0.gpmix_params = self.0.gpmix_params.n_start(n_start);
+        self
+    }
+
+    /// Sets The max number of likelihood optimization during hyperparameters optimization
+    pub fn max_eval(mut self, max_eval: usize) -> Self {
+        self.0.gpmix_params = self.0.gpmix_params.max_eval(max_eval);
+        self
+    }
+
+    /// Sets the random seed for the surrogate model training
+    pub fn with_rng(mut self, rng: Xoshiro256Plus) -> Self {
+        self.0.gpmix_params = self.0.gpmix_params.with_rng(rng);
+        self
     }
 }
 
@@ -359,7 +425,7 @@ impl MixintGpMixtureValidParams {
         cast_to_discrete_values_mut(&self.xtypes, &mut xcast);
         let mixmoe = MixintGpMixture {
             moe: self
-                .surrogate_builder
+                .gpmix_params
                 .clone()
                 .check()?
                 .train(&xcast, &yt.to_owned())?,
@@ -385,7 +451,7 @@ impl MixintGpMixtureValidParams {
         cast_to_discrete_values_mut(&self.xtypes, &mut xcast);
         let mixmoe = MixintGpMixture {
             moe: self
-                .surrogate_builder
+                .gpmix_params
                 .clone()
                 .check_ref()?
                 .train_on_clusters(&xcast, &yt.to_owned(), clustering)
@@ -407,11 +473,7 @@ impl SurrogateBuilder for MixintGpMixtureParams {
     /// Sets the allowed regression models used in gaussian processes.
     fn set_regression_spec(&mut self, regression_spec: RegressionSpec) {
         self.0 = MixintGpMixtureValidParams {
-            surrogate_builder: self
-                .0
-                .surrogate_builder
-                .clone()
-                .regression_spec(regression_spec),
+            gpmix_params: self.0.gpmix_params.clone().regression_spec(regression_spec),
             xtypes: self.0.xtypes.clone(),
             work_in_folded_space: self.0.work_in_folded_space,
         }
@@ -420,9 +482,9 @@ impl SurrogateBuilder for MixintGpMixtureParams {
     /// Sets the allowed correlation models used in gaussian processes.
     fn set_correlation_spec(&mut self, correlation_spec: CorrelationSpec) {
         self.0 = MixintGpMixtureValidParams {
-            surrogate_builder: self
+            gpmix_params: self
                 .0
-                .surrogate_builder
+                .gpmix_params
                 .clone()
                 .correlation_spec(correlation_spec),
             xtypes: self.0.xtypes.clone(),
@@ -433,7 +495,7 @@ impl SurrogateBuilder for MixintGpMixtureParams {
     /// Sets the number of components to be used specifiying PLS projection is used (a.k.a KPLS method).
     fn set_kpls_dim(&mut self, kpls_dim: Option<usize>) {
         self.0 = MixintGpMixtureValidParams {
-            surrogate_builder: self.0.surrogate_builder.clone().kpls_dim(kpls_dim),
+            gpmix_params: self.0.gpmix_params.clone().kpls_dim(kpls_dim),
             xtypes: self.0.xtypes.clone(),
             work_in_folded_space: self.0.work_in_folded_space,
         }
@@ -442,7 +504,7 @@ impl SurrogateBuilder for MixintGpMixtureParams {
     /// Sets the number of clusters used by the mixture of surrogate experts.
     fn set_n_clusters(&mut self, n_clusters: NbClusters) {
         self.0 = MixintGpMixtureValidParams {
-            surrogate_builder: self.0.surrogate_builder.clone().n_clusters(n_clusters),
+            gpmix_params: self.0.gpmix_params.clone().n_clusters(n_clusters),
             xtypes: self.0.xtypes.clone(),
             work_in_folded_space: self.0.work_in_folded_space,
         }
@@ -450,11 +512,7 @@ impl SurrogateBuilder for MixintGpMixtureParams {
 
     fn set_recombination(&mut self, recombination: Recombination<f64>) {
         self.0 = MixintGpMixtureValidParams {
-            surrogate_builder: self
-                .0
-                .surrogate_builder
-                .clone()
-                .recombination(recombination),
+            gpmix_params: self.0.gpmix_params.clone().recombination(recombination),
             xtypes: self.0.xtypes.clone(),
             work_in_folded_space: self.0.work_in_folded_space,
         }
@@ -463,11 +521,7 @@ impl SurrogateBuilder for MixintGpMixtureParams {
     /// Sets the theta hyperparameter tuning strategy
     fn set_theta_tunings(&mut self, theta_tunings: &[ThetaTuning<f64>]) {
         self.0 = MixintGpMixtureValidParams {
-            surrogate_builder: self
-                .0
-                .surrogate_builder
-                .clone()
-                .theta_tunings(theta_tunings),
+            gpmix_params: self.0.gpmix_params.clone().theta_tunings(theta_tunings),
             xtypes: self.0.xtypes.clone(),
             work_in_folded_space: self.0.work_in_folded_space,
         }
@@ -476,12 +530,12 @@ impl SurrogateBuilder for MixintGpMixtureParams {
     fn set_optim_params(&mut self, n_start: usize, max_eval: usize) {
         let builder = self
             .0
-            .surrogate_builder
+            .gpmix_params
             .clone()
             .n_start(n_start)
             .max_eval(max_eval);
         self.0 = MixintGpMixtureValidParams {
-            surrogate_builder: builder,
+            gpmix_params: builder,
             xtypes: self.0.xtypes.clone(),
             work_in_folded_space: self.0.work_in_folded_space,
         }
@@ -633,6 +687,11 @@ impl GpSurrogate for MixintGpMixture {
 }
 
 impl MixintGpMixture {
+    /// Constructor of mixture of experts parameters
+    pub fn params(xtypes: &[XType]) -> MixintGpMixtureParams {
+        MixintGpMixtureParams::new(xtypes, &GpMixtureParams::new())
+    }
+
     /// Load MixintGpMixture from given file.
     #[cfg(feature = "persistent")]
     pub fn load(path: &str, format: GpFileFormat) -> Result<Box<MixintGpMixture>> {

@@ -141,6 +141,77 @@ class TestGpMix(unittest.TestCase):
         print(f"gpx.theta = {self.gpx.thetas()}")
         self.assertEqual(0.314, self.gpx.thetas().item())
 
+    def test_mixint_lhs(self):
+        xspecs = [
+            egx.XSpec(egx.XType.FLOAT, [-10.0, 10.0]),
+            egx.XSpec(egx.XType.ENUM, tags=["blue", "red", "green"]),
+            egx.XSpec(egx.XType.INT, [-10.0, 10.0]),
+        ]
+        xt = egx.lhs(xspecs, 20)
+
+        eq_check = True
+        for i in range(xt.shape[0]):
+            # check float
+            eq_check = (
+                eq_check
+                and abs(float(xt[i, :][0])) <= 10.0
+                and abs(float(xt[i, :][0])) >= -10.0
+            )
+
+            # check enum
+            eq_check = eq_check and (
+                (xt[i, :][1] - 0) < 10e-8
+                or (xt[i, :][1] - 1) < 10e-8
+                or (xt[i, :][1] - 2) < 10e-8
+            )
+
+            # check int
+            eq_check = (
+                eq_check
+                and abs(float(xt[i, :][2]) - int(float(xt[i, :][2]))) < 10e-8
+                and abs(float(xt[i, :][2])) <= 10.0
+                and abs(float(xt[i, :][2])) >= -10.0
+            )
+
+        self.assertTrue(
+            eq_check,
+            f"LHS samples do not match the specified XSpecs on {i}th row: {xt[i, :]}",
+        )
+
+    def test_mixint_gp(self):
+        xspecs = [
+            egx.XSpec(egx.XType.FLOAT, [-10.0, 10.0]),
+            egx.XSpec(egx.XType.ENUM, tags=["blue", "red", "green"]),
+            egx.XSpec(egx.XType.INT, [-10.0, 10.0]),
+        ]
+        xt = egx.lhs(xspecs, 50)
+        yt = np.array(
+            [
+                float(xt[i, :][0]) + float(xt[i, :][1]) + float(xt[i, :][2])
+                for i in range(xt.shape[0])
+            ]
+        )
+        gpx = egx.Gpx.builder(seed=42).fit(xt, yt)
+
+        # check interpolation
+        for i in range(xt.shape[0]):
+            self.assertAlmostEqual(
+                yt[i], gpx.predict(np.atleast_2d(xt[i, :])).item(), delta=1e-3
+            )
+
+        xv = egx.lhs(xspecs, 20)
+        yv = np.array(
+            [
+                float(xv[i, :][0]) + float(xv[i, :][1]) + float(xv[i, :][2])
+                for i in range(xv.shape[0])
+            ]
+        )
+        yv_pred = gpx.predict(xv)
+        error = np.linalg.norm(yv_pred - yv) / np.linalg.norm(yv)
+        print("yv_pred = " + str(yv_pred))
+        print("yv = " + str(yv))
+        self.assertAlmostEqual(0.0, error, delta=5e-1)
+
 
 if __name__ == "__main__":
     unittest.main()

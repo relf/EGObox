@@ -11,12 +11,12 @@
 //!
 use std::{cmp::Ordering, path::Path};
 
-use crate::gp_config::GpConfig;
 use crate::types::*;
+use crate::{domain::parse, gp_config::GpConfig};
 use egobox_ego::{EGO_GP_OPTIM_MAX_EVAL, EGO_GP_OPTIM_N_START};
-use egobox_moe::{Clustered, GpQualityAssurance, MixtureGpSurrogate, NbClusters, ThetaTuning};
 #[allow(unused_imports)] // Avoid linting problem
 use egobox_moe::{GpMixture, GpSurrogate, GpSurrogateExt};
+use egobox_moe::{MixintGpMixture, MixtureGpSurrogate, NbClusters, ThetaTuning};
 use linfa::{Dataset, traits::Fit};
 use log::error;
 use ndarray::{Array1, Array2, Axis, Ix1, Ix2, Zip, array};
@@ -30,6 +30,7 @@ use rand_xoshiro::Xoshiro256Plus;
 #[pyclass]
 pub(crate) struct GpMix {
     gp_config: GpConfig,
+    xtypes: Option<Vec<egobox_moe::XType>>,
     seed: Option<u64>,
 }
 
@@ -37,6 +38,22 @@ pub(crate) struct GpMix {
 #[pymethods]
 impl GpMix {
     /// Gaussian processes mixture builder
+    ///
+    /// # Parameters
+    ///
+    ///     xspecs (list(XSpec)) where XSpec(xtype=FLOAT|INT|ORD|ENUM, xlimits=[<f(xtype)>] or tags=[strings]):
+    ///         Specifications of the nx components of the input x (eg. len(xspecs) == nx)
+    ///         Depending on the x type we get the following for xlimits:
+    ///         * when FLOAT: xlimits is [float lower_bound, float upper_bound],
+    ///         * when INT: xlimits is [int lower_bound, int upper_bound],
+    ///         * when ORD: xlimits is [float_1, float_2, ..., float_n],
+    ///         * when ENUM: xlimits is just the int size of the enumeration otherwise a list of tags is specified
+    ///           (eg xlimits=[3] or tags=["red", "green", "blue"], tags are there for documention purpose but
+    ///            tags specific values themselves are not used only indices in the enum are used hence
+    ///            we can just specify the size of the enum, xlimits=[3]),
+    ///
+    ///         When None, inputs are expected to be floats and no input space restriction is applied
+    ///         (ie. xlimits is [-inf, inf] for all components).
     ///
     ///     regr_spec (RegressionSpec flags, an int in [1, 7]):
     ///         Specification of regression models used in mixture.
@@ -85,9 +102,14 @@ impl GpMix {
     ///
     ///     seed (int >= 0):
     ///         Random generator seed to allow computation reproducibility.
+    ///
+    /// # Returns
+    ///
+    ///     GpMix object which can be fitted to data to get a Gpx object (a trained Gaussian processes mixture)
     ///         
     #[new]
     #[pyo3(signature = (
+        xspecs=None,
         regr_spec=RegressionSpec::CONSTANT,
         corr_spec=CorrelationSpec::SQUARED_EXPONENTIAL,
         kpls_dim=None,
@@ -101,6 +123,8 @@ impl GpMix {
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
+        py: Python,
+        xspecs: Option<Py<PyAny>>,
         regr_spec: u8,
         corr_spec: u8,
         kpls_dim: Option<usize>,
@@ -112,6 +136,9 @@ impl GpMix {
         max_eval: usize,
         seed: Option<u64>,
     ) -> Self {
+        let xtypes = xspecs
+            .as_ref()
+            .map(|xspecs| parse(py, xspecs.clone_ref(py)));
         GpMix {
             gp_config: GpConfig::new(
                 regr_spec,
@@ -124,6 +151,7 @@ impl GpMix {
                 n_start,
                 max_eval,
             ),
+            xtypes,
             seed,
         }
     }
@@ -219,27 +247,45 @@ impl GpMix {
         let moe = py.detach(|| {
             let regr = RegressionSpec(self.gp_config.regr_spec);
             let corr = CorrelationSpec(self.gp_config.corr_spec);
-            GpMixture::params()
-                .n_clusters(n_clusters)
-                .recombination(recomb)
-                .regression_spec(egobox_moe::RegressionSpec::from_bits(regr.0).unwrap())
-                .correlation_spec(egobox_moe::CorrelationSpec::from_bits(corr.0).unwrap())
-                .theta_tunings(&theta_tunings)
-                .kpls_dim(self.gp_config.kpls_dim)
-                .n_start(n_start)
-                .with_rng(rng)
-                .fit(&dataset)
-                .expect("MoE model training")
+            if let Some(xtypes) = self.xtypes.as_ref() {
+                Box::new(
+                    MixintGpMixture::params(xtypes)
+                        .n_clusters(n_clusters)
+                        .recombination(recomb)
+                        .regression_spec(egobox_moe::RegressionSpec::from_bits(regr.0).unwrap())
+                        .correlation_spec(egobox_moe::CorrelationSpec::from_bits(corr.0).unwrap())
+                        .theta_tunings(&theta_tunings)
+                        .kpls_dim(self.gp_config.kpls_dim)
+                        .n_start(n_start)
+                        .with_rng(rng)
+                        .fit(&dataset)
+                        .expect("MoE model training"),
+                ) as Box<dyn MixtureGpSurrogate>
+            } else {
+                Box::new(
+                    GpMixture::params()
+                        .n_clusters(n_clusters)
+                        .recombination(recomb)
+                        .regression_spec(egobox_moe::RegressionSpec::from_bits(regr.0).unwrap())
+                        .correlation_spec(egobox_moe::CorrelationSpec::from_bits(corr.0).unwrap())
+                        .theta_tunings(&theta_tunings)
+                        .kpls_dim(self.gp_config.kpls_dim)
+                        .n_start(n_start)
+                        .with_rng(rng)
+                        .fit(&dataset)
+                        .expect("MoE model training"),
+                ) as Box<dyn MixtureGpSurrogate>
+            }
         });
 
-        Gpx(Box::new(moe))
+        Gpx(moe)
     }
 }
 
 /// A trained Gaussian processes mixture
 #[gen_stub_pyclass]
 #[pyclass]
-pub(crate) struct Gpx(Box<GpMixture>);
+pub(crate) struct Gpx(Box<dyn MixtureGpSurrogate>);
 
 #[gen_stub_pymethods]
 #[pymethods]
@@ -249,6 +295,7 @@ impl Gpx {
     /// See `GpMix` constructor
     #[staticmethod]
     #[pyo3(signature = (
+        xspecs=None,
         regr_spec=GpConfig::default().regr_spec,
         corr_spec=GpConfig::default().corr_spec,
         kpls_dim=GpConfig::default().kpls_dim,
@@ -262,6 +309,8 @@ impl Gpx {
     ))]
     #[allow(clippy::too_many_arguments)]
     fn builder(
+        py: Python,
+        xspecs: Option<Py<PyAny>>,
         regr_spec: u8,
         corr_spec: u8,
         kpls_dim: Option<usize>,
@@ -274,6 +323,8 @@ impl Gpx {
         seed: Option<u64>,
     ) -> GpMix {
         GpMix::new(
+            py,
+            xspecs,
             regr_spec,
             corr_spec,
             kpls_dim,
