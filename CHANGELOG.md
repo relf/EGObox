@@ -2,6 +2,23 @@
 
 ## Version 0.37.0 - unreleased
 
+## Version 0.36.1 - 18/02/2026
+
+This release adds the following features:
+
+* Handling of errors of objective function as part of the hidden constraint handling
+* `Gpx` is now able to handle mixed integer variables
+
+While the Python API remains backward compatible, Rust `ego` and `gp` contain some breaking changes see details below:
+
+* Refactoring: move `SurrogateBuilder` and mixed integer moe from `ego` to `moe` by @relf in <https://github.com/relf/EGObox/pull/382>
+* Rework regression and correlation models method names by @relf in <https://github.com/relf/EGObox/pull/383>
+* Refactor `ego` module internals by @relf in <https://github.com/relf/EGObox/pull/384>
+* Refactor ego strategies by @relf in <https://github.com/relf/EGObox/pull/385>
+* Refactor internal variable activity handling by @relf in <https://github.com/relf/EGObox/pull/386>
+* Handle objective function crash by @relf in <https://github.com/relf/EGObox/pull/387>
+* `GpMix` accepts now `xspecs` to create `Gpx` from mixed-integer variables by @relf in <https://github.com/relf/EGObox/pull/388>
+
 ## Version 0.36.0 - 05/02/2026
 
 This release introduces hidden constraint management.
