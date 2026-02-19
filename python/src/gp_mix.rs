@@ -26,6 +26,76 @@ use pyo3::prelude::*;
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 use rand_xoshiro::Xoshiro256Plus;
 
+/// Gaussian processes mixture builder
+///
+/// # Parameters
+///
+///     xspecs (list(XSpec)) where XSpec(xtype=FLOAT|INT|ORD|ENUM, xlimits=[<f(xtype)>] or tags=[strings]):
+///         Specifications of the nx components of the input x (eg. len(xspecs) == nx)
+///         Depending on the x type we get the following for xlimits:
+///         * when FLOAT: xlimits is [float lower_bound, float upper_bound],
+///         * when INT: xlimits is [int lower_bound, int upper_bound],
+///         * when ORD: xlimits is [float_1, float_2, ..., float_n],
+///         * when ENUM: xlimits is just the int size of the enumeration otherwise a list of tags is specified
+///           (eg xlimits=[3] or tags=["red", "green", "blue"], tags are there for documention purpose but
+///            tags specific values themselves are not used only indices in the enum are used hence
+///            we can just specify the size of the enum, xlimits=[3]),
+///
+///         When None, inputs are expected to be floats and no input space restriction is applied
+///         (ie. xlimits is [-inf, inf] for all components).
+///
+///     regr_spec (RegressionSpec flags, an int in [1, 7]):
+///         Specification of regression models used in mixture.
+///         Can be RegressionSpec.CONSTANT (1), RegressionSpec.LINEAR (2), RegressionSpec.QUADRATIC (4) or
+///         any bit-wise union of these values (e.g. RegressionSpec.CONSTANT | RegressionSpec.LINEAR)
+///
+///     corr_spec (CorrelationSpec flags, an int in [1, 15]):
+///         Specification of correlation models used in mixture.
+///         Can be CorrelationSpec.SQUARED_EXPONENTIAL (1), CorrelationSpec.ABSOLUTE_EXPONENTIAL (2),
+///         CorrelationSpec.MATERN32 (4), CorrelationSpec.MATERN52 (8) or
+///         any bit-wise union of these values (e.g. CorrelationSpec.MATERN32 | CorrelationSpec.MATERN52)
+///
+///     n_clusters (int):
+///         Number of clusters used by the mixture of surrogate experts (default is 1).
+///         When set to 0, the number of cluster is determined automatically and refreshed every
+///         10-points addition (should say 'tentative addition' because addition may fail for some points
+///         but it is counted anyway).
+///         When set to negative number -n, the number of clusters is determined automatically in [1, n]
+///         this is used to limit the number of trials hence the execution time.
+///
+///     recombination (Recombination.Smooth or Recombination.Hard (default)):
+///         Specify how the various experts predictions are recombined
+///         * Smooth: prediction is a combination of experts prediction wrt their responsabilities,
+///         the heaviside factor which controls steepness of the change between experts regions is optimized
+///         to get best mixture quality.
+///         * Hard: prediction is taken from the expert with highest responsability
+///         resulting in a model with discontinuities.
+///
+///     theta_init ([nx] where nx is the dimension of inputs x):
+///         Initial guess for GP theta hyperparameters.
+///         When None the default is 1e-2 for all components
+///
+///     theta_bounds ([[lower_1, upper_1], ..., [lower_nx, upper_nx]] where nx is the dimension of inputs x):
+///         Space search when optimizing theta GP hyperparameters
+///         When None the default is [1e-6, 1e2] for all components
+///
+///     kpls_dim (0 < int < nx where nx is the dimension of inputs x):
+///         Number of components to be used when PLS projection is used (a.k.a KPLS method).
+///         This is used to address high-dimensional problems typically when nx > 9.
+///
+///     n_start (int >= 0):
+///         Number of internal GP hyperpameters optimization restart (multistart)
+///
+///     max_eval (int >= 0):
+///         Max number of likelihood evaluations during GP hyperparameters optimization
+///
+///     seed (int >= 0):
+///         Random generator seed to allow computation reproducibility.
+///
+/// # Returns
+///
+///     GpMix object which can be fitted to data to get a Gpx object (a trained Gaussian processes mixture)
+///         
 #[gen_stub_pyclass]
 #[pyclass]
 pub(crate) struct GpMix {
@@ -37,76 +107,6 @@ pub(crate) struct GpMix {
 #[gen_stub_pymethods]
 #[pymethods]
 impl GpMix {
-    /// Gaussian processes mixture builder
-    ///
-    /// # Parameters
-    ///
-    ///     xspecs (list(XSpec)) where XSpec(xtype=FLOAT|INT|ORD|ENUM, xlimits=[<f(xtype)>] or tags=[strings]):
-    ///         Specifications of the nx components of the input x (eg. len(xspecs) == nx)
-    ///         Depending on the x type we get the following for xlimits:
-    ///         * when FLOAT: xlimits is [float lower_bound, float upper_bound],
-    ///         * when INT: xlimits is [int lower_bound, int upper_bound],
-    ///         * when ORD: xlimits is [float_1, float_2, ..., float_n],
-    ///         * when ENUM: xlimits is just the int size of the enumeration otherwise a list of tags is specified
-    ///           (eg xlimits=[3] or tags=["red", "green", "blue"], tags are there for documention purpose but
-    ///            tags specific values themselves are not used only indices in the enum are used hence
-    ///            we can just specify the size of the enum, xlimits=[3]),
-    ///
-    ///         When None, inputs are expected to be floats and no input space restriction is applied
-    ///         (ie. xlimits is [-inf, inf] for all components).
-    ///
-    ///     regr_spec (RegressionSpec flags, an int in [1, 7]):
-    ///         Specification of regression models used in mixture.
-    ///         Can be RegressionSpec.CONSTANT (1), RegressionSpec.LINEAR (2), RegressionSpec.QUADRATIC (4) or
-    ///         any bit-wise union of these values (e.g. RegressionSpec.CONSTANT | RegressionSpec.LINEAR)
-    ///
-    ///     corr_spec (CorrelationSpec flags, an int in [1, 15]):
-    ///         Specification of correlation models used in mixture.
-    ///         Can be CorrelationSpec.SQUARED_EXPONENTIAL (1), CorrelationSpec.ABSOLUTE_EXPONENTIAL (2),
-    ///         CorrelationSpec.MATERN32 (4), CorrelationSpec.MATERN52 (8) or
-    ///         any bit-wise union of these values (e.g. CorrelationSpec.MATERN32 | CorrelationSpec.MATERN52)
-    ///
-    ///     n_clusters (int):
-    ///         Number of clusters used by the mixture of surrogate experts (default is 1).
-    ///         When set to 0, the number of cluster is determined automatically and refreshed every
-    ///         10-points addition (should say 'tentative addition' because addition may fail for some points
-    ///         but it is counted anyway).
-    ///         When set to negative number -n, the number of clusters is determined automatically in [1, n]
-    ///         this is used to limit the number of trials hence the execution time.
-    ///
-    ///     recombination (Recombination.Smooth or Recombination.Hard (default)):
-    ///         Specify how the various experts predictions are recombined
-    ///         * Smooth: prediction is a combination of experts prediction wrt their responsabilities,
-    ///         the heaviside factor which controls steepness of the change between experts regions is optimized
-    ///         to get best mixture quality.
-    ///         * Hard: prediction is taken from the expert with highest responsability
-    ///         resulting in a model with discontinuities.
-    ///
-    ///     theta_init ([nx] where nx is the dimension of inputs x):
-    ///         Initial guess for GP theta hyperparameters.
-    ///         When None the default is 1e-2 for all components
-    ///
-    ///     theta_bounds ([[lower_1, upper_1], ..., [lower_nx, upper_nx]] where nx is the dimension of inputs x):
-    ///         Space search when optimizing theta GP hyperparameters
-    ///         When None the default is [1e-6, 1e2] for all components
-    ///
-    ///     kpls_dim (0 < int < nx where nx is the dimension of inputs x):
-    ///         Number of components to be used when PLS projection is used (a.k.a KPLS method).
-    ///         This is used to address high-dimensional problems typically when nx > 9.
-    ///
-    ///     n_start (int >= 0):
-    ///         Number of internal GP hyperpameters optimization restart (multistart)
-    ///
-    ///     max_eval (int >= 0):
-    ///         Max number of likelihood evaluations during GP hyperparameters optimization
-    ///
-    ///     seed (int >= 0):
-    ///         Random generator seed to allow computation reproducibility.
-    ///
-    /// # Returns
-    ///
-    ///     GpMix object which can be fitted to data to get a Gpx object (a trained Gaussian processes mixture)
-    ///         
     #[new]
     #[pyo3(signature = (
         xspecs=None,
@@ -292,7 +292,7 @@ pub(crate) struct Gpx(Box<dyn MixtureGpSurrogate>);
 impl Gpx {
     /// Get Gaussian processes mixture builder aka `GpMix`
     ///
-    /// See `GpMix` constructor
+    /// See `GpMix` constructor for parameters description
     #[staticmethod]
     #[pyo3(signature = (
         xspecs=None,
