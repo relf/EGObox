@@ -364,78 +364,78 @@ class GpConfig:
 
 @typing.final
 class GpMix:
-    def __new__(cls, xspecs: typing.Optional[typing.Any] = None, regr_spec: builtins.int = 1, corr_spec: builtins.int = 1, kpls_dim: typing.Optional[builtins.int] = None, n_clusters: builtins.int = 1, recombination: Recombination = Recombination.HARD, theta_init: typing.Optional[typing.Sequence[builtins.float]] = None, theta_bounds: typing.Optional[typing.Sequence[typing.Sequence[builtins.float]]] = None, n_start: builtins.int = 10, max_eval: builtins.int = 50, seed: typing.Optional[builtins.int] = None) -> GpMix:
-        r"""
-        Gaussian processes mixture builder
-        
-        # Parameters
-        
-            xspecs (list(XSpec)) where XSpec(xtype=FLOAT|INT|ORD|ENUM, xlimits=[<f(xtype)>] or tags=[strings]):
-                Specifications of the nx components of the input x (eg. len(xspecs) == nx)
-                Depending on the x type we get the following for xlimits:
-                * when FLOAT: xlimits is [float lower_bound, float upper_bound],
-                * when INT: xlimits is [int lower_bound, int upper_bound],
-                * when ORD: xlimits is [float_1, float_2, ..., float_n],
-                * when ENUM: xlimits is just the int size of the enumeration otherwise a list of tags is specified
-                  (eg xlimits=[3] or tags=["red", "green", "blue"], tags are there for documention purpose but
-                   tags specific values themselves are not used only indices in the enum are used hence
-                   we can just specify the size of the enum, xlimits=[3]),
-        
-                When None, inputs are expected to be floats and no input space restriction is applied
-                (ie. xlimits is [-inf, inf] for all components).
-        
-            regr_spec (RegressionSpec flags, an int in [1, 7]):
-                Specification of regression models used in mixture.
-                Can be RegressionSpec.CONSTANT (1), RegressionSpec.LINEAR (2), RegressionSpec.QUADRATIC (4) or
-                any bit-wise union of these values (e.g. RegressionSpec.CONSTANT | RegressionSpec.LINEAR)
-        
-            corr_spec (CorrelationSpec flags, an int in [1, 15]):
-                Specification of correlation models used in mixture.
-                Can be CorrelationSpec.SQUARED_EXPONENTIAL (1), CorrelationSpec.ABSOLUTE_EXPONENTIAL (2),
-                CorrelationSpec.MATERN32 (4), CorrelationSpec.MATERN52 (8) or
-                any bit-wise union of these values (e.g. CorrelationSpec.MATERN32 | CorrelationSpec.MATERN52)
-        
-            n_clusters (int):
-                Number of clusters used by the mixture of surrogate experts (default is 1).
-                When set to 0, the number of cluster is determined automatically and refreshed every
-                10-points addition (should say 'tentative addition' because addition may fail for some points
-                but it is counted anyway).
-                When set to negative number -n, the number of clusters is determined automatically in [1, n]
-                this is used to limit the number of trials hence the execution time.
-        
-            recombination (Recombination.Smooth or Recombination.Hard (default)):
-                Specify how the various experts predictions are recombined
-                * Smooth: prediction is a combination of experts prediction wrt their responsabilities,
-                the heaviside factor which controls steepness of the change between experts regions is optimized
-                to get best mixture quality.
-                * Hard: prediction is taken from the expert with highest responsability
-                resulting in a model with discontinuities.
-        
-            theta_init ([nx] where nx is the dimension of inputs x):
-                Initial guess for GP theta hyperparameters.
-                When None the default is 1e-2 for all components
-        
-            theta_bounds ([[lower_1, upper_1], ..., [lower_nx, upper_nx]] where nx is the dimension of inputs x):
-                Space search when optimizing theta GP hyperparameters
-                When None the default is [1e-6, 1e2] for all components
-        
-            kpls_dim (0 < int < nx where nx is the dimension of inputs x):
-                Number of components to be used when PLS projection is used (a.k.a KPLS method).
-                This is used to address high-dimensional problems typically when nx > 9.
-        
-            n_start (int >= 0):
-                Number of internal GP hyperpameters optimization restart (multistart)
-        
-            max_eval (int >= 0):
-                Max number of likelihood evaluations during GP hyperparameters optimization
-        
-            seed (int >= 0):
-                Random generator seed to allow computation reproducibility.
-        
-        # Returns
-        
-            GpMix object which can be fitted to data to get a Gpx object (a trained Gaussian processes mixture)
-        """
+    r"""
+    Gaussian processes mixture builder
+    
+    # Parameters
+    
+        xspecs (list(XSpec)) where XSpec(xtype=FLOAT|INT|ORD|ENUM, xlimits=[<f(xtype)>] or tags=[strings]):
+            Specifications of the nx components of the input x (eg. len(xspecs) == nx)
+            Depending on the x type we get the following for xlimits:
+            * when FLOAT: xlimits is [float lower_bound, float upper_bound],
+            * when INT: xlimits is [int lower_bound, int upper_bound],
+            * when ORD: xlimits is [float_1, float_2, ..., float_n],
+            * when ENUM: xlimits is just the int size of the enumeration otherwise a list of tags is specified
+              (eg xlimits=[3] or tags=["red", "green", "blue"], tags are there for documention purpose but
+               tags specific values themselves are not used only indices in the enum are used hence
+               we can just specify the size of the enum, xlimits=[3]),
+    
+            When None, inputs are expected to be floats and no input space restriction is applied
+            (ie. xlimits is [-inf, inf] for all components).
+    
+        regr_spec (RegressionSpec flags, an int in [1, 7]):
+            Specification of regression models used in mixture.
+            Can be RegressionSpec.CONSTANT (1), RegressionSpec.LINEAR (2), RegressionSpec.QUADRATIC (4) or
+            any bit-wise union of these values (e.g. RegressionSpec.CONSTANT | RegressionSpec.LINEAR)
+    
+        corr_spec (CorrelationSpec flags, an int in [1, 15]):
+            Specification of correlation models used in mixture.
+            Can be CorrelationSpec.SQUARED_EXPONENTIAL (1), CorrelationSpec.ABSOLUTE_EXPONENTIAL (2),
+            CorrelationSpec.MATERN32 (4), CorrelationSpec.MATERN52 (8) or
+            any bit-wise union of these values (e.g. CorrelationSpec.MATERN32 | CorrelationSpec.MATERN52)
+    
+        n_clusters (int):
+            Number of clusters used by the mixture of surrogate experts (default is 1).
+            When set to 0, the number of cluster is determined automatically and refreshed every
+            10-points addition (should say 'tentative addition' because addition may fail for some points
+            but it is counted anyway).
+            When set to negative number -n, the number of clusters is determined automatically in [1, n]
+            this is used to limit the number of trials hence the execution time.
+    
+        recombination (Recombination.Smooth or Recombination.Hard (default)):
+            Specify how the various experts predictions are recombined
+            * Smooth: prediction is a combination of experts prediction wrt their responsabilities,
+            the heaviside factor which controls steepness of the change between experts regions is optimized
+            to get best mixture quality.
+            * Hard: prediction is taken from the expert with highest responsability
+            resulting in a model with discontinuities.
+    
+        theta_init ([nx] where nx is the dimension of inputs x):
+            Initial guess for GP theta hyperparameters.
+            When None the default is 1e-2 for all components
+    
+        theta_bounds ([[lower_1, upper_1], ..., [lower_nx, upper_nx]] where nx is the dimension of inputs x):
+            Space search when optimizing theta GP hyperparameters
+            When None the default is [1e-6, 1e2] for all components
+    
+        kpls_dim (0 < int < nx where nx is the dimension of inputs x):
+            Number of components to be used when PLS projection is used (a.k.a KPLS method).
+            This is used to address high-dimensional problems typically when nx > 9.
+    
+        n_start (int >= 0):
+            Number of internal GP hyperpameters optimization restart (multistart)
+    
+        max_eval (int >= 0):
+            Max number of likelihood evaluations during GP hyperparameters optimization
+    
+        seed (int >= 0):
+            Random generator seed to allow computation reproducibility.
+    
+    # Returns
+    
+        GpMix object which can be fitted to data to get a Gpx object (a trained Gaussian processes mixture)
+    """
+    def __new__(cls, xspecs: typing.Optional[typing.Any] = None, regr_spec: builtins.int = 1, corr_spec: builtins.int = 1, kpls_dim: typing.Optional[builtins.int] = None, n_clusters: builtins.int = 1, recombination: Recombination = Recombination.HARD, theta_init: typing.Optional[typing.Sequence[builtins.float]] = None, theta_bounds: typing.Optional[typing.Sequence[typing.Sequence[builtins.float]]] = None, n_start: builtins.int = 10, max_eval: builtins.int = 50, seed: typing.Optional[builtins.int] = None) -> GpMix: ...
     def fit(self, xt: numpy.typing.NDArray[numpy.float64], yt: numpy.typing.NDArray[numpy.float64]) -> Gpx:
         r"""
         Fit the parameters of the model using the training dataset to build a trained model
@@ -458,7 +458,7 @@ class Gpx:
         r"""
         Get Gaussian processes mixture builder aka `GpMix`
         
-        See `GpMix` constructor
+        See `GpMix` constructor for parameters description
         """
     def __repr__(self) -> builtins.str:
         r"""
