@@ -26,7 +26,6 @@
 //!
 //! // Configure specific flags
 //! let flags = RuntimeFlags::none()
-//!     .enable_logging(true)
 //!     .use_gp_var_portfolio(true);
 //!
 //! // Or use default (reads from environment variables for backward compatibility)
@@ -42,7 +41,7 @@
 //!     .max_iters(50)
 //!     .n_doe(10)
 //!     .configure_gp(|gp| gp.n_clusters(NbClusters::Auto))
-//!     .configure_runtime_flags(|f| f.enable_logging(true))
+//!     .configure_runtime_flags(|f| f.use_gp_var_portfolio(true))
 //!     .check()?;
 //!
 //! // TREGO with custom parameters
@@ -57,8 +56,8 @@
 //! ```
 
 use crate::utils::{
-    EGOBOX_LOG, EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER, EGOR_USE_GP_RECORDER,
-    EGOR_USE_GP_VAR_PORTFOLIO, EGOR_USE_MAX_PROBA_OF_FEASIBILITY, EGOR_USE_RUN_RECORDER,
+    EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER, EGOR_USE_GP_RECORDER, EGOR_USE_GP_VAR_PORTFOLIO,
+    EGOR_USE_MAX_PROBA_OF_FEASIBILITY, EGOR_USE_RUN_RECORDER,
 };
 use crate::{HotStartMode, criteria::*, errors::Result, types::*};
 use egobox_gp::ThetaTuning;
@@ -248,8 +247,6 @@ pub const EGO_DEFAULT_N_START: usize = 20;
 /// implementation which reads from environment variables.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RuntimeFlags {
-    /// Enable verbose logging (env: EGOBOX_LOG)
-    pub enable_logging: bool,
     /// Use max probability of feasibility for infill criterion (env: EGOR_USE_MAX_PROBA_OF_FEASIBILITY)
     pub use_max_proba_of_feasibility: bool,
     /// Use GP variance portfolio for infill optimization (env: EGOR_USE_GP_VAR_PORTFOLIO)
@@ -266,7 +263,6 @@ impl Default for RuntimeFlags {
     /// Creates RuntimeFlags by reading from environment variables for backward compatibility.
     fn default() -> Self {
         RuntimeFlags {
-            enable_logging: std::env::var(EGOBOX_LOG).is_ok(),
             use_max_proba_of_feasibility: std::env::var(EGOR_USE_MAX_PROBA_OF_FEASIBILITY).is_ok(),
             use_gp_var_portfolio: std::env::var(EGOR_USE_GP_VAR_PORTFOLIO).is_ok(),
             disable_middlepicker_multistarter: std::env::var(
@@ -283,19 +279,12 @@ impl RuntimeFlags {
     /// Creates RuntimeFlags with all flags disabled.
     pub fn none() -> Self {
         RuntimeFlags {
-            enable_logging: false,
             use_max_proba_of_feasibility: false,
             use_gp_var_portfolio: false,
             disable_middlepicker_multistarter: false,
             use_gp_recorder: false,
             use_run_recorder: false,
         }
-    }
-
-    /// Enable verbose logging.
-    pub fn enable_logging(mut self, enabled: bool) -> Self {
-        self.enable_logging = enabled;
-        self
     }
 
     /// Use max probability of feasibility for infill criterion.
@@ -695,7 +684,6 @@ impl EgorConfig {
     /// # Example
     /// ```ignore
     /// config.configure_runtime_flags(|flags| flags
-    ///     .enable_logging(true)
     ///     .use_gp_var_portfolio(true))
     /// ```
     pub fn configure_runtime_flags<F: FnOnce(RuntimeFlags) -> RuntimeFlags>(

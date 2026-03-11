@@ -10,26 +10,25 @@ mod sparse_gp_mix;
 mod trego_config;
 pub(crate) mod types;
 
-use egobox_ego::EGOBOX_LOG;
 use egor::*;
 use gp_mix::*;
 use sampling::*;
 use sparse_gp_mix::*;
 use types::*;
 
-use env_logger::{Builder, Env};
+use env_logger::Builder;
 use pyo3::prelude::*;
 use pyo3_stub_gen::define_stub_info_gatherer;
 
 #[doc(hidden)]
 #[pymodule]
 fn egobox(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
-    pyo3_log::init();
-
-    let env = Env::new().filter_or(EGOBOX_LOG, "info");
-    let mut builder = Builder::from_env(env);
-    let builder = builder.target(env_logger::Target::Stdout);
-    builder.try_init().ok();
+    Builder::new()
+        .filter_level(log::LevelFilter::Trace)
+        .target(env_logger::Target::Stdout)
+        .try_init()
+        .ok();
+    log::set_max_level(log::LevelFilter::Warn);
 
     // utils
     m.add_function(wrap_pyfunction!(lhs, m)?)?;
@@ -46,6 +45,7 @@ fn egobox(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ConstraintStrategy>()?;
     m.add_class::<QEiStrategy>()?;
     m.add_class::<FailsafeStrategy>()?;
+    m.add_class::<Verbose>()?;
     m.add_class::<InfillOptimizer>()?;
     m.add_class::<XType>()?;
     m.add_class::<XSpec>()?;

@@ -34,7 +34,6 @@ egobox-ego = { version = "0.37.0", path = "../crates/ego", features = [
 ] }
 
 pyo3 = { version = "0.26" }
-pyo3-log = "0.13"
 numpy = "0.26"
 
 linfa.workspace = true

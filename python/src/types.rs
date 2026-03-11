@@ -93,11 +93,22 @@ pub(crate) enum InfillOptimizer {
 
 #[gen_stub_pyclass_enum]
 #[pyclass(eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub(crate) enum FailsafeStrategy {
     Rejection = 1,
     Imputation = 2,
     Viability = 3,
+}
+
+#[gen_stub_pyclass_enum]
+#[pyclass(eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub(crate) enum Verbose {
+    Error = 1,
+    Warning = 2,
+    Info = 3,
+    Debug = 4,
+    Trace = 5,
 }
 
 #[gen_stub_pyclass]

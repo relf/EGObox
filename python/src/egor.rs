@@ -129,6 +129,11 @@ use std::cmp::Ordering;
 ///     seed (int >= 0):
 ///         Random generator seed to allow computation reproducibility.
 ///
+///     verbose (Verbose enum):
+///         Logging verbosity level for the optimizer.
+///         Can be Verbose.ERROR, Verbose.WARNING, Verbose.INFO, Verbose.DEBUG, or Verbose.TRACE.
+///         Default is Verbose.WARNING.
+///
 /// # Returns
 ///
 ///     Egor object which can be used to optimize a function using the minimize method.
@@ -156,6 +161,7 @@ pub(crate) struct Egor {
     pub hot_start: Option<u64>,
     pub failsafe_strategy: FailsafeStrategy,
     pub seed: Option<u64>,
+    pub verbose: Verbose,
 }
 
 #[gen_stub_pymethods]
@@ -182,7 +188,8 @@ impl Egor {
         warm_start = false,
         hot_start = None,
         failsafe_strategy = FailsafeStrategy::Rejection,
-        seed = None
+        seed = None,
+        verbose = Verbose::Warning
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -207,6 +214,7 @@ impl Egor {
         hot_start: Option<u64>,
         failsafe_strategy: FailsafeStrategy,
         seed: Option<u64>,
+        verbose: Verbose,
     ) -> Self {
         let doe = doe.map(|x| x.to_owned_array());
 
@@ -256,6 +264,7 @@ impl Egor {
             hot_start,
             failsafe_strategy,
             seed,
+            verbose,
         }
     }
 
@@ -299,6 +308,7 @@ impl Egor {
         max_iters: usize,
         run_info: Option<Py<PyAny>>,
     ) -> PyResult<OptimResult> {
+        log::set_max_level(self.log_level_filter());
         let obj = |x: &ArrayView2<f64>| -> Result<Array2<f64>> {
             Python::attach(|py| {
                 let args = (x.to_owned().into_pyarray(py),);
@@ -388,6 +398,7 @@ impl Egor {
         x_doe: PyReadonlyArray2<f64>,
         y_doe: PyReadonlyArray2<f64>,
     ) -> Py<PyArray2<f64>> {
+        log::set_max_level(self.log_level_filter());
         let x_doe = x_doe.as_array();
         let y_doe = y_doe.as_array();
         let doe = concatenate(Axis(1), &[x_doe.view(), y_doe.view()]).unwrap();
@@ -467,6 +478,16 @@ impl Egor {
             Ordering::Greater => NbClusters::fixed(self.gp_config.n_clusters as usize),
             Ordering::Equal => NbClusters::auto(),
             Ordering::Less => NbClusters::automax(-self.gp_config.n_clusters as usize),
+        }
+    }
+
+    fn log_level_filter(&self) -> log::LevelFilter {
+        match self.verbose {
+            Verbose::Error => log::LevelFilter::Error,
+            Verbose::Warning => log::LevelFilter::Warn,
+            Verbose::Info => log::LevelFilter::Info,
+            Verbose::Debug => log::LevelFilter::Debug,
+            Verbose::Trace => log::LevelFilter::Trace,
         }
     }
 
