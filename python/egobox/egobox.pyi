@@ -122,11 +122,18 @@ class Egor:
         seed (int >= 0):
             Random generator seed to allow computation reproducibility.
     
+        verbose (int, Verbose enum, or None):
+            Logging verbosity level for the optimizer.
+            Can be either an integer or a Verbose enum value:
+            0 or Verbose.ERROR, 1 or Verbose.WARNING, 2 or Verbose.INFO,
+            3 or Verbose.DEBUG, 4 (or greater) or Verbose.TRACE.
+            Default is None which means Verbose.ERROR level.
+    
     # Returns
     
         Egor object which can be used to optimize a function using the minimize method.
     """
-    def __new__(cls, xspecs: typing.Any, gp_config: GpConfig = ..., n_cstr: builtins.int = 0, cstr_tol: typing.Optional[typing.Sequence[builtins.float]] = None, n_start: builtins.int = 20, n_doe: builtins.int = 0, doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, infill_strategy: InfillStrategy = InfillStrategy.LOG_EI, cstr_infill: builtins.bool = False, cstr_strategy: ConstraintStrategy = ConstraintStrategy.MC, qei_config: QEiConfig = ..., infill_optimizer: InfillOptimizer = InfillOptimizer.COBYLA, trego: typing.Optional[typing.Any] = None, coego_n_coop: builtins.int = 0, target: builtins.float = -1.7976931348623157e+308, outdir: typing.Optional[builtins.str] = None, warm_start: builtins.bool = False, hot_start: typing.Optional[builtins.int] = None, failsafe_strategy: FailsafeStrategy = FailsafeStrategy.REJECTION, seed: typing.Optional[builtins.int] = None) -> Egor: ...
+    def __new__(cls, xspecs: typing.Any, gp_config: GpConfig = ..., n_cstr: builtins.int = 0, cstr_tol: typing.Optional[typing.Sequence[builtins.float]] = None, n_start: builtins.int = 20, n_doe: builtins.int = 0, doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, infill_strategy: InfillStrategy = InfillStrategy.LOG_EI, cstr_infill: builtins.bool = False, cstr_strategy: ConstraintStrategy = ConstraintStrategy.MC, qei_config: QEiConfig = ..., infill_optimizer: InfillOptimizer = InfillOptimizer.COBYLA, trego: typing.Optional[typing.Any] = None, coego_n_coop: builtins.int = 0, target: builtins.float = -1.7976931348623157e+308, outdir: typing.Optional[builtins.str] = None, warm_start: builtins.bool = False, hot_start: typing.Optional[builtins.int] = None, failsafe_strategy: FailsafeStrategy = FailsafeStrategy.REJECTION, seed: typing.Optional[builtins.int] = None, verbose: typing.Optional[typing.Any] = None) -> Egor: ...
     def minimize(self, fun: typing.Any, fcstrs: typing.Sequence[typing.Any] = [], max_iters: builtins.int = 20, run_info: typing.Optional[typing.Any] = None) -> OptimResult:
         r"""
         This function finds the minimum of a given function "fun"
@@ -144,15 +151,21 @@ class Egor:
                 This constraints will be approximated using surrogates, so
                 if constraints are cheap to evaluate better to pass them through run(fcstrs=[...])
         
-            max_iters:
-                the iteration budget, number of fun calls is "n_doe + q_batch * max_iters".
-        
             fcstrs:
                 list of constraints functions defined as g(x, return_grad): (ndarray[nx], bool) -> float or ndarray[nx,]
                 If the given "return_grad" boolean is "False" the function has to return the constraint float value
                 to be made negative by the optimizer (which drives the input array "x").
                 Otherwise the function has to return the gradient (ndarray[nx,]) of the constraint function
                 wrt the "nx" components of "x".
+        
+            max_iters:
+                the iteration budget, number of fun calls is "n_doe + q_batch * max_iters".
+        
+            run_info:
+                Optional information about the run to be passed to the optimizer
+                It should be an object of type RunInfo with the following attributes:
+                  - fname (string): name of the function under optimization, used for checkpoint file naming
+                  - num (int): number of the run, used for checkpoint file naming
         
         # Returns
         
@@ -995,6 +1008,14 @@ class Sampling(enum.Enum):
 class SparseMethod(enum.Enum):
     Fitc = ...
     Vfe = ...
+
+@typing.final
+class Verbose(enum.Enum):
+    ERROR = ...
+    WARNING = ...
+    INFO = ...
+    DEBUG = ...
+    TRACE = ...
 
 @typing.final
 class XType(enum.Enum):
