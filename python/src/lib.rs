@@ -24,11 +24,10 @@ use pyo3_stub_gen::define_stub_info_gatherer;
 #[pymodule]
 fn egobox(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     Builder::new()
-        .filter_level(log::LevelFilter::Trace)
+        .filter_level(log::LevelFilter::Error)
         .target(env_logger::Target::Stdout)
         .try_init()
         .ok();
-    log::set_max_level(log::LevelFilter::Warn);
 
     // utils
     m.add_function(wrap_pyfunction!(lhs, m)?)?;

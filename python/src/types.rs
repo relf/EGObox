@@ -104,11 +104,23 @@ pub(crate) enum FailsafeStrategy {
 #[pyclass(eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub(crate) enum Verbose {
-    Error = 1,
-    Warning = 2,
-    Info = 3,
-    Debug = 4,
-    Trace = 5,
+    Error = 0,
+    Warning = 1,
+    Info = 2,
+    Debug = 3,
+    Trace = 4,
+}
+
+impl From<Verbose> for log::LevelFilter {
+    fn from(value: Verbose) -> Self {
+        match value {
+            Verbose::Error => log::LevelFilter::Error,
+            Verbose::Warning => log::LevelFilter::Warn,
+            Verbose::Info => log::LevelFilter::Info,
+            Verbose::Debug => log::LevelFilter::Debug,
+            Verbose::Trace => log::LevelFilter::Trace,
+        }
+    }
 }
 
 #[gen_stub_pyclass]

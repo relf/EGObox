@@ -432,7 +432,7 @@ mod tests {
     use serial_test::serial;
     use std::time::Instant;
 
-    use crate::{CoegoStatus, DOE_FILE, DOE_INITIAL_FILE, utils::EGOBOX_LOG};
+    use crate::{CoegoStatus, DOE_FILE, DOE_INITIAL_FILE};
     use egobox_moe::{CorrelationSpec, RegressionSpec};
 
     #[cfg(not(feature = "blas"))]
@@ -1172,10 +1172,6 @@ mod tests {
     #[test]
     #[serial]
     fn test_mixobj_mixint_egor_builder() {
-        let env = env_logger::Env::new().filter_or(EGOBOX_LOG, "info");
-        let mut builder = env_logger::Builder::from_env(env);
-        let builder = builder.target(env_logger::Target::Stdout);
-        builder.try_init().ok();
         let max_iters = 10;
         let xtypes = vec![
             XType::Float(-5., 5.),
@@ -1205,11 +1201,6 @@ mod tests {
     #[test]
     #[serial]
     fn test_mixobj_mixint_warmstart_egor_builder() {
-        let env = env_logger::Env::new().filter_or(EGOBOX_LOG, "info");
-        let mut builder = env_logger::Builder::from_env(env);
-        let builder = builder.target(env_logger::Target::Stdout);
-        builder.try_init().ok();
-
         let outdir = "target/test_warmstart_02";
         let outfile = format!("{outdir}/{DOE_INITIAL_FILE}");
         let _ = std::fs::remove_file(format!("{outdir}/{DOE_INITIAL_FILE}"));

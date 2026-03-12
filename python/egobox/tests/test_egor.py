@@ -216,6 +216,7 @@ class TestEgor(unittest.TestCase):
             seed=42,
             n_doe=n_doe,
             cstr_strategy=egx.ConstraintStrategy.UTB,
+            verbose=egx.Verbose.INFO,
         )
         start = time.process_time()
         res = egor.minimize(g24, max_iters=max_iters)
@@ -239,6 +240,7 @@ class TestEgor(unittest.TestCase):
                 kpls_dim=1,
             ),
             seed=1,
+            verbose=2,
         )
         start = time.process_time()
         res = egor.minimize(g24, max_iters=30)

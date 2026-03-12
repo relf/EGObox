@@ -420,11 +420,6 @@ mod tests {
 
     #[test]
     fn test_find_best_cluster_nb_1d() {
-        // let env = env_logger::Env::new().filter_or(EGOBOX_LOG, "info");
-        // let mut builder = env_logger::Builder::from_env(env);
-        // let builder = builder.target(env_logger::Target::Stdout);
-        // builder.try_init().ok();
-
         //let test_dir = "target/tests";
         let rng = Xoshiro256Plus::seed_from_u64(42);
         let doe = Lhs::new(&array![[0., 1.]]).with_rng(rng.clone());
