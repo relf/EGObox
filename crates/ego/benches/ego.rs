@@ -1,7 +1,6 @@
 use criterion::{Criterion, criterion_group, criterion_main};
-use egobox_ego::{EGOBOX_LOG, EgorBuilder, InfillStrategy};
+use egobox_ego::{EgorBuilder, InfillStrategy};
 use egobox_moe::{CorrelationSpec, RegressionSpec};
-use env_logger::{Builder, Env};
 use ndarray::{Array2, ArrayView2, Zip, array};
 
 /// Ackley test function: min f(x)=0 at x=(0, 0, 0)
@@ -18,11 +17,6 @@ fn criterion_ego(c: &mut Criterion) {
     let mut group = c.benchmark_group("ego");
     group.sample_size(20);
     group.bench_function("ego ackley", |b| {
-        let env = Env::new().filter_or(EGOBOX_LOG, "error");
-        let mut builder = Builder::from_env(env);
-        let builder = builder.target(env_logger::Target::Stdout);
-        builder.try_init().ok();
-
         b.iter(|| {
             std::hint::black_box(
                 EgorBuilder::optimize(ackley)
