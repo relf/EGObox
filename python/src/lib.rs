@@ -1,6 +1,5 @@
 #![doc = include_str!("../README.md")]
 
-pub(crate) mod domain;
 mod egor;
 mod gp_config;
 mod gp_mix;
@@ -8,6 +7,9 @@ mod qei_config;
 mod sampling;
 mod sparse_gp_mix;
 mod trego_config;
+
+pub(crate) mod domain;
+pub(crate) mod logging;
 pub(crate) mod types;
 
 use egor::*;

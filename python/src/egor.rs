@@ -13,9 +13,11 @@
 
 use crate::domain::*;
 use crate::gp_config::*;
+use crate::logging::init_logger;
 use crate::qei_config::*;
 use crate::trego_config::{TregoConfig, TregoConfigSpec};
 use crate::types::*;
+
 use egobox_ego::{CoegoStatus, InfillObjData, Result, find_best_result_index};
 use egobox_gp::ThetaTuning;
 use egobox_moe::NbClusters;
@@ -24,9 +26,6 @@ use numpy::{IntoPyArray, PyArray1, PyArray2, PyArrayMethods, PyReadonlyArray2, T
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 use std::cmp::Ordering;
-
-use egobox_ego::EGOBOX_LOG;
-use env_logger::{Builder, Env};
 
 /// Optimizer constructor
 ///
@@ -137,7 +136,8 @@ use env_logger::{Builder, Env};
 ///         Can be either an integer or a Verbose enum value:
 ///         0 or Verbose.ERROR, 1 or Verbose.WARNING, 2 or Verbose.INFO,
 ///         3 or Verbose.DEBUG, 4 (or greater) or Verbose.TRACE.
-///         Default is None which means Verbose.ERROR level.
+///         Default is None which means Verbose.ERROR level and possible control by
+///         the EGOBOX_LOG environment variable.
 ///
 /// # Returns
 ///
@@ -634,33 +634,4 @@ impl Egor {
         };
         config
     }
-}
-
-// Set filter from env variable or default to error level,
-// then override with verbose argument if any
-fn init_logger(py: Python, verbose: Option<Py<PyAny>>) {
-    let env = Env::default().filter_or(EGOBOX_LOG, "error");
-    let mut builder = Builder::from_env(env);
-    let verbose = match verbose {
-        Some(v) => {
-            if let Ok(v) = v.extract::<Verbose>(py) {
-                v.into()
-            } else if let Ok(n) = v.extract::<u64>(py) {
-                match n {
-                    0 => log::LevelFilter::Error,
-                    1 => log::LevelFilter::Warn,
-                    2 => log::LevelFilter::Info,
-                    3 => log::LevelFilter::Debug,
-                    _ => log::LevelFilter::Trace,
-                }
-            } else {
-                log::LevelFilter::Off
-            }
-        }
-        None => log::LevelFilter::Off,
-    };
-    if verbose != log::LevelFilter::Off {
-        builder.filter_level(verbose);
-    }
-    builder.target(env_logger::Target::Stdout).try_init().ok();
 }
