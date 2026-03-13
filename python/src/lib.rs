@@ -16,19 +16,12 @@ use sampling::*;
 use sparse_gp_mix::*;
 use types::*;
 
-use env_logger::Builder;
 use pyo3::prelude::*;
 use pyo3_stub_gen::define_stub_info_gatherer;
 
 #[doc(hidden)]
 #[pymodule]
 fn egobox(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
-    Builder::new()
-        .filter_level(log::LevelFilter::Error)
-        .target(env_logger::Target::Stdout)
-        .try_init()
-        .ok();
-
     // utils
     m.add_function(wrap_pyfunction!(lhs, m)?)?;
     m.add_function(wrap_pyfunction!(sampling::sampling, m)?)?;
