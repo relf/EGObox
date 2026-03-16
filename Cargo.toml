@@ -42,7 +42,7 @@ thiserror = "2"
 anyhow = "1"
 rayon = "1"
 
-rand_xoshiro = "0.6"
+rand_xoshiro = "0.6.0"
 finitediff = { version = "0.2", features = ["ndarray"] }
 env_logger = "0.11"
 log = "0.4"
@@ -56,7 +56,7 @@ clap = { version = "4", features = ["derive"] }
 bincode = { version = "2", features = ["serde"] }
 
 # dev dependencies 
-criterion = "0.7"
+criterion = "0.8.2"
 approx = "0.5"
 argmin_testfunctions = "0.3"
 
