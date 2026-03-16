@@ -11,8 +11,10 @@
 //!
 use std::{cmp::Ordering, path::Path};
 
+use crate::logging::init_logger;
 use crate::types::*;
 use crate::{domain::parse, gp_config::GpConfig};
+
 use egobox_ego::{EGO_GP_OPTIM_MAX_EVAL, EGO_GP_OPTIM_N_START};
 #[allow(unused_imports)] // Avoid linting problem
 use egobox_moe::{GpMixture, GpSurrogate, GpSurrogateExt};
@@ -92,6 +94,10 @@ use rand_xoshiro::Xoshiro256Plus;
 ///     seed (int >= 0):
 ///         Random generator seed to allow computation reproducibility.
 ///
+///     verbose (Verbose or int in [0, 4]):
+///         Optional verbose level to control logging output (default is 0)
+///         Used mainly for debugging and development purposes
+///
 /// # Returns
 ///
 ///     GpMix object which can be fitted to data to get a Gpx object (a trained Gaussian processes mixture)
@@ -119,7 +125,8 @@ impl GpMix {
         theta_bounds=None,
         n_start=EGO_GP_OPTIM_N_START as isize,
         max_eval=EGO_GP_OPTIM_MAX_EVAL,
-        seed=None
+        seed=None,
+        verbose=None
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -135,7 +142,9 @@ impl GpMix {
         n_start: isize,
         max_eval: usize,
         seed: Option<u64>,
+        verbose: Option<Py<PyAny>>,
     ) -> Self {
+        init_logger(py, verbose);
         let xtypes = xspecs
             .as_ref()
             .map(|xspecs| parse(py, xspecs.clone_ref(py)));
@@ -305,7 +314,8 @@ impl Gpx {
         theta_bounds=GpConfig::default().theta_bounds,
         n_start=GpConfig::default().n_start,
         max_eval=GpConfig::default().max_eval,
-        seed = None
+        seed = None,
+        verbose=None
     ))]
     #[allow(clippy::too_many_arguments)]
     fn builder(
@@ -321,6 +331,7 @@ impl Gpx {
         n_start: isize,
         max_eval: usize,
         seed: Option<u64>,
+        verbose: Option<Py<PyAny>>,
     ) -> GpMix {
         GpMix::new(
             py,
@@ -335,6 +346,7 @@ impl Gpx {
             n_start,
             max_eval,
             seed,
+            verbose,
         )
     }
 

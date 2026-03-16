@@ -144,6 +144,7 @@ pub struct EgorFactory<O: ObjFn, C: CstrFn = Cstr> {
     fcstrs: Vec<C>,
     config: EgorConfig,
     run_info: Option<RunInfo>,
+    verbose: Option<log::LevelFilter>,
 }
 
 impl<O: ObjFn, C: CstrFn> EgorFactory<O, C> {
@@ -158,6 +159,7 @@ impl<O: ObjFn, C: CstrFn> EgorFactory<O, C> {
             fcstrs: vec![],
             config: EgorConfig::default(),
             run_info: None,
+            verbose: None,
         }
     }
 
@@ -181,6 +183,15 @@ impl<O: ObjFn, C: CstrFn> EgorFactory<O, C> {
         self
     }
 
+    /// Set log level filter (see `log::LevelFilter`) for the optimization run.
+    /// If not set, log level will be determined by `EGOBOX_LOG` env variable
+    /// or default to "error" level.
+    ///
+    pub fn verbose(mut self, verbose: log::LevelFilter) -> Self {
+        self.verbose = Some(verbose);
+        self
+    }
+
     /// Build an Egor optimizer to minimize the function within
     /// the continuous `xlimits` specified as [[lower, upper], ...] array where the
     /// number of rows gives the dimension of the inputs (continuous optimization)
@@ -189,6 +200,7 @@ impl<O: ObjFn, C: CstrFn> EgorFactory<O, C> {
         self,
         xlimits: &ArrayBase<impl Data<Elem = f64>, Ix2>,
     ) -> Result<Egor<O, C, GpMixtureParams<f64>>> {
+        crate::utils::logging::init_logger(self.verbose);
         let config = self.config.xtypes(&to_xtypes(xlimits));
         Ok(Egor {
             fobj: ProblemFunc::new(self.fobj).subject_to(self.fcstrs),
@@ -204,6 +216,7 @@ impl<O: ObjFn, C: CstrFn> EgorFactory<O, C> {
         self,
         xtypes: &[XType],
     ) -> Result<Egor<O, C, MixintGpMixtureParams>> {
+        crate::utils::logging::init_logger(self.verbose);
         let config = self.config.xtypes(xtypes);
         Ok(Egor {
             fobj: ProblemFunc::new(self.fobj).subject_to(self.fcstrs),
@@ -432,7 +445,7 @@ mod tests {
     use serial_test::serial;
     use std::time::Instant;
 
-    use crate::{CoegoStatus, DOE_FILE, DOE_INITIAL_FILE, utils::EGOBOX_LOG};
+    use crate::{CoegoStatus, DOE_FILE, DOE_INITIAL_FILE};
     use egobox_moe::{CorrelationSpec, RegressionSpec};
 
     #[cfg(not(feature = "blas"))]
@@ -1172,10 +1185,6 @@ mod tests {
     #[test]
     #[serial]
     fn test_mixobj_mixint_egor_builder() {
-        let env = env_logger::Env::new().filter_or(EGOBOX_LOG, "info");
-        let mut builder = env_logger::Builder::from_env(env);
-        let builder = builder.target(env_logger::Target::Stdout);
-        builder.try_init().ok();
         let max_iters = 10;
         let xtypes = vec![
             XType::Float(-5., 5.),
@@ -1205,11 +1214,6 @@ mod tests {
     #[test]
     #[serial]
     fn test_mixobj_mixint_warmstart_egor_builder() {
-        let env = env_logger::Env::new().filter_or(EGOBOX_LOG, "info");
-        let mut builder = env_logger::Builder::from_env(env);
-        let builder = builder.target(env_logger::Target::Stdout);
-        builder.try_init().ok();
-
         let outdir = "target/test_warmstart_02";
         let outfile = format!("{outdir}/{DOE_INITIAL_FILE}");
         let _ = std::fs::remove_file(format!("{outdir}/{DOE_INITIAL_FILE}"));

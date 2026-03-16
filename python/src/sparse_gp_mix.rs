@@ -11,7 +11,7 @@
 //!
 use std::path::Path;
 
-use crate::types::*;
+use crate::{logging::init_logger, types::*};
 use egobox_moe::{
     Clustered, GpMixture, GpSurrogate, GpType, Inducings, MixtureGpSurrogate, ThetaTuning,
 };
@@ -58,6 +58,10 @@ use rand_xoshiro::Xoshiro256Plus;
 ///
 ///     seed (int >= 0):
 ///         Random generator seed to allow computation reproducibility.
+///
+///     verbose (Verbose or int in [0, 4]):
+///         Optional verbose level to control logging output (default is 0)
+///         Used mainly for debugging and development purposes
 ///         
 #[gen_stub_pyclass]
 #[pyclass]
@@ -86,10 +90,12 @@ impl SparseGpMix {
         nz = None,
         z = None,
         method = SparseMethod::Fitc,
-        seed = None
+        seed = None,
+        verbose = None
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
+        py: Python,
         corr_spec: u8,
         theta_init: Option<Vec<f64>>,
         theta_bounds: Option<Vec<Vec<f64>>>,
@@ -99,7 +105,9 @@ impl SparseGpMix {
         z: Option<PyReadonlyArray2<f64>>,
         method: SparseMethod,
         seed: Option<u64>,
+        verbose: Option<Py<PyAny>>,
     ) -> Self {
+        init_logger(py, verbose);
         SparseGpMix {
             correlation_spec: CorrelationSpec(corr_spec),
             theta_init,
@@ -239,10 +247,12 @@ impl SparseGpx {
         nz = None,
         z = None,
         method = SparseMethod::Fitc,
-        seed = None
+        seed = None,
+        verbose = None
     ))]
     #[allow(clippy::too_many_arguments)]
     fn builder(
+        py: Python,
         corr_spec: u8,
         theta_init: Option<Vec<f64>>,
         theta_bounds: Option<Vec<Vec<f64>>>,
@@ -252,8 +262,10 @@ impl SparseGpx {
         z: Option<PyReadonlyArray2<f64>>,
         method: SparseMethod,
         seed: Option<u64>,
+        verbose: Option<Py<PyAny>>,
     ) -> SparseGpMix {
         SparseGpMix::new(
+            py,
             corr_spec,
             theta_init,
             theta_bounds,
@@ -263,6 +275,7 @@ impl SparseGpx {
             z,
             method,
             seed,
+            verbose,
         )
     }
 

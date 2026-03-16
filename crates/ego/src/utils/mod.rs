@@ -1,14 +1,16 @@
 mod bounds;
 mod cstr_pof;
 mod find_result;
-pub(crate) mod gp_recorder;
 mod hot_start;
 mod logei_helper;
 mod misc;
 mod portfolio;
-pub(crate) mod run_recorder;
 mod sort_axis;
 mod start_points;
+
+pub(crate) mod gp_recorder;
+pub(crate) mod logging;
+pub(crate) mod run_recorder;
 
 pub use bounds::*;
 pub use cstr_pof::*;

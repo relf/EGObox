@@ -36,7 +36,7 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
     /// The function `f` should return an objective but also constraint values if any.
     /// Design space is specified by a list of types for input variables `x` of `f` (see [`XType`]).
     pub fn new(config: ValidEgorConfig) -> Self {
-        let env = Env::new().filter_or(EGOBOX_LOG, "info");
+        let env = Env::new().filter_or(EGOBOX_LOG, "error");
         let mut builder = Builder::from_env(env);
         let builder = builder.target(env_logger::Target::Stdout);
         builder.try_init().ok();

@@ -72,7 +72,6 @@
 //!     .configure(|config| config
 //!         .max_iters(100)
 //!         .configure_runtime_flags(|flags| flags
-//!             .enable_logging(true)
 //!             .use_gp_var_portfolio(true)))
 //!     .min_within(&xlimits)
 //!     .run()

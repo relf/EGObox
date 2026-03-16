@@ -13,9 +13,11 @@
 
 use crate::domain::*;
 use crate::gp_config::*;
+use crate::logging::init_logger;
 use crate::qei_config::*;
 use crate::trego_config::{TregoConfig, TregoConfigSpec};
 use crate::types::*;
+
 use egobox_ego::{CoegoStatus, InfillObjData, Result, find_best_result_index};
 use egobox_gp::ThetaTuning;
 use egobox_moe::NbClusters;
@@ -129,6 +131,14 @@ use std::cmp::Ordering;
 ///     seed (int >= 0):
 ///         Random generator seed to allow computation reproducibility.
 ///
+///     verbose (int, Verbose enum, or None):
+///         Logging verbosity level for the optimizer.
+///         Can be either an integer or a Verbose enum value:
+///         0 or Verbose.ERROR, 1 or Verbose.WARNING, 2 or Verbose.INFO,
+///         3 or Verbose.DEBUG, 4 (or greater) or Verbose.TRACE.
+///         Default is None which means Verbose.ERROR level and possible control by
+///         the EGOBOX_LOG environment variable.
+///
 /// # Returns
 ///
 ///     Egor object which can be used to optimize a function using the minimize method.
@@ -182,7 +192,8 @@ impl Egor {
         warm_start = false,
         hot_start = None,
         failsafe_strategy = FailsafeStrategy::Rejection,
-        seed = None
+        seed = None,
+        verbose = None
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -207,9 +218,10 @@ impl Egor {
         hot_start: Option<u64>,
         failsafe_strategy: FailsafeStrategy,
         seed: Option<u64>,
+        verbose: Option<Py<PyAny>>,
     ) -> Self {
+        init_logger(py, verbose);
         let doe = doe.map(|x| x.to_owned_array());
-
         let xtypes = parse(py, xspecs.clone_ref(py));
 
         // Parse trego configuration: boolean or custom configuration
@@ -274,15 +286,21 @@ impl Egor {
     ///         This constraints will be approximated using surrogates, so
     ///         if constraints are cheap to evaluate better to pass them through run(fcstrs=[...])
     ///
-    ///     max_iters:
-    ///         the iteration budget, number of fun calls is "n_doe + q_batch * max_iters".
-    ///
     ///     fcstrs:
     ///         list of constraints functions defined as g(x, return_grad): (ndarray[nx], bool) -> float or ndarray[nx,]
     ///         If the given "return_grad" boolean is "False" the function has to return the constraint float value
     ///         to be made negative by the optimizer (which drives the input array "x").
     ///         Otherwise the function has to return the gradient (ndarray[nx,]) of the constraint function
     ///         wrt the "nx" components of "x".
+    ///
+    ///     max_iters:
+    ///         the iteration budget, number of fun calls is "n_doe + q_batch * max_iters".
+    ///
+    ///     run_info:
+    ///         Optional information about the run to be passed to the optimizer
+    ///         It should be an object of type RunInfo with the following attributes:
+    ///           - fname (string): name of the function under optimization, used for checkpoint file naming
+    ///           - num (int): number of the run, used for checkpoint file naming
     ///
     /// # Returns
     ///

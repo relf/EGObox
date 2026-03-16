@@ -112,9 +112,9 @@
 //!
 use crate::solver::iteration_strategy::IterationMode;
 use crate::utils::{
-    EGOBOX_LOG, EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER, EGOR_USE_GP_RECORDER,
-    EGOR_USE_GP_VAR_PORTFOLIO, EGOR_USE_MAX_PROBA_OF_FEASIBILITY, EGOR_USE_RUN_RECORDER,
-    filter_nans, find_best_result_index, is_feasible,
+    EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER, EGOR_USE_GP_RECORDER, EGOR_USE_GP_VAR_PORTFOLIO,
+    EGOR_USE_MAX_PROBA_OF_FEASIBILITY, EGOR_USE_RUN_RECORDER, filter_nans, find_best_result_index,
+    is_feasible,
 };
 use crate::{EgoError, EgorState, MAX_POINT_ADDITION_RETRY, ValidEgorConfig};
 
@@ -313,10 +313,6 @@ where
 
         initial_state.coego.activity = activity;
         debug!("Initial State = {initial_state:?}");
-        info!(
-            "{} setting: {}",
-            EGOBOX_LOG, self.config.runtime_flags.enable_logging
-        );
         info!(
             "{} setting: {}",
             EGOR_USE_MAX_PROBA_OF_FEASIBILITY,
