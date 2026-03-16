@@ -49,7 +49,7 @@ serde_json.workspace = true
 ctrlc.workspace = true
 
 argmin_testfunctions.workspace = true
-pyo3-stub-gen = { version = "0.17", features = ["numpy"] }
+pyo3-stub-gen = { version = "0.19", features = ["numpy"] }
 
 [[bin]]
 name = "stub_gen"
