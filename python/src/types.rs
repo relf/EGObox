@@ -191,7 +191,7 @@ pub(crate) enum SparseMethod {
 
 #[gen_stub_pyclass]
 #[pyclass]
-#[derive(Debug, FromPyObject)]
+#[derive(Debug, Clone)]
 pub(crate) struct RunInfo {
     #[pyo3(get, set)]
     pub(crate) fname: String,
@@ -209,8 +209,62 @@ impl RunInfo {
     }
 }
 
+#[gen_stub_pyclass_enum]
+#[pyclass(eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum TerminationStatus {
+    /// Reached maximum number of iterations
+    MaxItersReached = 1,
+    /// Reached target cost function value
+    TargetCostReached = 2,
+    /// Algorithm manually interrupted with SIGINT (Ctrl+C), SIGTERM or SIGHUP
+    Interrupt = 3,
+    /// Algorithm peek at the same point twice. We consider it is converged.
+    SolverConverged = 4,
+    /// Timeout reached
+    Timeout = 5,
+    /// Solver unexpected exit. See logs for details.
+    UnexpectedExit = 6,
+}
+
+impl From<argmin::core::TerminationStatus> for TerminationStatus {
+    fn from(value: argmin::core::TerminationStatus) -> Self {
+        use argmin::core::{TerminationReason, TerminationStatus as ArgminStatus};
+        match value {
+            ArgminStatus::Terminated(reason) => match reason {
+                TerminationReason::MaxItersReached => TerminationStatus::MaxItersReached,
+                TerminationReason::TargetCostReached => TerminationStatus::TargetCostReached,
+                TerminationReason::SolverConverged => TerminationStatus::SolverConverged,
+                TerminationReason::Timeout => TerminationStatus::Timeout,
+                TerminationReason::SolverExit(_) => TerminationStatus::UnexpectedExit,
+                TerminationReason::Interrupt => TerminationStatus::Interrupt,
+            },
+            ArgminStatus::NotTerminated => TerminationStatus::UnexpectedExit,
+        }
+    }
+}
+
 #[gen_stub_pyclass]
 #[pyclass]
+#[derive(Debug, Clone)]
+pub(crate) struct RunStatus {
+    #[pyo3(get)]
+    pub(crate) run_info: RunInfo,
+    #[pyo3(get)]
+    pub(crate) terminaison_status: TerminationStatus,
+    #[pyo3(get)]
+    pub(crate) init_doe_size: usize,
+    #[pyo3(get)]
+    pub(crate) best_iter: usize,
+    #[pyo3(get)]
+    pub(crate) total_iters: usize,
+    #[pyo3(get)]
+    pub(crate) elapsed_time: f64,
+}
+
+#[gen_stub_pyclass]
+#[pyclass]
+#[derive(Debug)]
 pub(crate) struct OptimResult {
     #[pyo3(get)]
     pub(crate) x_opt: Py<PyArray1<f64>>,

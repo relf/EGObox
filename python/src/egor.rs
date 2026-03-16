@@ -316,7 +316,7 @@ impl Egor {
         fcstrs: Vec<Py<PyAny>>,
         max_iters: usize,
         run_info: Option<Py<PyAny>>,
-    ) -> PyResult<OptimResult> {
+    ) -> PyResult<(OptimResult, RunStatus)> {
         let obj = |x: &ArrayView2<f64>| -> Result<Array2<f64>> {
             Python::attach(|py| {
                 let args = (x.to_owned().into_pyarray(py),);
@@ -361,31 +361,49 @@ impl Egor {
             .min_within_mixint_space(&self.xtypes)
             .expect("Egor configured");
 
-        let mixintegor = if let Some(ri) = run_info {
+        let py_run_info = if let Some(ri) = run_info {
             let ri: RunInfo = ri.extract(py).unwrap();
-            mixintegor.run_info(egobox_ego::RunInfo {
-                fname: ri.fname,
-                num: ri.num,
-            })
+            ri
         } else {
-            mixintegor
+            RunInfo {
+                fname: "Anonymous".to_string(),
+                num: 1,
+            }
         };
+
+        let mixintegor = mixintegor.run_info(egobox_ego::RunInfo {
+            fname: py_run_info.fname.clone(),
+            num: py_run_info.num,
+        });
 
         let res = py.detach(|| {
             mixintegor
                 .run()
                 .expect("Egor should optimize the objective function")
         });
+
+        let status = RunStatus {
+            run_info: py_run_info,
+            terminaison_status: (res.state.termination_status).into(),
+            init_doe_size: res.state.doe.doe_size,
+            best_iter: res.state.last_best_iter as usize,
+            total_iters: res.state.iter as usize,
+            elapsed_time: res.state.time.map(|d| d.as_millis() as f64).unwrap_or(0.0),
+        };
+
         let x_opt = res.x_opt.into_pyarray(py).to_owned();
         let y_opt = res.y_opt.into_pyarray(py).to_owned();
         let x_doe = res.x_doe.into_pyarray(py).to_owned();
         let y_doe = res.y_doe.into_pyarray(py).to_owned();
-        Ok(OptimResult {
-            x_opt: x_opt.into(),
-            y_opt: y_opt.into(),
-            x_doe: x_doe.into(),
-            y_doe: y_doe.into(),
-        })
+        Ok((
+            OptimResult {
+                x_opt: x_opt.into(),
+                y_opt: y_opt.into(),
+                x_doe: x_doe.into(),
+                y_doe: y_doe.into(),
+            },
+            status,
+        ))
     }
 
     /// This function gives the next best location where to evaluate the function

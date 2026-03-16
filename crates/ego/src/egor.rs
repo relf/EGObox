@@ -128,12 +128,21 @@ pub const CONFIG_FILE: &str = "egor_config.json";
 pub const HISTORY_FILE: &str = "egor_history.npy";
 
 /// Egor run metadata
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct RunInfo {
     /// The objective function name
     pub fname: String,
     /// A number of replication
     pub num: usize,
+}
+
+impl Default for RunInfo {
+    fn default() -> Self {
+        RunInfo {
+            fname: "Anonymous".to_string(),
+            num: 1,
+        }
+    }
 }
 
 /// EGO optimizer builder allowing to specify function to be minimized
@@ -143,7 +152,7 @@ pub struct EgorFactory<O: ObjFn, C: CstrFn = Cstr> {
     fobj: O,
     fcstrs: Vec<C>,
     config: EgorConfig,
-    run_info: Option<RunInfo>,
+    run_info: RunInfo,
     verbose: Option<log::LevelFilter>,
 }
 
@@ -158,7 +167,7 @@ impl<O: ObjFn, C: CstrFn> EgorFactory<O, C> {
             fobj,
             fcstrs: vec![],
             config: EgorConfig::default(),
-            run_info: None,
+            run_info: RunInfo::default(),
             verbose: None,
         }
     }
@@ -179,7 +188,7 @@ impl<O: ObjFn, C: CstrFn> EgorFactory<O, C> {
 
     /// Set execution metadata used to qualify optimization run
     pub fn run_info(mut self, info: RunInfo) -> Self {
-        self.run_info = Some(info);
+        self.run_info = info;
         self
     }
 
@@ -236,7 +245,7 @@ pub struct Egor<
 > {
     fobj: ProblemFunc<O, C>,
     solver: EgorSolver<SB, C>,
-    run_info: Option<RunInfo>,
+    run_info: RunInfo,
 }
 
 impl<O: ObjFn, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> Egor<O, C, SB> {
@@ -319,10 +328,8 @@ impl<O: ObjFn, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> E
             let filepath = std::path::Path::new(outdir).join(filename);
 
             let mut run_data = res.state.run_data.as_ref().unwrap().clone();
-            let default = RunInfo::default();
-            let meta = self.run_info.as_ref().unwrap_or(&default);
-            run_data.problem_metadata.test_function = meta.fname.clone();
-            run_data.problem_metadata.replication_number = meta.num;
+            run_data.problem_metadata.test_function = self.run_info.fname.clone();
+            run_data.problem_metadata.replication_number = self.run_info.num;
 
             match run_recorder::save_run(&filepath, &run_data) {
                 Ok(_) => log::info!("Run data saved to {:?}", filepath),
@@ -337,7 +344,7 @@ impl<O: ObjFn, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> E
 
     /// Set execution metadata used to qualify optimization run
     pub fn run_info(mut self, info: RunInfo) -> Self {
-        self.run_info = Some(info);
+        self.run_info = info;
         self
     }
 }

@@ -33,6 +33,8 @@ egobox-ego = { version = "0.37.0", path = "../crates/ego", features = [
   "persistent",
 ] }
 
+argmin = { version = "0.11.0", features = ["ctrlc"] }
+
 pyo3 = { version = "0.26" }
 numpy = "0.26"
 
