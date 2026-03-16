@@ -53,7 +53,9 @@ serde_json = "1"
 ctrlc = "3.4"
 
 clap = { version = "4", features = ["derive"] }
-bincode = { package = "cu-bincode", version = "2.0", features = ["serde"] }
+# cu-bincode replaces unmaintained bincode but require msrv 1.92 atm while our current is 1.88
+# bincode = { package = "cu-bincode", version = "2.0", features = ["serde"] }
+bincode = { version = "=2.0.1", features = ["serde"] }
 
 # dev dependencies 
 criterion = "0.8.2"
