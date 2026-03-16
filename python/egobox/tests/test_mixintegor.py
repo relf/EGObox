@@ -42,7 +42,7 @@ class TestMixintEgx(unittest.TestCase):
             seed=42,
             doe=np.array([[0.0], [7.0], [25.0]]),
         )
-        res = egor.minimize(xsinx, max_iters=10)
+        res, _ = egor.minimize(xsinx, max_iters=10)
         print(res.x_opt, res.y_opt)
         print(f"Optimization f={res.y_opt} at {res.x_opt}")
         self.assertAlmostEqual(-15.125, res.y_opt[0], delta=5e-3)
@@ -56,7 +56,7 @@ class TestMixintEgx(unittest.TestCase):
             egx.XSpec(egx.XType.ORD, [0, 2, 3]),
         ]
         egor = egx.Egor(xspecs, infill_strategy=egx.InfillStrategy.WB2, seed=42)
-        res = egor.minimize(mixobj, max_iters=10)
+        res, _ = egor.minimize(mixobj, max_iters=10)
         self.assertAlmostEqual(-14.25, res.y_opt[0])
         self.assertAlmostEqual(-5, res.x_opt[0])
         self.assertAlmostEqual(2, res.x_opt[1])

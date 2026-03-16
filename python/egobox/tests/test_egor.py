@@ -156,21 +156,21 @@ class TestEgor(unittest.TestCase):
             infill_strategy=egx.InfillStrategy.EI,
             seed=42,
         )
-        res = egor.minimize(sphere, max_iters=100)
+        res, _ = egor.minimize(sphere, max_iters=100)
         print(f"Optimization f={res.y_opt} at {res.x_opt}")
         self.assertAlmostEqual(0.0, res.y_opt[0], delta=5e-1)
         np.testing.assert_allclose(0.0, res.x_opt, atol=5e-1)
 
     def test_xsinx(self):
         egor = egx.Egor([[0.0, 25.0]], seed=42)  # test list of list api
-        res = egor.minimize(xsinx, max_iters=20)
+        res, _ = egor.minimize(xsinx, max_iters=20)
         print(f"Optimization f={res.y_opt} at {res.x_opt}")
         self.assertAlmostEqual(-15.125, res.y_opt[0], delta=1e-3)
         self.assertAlmostEqual(18.935, res.x_opt[0], delta=5e-2)
 
     def test_xsinx_with_reclustering(self):
         egor = egx.Egor([[0.0, 25.0]], seed=42, gp_config=egx.GpConfig(n_clusters=0))
-        res = egor.minimize(xsinx, max_iters=20)
+        res, _ = egor.minimize(xsinx, max_iters=20)
         print(f"Optimization f={res.y_opt} at {res.x_opt}")
         self.assertAlmostEqual(-15.125, res.y_opt[0], delta=1e-3)
         self.assertAlmostEqual(18.935, res.x_opt[0], delta=5e-2)
@@ -189,13 +189,13 @@ class TestEgor(unittest.TestCase):
             seed=42,
             outdir="./test_dir",
         )
-        res = egor.minimize(xsinx, max_iters=15)
+        res, _ = egor.minimize(xsinx, max_iters=15)
         print(f"Optimization f={res.y_opt} at {res.x_opt}")
         self.assertAlmostEqual(-15.125, res.y_opt[0], delta=1e-3)
         self.assertAlmostEqual(18.935, res.x_opt[0], delta=1e-3)
 
         egor = egx.Egor(xlimits, outdir="./test_dir", warm_start=True)
-        res = egor.minimize(xsinx, max_iters=5)
+        res, _ = egor.minimize(xsinx, max_iters=5)
         print(f"Optimization f={res.y_opt} at {res.x_opt}")
         self.assertAlmostEqual(-15.125, res.y_opt[0], delta=1e-2)
         self.assertAlmostEqual(18.935, res.x_opt[0], delta=1e-2)
@@ -219,7 +219,7 @@ class TestEgor(unittest.TestCase):
             verbose=egx.Verbose.INFO,
         )
         start = time.process_time()
-        res = egor.minimize(g24, max_iters=max_iters)
+        res, _ = egor.minimize(g24, max_iters=max_iters)
         end = time.process_time()
         print(f"Optimization f={res.y_opt} at {res.x_opt} in {end - start}s")
         self.assertAlmostEqual(-5.5080, res.y_opt[0], delta=1e-2)
@@ -243,7 +243,7 @@ class TestEgor(unittest.TestCase):
             verbose=2,
         )
         start = time.process_time()
-        res = egor.minimize(g24, max_iters=30)
+        res, _ = egor.minimize(g24, max_iters=30)
         end = time.process_time()
         self.assertAlmostEqual(-5.5080, res.y_opt[0], delta=5e-1)
         print(f"Optimization f={res.y_opt} at {res.x_opt} in {end - start}s")
@@ -261,7 +261,7 @@ class TestEgor(unittest.TestCase):
             trego=egx.TregoConfig((4, 1)),
         )
         start = time.process_time()
-        res = egor.minimize(g24, max_iters=max_iters)
+        res, _ = egor.minimize(g24, max_iters=max_iters)
         end = time.process_time()
         print(f"Optimization f={res.y_opt} at {res.x_opt} in {end - start}s")
         self.assertAlmostEqual(-5.5080, res.y_opt[0], delta=1e-2)
@@ -277,7 +277,7 @@ class TestEgor(unittest.TestCase):
             n_doe=n_doe,
             trego=True,
         )
-        res = egor.minimize(g24, max_iters=max_iters)
+        res, _ = egor.minimize(g24, max_iters=max_iters)
         self.assertAlmostEqual(-5.5080, res.y_opt[0], delta=1e-2)
 
     def test_six_humps(self):
@@ -287,7 +287,7 @@ class TestEgor(unittest.TestCase):
             seed=42,
         )
         start = time.process_time()
-        res = egor.minimize(six_humps, max_iters=45)
+        res, _ = egor.minimize(six_humps, max_iters=45)
         end = time.process_time()
         print(f"Optimization f={res.y_opt} at {res.x_opt} in {end - start}s")
         # 2 global optimum value =-1.0316 located at (0.089842, -0.712656) and  (-0.089842, 0.712656)
@@ -317,7 +317,7 @@ class TestEgor(unittest.TestCase):
         egor = egx.Egor(
             [[0.0, 25.0]], infill_strategy=egx.InfillStrategy.WB2, n_doe=5, seed=42
         )
-        res = egor.minimize(xsinx, max_iters=20, fcstrs=fcstrs)
+        res, _ = egor.minimize(xsinx, max_iters=20, fcstrs=fcstrs)
         print(f"Optimization f={res.y_opt} at {res.x_opt}")
         self.assertAlmostEqual(18, res.x_opt[0], delta=2e-3)
 
@@ -331,7 +331,7 @@ class TestEgor(unittest.TestCase):
         )
         start = time.process_time()
         fcstrs = [g24_c1, g24_c2]
-        res = egor.minimize(g24_bare, max_iters=max_iters, fcstrs=fcstrs)
+        res, _ = egor.minimize(g24_bare, max_iters=max_iters, fcstrs=fcstrs)
         end = time.process_time()
         print(f"Optimization f={res.y_opt} at {res.x_opt} in {end - start}s")
         self.assertAlmostEqual(-5.5080, res.y_opt[0], delta=1e-2)
@@ -353,7 +353,7 @@ class TestEgor(unittest.TestCase):
             qei_config=egx.QEiConfig(batch=3, strategy=egx.QEiStrategy.KBLB, optmod=2),
         )
         start = time.process_time()
-        res = egor.minimize(g24, max_iters=max_iters)
+        res, _ = egor.minimize(g24, max_iters=max_iters)
         end = time.process_time()
         print(f"Optimization f={res.y_opt} at {res.x_opt} in {end - start}s")
         self.assertAlmostEqual(-5.5080, res.y_opt[0], delta=1e-2)
@@ -401,7 +401,7 @@ class TestEgor(unittest.TestCase):
             seed=42,
             failsafe_strategy=egx.FailsafeStrategy.IMPUTATION,
         )
-        res = egor.minimize(
+        res, _ = egor.minimize(
             branin_constrained_with_nans,
             max_iters=30,
         )
@@ -429,7 +429,7 @@ class TestEgor(unittest.TestCase):
             seed=42,
             failsafe_strategy=egx.FailsafeStrategy.IMPUTATION,
         )
-        res = egor.minimize(
+        res, _ = egor.minimize(
             fobj_crash,
             max_iters=30,
         )
