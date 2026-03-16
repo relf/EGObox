@@ -53,7 +53,7 @@ serde_json = "1"
 ctrlc = "3.4"
 
 clap = { version = "4", features = ["derive"] }
-bincode = { version = "2", features = ["serde"] }
+bincode = { package = "cu-bincode", version = "2.0", features = ["serde"] }
 
 # dev dependencies 
 criterion = "0.8.2"

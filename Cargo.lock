@@ -194,26 +194,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
-name = "bincode"
-version = "2.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36eaf5d7b090263e8150820482d5d93cd964a81e4019913c972f4edcc6edb740"
-dependencies = [
- "bincode_derive",
- "serde",
- "unty",
-]
-
-[[package]]
-name = "bincode_derive"
-version = "2.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf95709a440f45e986983918d0e8a1f30a9b1df04918fc828670606804ac3c09"
-dependencies = [
- "virtue",
-]
-
-[[package]]
 name = "bitflags"
 version = "2.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -544,6 +524,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "cu-bincode"
+version = "2.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1eda67fee472a107a33d58e018ed99987426aabb7e0a8a4f0e545df82ebbbf88"
+dependencies = [
+ "cu-bincode-derive",
+ "serde",
+ "unty",
+]
+
+[[package]]
+name = "cu-bincode-derive"
+version = "2.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d6ab3b62cf42324786e79e3634b4ab811a2750237071db5f999b3ba7c436e2dc"
+dependencies = [
+ "virtue",
+]
+
+[[package]]
 name = "deranged"
 version = "0.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -677,10 +677,10 @@ dependencies = [
  "approx",
  "argmin",
  "argmin_testfunctions",
- "bincode",
  "clap",
  "cobyla",
  "criterion",
+ "cu-bincode",
  "dyn-clonable",
  "egobox-doe",
  "egobox-gp",
@@ -750,10 +750,10 @@ version = "0.35.1"
 dependencies = [
  "approx",
  "argmin_testfunctions",
- "bincode",
  "bitflags",
  "criterion",
  "csv",
+ "cu-bincode",
  "egobox-doe",
  "egobox-gp",
  "env_logger",
@@ -938,8 +938,8 @@ name = "gpqa"
 version = "0.2.1"
 dependencies = [
  "anyhow",
- "bincode",
  "clap",
+ "cu-bincode",
  "egobox-ego",
  "egobox-moe",
  "rayon",
