@@ -366,7 +366,7 @@ impl Egor {
             ri
         } else {
             RunInfo {
-                fname: "Anonymous".to_string(),
+                fname: "objective_function".to_string(),
                 num: 1,
             }
         };
@@ -383,8 +383,8 @@ impl Egor {
         });
 
         let status = RunStatus {
-            run_info: py_run_info,
-            terminaison_status: (res.state.termination_status).into(),
+            info: py_run_info,
+            exit: (res.state.termination_status).into(),
             init_doe_size: res.state.doe.doe_size,
             best_iter: res.state.last_best_iter as usize,
             total_iters: res.state.iter as usize,

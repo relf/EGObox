@@ -212,7 +212,7 @@ impl RunInfo {
 #[gen_stub_pyclass_enum]
 #[pyclass(eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum TerminationStatus {
+pub(crate) enum ExitStatus {
     /// Reached maximum number of iterations
     MaxItersReached = 1,
     /// Reached target cost function value
@@ -227,19 +227,19 @@ pub(crate) enum TerminationStatus {
     UnexpectedExit = 6,
 }
 
-impl From<argmin::core::TerminationStatus> for TerminationStatus {
+impl From<argmin::core::TerminationStatus> for ExitStatus {
     fn from(value: argmin::core::TerminationStatus) -> Self {
-        use argmin::core::{TerminationReason, TerminationStatus as ArgminStatus};
+        use argmin::core::{TerminationReason, TerminationStatus};
         match value {
-            ArgminStatus::Terminated(reason) => match reason {
-                TerminationReason::MaxItersReached => TerminationStatus::MaxItersReached,
-                TerminationReason::TargetCostReached => TerminationStatus::TargetCostReached,
-                TerminationReason::SolverConverged => TerminationStatus::SolverConverged,
-                TerminationReason::Timeout => TerminationStatus::Timeout,
-                TerminationReason::SolverExit(_) => TerminationStatus::UnexpectedExit,
-                TerminationReason::Interrupt => TerminationStatus::Interrupt,
+            TerminationStatus::Terminated(reason) => match reason {
+                TerminationReason::MaxItersReached => ExitStatus::MaxItersReached,
+                TerminationReason::TargetCostReached => ExitStatus::TargetCostReached,
+                TerminationReason::SolverConverged => ExitStatus::SolverConverged,
+                TerminationReason::Timeout => ExitStatus::Timeout,
+                TerminationReason::SolverExit(_) => ExitStatus::UnexpectedExit,
+                TerminationReason::Interrupt => ExitStatus::Interrupt,
             },
-            ArgminStatus::NotTerminated => TerminationStatus::UnexpectedExit,
+            TerminationStatus::NotTerminated => ExitStatus::UnexpectedExit,
         }
     }
 }
@@ -249,9 +249,9 @@ impl From<argmin::core::TerminationStatus> for TerminationStatus {
 #[derive(Debug, Clone)]
 pub(crate) struct RunStatus {
     #[pyo3(get)]
-    pub(crate) run_info: RunInfo,
+    pub(crate) info: RunInfo,
     #[pyo3(get)]
-    pub(crate) terminaison_status: TerminationStatus,
+    pub(crate) exit: ExitStatus,
     #[pyo3(get)]
     pub(crate) init_doe_size: usize,
     #[pyo3(get)]

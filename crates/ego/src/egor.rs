@@ -139,7 +139,7 @@ pub struct RunInfo {
 impl Default for RunInfo {
     fn default() -> Self {
         RunInfo {
-            fname: "Anonymous".to_string(),
+            fname: "objective_function".to_string(),
             num: 1,
         }
     }
