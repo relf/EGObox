@@ -388,7 +388,11 @@ impl Egor {
             init_doe_size: res.state.doe.doe_size,
             best_iter: res.state.last_best_iter as usize,
             total_iters: res.state.iter as usize,
-            elapsed_time: res.state.time.map(|d| d.as_millis() as f64).unwrap_or(0.0),
+            elapsed_time: res
+                .state
+                .time
+                .map(|d| d.as_millis() as f64 / 1000.0)
+                .unwrap_or(0.0),
         };
 
         let x_opt = res.x_opt.into_pyarray(py).to_owned();

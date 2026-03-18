@@ -44,7 +44,6 @@ fn egobox(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<XType>()?;
     m.add_class::<XSpec>()?;
     m.add_class::<OptimResult>()?;
-    m.add_class::<ExpectedOptimum>()?;
     m.add_class::<Recombination>()?;
     m.add_class::<RunInfo>()?;
 

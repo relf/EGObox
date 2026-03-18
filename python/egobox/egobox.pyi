@@ -10,7 +10,7 @@ __all__ = [
     "ConstraintStrategy",
     "CorrelationSpec",
     "Egor",
-    "ExpectedOptimum",
+    "ExitStatus",
     "FailsafeStrategy",
     "GpConfig",
     "GpMix",
@@ -23,6 +23,7 @@ __all__ = [
     "Recombination",
     "RegressionSpec",
     "RunInfo",
+    "RunStatus",
     "Sampling",
     "SparseGpMix",
     "SparseGpx",
@@ -37,6 +38,9 @@ __all__ = [
 
 @typing.final
 class CorrelationSpec:
+    r"""
+    CorrelationSpec is a bitfield that specifies which correlation terms to include in the model.
+    """
     ALL: builtins.int = 15
     SQUARED_EXPONENTIAL: builtins.int = 1
     ABSOLUTE_EXPONENTIAL: builtins.int = 2
@@ -163,7 +167,7 @@ class Egor:
         Egor object which can be used to optimize a function using the minimize method.
     """
     def __new__(cls, xspecs: typing.Any, gp_config: GpConfig = ..., n_cstr: builtins.int = 0, cstr_tol: typing.Optional[typing.Sequence[builtins.float]] = None, n_start: builtins.int = 20, n_doe: builtins.int = 0, doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, infill_strategy: InfillStrategy = InfillStrategy.LOG_EI, cstr_infill: builtins.bool = False, cstr_strategy: ConstraintStrategy = ConstraintStrategy.MC, qei_config: QEiConfig = ..., infill_optimizer: InfillOptimizer = InfillOptimizer.COBYLA, trego: typing.Optional[typing.Any] = None, coego_n_coop: builtins.int = 0, target: builtins.float = -1.7976931348623157e+308, outdir: typing.Optional[builtins.str] = None, warm_start: builtins.bool = False, hot_start: typing.Optional[builtins.int] = None, failsafe_strategy: FailsafeStrategy = FailsafeStrategy.REJECTION, seed: typing.Optional[builtins.int] = None, verbose: typing.Optional[typing.Any] = None) -> Egor: ...
-    def minimize(self, fun: typing.Any, fcstrs: typing.Sequence[typing.Any] = [], max_iters: builtins.int = 20, run_info: typing.Optional[typing.Any] = None) -> OptimResult:
+    def minimize(self, fun: typing.Any, fcstrs: typing.Sequence[typing.Any] = [], max_iters: builtins.int = 20, run_info: typing.Optional[typing.Any] = None) -> tuple[OptimResult, RunStatus]:
         r"""
         This function finds the minimum of a given function "fun"
         
@@ -244,13 +248,6 @@ class Egor:
                 x_doe (array[ns, nx]): x values of the final DOE
                 y_doe (array[ns, 1 + n_cstr]): y values of the final DOE
         """
-
-@typing.final
-class ExpectedOptimum:
-    @property
-    def val(self) -> builtins.float: ...
-    @property
-    def tol(self) -> builtins.float: ...
 
 @typing.final
 class GpConfig:
@@ -633,14 +630,31 @@ class Gpx:
 
 @typing.final
 class OptimResult:
+    r"""
+    OptimResult contains the results of a run of the optimization algorithm,
+    including the optimal point and value found, the DOE points and values which
+    includes initial points and the optimization history.
+    """
     @property
-    def x_opt(self) -> numpy.typing.NDArray[numpy.float64]: ...
+    def x_opt(self) -> numpy.typing.NDArray[numpy.float64]:
+        r"""
+        Optimal x point found by the optimization algorithm
+        """
     @property
-    def y_opt(self) -> numpy.typing.NDArray[numpy.float64]: ...
+    def y_opt(self) -> numpy.typing.NDArray[numpy.float64]:
+        r"""
+        Optimal y point found by the optimization algorithm
+        """
     @property
-    def x_doe(self) -> numpy.typing.NDArray[numpy.float64]: ...
+    def x_doe(self) -> numpy.typing.NDArray[numpy.float64]:
+        r"""
+        DOE x points, including initial points and optimization history
+        """
     @property
-    def y_doe(self) -> numpy.typing.NDArray[numpy.float64]: ...
+    def y_doe(self) -> numpy.typing.NDArray[numpy.float64]:
+        r"""
+        DOE y points, including initial points and optimization history
+        """
 
 @typing.final
 class QEiConfig:
@@ -699,6 +713,9 @@ class QEiConfig:
 
 @typing.final
 class RegressionSpec:
+    r"""
+    RegressionSpec is a bitfield that specifies which regression terms to include in the model.
+    """
     ALL: builtins.int = 7
     CONSTANT: builtins.int = 1
     LINEAR: builtins.int = 2
@@ -706,15 +723,71 @@ class RegressionSpec:
 
 @typing.final
 class RunInfo:
+    r"""
+    RunInfo contains information about a single run of the optimization algorithm,
+    the name of the function being optimized and the run number (useful for logging and saving results).
+    This is given by the user when calling the optimization function and is used for logging and saving results.
+    This information is also returned in the RunStatus to allow the user to correlate the results
+    with the function and run number.
+    """
     @property
-    def fname(self) -> builtins.str: ...
+    def fname(self) -> builtins.str:
+        r"""
+        A name for the function being optimized, used for logging and saving results
+        """
     @fname.setter
-    def fname(self, value: builtins.str) -> None: ...
+    def fname(self, value: builtins.str) -> None:
+        r"""
+        A name for the function being optimized, used for logging and saving results
+        """
     @property
-    def num(self) -> builtins.int: ...
+    def num(self) -> builtins.int:
+        r"""
+        A number for the run, used for logging and saving results
+        """
     @num.setter
-    def num(self, value: builtins.int) -> None: ...
-    def __new__(cls, fname: builtins.str, num: builtins.int = 0) -> RunInfo: ...
+    def num(self, value: builtins.int) -> None:
+        r"""
+        A number for the run, used for logging and saving results
+        """
+    def __new__(cls, fname: builtins.str = 'fobj', num: builtins.int = 1) -> RunInfo: ...
+
+@typing.final
+class RunStatus:
+    r"""
+    RunStatus contains information about the status of a run of the optimization algorithm
+    It is returned by the optimizer together with the optimization results.
+    """
+    @property
+    def info(self) -> RunInfo:
+        r"""
+        Information about the run, provided by the user when calling the optimization function
+        """
+    @property
+    def exit(self) -> ExitStatus:
+        r"""
+        Exit status of the optimization algorithm, which indicates the reason for termination of the algorithm
+        """
+    @property
+    def init_doe_size(self) -> builtins.int:
+        r"""
+        Number of points in the initial DOE, which is useful to correlate with the results and understand the behavior of the optimization algorithm
+        """
+    @property
+    def best_iter(self) -> builtins.int:
+        r"""
+        Best iteration of the optimization algorithm, allows to retrieve optimal values in the optimization history
+        """
+    @property
+    def total_iters(self) -> builtins.int:
+        r"""
+        Total number of iterations performed by the optimization algorithm
+        """
+    @property
+    def elapsed_time(self) -> builtins.float:
+        r"""
+        Elapsed time of the optimization algorithm in seconds
+        """
 
 @typing.final
 class SparseGpMix:
@@ -979,6 +1052,9 @@ class TregoConfig:
 
 @typing.final
 class XSpec:
+    r"""
+    XSpec specifies the type and limits of the input variables (aka design space).
+    """
     @property
     def xtype(self) -> XType: ...
     @property
@@ -989,33 +1065,139 @@ class XSpec:
 
 @typing.final
 class ConstraintStrategy(enum.Enum):
+    r"""
+    ConstraintStrategy specifies the strategy to use for handling constraints in infill optimization.
+    """
     MC = ...
+    r"""
+    Mean of the GP is used to evaluate the constraint, which is equivalent to ignoring the uncertainty on the constraint
+    """
     UTB = ...
+    r"""
+    Upper trusted bound of the GP is used to evaluate the constraint, which takes into account the uncertainty on the constraint
+    """
+
+@typing.final
+class ExitStatus(enum.Enum):
+    r"""
+    ExitStatus specifies the reason for the termination of the optimization algorithm.
+    """
+    MAX_ITERS_REACHED = ...
+    r"""
+    Reached maximum number of iterations
+    """
+    TARGET_COST_REACHED = ...
+    r"""
+    Reached target cost function value
+    """
+    INTERRUPT = ...
+    r"""
+    Algorithm manually interrupted with SIGINT (Ctrl+C), SIGTERM or SIGHUP
+    """
+    SOLVER_CONVERGED = ...
+    r"""
+    Algorithm peek at the same point twice. We consider it is converged.
+    """
+    TIMEOUT = ...
+    r"""
+    Timeout reached
+    """
+    UNEXPECTED_EXIT = ...
+    r"""
+    Solver unexpected exit. See logs for details.
+    """
 
 @typing.final
 class FailsafeStrategy(enum.Enum):
+    r"""
+    FailsafeStrategy specifies the strategy to use for handling failures during infill optimization.
+    """
     REJECTION = ...
+    r"""
+    The point is ignored, the optimization continues but may fail to explore
+    another region of the search space
+    """
     IMPUTATION = ...
+    r"""
+    The point is added to the DOE with a penalized value, which allows
+    the optimization to continue exploring other regions of the search space
+    """
     VIABILITY = ...
+    r"""
+    The viability of the point is modeled with a surrogate, which allows the optimization
+    to learn which regions of the search space are more likely to fail and avoid them in the future
+    """
 
 @typing.final
 class InfillOptimizer(enum.Enum):
+    r"""
+    InfillOptimizer specifies the optimization algorithm to use for infill optimization.
+    """
     COBYLA = ...
+    r"""
+    Gradient free optimization algorithm that uses a simplex of n+1 points for n-dimensional optimization
+    """
     SLSQP = ...
+    r"""
+    Gradient based optimization algorithm that uses a quasi-Newton method to optimize the acquisition function
+    """
 
 @typing.final
 class InfillStrategy(enum.Enum):
+    r"""
+    InfillStrategy specifies the acquisition function to use for infill optimization.
+    """
     EI = ...
+    r"""
+    Expected Improvement
+    see Mockus et al. (1978) "The application of Bayesian methods for seeking the extremum"
+    """
     WB2 = ...
+    r"""
+    Warnes and Barnes 2nd EI improvement, shift EI by the GP mean
+    easier to optimize than EI but may not explore as much as EI
+    see Warnes and Barnes (2020) "A new acquisition function for batch Bayesian optimization"
+    """
     WB2S = ...
+    r"""
+    Warnes and Barnes 2nd scaling to improve exploration
+    """
     LOG_EI = ...
+    r"""
+    Logarithm of Expected Improvement
+    see Ament et al. (2020) "Logarithmic Expected Improvement for Robust and Noisy Bayesian Optimization"
+    """
 
 @typing.final
 class QEiStrategy(enum.Enum):
+    r"""
+    QEiStrategy specifies the strategy to use for handling constraints in infill optimization.
+    see QEI is the multi-point extension of EI, see Chevalier and Ginsbourger (2013)
+    "Fast Computation of the Multi-Points Expected Improvement with Applications in Batch Selection"
+    """
     KB = ...
+    r"""
+    Kriging Believer, the next point is added to the GP with its predicted mean value,
+    which is equivalent to assuming that the prediction is perfect
+    """
     KBLB = ...
+    r"""
+    Kriging Believer lower bound, the next point is added to the GP with
+    its predicted mean value minus a multiple of the predicted standard deviation,
+    which is equivalent to assuming that the prediction is pessimistic
+    """
     KBUB = ...
+    r"""
+    Kriging Believer upper bound, the next point is added to the GP with
+    its predicted mean value plus a multiple of the predicted standard deviation,
+    which is equivalent to assuming that the prediction is optimistic
+    """
     CLMIN = ...
+    r"""
+    Constant Liar, the next point is added to the GP by using the current minimum
+    value observed in the DOE, which is equivalent to assuming that
+    the prediction is the current best value
+    """
 
 @typing.final
 class Recombination(enum.Enum):
@@ -1043,11 +1225,24 @@ class Sampling(enum.Enum):
 
 @typing.final
 class SparseMethod(enum.Enum):
+    r"""
+    SparseMethod specifies the method to use for sparse Gaussian process regression.
+    See "Sparse Gaussian Process Regression for Big Data" by V. Vanhatalo, J. Riihimäki, J. Hartikainen, and A. Vehtari (2010)
+    """
     Fitc = ...
+    r"""
+    FITC (Fully Independent Training Conditional) method, which uses a subset of the training data to make predictions, resulting in a faster but less accurate model
+    """
     Vfe = ...
+    r"""
+    VFE (Variational Free Energy) method, which uses a variational approach to approximate the posterior, resulting in a more accurate but slower model
+    """
 
 @typing.final
 class Verbose(enum.Enum):
+    r"""
+    Verbose specifies the level of verbosity for logging.
+    """
     ERROR = ...
     WARNING = ...
     INFO = ...
@@ -1056,6 +1251,9 @@ class Verbose(enum.Enum):
 
 @typing.final
 class XType(enum.Enum):
+    r"""
+    XType specifies the type of the input variables.
+    """
     FLOAT = ...
     INT = ...
     ORD = ...
