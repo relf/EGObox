@@ -893,6 +893,36 @@ mod tests {
         assert_abs_diff_eq!(expected, res.x_opt, epsilon = 6e-1);
     }
 
+    #[test]
+    #[serial]
+    fn test_sphere_coego_kpls_egor_builder() {
+        let outdir = "target/test_coego_kpls";
+        let dim = 8;
+        let xlimits = Array2::from_shape_vec((dim, 2), [-10.0, 10.0].repeat(dim)).unwrap();
+        let init_doe = Lhs::new(&xlimits)
+            .with_rng(Xoshiro256Plus::seed_from_u64(0))
+            .sample(dim + 1);
+        let max_iters = 70;
+        let res = EgorBuilder::optimize(sphere)
+            .configure(|config| {
+                config
+                    .doe(&init_doe)
+                    .max_iters(max_iters)
+                    .outdir(outdir)
+                    .seed(42)
+                    .coego(CoegoStatus::Enabled(5))
+                    .configure_gp(|gp| gp.kpls(3))
+            })
+            .min_within(&xlimits)
+            .expect("Egor configured")
+            .run()
+            .expect("Minimize failure");
+
+        println!("Sphere CoEGO+KPLS optim result = {res:?}");
+        let expected = Array1::<f64>::zeros(dim);
+        assert_abs_diff_eq!(expected, res.x_opt, epsilon = 6e-1);
+    }
+
     // Objective
     fn g24(x: &ArrayBase<impl Data<Elem = f64>, Ix1>) -> f64 {
         // Function G24: 1 global optimum y_opt = -5.5080 at x_opt =(2.3295, 3.1785)

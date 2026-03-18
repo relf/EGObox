@@ -194,6 +194,14 @@ where
             self.config.gp.correlation_spec,
         );
 
+        let actives = if self.config.gp.kpls_dim.is_some() {
+            // KPLS takes priority: use full theta optimization in PLS-reduced space
+            FullActivity.generate_activity(xt.ncols(), &mut Xoshiro256Plus::from_entropy())
+        } else {
+            // Otherwise, use activity strategy to determine active variables for theta optimization
+            actives.to_owned()
+        };
+
         for (i, active) in actives.outer_iter().enumerate() {
             let gp = match make_clustering {
                 DataClustering::Enabled => {
@@ -207,14 +215,26 @@ where
                             }
                         }
                         NbClusters::Fixed { nb: _ } => {
-                            let theta_tunings = best_theta_inits
-                                .outer_iter()
-                                .map(|init| ThetaTuning::Partial {
-                                    init: init.to_owned(),
-                                    bounds: theta_bounds.to_owned(),
-                                    active: Self::strip(&active.to_vec(), init.len()),
-                                })
-                                .collect::<Vec<_>>();
+                            let theta_tunings = if self.config.gp.kpls_dim.is_some() {
+                                // KPLS takes priority: use full theta optimization
+                                // in PLS-reduced space
+                                best_theta_inits
+                                    .outer_iter()
+                                    .map(|init| ThetaTuning::Full {
+                                        init: init.to_owned(),
+                                        bounds: theta_bounds.to_owned(),
+                                    })
+                                    .collect::<Vec<_>>()
+                            } else {
+                                best_theta_inits
+                                    .outer_iter()
+                                    .map(|init| ThetaTuning::Partial {
+                                        init: init.to_owned(),
+                                        bounds: theta_bounds.to_owned(),
+                                        active: Self::strip(&active.to_vec(), init.len()),
+                                    })
+                                    .collect::<Vec<_>>()
+                            };
                             builder.set_theta_tunings(&theta_tunings);
                             if i == 0 && model_name == "Objective" {
                                 info!(
@@ -262,9 +282,13 @@ where
                                     bounds: theta_bounds.to_owned(),
                                 })
                                 .collect::<Vec<_>>();
-                            self.config
-                                .activity_strategy
-                                .adjust_theta_tuning(&active.to_vec(), &mut inits);
+                            // When KPLS is active, keep full theta optimization
+                            // in PLS-reduced space instead of partial optimization
+                            if self.config.gp.kpls_dim.is_none() {
+                                self.config
+                                    .activity_strategy
+                                    .adjust_theta_tuning(&active.to_vec(), &mut inits);
+                            }
                             if i == 0 && model_name == "Objective" {
                                 info!("Objective model hyperparameters optim init >>> {inits:?}");
                             }

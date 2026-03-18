@@ -83,7 +83,8 @@ pub trait ActivityStrategy: Clone + Sync + Debug {
     /// Whether this strategy uses cooperative (partial) optimization.
     ///
     /// Returns `true` for `CooperativeActivity`, `false` for `FullActivity`.
-    /// Used for validation checks (e.g., CoEGO and KPLS cannot coexist).
+    /// When both CoEGO and KPLS are enabled, KPLS takes priority for GP training
+    /// while CoEGO is used for infill criterion optimization.
     fn is_cooperative(&self) -> bool {
         false
     }

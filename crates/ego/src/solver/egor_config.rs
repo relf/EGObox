@@ -715,11 +715,14 @@ impl EgorConfig {
             )));
         }
 
-        // Check exclusive use of cooperative activity strategy and KPLS
+        // When both CoEGO and KPLS are enabled, KPLS takes priority for GP training
+        // (full theta optimization in reduced PLS space) while CoEGO is used for
+        // infill criterion optimization (partial x-space search).
         if config.activity_strategy.is_cooperative() && config.gp.kpls_dim.is_some() {
-            return Err(crate::EgoError::InvalidConfigError(
-                "EgorConfig invalid: CoEGO and KPLS cannot be used together".to_string(),
-            ));
+            log::info!(
+                "CoEGO and KPLS both enabled: KPLS will be used for GP training, \
+                 CoEGO for infill criterion optimization"
+            );
         }
 
         Ok(config)
