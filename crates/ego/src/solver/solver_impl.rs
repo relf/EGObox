@@ -196,7 +196,7 @@ where
 
         let actives = if self.config.gp.kpls_dim.is_some() {
             // KPLS takes priority: use full theta optimization in PLS-reduced space
-            FullActivity.generate_activity(xt.ncols(), &mut Xoshiro256Plus::from_entropy())
+            FullActivity.activity(actives.len())
         } else {
             // Otherwise, use activity strategy to determine active variables for theta optimization
             actives.to_owned()

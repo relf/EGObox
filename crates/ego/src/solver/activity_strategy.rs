@@ -56,9 +56,7 @@ pub trait ActivityStrategy: Clone + Sync + Debug {
     /// # Arguments
     /// * `nx` - Total number of variables (dimension of design space)
     /// * `rng` - Random number generator for shuffling
-    fn generate_activity(&self, nx: usize, _rng: &mut Xoshiro256Plus) -> Array2<usize> {
-        Array2::from_shape_vec((1, nx), (0..nx).collect()).unwrap()
-    }
+    fn generate_activity(&self, nx: usize, _rng: &mut Xoshiro256Plus) -> Array2<usize>;
 
     /// Adjust theta tuning parameters for partial optimization.
     ///
@@ -105,6 +103,19 @@ impl ActivityStrategy for FullActivity {
     fn name(&self) -> &str {
         "Full Activity"
     }
+
+    fn generate_activity(&self, nx: usize, _rng: &mut Xoshiro256Plus) -> Array2<usize> {
+        self.activity(nx)
+    }
+}
+
+impl FullActivity {
+    /// Generate a full activity matrix where all variables are active.
+    ///
+    /// Returns a single row containing all variable indices.
+    pub fn activity(&self, nx: usize) -> Array2<usize> {
+        Array2::from_shape_vec((1, nx), (0..nx).collect()).unwrap()
+    }
 }
 
 // =============================================================================
@@ -117,7 +128,7 @@ impl ActivityStrategy for FullActivity {
 /// At each iteration, only one group is optimized while others are held fixed.
 /// This reduces the effective dimensionality of the surrogate models.
 ///
-/// Intended for problems with dimension > 100.
+/// Intended for problems with dimension > 10.
 ///
 /// # Parameters
 ///
