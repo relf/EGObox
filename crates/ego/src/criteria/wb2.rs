@@ -23,12 +23,11 @@ impl InfillCriterion for WB2Criterion {
         x: &[f64],
         obj_model: &dyn MixtureGpSurrogate,
         fmin: f64,
-        sigma_weight: Option<f64>,
         scale: Option<f64>,
     ) -> f64 {
         let scale = scale.unwrap_or(self.0.unwrap_or(1.0));
         let pt = ArrayView::from_shape((1, x.len()), x).unwrap();
-        let ei = EI.value(x, obj_model, fmin, sigma_weight, None);
+        let ei = EI.value(x, obj_model, fmin, None);
         scale * ei - obj_model.predict(&pt).unwrap()[0]
     }
 
@@ -39,12 +38,11 @@ impl InfillCriterion for WB2Criterion {
         x: &[f64],
         obj_model: &dyn MixtureGpSurrogate,
         fmin: f64,
-        sigma_weight: Option<f64>,
         scale: Option<f64>,
     ) -> Array1<f64> {
         let scale = scale.unwrap_or(self.0.unwrap_or(1.0));
         let pt = ArrayView::from_shape((1, x.len()), x).unwrap();
-        let grad_ei = EI.grad(x, obj_model, fmin, sigma_weight, None) * scale;
+        let grad_ei = EI.grad(x, obj_model, fmin, None) * scale;
         grad_ei - obj_model.predict_gradients(&pt).unwrap().row(0)
     }
 
@@ -53,12 +51,11 @@ impl InfillCriterion for WB2Criterion {
         x: &ndarray::ArrayView2<f64>,
         obj_model: &dyn MixtureGpSurrogate,
         fmin: f64,
-        sigma_weight: Option<f64>,
     ) -> f64 {
         if let Some(scale) = self.0 {
             scale
         } else {
-            compute_wb2s_scale(x, obj_model, fmin, sigma_weight)
+            compute_wb2s_scale(x, obj_model, fmin)
         }
     }
 }
@@ -68,12 +65,11 @@ pub(crate) fn compute_wb2s_scale(
     x: &ArrayView2<f64>,
     obj_model: &dyn MixtureGpSurrogate,
     fmin: f64,
-    sigma_weight: Option<f64>,
 ) -> f64 {
     let ratio = 100.; // TODO: make it a parameter
     let ei_x = x.map_axis(Axis(1), |xi| {
         let xi = xi.as_standard_layout();
-        EI.value(xi.as_slice().unwrap(), obj_model, fmin, sigma_weight, None)
+        EI.value(xi.as_slice().unwrap(), obj_model, fmin, None)
     });
     let i_max = ei_x.argmax().unwrap();
     let pred_max = obj_model
@@ -125,17 +121,17 @@ mod tests {
         let xtest12 = vec![x1 - h, x2];
         let xtest21 = vec![x1, x2 + h];
         let xtest22 = vec![x1, x2 - h];
-        let fdiff1 = (WB2S.value(&xtest11, bgp.as_ref(), 0.1, None, Some(0.5))
-            - WB2S.value(&xtest12, bgp.as_ref(), 0.1, None, Some(0.5)))
+        let fdiff1 = (WB2S.value(&xtest11, bgp.as_ref(), 0.1, Some(0.5))
+            - WB2S.value(&xtest12, bgp.as_ref(), 0.1, Some(0.5)))
             / (2. * h);
-        let fdiff2 = (WB2S.value(&xtest21, bgp.as_ref(), 0.1, None, Some(0.5))
-            - WB2S.value(&xtest22, bgp.as_ref(), 0.1, None, Some(0.5)))
+        let fdiff2 = (WB2S.value(&xtest21, bgp.as_ref(), 0.1, Some(0.5))
+            - WB2S.value(&xtest22, bgp.as_ref(), 0.1, Some(0.5)))
             / (2. * h);
         println!("fdiff({xtest:?}) = [{fdiff1}, {fdiff2}]");
         println!(
             "grad_wbs2({:?}) = {:?}",
             xtest,
-            WB2S.grad(&xtest21, bgp.as_ref(), 0.1, None, Some(0.5))
+            WB2S.grad(&xtest21, bgp.as_ref(), 0.1, Some(0.5))
         );
 
         let h = 1e-4;

@@ -4,7 +4,7 @@ use crate::errors::{EgoError, Result};
 use crate::solver::solver_computations::MiddlePickerMultiStarter;
 use crate::solver::solver_infill_optim::InfillOptProblem;
 use crate::utils::{
-    EGOBOX_LOG, find_best_result_index_from, is_feasible, select_from_portfolio, update_data,
+    EGOBOX_LOG, find_best_result_index_from, is_feasible, update_data,
     usable_data,
 };
 use crate::{ActivityStrategy, FullActivity, find_best_result_index};
@@ -434,7 +434,6 @@ where
             &cstr_tol,
             fcstrs,
             fmin,
-            1., // FIXME: TREGO does not use sigma weighting portfolio
         );
 
         let all_scale_cstr = concatenate![Axis(0), scale_cstr, scale_fcstr];
@@ -448,7 +447,6 @@ where
             scale_cstr: Some(all_scale_cstr.to_owned()),
             scale_wb2,
             feasibility: state.feasibility,
-            sigma_weight: 1., // FIXME: TREGO does not use sigma weighting portfolio
         }
     }
 
@@ -701,43 +699,14 @@ where
         feasibility: bool,
         rng: &mut Xoshiro256Plus,
     ) -> (Array2<f64>, Array2<f64>, Array2<f64>, Array2<f64>, f64) {
-        let mut portfolio = vec![];
+        debug!("Make surrogate with {x_data}");
+        let mut x_dat = Array2::zeros((0, x_data.ncols()));
+        let mut y_dat = Array2::zeros((0, y_data.ncols()));
+        let mut c_dat = Array2::zeros((0, c_data.ncols()));
+        let mut y_penalized = Array2::zeros((0, y_data.ncols()));
+        let mut infill_val = f64::INFINITY;
 
-        let sigma_weights = if self.config.runtime_flags.use_gp_var_portfolio
-            && self.config.qei_config.batch == 1
-        {
-            // Do not believe GP variance, weight it to generate possibly several clusters
-            // hence several points to add
-            // logspace(0.1, 100., 13) with 1. moved in front
-            vec![
-                1.,
-                0.1,
-                0.1778279410038923,
-                0.31622776601683794,
-                0.5623413251903491,
-                1.7782794100389228,
-                3.1622776601683795,
-                5.623413251903491,
-                10.,
-                17.78279410038923,
-                31.622776601683793,
-                56.23413251903491,
-                100.,
-            ]
-        } else {
-            // Fallback to default GP usage
-            vec![1.]
-        };
-
-        for (j, sigma_weight) in sigma_weights.iter().enumerate() {
-            debug!("Make surrogate with {x_data}");
-            let mut x_dat = Array2::zeros((0, x_data.ncols()));
-            let mut y_dat = Array2::zeros((0, y_data.ncols()));
-            let mut c_dat = Array2::zeros((0, c_data.ncols()));
-            let mut y_penalized = Array2::zeros((0, y_data.ncols()));
-            let mut infill_val = f64::INFINITY;
-
-            for i in 0..self.config.qei_config.batch {
+        for i in 0..self.config.qei_config.batch {
                 let (xt, yt) = if i == 0 {
                     (x_data.to_owned(), y_data.to_owned())
                 } else {
@@ -759,8 +728,7 @@ where
                     };
                     let do_clustering = ((init && i == 0) || recluster).into();
                     let optimize_theta = ((iter as usize * self.config.qei_config.batch + i)
-                        .is_multiple_of(self.config.qei_config.optmod)
-                        && j == 0)
+                        .is_multiple_of(self.config.qei_config.optmod))
                         .into();
 
                     self.make_clustered_surrogate(
@@ -856,7 +824,6 @@ where
                     cstr_tol,
                     cstr_funcs,
                     fmin,
-                    *sigma_weight,
                 );
                 let scale_pov_cstr = Array1::ones((1,)); // PoV cstr is normalized 
                 let all_scale_cstr = concatenate![Axis(0), scale_cstr, scale_fcstr, scale_pov_cstr];
@@ -871,7 +838,6 @@ where
                     scale_cstr: Some(all_scale_cstr.to_owned()),
                     scale_wb2,
                     feasibility,
-                    sigma_weight: *sigma_weight,
                 };
 
                 let cstr_funcs = cstr_funcs
@@ -978,20 +944,7 @@ where
                     }
                 }
             }
-            portfolio.push((x_dat.to_owned(), y_dat, c_dat, y_penalized, infill_val));
-        }
-        let (x_dat, y_dat, c_dat, y_penalized, infill_value) = if portfolio.len() > 1 {
-            info!(
-                "Portfolio : {:?}",
-                portfolio.iter().map(|v| v.0[[0, 0]]).collect::<Vec<_>>()
-            );
-            // Use portfolio strategy: Pick one point from portfolio
-            select_from_portfolio(portfolio)
-        } else {
-            // Fallback to default returning one or several points (in case of qEI strategy)
-            portfolio.remove(0)
-        };
 
-        (x_dat, y_dat, c_dat, y_penalized, infill_value)
+        (x_dat, y_dat, c_dat, y_penalized, infill_val)
     }
 }

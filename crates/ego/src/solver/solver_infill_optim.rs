@@ -103,7 +103,6 @@ where
                         xbest: xcoop,
                         fmin,
                         feasibility,
-                        sigma_weight,
                         ..
                     } = params;
                     let mut xcoop = xcoop.clone();
@@ -126,7 +125,6 @@ where
                                 *scale_infill_obj,
                                 *scale_wb2,
                                 *feasibility,
-                                *sigma_weight,
                             )
                         } else {
                             self.eval_grad_infill_obj(
@@ -156,7 +154,6 @@ where
                             *scale_infill_obj,
                             *scale_wb2,
                             *feasibility,
-                            *sigma_weight,
                         )
                     } else {
                         self.eval_infill_obj(
@@ -165,7 +162,6 @@ where
                             *fmin,
                             *scale_infill_obj,
                             *scale_wb2,
-                            *sigma_weight,
                         )
                     }
                 };

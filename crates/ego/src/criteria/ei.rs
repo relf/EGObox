@@ -24,7 +24,6 @@ impl InfillCriterion for ExpectedImprovement {
         x: &[f64],
         obj_model: &dyn MixtureGpSurrogate,
         fmin: f64,
-        sigma_weight: Option<f64>,
         _scale: Option<f64>,
     ) -> f64 {
         let pt = ArrayView::from_shape((1, x.len()), x).unwrap();
@@ -34,8 +33,7 @@ impl InfillCriterion for ExpectedImprovement {
                     0.0
                 } else {
                     let pred = p[0];
-                    let k = sigma_weight.unwrap_or(1.0);
-                    let sigma = k * s[0].sqrt();
+                    let sigma = s[0].sqrt();
                     let args0 = (fmin - pred) / sigma;
                     let args1 = args0 * norm_cdf(args0);
                     let args2 = norm_pdf(args0);
@@ -53,7 +51,6 @@ impl InfillCriterion for ExpectedImprovement {
         x: &[f64],
         obj_model: &dyn MixtureGpSurrogate,
         fmin: f64,
-        sigma_weight: Option<f64>,
         _scale: Option<f64>,
     ) -> Array1<f64> {
         let pt = ArrayView::from_shape((1, x.len()), x).unwrap();
@@ -64,17 +61,16 @@ impl InfillCriterion for ExpectedImprovement {
                 } else {
                     let pred = p[0];
                     let diff_y = fmin - pred;
-                    let k = sigma_weight.unwrap_or(1.0);
                     let sigma = s[0].sqrt();
-                    let arg = (fmin - pred) / (k * sigma);
+                    let arg = (fmin - pred) / sigma;
 
                     let (y_prime, var_prime) = obj_model.predict_valvar_gradients(&pt).unwrap();
                     let y_prime = y_prime.row(0);
                     let sig_2_prime = var_prime.row(0);
-                    let sig_prime = sig_2_prime.mapv(|v| k * v / (2. * sigma));
-                    let arg_prime = y_prime.mapv(|v| v / (-k * sigma))
-                        - diff_y.to_owned() * sig_prime.mapv(|v| v / (k * sigma * k * sigma));
-                    let factor = k * sigma * (-arg / SQRT_2PI) * (-(arg * arg) / 2.).exp();
+                    let sig_prime = sig_2_prime.mapv(|v| v / (2. * sigma));
+                    let arg_prime = y_prime.mapv(|v| v / (-sigma))
+                        - diff_y.to_owned() * sig_prime.mapv(|v| v / (sigma * sigma));
+                    let factor = sigma * (-arg / SQRT_2PI) * (-(arg * arg) / 2.).exp();
 
                     let arg1 = y_prime.mapv(|v| v * (-norm_cdf(arg)));
                     let arg2 = diff_y * norm_pdf(arg) * arg_prime.to_owned();
@@ -108,7 +104,6 @@ impl InfillCriterion for LogExpectedImprovement {
         x: &[f64],
         obj_model: &dyn MixtureGpSurrogate,
         fmin: f64,
-        _sigma_weight: Option<f64>,
         _scale: Option<f64>,
     ) -> f64 {
         let pt = ArrayView::from_shape((1, x.len()), x).unwrap();
@@ -135,7 +130,6 @@ impl InfillCriterion for LogExpectedImprovement {
         x: &[f64],
         obj_model: &dyn MixtureGpSurrogate,
         fmin: f64,
-        _sigma_weight: Option<f64>,
         _scale: Option<f64>,
     ) -> Array1<f64> {
         let pt = ArrayView::from_shape((1, x.len()), x).unwrap();
@@ -201,10 +195,10 @@ mod tests {
             .expect("Mixint surrogate creation");
 
         let x = vec![3.];
-        let grad = EI.grad(&x, &mixi_moe, 0., Some(0.75), None);
+        let grad = EI.grad(&x, &mixi_moe, 0., None);
 
         let f = |x: &Vec<f64>| -> std::result::Result<f64, anyhow::Error> {
-            Ok(EI.value(x, &mixi_moe, 0., Some(0.75), None))
+            Ok(EI.value(x, &mixi_moe, 0., None))
         };
         let grad_central = (vec::central_diff(&f)(&x)).unwrap();
         assert_abs_diff_eq!(grad[0], grad_central[0], epsilon = 1e-6);
@@ -252,11 +246,11 @@ mod tests {
         let x = Array1::linspace(0., 25., 100);
         write_npy("logei_x.npy", &x).expect("save x");
 
-        let grad = x.mapv(|v| LOG_EI.grad(&[v], &mixi_moe, 0., None, None)[0]);
+        let grad = x.mapv(|v| LOG_EI.grad(&[v], &mixi_moe, 0., None)[0]);
         write_npy("logei_grad.npy", &grad).expect("save grad log ei");
 
         let f = |x: &Vec<f64>| -> std::result::Result<f64, anyhow::Error> {
-            Ok(LOG_EI.value(x, &mixi_moe, 0., None, None))
+            Ok(LOG_EI.value(x, &mixi_moe, 0., None))
         };
         let grad_central = x.mapv(|v| vec::central_diff(&f)(&vec![v]).unwrap()[0]);
         write_npy("logei_fdiff.npy", &grad_central).expect("save fdiff log ei");
