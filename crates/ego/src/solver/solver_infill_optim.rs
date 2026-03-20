@@ -274,30 +274,8 @@ where
                     infill_data.xbest = xopt_coop.clone();
                     let xopt_coop = Array1::from(xopt_coop);
 
-                    if crate::solver::coego::COEGO_IMPROVEMENT_CHECK {
-                        let (is_better, best) = self.is_objective_improved(
-                            &current_best_point,
-                            &xopt_coop,
-                            obj_model,
-                            cstr_models,
-                            cstr_tols,
-                            &cstr_funcs,
-                        );
-                        if is_better || i == 0 {
-                            if i > 0 {
-                                info!(
-                                    "Partial infill criterion optim c={} has better result={} at x={}",
-                                    i, best.0, xopt_coop
-                                );
-                            }
-                            best_point = (res.0, xopt_coop);
-                            current_best_point = best;
-                        }
-                    } else {
-                        best_point = (res.0, xopt_coop.to_owned());
-                        current_best_point =
-                            (xopt_coop, current_best_point.1, current_best_point.2);
-                    }
+                    best_point = (res.0, xopt_coop.to_owned());
+                    current_best_point = (xopt_coop, current_best_point.1, current_best_point.2);
                     success = true;
                 }
                 n_optim += 1;

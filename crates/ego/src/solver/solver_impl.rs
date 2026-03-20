@@ -27,8 +27,6 @@ use rand_xoshiro::Xoshiro256Plus;
 use rayon::prelude::*;
 use serde::{Serialize, de::DeserializeOwned};
 
-use super::coego::COEGO_IMPROVEMENT_CHECK;
-
 impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<SB, C> {
     /// Constructor of the optimization of the function `f` with specified random generator
     /// to get reproducibility.
@@ -172,7 +170,6 @@ where
         builder.set_recombination(self.config.gp.recombination);
         builder.set_optim_params(self.config.gp.n_start, self.config.gp.max_eval);
         let mut model = None;
-        let mut best_likelihood = -f64::INFINITY;
 
         let dim = self.config.gp.kpls_dim.unwrap_or(xt.ncols());
 
@@ -318,39 +315,14 @@ where
             // Cooperative activity: update theta in mono cluster setting
             if self.config.activity_strategy.is_cooperative() {
                 if self.config.gp.n_clusters.is_mono() {
-                    if COEGO_IMPROVEMENT_CHECK {
-                        let likelihood = gp.experts()[0].likelihood();
-                        // We update only if better likelihood
-                        if likelihood > best_likelihood && model_name == "Objective" {
-                            if i > 0 {
-                                log::info!(
-                                    "Partial likelihood optim c={i} has improved value={likelihood}"
-                                );
-                            };
-                            best_likelihood = likelihood;
-                            best_theta_inits = Array2::from_shape_vec(
-                                (gp.experts().len(), gp.experts()[0].theta().len()),
-                                gp.experts()
-                                    .iter()
-                                    .flat_map(|expert| expert.theta().to_vec())
-                                    .collect(),
-                            )
-                            .expect("Theta initialization failure");
-                        } else if model_name == "Objective" {
-                            log::debug!(
-                                "Partial likelihood optim c={i} has not improved value={likelihood}"
-                            );
-                        };
-                    } else {
-                        best_theta_inits = Array2::from_shape_vec(
-                            (gp.experts().len(), gp.experts()[0].theta().len()),
-                            gp.experts()
-                                .iter()
-                                .flat_map(|expert| expert.theta().to_vec())
-                                .collect(),
-                        )
-                        .expect("Theta initialization failure");
-                    }
+                    best_theta_inits = Array2::from_shape_vec(
+                        (gp.experts().len(), gp.experts()[0].theta().len()),
+                        gp.experts()
+                            .iter()
+                            .flat_map(|expert| expert.theta().to_vec())
+                            .collect(),
+                    )
+                    .expect("Theta initialization failure");
                 } else {
                     log::warn!(
                         "Cooperative activity theta update wrt likelihood not implemented in multi-cluster setting"
