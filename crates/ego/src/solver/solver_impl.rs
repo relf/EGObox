@@ -170,7 +170,6 @@ where
         builder.set_recombination(self.config.gp.recombination);
         builder.set_optim_params(self.config.gp.n_start, self.config.gp.max_eval);
         let mut model = None;
-        let mut best_likelihood = -f64::INFINITY;
 
         let dim = self.config.gp.kpls_dim.unwrap_or(xt.ncols());
 
