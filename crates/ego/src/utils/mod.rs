@@ -4,7 +4,6 @@ mod find_result;
 mod hot_start;
 mod logei_helper;
 mod misc;
-mod portfolio;
 mod sort_axis;
 mod start_points;
 
@@ -18,7 +17,6 @@ pub use find_result::*;
 pub use hot_start::*;
 pub use logei_helper::*;
 pub use misc::*;
-pub use portfolio::*;
 pub use start_points::*;
 
 /// Env variable to enable logging feature
@@ -30,9 +28,6 @@ pub const EGOR_USE_MAX_PROBA_OF_FEASIBILITY: &str = "EGOR_USE_MAX_PROBA_OF_FEASI
 /// Env variable to disable the use of the middle-picker multistarter method for global infill criterion optimization
 pub const EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER: &str =
     "EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER";
-
-/// Env variable to enable the portfolio method used for global infill criterion optimization
-pub const EGOR_USE_GP_VAR_PORTFOLIO: &str = "EGOR_USE_GP_VAR_PORTFOLIO";
 
 /// Env variable to trigger GP recording
 pub const EGOR_USE_GP_RECORDER: &str = "EGOR_USE_GP_RECORDER";

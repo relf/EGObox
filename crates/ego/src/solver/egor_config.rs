@@ -26,7 +26,7 @@
 //!
 //! // Configure specific flags
 //! let flags = RuntimeFlags::none()
-//!     .use_gp_var_portfolio(true);
+//!     .use_max_proba_of_feasibility(true);
 //!
 //! // Or use default (reads from environment variables for backward compatibility)
 //! let flags = RuntimeFlags::default();
@@ -41,7 +41,6 @@
 //!     .max_iters(50)
 //!     .n_doe(10)
 //!     .configure_gp(|gp| gp.n_clusters(NbClusters::Auto))
-//!     .configure_runtime_flags(|f| f.use_gp_var_portfolio(true))
 //!     .check()?;
 //!
 //! // TREGO with custom parameters
@@ -56,7 +55,7 @@
 //! ```
 
 use crate::utils::{
-    EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER, EGOR_USE_GP_RECORDER, EGOR_USE_GP_VAR_PORTFOLIO,
+    EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER, EGOR_USE_GP_RECORDER,
     EGOR_USE_MAX_PROBA_OF_FEASIBILITY, EGOR_USE_RUN_RECORDER,
 };
 use crate::{HotStartMode, criteria::*, errors::Result, types::*};
@@ -249,8 +248,6 @@ pub const EGO_DEFAULT_N_START: usize = 20;
 pub struct RuntimeFlags {
     /// Use max probability of feasibility for infill criterion (env: EGOR_USE_MAX_PROBA_OF_FEASIBILITY)
     pub use_max_proba_of_feasibility: bool,
-    /// Use GP variance portfolio for infill optimization (env: EGOR_USE_GP_VAR_PORTFOLIO)
-    pub use_gp_var_portfolio: bool,
     /// Disable middle-picker multistarter for infill optimization (env: EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER)
     pub disable_middlepicker_multistarter: bool,
     /// Enable GP model recording to files (env: EGOR_USE_GP_RECORDER)
@@ -264,7 +261,6 @@ impl Default for RuntimeFlags {
     fn default() -> Self {
         RuntimeFlags {
             use_max_proba_of_feasibility: std::env::var(EGOR_USE_MAX_PROBA_OF_FEASIBILITY).is_ok(),
-            use_gp_var_portfolio: std::env::var(EGOR_USE_GP_VAR_PORTFOLIO).is_ok(),
             disable_middlepicker_multistarter: std::env::var(
                 EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER,
             )
@@ -280,7 +276,6 @@ impl RuntimeFlags {
     pub fn none() -> Self {
         RuntimeFlags {
             use_max_proba_of_feasibility: false,
-            use_gp_var_portfolio: false,
             disable_middlepicker_multistarter: false,
             use_gp_recorder: false,
             use_run_recorder: false,
@@ -290,12 +285,6 @@ impl RuntimeFlags {
     /// Use max probability of feasibility for infill criterion.
     pub fn use_max_proba_of_feasibility(mut self, enabled: bool) -> Self {
         self.use_max_proba_of_feasibility = enabled;
-        self
-    }
-
-    /// Use GP variance portfolio for infill optimization.
-    pub fn use_gp_var_portfolio(mut self, enabled: bool) -> Self {
-        self.use_gp_var_portfolio = enabled;
         self
     }
 
@@ -684,7 +673,7 @@ impl EgorConfig {
     /// # Example
     /// ```ignore
     /// config.configure_runtime_flags(|flags| flags
-    ///     .use_gp_var_portfolio(true))
+    ///     .use_max_proba_of_feasibility(true))
     /// ```
     pub fn configure_runtime_flags<F: FnOnce(RuntimeFlags) -> RuntimeFlags>(
         mut self,

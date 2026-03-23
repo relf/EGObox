@@ -95,59 +95,30 @@ where
             let n_max_optim = 3;
 
             let active = active.to_vec();
-            let obj =
-                |x: &[f64], gradient: Option<&mut [f64]>, params: &mut InfillObjData<f64>| -> f64 {
-                    let InfillObjData {
-                        scale_infill_obj,
-                        scale_wb2,
-                        xbest: xcoop,
-                        fmin,
-                        feasibility,
-                        sigma_weight,
-                        ..
-                    } = params;
-                    let mut xcoop = xcoop.clone();
-                    coego::set_active_x(&mut xcoop, &active, x);
+            let obj = |x: &[f64],
+                       gradient: Option<&mut [f64]>,
+                       params: &mut InfillObjData<f64>|
+             -> f64 {
+                let InfillObjData {
+                    scale_infill_obj,
+                    scale_wb2,
+                    xbest: xcoop,
+                    fmin,
+                    feasibility,
+                    ..
+                } = params;
+                let mut xcoop = xcoop.clone();
+                coego::set_active_x(&mut xcoop, &active, x);
 
-                    // Defensive programming NlOpt::Cobyla may pass NaNs
-                    if xcoop.iter().any(|x| x.is_nan()) {
-                        return f64::INFINITY;
-                    }
+                // Defensive programming NlOpt::Cobyla may pass NaNs
+                if xcoop.iter().any(|x| x.is_nan()) {
+                    return f64::INFINITY;
+                }
 
-                    if let Some(grad) = gradient {
-                        let g_infill_obj = if self.config.cstr_infill {
-                            // Use constrained infill criterion
-                            self.eval_grad_infill_obj_with_cstrs(
-                                &xcoop,
-                                obj_model,
-                                cstr_models,
-                                cstr_tols,
-                                *fmin,
-                                *scale_infill_obj,
-                                *scale_wb2,
-                                *feasibility,
-                                *sigma_weight,
-                            )
-                        } else {
-                            self.eval_grad_infill_obj(
-                                &xcoop,
-                                obj_model,
-                                *fmin,
-                                *scale_infill_obj,
-                                *scale_wb2,
-                            )
-                        };
-                        let g_infill_obj = g_infill_obj
-                            .iter()
-                            .enumerate()
-                            .filter(|(i, _)| active.contains(i))
-                            .map(|(_, &g)| g)
-                            .collect::<Vec<_>>();
-                        grad[..].copy_from_slice(&g_infill_obj);
-                    }
-                    if self.config.cstr_infill {
+                if let Some(grad) = gradient {
+                    let g_infill_obj = if self.config.cstr_infill {
                         // Use constrained infill criterion
-                        self.eval_infill_obj_with_cstrs(
+                        self.eval_grad_infill_obj_with_cstrs(
                             &xcoop,
                             obj_model,
                             cstr_models,
@@ -156,19 +127,40 @@ where
                             *scale_infill_obj,
                             *scale_wb2,
                             *feasibility,
-                            *sigma_weight,
                         )
                     } else {
-                        self.eval_infill_obj(
+                        self.eval_grad_infill_obj(
                             &xcoop,
                             obj_model,
                             *fmin,
                             *scale_infill_obj,
                             *scale_wb2,
-                            *sigma_weight,
                         )
-                    }
-                };
+                    };
+                    let g_infill_obj = g_infill_obj
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, _)| active.contains(i))
+                        .map(|(_, &g)| g)
+                        .collect::<Vec<_>>();
+                    grad[..].copy_from_slice(&g_infill_obj);
+                }
+                if self.config.cstr_infill {
+                    // Use constrained infill criterion
+                    self.eval_infill_obj_with_cstrs(
+                        &xcoop,
+                        obj_model,
+                        cstr_models,
+                        cstr_tols,
+                        *fmin,
+                        *scale_infill_obj,
+                        *scale_wb2,
+                        *feasibility,
+                    )
+                } else {
+                    self.eval_infill_obj(&xcoop, obj_model, *fmin, *scale_infill_obj, *scale_wb2)
+                }
+            };
 
             let cstrs: Vec<_> = if self.config.cstr_infill {
                 // When constrained infill criterion is used

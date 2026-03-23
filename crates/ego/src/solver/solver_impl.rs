@@ -4,8 +4,7 @@ use crate::errors::{EgoError, Result};
 use crate::solver::solver_computations::MiddlePickerMultiStarter;
 use crate::solver::solver_infill_optim::InfillOptProblem;
 use crate::utils::{
-    EGOBOX_LOG, find_best_result_index_from, is_feasible, select_from_portfolio, update_data,
-    usable_data,
+    EGOBOX_LOG, find_best_result_index_from, is_feasible, update_data, usable_data,
 };
 use crate::{ActivityStrategy, FullActivity, find_best_result_index};
 use crate::{DEFAULT_CSTR_TOL, EgorSolver, MAX_POINT_ADDITION_RETRY, ValidEgorConfig};
@@ -406,7 +405,6 @@ where
             &cstr_tol,
             fcstrs,
             fmin,
-            1., // FIXME: TREGO does not use sigma weighting portfolio
         );
 
         let all_scale_cstr = concatenate![Axis(0), scale_cstr, scale_fcstr];
@@ -420,7 +418,6 @@ where
             scale_cstr: Some(all_scale_cstr.to_owned()),
             scale_wb2,
             feasibility: state.feasibility,
-            sigma_weight: 1., // FIXME: TREGO does not use sigma weighting portfolio
         }
     }
 
@@ -673,297 +670,245 @@ where
         feasibility: bool,
         rng: &mut Xoshiro256Plus,
     ) -> (Array2<f64>, Array2<f64>, Array2<f64>, Array2<f64>, f64) {
-        let mut portfolio = vec![];
+        debug!("Make surrogate with {x_data}");
+        let mut x_dat = Array2::zeros((0, x_data.ncols()));
+        let mut y_dat = Array2::zeros((0, y_data.ncols()));
+        let mut c_dat = Array2::zeros((0, c_data.ncols()));
+        let mut y_penalized = Array2::zeros((0, y_data.ncols()));
+        let mut infill_val = f64::INFINITY;
 
-        let sigma_weights = if self.config.runtime_flags.use_gp_var_portfolio
-            && self.config.qei_config.batch == 1
-        {
-            // Do not believe GP variance, weight it to generate possibly several clusters
-            // hence several points to add
-            // logspace(0.1, 100., 13) with 1. moved in front
-            vec![
-                1.,
-                0.1,
-                0.1778279410038923,
-                0.31622776601683794,
-                0.5623413251903491,
-                1.7782794100389228,
-                3.1622776601683795,
-                5.623413251903491,
-                10.,
-                17.78279410038923,
-                31.622776601683793,
-                56.23413251903491,
-                100.,
-            ]
-        } else {
-            // Fallback to default GP usage
-            vec![1.]
-        };
+        for i in 0..self.config.qei_config.batch {
+            let (xt, yt) = if i == 0 {
+                (x_data.to_owned(), y_data.to_owned())
+            } else {
+                (
+                    concatenate![Axis(0), x_data.to_owned(), x_dat.to_owned()],
+                    concatenate![Axis(0), y_data.to_owned(), y_dat.to_owned()],
+                )
+            };
 
-        for (j, sigma_weight) in sigma_weights.iter().enumerate() {
-            debug!("Make surrogate with {x_data}");
-            let mut x_dat = Array2::zeros((0, x_data.ncols()));
-            let mut y_dat = Array2::zeros((0, y_data.ncols()));
-            let mut c_dat = Array2::zeros((0, c_data.ncols()));
-            let mut y_penalized = Array2::zeros((0, y_data.ncols()));
-            let mut infill_val = f64::INFINITY;
+            log::debug!("activity: {activity:?}");
+            let actives = activity;
 
-            for i in 0..self.config.qei_config.batch {
-                let (xt, yt) = if i == 0 {
-                    (x_data.to_owned(), y_data.to_owned())
+            info!("Train surrogates with {} points...", xt.nrows());
+            let models_and_inits = (0..=self.config.n_cstr).into_par_iter().map(|k| {
+                let name = if k == 0 {
+                    "Objective".to_string()
                 } else {
-                    (
-                        concatenate![Axis(0), x_data.to_owned(), x_dat.to_owned()],
-                        concatenate![Axis(0), y_data.to_owned(), y_dat.to_owned()],
-                    )
+                    format!("Constraint[{k}]")
                 };
+                let do_clustering = ((init && i == 0) || recluster).into();
+                let optimize_theta = ((iter as usize * self.config.qei_config.batch + i)
+                    .is_multiple_of(self.config.qei_config.optmod))
+                .into();
 
-                log::debug!("activity: {activity:?}");
-                let actives = activity;
-
-                info!("Train surrogates with {} points...", xt.nrows());
-                let models_and_inits = (0..=self.config.n_cstr).into_par_iter().map(|k| {
-                    let name = if k == 0 {
-                        "Objective".to_string()
-                    } else {
-                        format!("Constraint[{k}]")
-                    };
-                    let do_clustering = ((init && i == 0) || recluster).into();
-                    let optimize_theta = ((iter as usize * self.config.qei_config.batch + i)
-                        .is_multiple_of(self.config.qei_config.optmod)
-                        && j == 0)
-                        .into();
-
-                    self.make_clustered_surrogate(
-                        &name,
-                        &xt,
-                        &yt.slice(s![.., k]).to_owned(),
-                        do_clustering,
-                        optimize_theta,
-                        clusterings[k].as_ref(),
-                        theta_inits[k].as_ref(),
-                        actives,
-                    )
-                });
-                let (models, inits): (Vec<_>, Vec<_>) = models_and_inits.unzip();
-
-                // Handle failsafe imputation on the first iteration
-                if iter == 0
-                    && i == 0
-                    && let Some(xfail_points) = x_fail_points
-                {
-                    match self.config.failsafe_strategy {
-                        FailsafeStrategy::Imputation => {
-                            // we have to predict penalization on these points
-                            // and add them to data
-
-                            info!(
-                                "Impute failed initial points ({} points)...",
-                                xfail_points.nrows()
-                            );
-                            let mut y_pen_imputed =
-                                Array2::zeros((xfail_points.nrows(), 1 + self.config.n_cstr));
-                            Zip::from(y_pen_imputed.rows_mut())
-                                .and(xfail_points.rows())
-                                .for_each(|mut y_row, xfail| {
-                                    let y_pred = self.compute_penalized_point(
-                                        &xfail,
-                                        models[0].as_ref(),
-                                        &models[1..],
-                                    );
-                                    y_row.assign(&y_pred);
-                                });
-                            (x_dat, y_dat, c_dat, y_penalized) = (
-                                xfail_points.to_owned(),
-                                Array2::from_elem((xfail_points.nrows(), y_data.ncols()), f64::NAN),
-                                self.eval_fcstrs(cstr_funcs, xfail_points),
-                                y_pen_imputed,
-                            );
-                        }
-                        FailsafeStrategy::Rejection | FailsafeStrategy::Viability => (),
-                    }
-                };
-
-                #[cfg(feature = "persistent")]
-                if self.config.runtime_flags.use_gp_recorder {
-                    use crate::utils::{EGOR_GP_FILENAME, EGOR_INITIAL_GP_FILENAME, gp_recorder};
-
-                    let default_dir = String::from("./");
-                    let outdir = self.config.outdir.as_ref().unwrap_or(&default_dir);
-                    let filename = if iter == 0 {
-                        EGOR_INITIAL_GP_FILENAME
-                    } else {
-                        EGOR_GP_FILENAME
-                    };
-                    let filepath = std::path::Path::new(outdir).join(filename);
-                    match gp_recorder::save_gp_models(&filepath, &models) {
-                        Ok(_) => log::info!("GP models saved to {:?}", filepath),
-                        Err(err) => log::info!("Cannot save GP models: {:?}", err),
-                    };
-                }
-
-                (0..=self.config.n_cstr).for_each(|k| {
-                    clusterings[k] = Some(models[k].to_clustering());
-                    theta_inits[k] = Some(inits[k].to_owned());
-                });
-
-                let (obj_model, cstr_models) = models.split_first().unwrap();
-                debug!("... surrogates trained");
-
-                let fmin = y_data[[best_index, 0]];
-                let ybest = y_data.row(best_index).to_owned();
-                let xbest = x_data.row(best_index).to_owned();
-                let cbest = c_data.row(best_index).to_owned();
-
-                let sub_rng = Xoshiro256Plus::seed_from_u64(rng.r#gen());
-                let sampling = Lhs::new(&self.xlimits)
-                    .kind(LhsKind::Maximin)
-                    .with_rng(sub_rng);
-
-                let (scale_infill_obj, scale_cstr, scale_fcstr, scale_wb2) = self.compute_scaling(
-                    &sampling,
-                    obj_model.as_ref(),
-                    cstr_models,
-                    cstr_tol,
-                    cstr_funcs,
-                    fmin,
-                    *sigma_weight,
-                );
-                let scale_pov_cstr = Array1::ones((1,)); // PoV cstr is normalized 
-                let all_scale_cstr = concatenate![Axis(0), scale_cstr, scale_fcstr, scale_pov_cstr];
-
-                // fmin and xbest are kept the same for all q points
-                // Would it be best to update them with regard to predicted virtual points?
-                // Keep it simple: For the moment we keep them fixed to the current best observed point
-                let mut infill_data = InfillObjData {
-                    fmin,
-                    xbest: xbest.to_vec(),
-                    scale_infill_obj,
-                    scale_cstr: Some(all_scale_cstr.to_owned()),
-                    scale_wb2,
-                    feasibility,
-                    sigma_weight: *sigma_weight,
-                };
-
-                let cstr_funcs = cstr_funcs
-                    .iter()
-                    .enumerate()
-                    .map(|(i, cstr)| {
-                        let scale_fc = scale_fcstr[i];
-                        move |x: &[f64],
-                              gradient: Option<&mut [f64]>,
-                              params: &mut InfillObjData<f64>|
-                              -> f64 {
-                            let x = if self.config.discrete() {
-                                let xary =
-                                    Array2::from_shape_vec((1, x.len()), x.to_vec()).unwrap();
-                                // We have to cast x to folded space as EgorSolver
-                                // works internally in the continuous space while
-                                // the constraint function expects discrete variable in folded space
-                                to_discrete_space(&self.config.xtypes, &xary)
-                                    .row(0)
-                                    .into_owned();
-                                &xary.into_iter().collect::<Vec<_>>()
-                            } else {
-                                x
-                            };
-                            cstr(x, gradient, params) / scale_fc
-                        }
-                    })
-                    .collect::<Vec<_>>();
-
-                // Make viability surrogate and dedicated constraint
-                let viability_model = if self.config.failsafe_strategy
-                    == FailsafeStrategy::Viability
-                    && let Some(points) = x_fail_points
-                    && points.nrows() > 0
-                {
-                    info!(
-                        "Build viability surrogate with {} safe and {} failed points...",
-                        x_data.nrows(),
-                        points.nrows()
-                    );
-                    x_fail_points
-                        .map(|xfail_points| self.make_viability_surrogate(&xt, xfail_points))
-                } else {
-                    None
-                };
-
-                let sub_rng = Xoshiro256Plus::seed_from_u64(rng.r#gen());
-                // let multistarter = GlobalMultiStarter::new(&self.xlimits, sub_rng);
-                let xsamples = x_data.to_owned();
-                let multistarter = MiddlePickerMultiStarter::new(
-                    &self.xlimits,
-                    &xsamples,
-                    sub_rng,
-                    self.config.runtime_flags.disable_middlepicker_multistarter,
-                );
-
-                let infill_optpb = InfillOptProblem::new(
-                    obj_model.as_ref(),
-                    cstr_models,
-                    &cstr_funcs,
-                    cstr_tol,
-                    viability_model,
-                    &infill_data,
+                self.make_clustered_surrogate(
+                    &name,
+                    &xt,
+                    &yt.slice(s![.., k]).to_owned(),
+                    do_clustering,
+                    optimize_theta,
+                    clusterings[k].as_ref(),
+                    theta_inits[k].as_ref(),
                     actives,
-                );
+                )
+            });
+            let (models, inits): (Vec<_>, Vec<_>) = models_and_inits.unzip();
 
-                let (infill_obj, xk) = self.optimize_infill_criterion(
-                    infill_optpb,
-                    multistarter,
-                    (xbest, ybest, cbest),
-                );
-                debug!("+++++++  xk = {xk}");
+            // Handle failsafe imputation on the first iteration
+            if iter == 0
+                && i == 0
+                && let Some(xfail_points) = x_fail_points
+            {
+                match self.config.failsafe_strategy {
+                    FailsafeStrategy::Imputation => {
+                        // we have to predict penalization on these points
+                        // and add them to data
 
-                match self.compute_virtual_point(&xk, y_data, obj_model.as_ref(), cstr_models) {
-                    Ok(yk) => {
-                        let yk = Array2::from_shape_vec((1, 1 + self.config.n_cstr), yk).unwrap();
-                        y_dat = concatenate![Axis(0), y_dat, yk];
-
-                        let yk_pen =
-                            self.compute_penalized_point(&xk, obj_model.as_ref(), cstr_models);
-                        let yk_pen = yk_pen.insert_axis(Axis(0));
-                        y_penalized = concatenate![Axis(0), y_penalized, yk_pen];
-
-                        let ck = cstr_funcs
-                            .iter()
-                            .map(|cstr| cstr(&xk.to_vec(), None, &mut infill_data))
-                            .collect::<Vec<_>>();
-                        c_dat = concatenate![
-                            Axis(0),
-                            c_dat,
-                            Array2::from_shape_vec((1, cstr_funcs.len()), ck).unwrap()
-                        ];
-
-                        x_dat = concatenate![Axis(0), x_dat, xk.clone().insert_axis(Axis(0))];
-
-                        // infill objective was minimized while infill criterion itself
-                        // is expected to be maximized hence the negative sign here
-                        infill_val = -infill_obj;
+                        info!(
+                            "Impute failed initial points ({} points)...",
+                            xfail_points.nrows()
+                        );
+                        let mut y_pen_imputed =
+                            Array2::zeros((xfail_points.nrows(), 1 + self.config.n_cstr));
+                        Zip::from(y_pen_imputed.rows_mut())
+                            .and(xfail_points.rows())
+                            .for_each(|mut y_row, xfail| {
+                                let y_pred = self.compute_penalized_point(
+                                    &xfail,
+                                    models[0].as_ref(),
+                                    &models[1..],
+                                );
+                                y_row.assign(&y_pred);
+                            });
+                        (x_dat, y_dat, c_dat, y_penalized) = (
+                            xfail_points.to_owned(),
+                            Array2::from_elem((xfail_points.nrows(), y_data.ncols()), f64::NAN),
+                            self.eval_fcstrs(cstr_funcs, xfail_points),
+                            y_pen_imputed,
+                        );
                     }
-                    Err(err) => {
-                        // Error while predict at best point: ignore
-                        info!("Error while getting virtual point: {err}");
-                        break;
+                    FailsafeStrategy::Rejection | FailsafeStrategy::Viability => (),
+                }
+            };
+
+            #[cfg(feature = "persistent")]
+            if self.config.runtime_flags.use_gp_recorder {
+                use crate::utils::{EGOR_GP_FILENAME, EGOR_INITIAL_GP_FILENAME, gp_recorder};
+
+                let default_dir = String::from("./");
+                let outdir = self.config.outdir.as_ref().unwrap_or(&default_dir);
+                let filename = if iter == 0 {
+                    EGOR_INITIAL_GP_FILENAME
+                } else {
+                    EGOR_GP_FILENAME
+                };
+                let filepath = std::path::Path::new(outdir).join(filename);
+                match gp_recorder::save_gp_models(&filepath, &models) {
+                    Ok(_) => log::info!("GP models saved to {:?}", filepath),
+                    Err(err) => log::info!("Cannot save GP models: {:?}", err),
+                };
+            }
+
+            (0..=self.config.n_cstr).for_each(|k| {
+                clusterings[k] = Some(models[k].to_clustering());
+                theta_inits[k] = Some(inits[k].to_owned());
+            });
+
+            let (obj_model, cstr_models) = models.split_first().unwrap();
+            debug!("... surrogates trained");
+
+            let fmin = y_data[[best_index, 0]];
+            let ybest = y_data.row(best_index).to_owned();
+            let xbest = x_data.row(best_index).to_owned();
+            let cbest = c_data.row(best_index).to_owned();
+
+            let sub_rng = Xoshiro256Plus::seed_from_u64(rng.r#gen());
+            let sampling = Lhs::new(&self.xlimits)
+                .kind(LhsKind::Maximin)
+                .with_rng(sub_rng);
+
+            let (scale_infill_obj, scale_cstr, scale_fcstr, scale_wb2) = self.compute_scaling(
+                &sampling,
+                obj_model.as_ref(),
+                cstr_models,
+                cstr_tol,
+                cstr_funcs,
+                fmin,
+            );
+            let scale_pov_cstr = Array1::ones((1,)); // PoV cstr is normalized 
+            let all_scale_cstr = concatenate![Axis(0), scale_cstr, scale_fcstr, scale_pov_cstr];
+
+            // fmin and xbest are kept the same for all q points
+            // Would it be best to update them with regard to predicted virtual points?
+            // Keep it simple: For the moment we keep them fixed to the current best observed point
+            let mut infill_data = InfillObjData {
+                fmin,
+                xbest: xbest.to_vec(),
+                scale_infill_obj,
+                scale_cstr: Some(all_scale_cstr.to_owned()),
+                scale_wb2,
+                feasibility,
+            };
+
+            let cstr_funcs = cstr_funcs
+                .iter()
+                .enumerate()
+                .map(|(i, cstr)| {
+                    let scale_fc = scale_fcstr[i];
+                    move |x: &[f64],
+                          gradient: Option<&mut [f64]>,
+                          params: &mut InfillObjData<f64>|
+                          -> f64 {
+                        let x = if self.config.discrete() {
+                            let xary = Array2::from_shape_vec((1, x.len()), x.to_vec()).unwrap();
+                            // We have to cast x to folded space as EgorSolver
+                            // works internally in the continuous space while
+                            // the constraint function expects discrete variable in folded space
+                            to_discrete_space(&self.config.xtypes, &xary)
+                                .row(0)
+                                .into_owned();
+                            &xary.into_iter().collect::<Vec<_>>()
+                        } else {
+                            x
+                        };
+                        cstr(x, gradient, params) / scale_fc
                     }
+                })
+                .collect::<Vec<_>>();
+
+            // Make viability surrogate and dedicated constraint
+            let viability_model = if self.config.failsafe_strategy == FailsafeStrategy::Viability
+                && let Some(points) = x_fail_points
+                && points.nrows() > 0
+            {
+                info!(
+                    "Build viability surrogate with {} safe and {} failed points...",
+                    x_data.nrows(),
+                    points.nrows()
+                );
+                x_fail_points.map(|xfail_points| self.make_viability_surrogate(&xt, xfail_points))
+            } else {
+                None
+            };
+
+            let sub_rng = Xoshiro256Plus::seed_from_u64(rng.r#gen());
+            // let multistarter = GlobalMultiStarter::new(&self.xlimits, sub_rng);
+            let xsamples = x_data.to_owned();
+            let multistarter = MiddlePickerMultiStarter::new(
+                &self.xlimits,
+                &xsamples,
+                sub_rng,
+                self.config.runtime_flags.disable_middlepicker_multistarter,
+            );
+
+            let infill_optpb = InfillOptProblem::new(
+                obj_model.as_ref(),
+                cstr_models,
+                &cstr_funcs,
+                cstr_tol,
+                viability_model,
+                &infill_data,
+                actives,
+            );
+
+            let (infill_obj, xk) =
+                self.optimize_infill_criterion(infill_optpb, multistarter, (xbest, ybest, cbest));
+            debug!("+++++++  xk = {xk}");
+
+            match self.compute_virtual_point(&xk, y_data, obj_model.as_ref(), cstr_models) {
+                Ok(yk) => {
+                    let yk = Array2::from_shape_vec((1, 1 + self.config.n_cstr), yk).unwrap();
+                    y_dat = concatenate![Axis(0), y_dat, yk];
+
+                    let yk_pen = self.compute_penalized_point(&xk, obj_model.as_ref(), cstr_models);
+                    let yk_pen = yk_pen.insert_axis(Axis(0));
+                    y_penalized = concatenate![Axis(0), y_penalized, yk_pen];
+
+                    let ck = cstr_funcs
+                        .iter()
+                        .map(|cstr| cstr(&xk.to_vec(), None, &mut infill_data))
+                        .collect::<Vec<_>>();
+                    c_dat = concatenate![
+                        Axis(0),
+                        c_dat,
+                        Array2::from_shape_vec((1, cstr_funcs.len()), ck).unwrap()
+                    ];
+
+                    x_dat = concatenate![Axis(0), x_dat, xk.clone().insert_axis(Axis(0))];
+
+                    // infill objective was minimized while infill criterion itself
+                    // is expected to be maximized hence the negative sign here
+                    infill_val = -infill_obj;
+                }
+                Err(err) => {
+                    // Error while predict at best point: ignore
+                    info!("Error while getting virtual point: {err}");
+                    break;
                 }
             }
-            portfolio.push((x_dat.to_owned(), y_dat, c_dat, y_penalized, infill_val));
         }
-        let (x_dat, y_dat, c_dat, y_penalized, infill_value) = if portfolio.len() > 1 {
-            info!(
-                "Portfolio : {:?}",
-                portfolio.iter().map(|v| v.0[[0, 0]]).collect::<Vec<_>>()
-            );
-            // Use portfolio strategy: Pick one point from portfolio
-            select_from_portfolio(portfolio)
-        } else {
-            // Fallback to default returning one or several points (in case of qEI strategy)
-            portfolio.remove(0)
-        };
 
-        (x_dat, y_dat, c_dat, y_penalized, infill_value)
+        (x_dat, y_dat, c_dat, y_penalized, infill_val)
     }
 }

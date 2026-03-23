@@ -72,7 +72,7 @@
 //!     .configure(|config| config
 //!         .max_iters(100)
 //!         .configure_runtime_flags(|flags| flags
-//!             .use_gp_var_portfolio(true)))
+//!             .use_max_proba_of_feasibility(true)))
 //!     .min_within(&xlimits)
 //!     .run()
 //! ```

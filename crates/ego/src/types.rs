@@ -229,9 +229,6 @@ pub struct InfillObjData<F: Float> {
     pub scale_wb2: F,
     /// Whether a feasible point is found so far (all constraints within tolerances)
     pub feasibility: bool,
-    /// Sigma weighting portfolio
-    #[serde(default = "F::one")]
-    pub sigma_weight: F,
 }
 
 impl<F: Float> Default for InfillObjData<F> {
@@ -243,7 +240,6 @@ impl<F: Float> Default for InfillObjData<F> {
             scale_cstr: None,
             scale_wb2: F::one(),
             feasibility: false,
-            sigma_weight: F::one(),
         }
     }
 }
@@ -264,7 +260,6 @@ impl<F: Float> std::fmt::Debug for InfillObjData<F> {
             )
             .field("scale_wb2", &self.scale_wb2)
             .field("feasibility", &self.feasibility)
-            .field("sigma_weight", &self.sigma_weight)
             .finish()
     }
 }
