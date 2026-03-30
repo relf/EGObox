@@ -10,18 +10,22 @@ use pyo3_stub_gen::derive::gen_stub_pyclass;
 ///
 /// Parameters
 /// ----------
-/// q_batch : int
+///
+/// batch : int
 ///     Number of points to evaluate in parallel at each iteration.
 ///     When set to 1, standard sequential EGO is used.
-/// q_ei_strategy : QEiStrategy
+///
+/// strategy : QEiStrategy
 ///     Strategy for selecting multiple points:
 ///     * KB (Kriging Believer): Uses the GP mean prediction as a pseudo-observation
 ///     * KBLB (Kriging Believer Lower Bound): Uses GP mean - std as pseudo-observation
 ///     * KBUB (Kriging Believer Upper Bound): Uses GP mean + std as pseudo-observation
 ///     * CLMIN (Constant Liar Minimum): Uses the current best value as pseudo-observation
-/// q_optmod : int
+///
+/// optmod : int
 ///     Interval between two hyperparameter optimizations when computing q points.
 ///     For example, with q_optmod=2, hyperparameters are optimized every 2 points.
+///
 #[gen_stub_pyclass]
 #[pyclass]
 #[derive(Clone, Debug)]
@@ -51,17 +55,22 @@ impl QEiConfig {
     ///
     /// Parameters
     /// ----------
+    ///
     /// batch : int, optional
     ///     Number of points to evaluate in parallel (default: 1)
+    ///
     /// strategy : QEiStrategy, optional
     ///     Strategy for parallel point selection (default: QEiStrategy.KB)
+    ///
     /// optmod : int, optional
     ///     Interval between hyperparameter optimizations (default: 1)
     ///
     /// Returns
     /// -------
+    ///
     /// QEiConfig
     ///     A new parallel evaluation configuration object
+    ///
     #[new]
     #[pyo3(signature = (
         batch=QEiConfig::default().batch,
