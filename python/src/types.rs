@@ -321,3 +321,17 @@ pub(crate) struct OptimResult {
     #[pyo3(get)]
     pub(crate) y_doe: Py<PyArray2<f64>>,
 }
+
+/// Egor optimization output
+///
+#[gen_stub_pyclass]
+#[pyclass]
+#[derive(Debug)]
+pub(crate) struct EgorOptim {
+    /// Result of optimization run
+    #[pyo3(get)]
+    pub(crate) result: Py<OptimResult>,
+    /// Status of optimization run
+    #[pyo3(get)]
+    pub(crate) status: RunStatus,
+}

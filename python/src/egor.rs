@@ -316,7 +316,7 @@ impl Egor {
         fcstrs: Vec<Py<PyAny>>,
         max_iters: usize,
         run_info: Option<Py<PyAny>>,
-    ) -> PyResult<(OptimResult, RunStatus)> {
+    ) -> PyResult<EgorOptim> {
         let obj = |x: &ArrayView2<f64>| -> Result<Array2<f64>> {
             Python::attach(|py| {
                 let args = (x.to_owned().into_pyarray(py),);
@@ -399,15 +399,18 @@ impl Egor {
         let y_opt = res.y_opt.into_pyarray(py).to_owned();
         let x_doe = res.x_doe.into_pyarray(py).to_owned();
         let y_doe = res.y_doe.into_pyarray(py).to_owned();
-        Ok((
+        let result: Py<OptimResult> = Bound::new(
+            py,
             OptimResult {
                 x_opt: x_opt.into(),
                 y_opt: y_opt.into(),
                 x_doe: x_doe.into(),
                 y_doe: y_doe.into(),
             },
-            status,
-        ))
+        )?
+        .into();
+
+        Ok(EgorOptim { result, status })
     }
 
     /// This function gives the next best location where to evaluate the function
