@@ -42,11 +42,11 @@ class TestMixintEgx(unittest.TestCase):
             seed=42,
             doe=np.array([[0.0], [7.0], [25.0]]),
         )
-        res = egor.minimize(xsinx, max_iters=10)
-        print(res.x_opt, res.y_opt)
-        print(f"Optimization f={res.y_opt} at {res.x_opt}")
-        self.assertAlmostEqual(-15.125, res.y_opt[0], delta=5e-3)
-        self.assertAlmostEqual(19, res.x_opt[0], delta=1)
+        optim = egor.minimize(xsinx, max_iters=10)
+        print(optim.result.x_opt, optim.result.y_opt)
+        print(f"Optimization f={optim.result.y_opt} at {optim.result.x_opt}")
+        self.assertAlmostEqual(-15.125, optim.result.y_opt[0], delta=5e-3)
+        self.assertAlmostEqual(19, optim.result.x_opt[0], delta=1)
 
     def test_ord_enum(self):
         xspecs = [
@@ -56,12 +56,12 @@ class TestMixintEgx(unittest.TestCase):
             egx.XSpec(egx.XType.ORD, [0, 2, 3]),
         ]
         egor = egx.Egor(xspecs, infill_strategy=egx.InfillStrategy.WB2, seed=42)
-        res = egor.minimize(mixobj, max_iters=10)
-        self.assertAlmostEqual(-14.25, res.y_opt[0])
-        self.assertAlmostEqual(-5, res.x_opt[0])
-        self.assertAlmostEqual(2, res.x_opt[1])
-        self.assertAlmostEqual(1, res.x_opt[2])
-        self.assertAlmostEqual(0, res.x_opt[3])
+        optim = egor.minimize(mixobj, max_iters=10)
+        self.assertAlmostEqual(-14.25, optim.result.y_opt[0])
+        self.assertAlmostEqual(-5, optim.result.x_opt[0])
+        self.assertAlmostEqual(2, optim.result.x_opt[1])
+        self.assertAlmostEqual(1, optim.result.x_opt[2])
+        self.assertAlmostEqual(0, optim.result.x_opt[3])
 
 
 if __name__ == "__main__":
