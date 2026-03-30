@@ -221,7 +221,9 @@ class TestEgor(unittest.TestCase):
         start = time.process_time()
         optim = egor.minimize(g24, max_iters=max_iters)
         end = time.process_time()
-        print(f"Optimization f={optim.result.y_opt} at {optim.result.x_opt} in {end - start}s")
+        print(
+            f"Optimization f={optim.result.y_opt} at {optim.result.x_opt} in {end - start}s"
+        )
         self.assertAlmostEqual(-5.5080, optim.result.y_opt[0], delta=1e-2)
         self.assertAlmostEqual(2.3295, optim.result.x_opt[0], delta=1e-2)
         self.assertAlmostEqual(3.1785, optim.result.x_opt[1], delta=1e-2)
@@ -246,7 +248,9 @@ class TestEgor(unittest.TestCase):
         optim = egor.minimize(g24, max_iters=30)
         end = time.process_time()
         self.assertAlmostEqual(-5.5080, optim.result.y_opt[0], delta=5e-1)
-        print(f"Optimization f={optim.result.y_opt} at {optim.result.x_opt} in {end - start}s")
+        print(
+            f"Optimization f={optim.result.y_opt} at {optim.result.x_opt} in {end - start}s"
+        )
 
     def test_g24_trego(self):
         n_doe = 5
@@ -263,7 +267,9 @@ class TestEgor(unittest.TestCase):
         start = time.process_time()
         optim = egor.minimize(g24, max_iters=max_iters)
         end = time.process_time()
-        print(f"Optimization f={optim.result.y_opt} at {optim.result.x_opt} in {end - start}s")
+        print(
+            f"Optimization f={optim.result.y_opt} at {optim.result.x_opt} in {end - start}s"
+        )
         self.assertAlmostEqual(-5.5080, optim.result.y_opt[0], delta=1e-2)
         self.assertAlmostEqual(2.3295, optim.result.x_opt[0], delta=1e-2)
         self.assertAlmostEqual(3.1785, optim.result.x_opt[1], delta=1e-2)
@@ -289,7 +295,9 @@ class TestEgor(unittest.TestCase):
         start = time.process_time()
         optim = egor.minimize(six_humps, max_iters=45)
         end = time.process_time()
-        print(f"Optimization f={optim.result.y_opt} at {optim.result.x_opt} in {end - start}s")
+        print(
+            f"Optimization f={optim.result.y_opt} at {optim.result.x_opt} in {end - start}s"
+        )
         # 2 global optimum value =-1.0316 located at (0.089842, -0.712656) and  (-0.089842, 0.712656)
         self.assertAlmostEqual(-1.0316, optim.result.y_opt[0], delta=2e-1)
 
@@ -333,7 +341,9 @@ class TestEgor(unittest.TestCase):
         fcstrs = [g24_c1, g24_c2]
         optim = egor.minimize(g24_bare, max_iters=max_iters, fcstrs=fcstrs)
         end = time.process_time()
-        print(f"Optimization f={optim.result.y_opt} at {optim.result.x_opt} in {end - start}s")
+        print(
+            f"Optimization f={optim.result.y_opt} at {optim.result.x_opt} in {end - start}s"
+        )
         self.assertAlmostEqual(-5.5080, optim.result.y_opt[0], delta=1e-2)
         self.assertAlmostEqual(2.3295, optim.result.x_opt[0], delta=1e-2)
         self.assertAlmostEqual(3.1785, optim.result.x_opt[1], delta=1e-2)
@@ -355,7 +365,9 @@ class TestEgor(unittest.TestCase):
         start = time.process_time()
         optim = egor.minimize(g24, max_iters=max_iters)
         end = time.process_time()
-        print(f"Optimization f={optim.result.y_opt} at {optim.result.x_opt} in {end - start}s")
+        print(
+            f"Optimization f={optim.result.y_opt} at {optim.result.x_opt} in {end - start}s"
+        )
         self.assertAlmostEqual(-5.5080, optim.result.y_opt[0], delta=1e-2)
         self.assertAlmostEqual(2.3295, optim.result.x_opt[0], delta=1e-2)
         self.assertAlmostEqual(3.1785, optim.result.x_opt[1], delta=1e-2)
@@ -405,7 +417,9 @@ class TestEgor(unittest.TestCase):
             branin_constrained_with_nans,
             max_iters=30,
         )
-        print(f"Optimum found at: x = {optim.result.x_opt}, f(x*) = {optim.result.y_opt[0]}")
+        print(
+            f"Optimum found at: x = {optim.result.x_opt}, f(x*) = {optim.result.y_opt[0]}"
+        )
         self.assertAlmostEqual(0.9677, optim.result.x_opt[0], delta=5e-2)
         self.assertAlmostEqual(0.2067, optim.result.x_opt[1], delta=6e-2)
 
@@ -433,7 +447,9 @@ class TestEgor(unittest.TestCase):
             fobj_crash,
             max_iters=30,
         )
-        print(f"Optimum found at: x = {optim.result.x_opt}, f(x*) = {optim.result.y_opt[0]}")
+        print(
+            f"Optimum found at: x = {optim.result.x_opt}, f(x*) = {optim.result.y_opt[0]}"
+        )
         self.assertAlmostEqual(0.9677, optim.result.x_opt[0], delta=5e-2)
         self.assertAlmostEqual(0.2067, optim.result.x_opt[1], delta=6e-2)
 
