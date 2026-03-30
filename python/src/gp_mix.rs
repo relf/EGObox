@@ -87,6 +87,7 @@ use rand_xoshiro::Xoshiro256Plus;
 ///
 ///     n_start (int >= 0):
 ///         Number of internal GP hyperpameters optimization restart (multistart)
+///         When is zero, optimization is disabled and theta init value is used as is.
 ///
 ///     max_eval (int >= 0):
 ///         Max number of likelihood evaluations during GP hyperparameters optimization
@@ -123,7 +124,7 @@ impl GpMix {
         recombination=Recombination::Hard,
         theta_init=None,
         theta_bounds=None,
-        n_start=EGO_GP_OPTIM_N_START as isize,
+        n_start=EGO_GP_OPTIM_N_START,
         max_eval=EGO_GP_OPTIM_MAX_EVAL,
         seed=None,
         verbose=None
@@ -139,7 +140,7 @@ impl GpMix {
         recombination: Recombination,
         theta_init: Option<Vec<f64>>,
         theta_bounds: Option<Vec<Vec<f64>>>,
-        n_start: isize,
+        n_start: usize,
         max_eval: usize,
         seed: Option<u64>,
         verbose: Option<Py<PyAny>>,
@@ -236,12 +237,12 @@ impl GpMix {
             Ordering::Equal => NbClusters::auto(),
             Ordering::Less => NbClusters::automax(-self.gp_config.n_clusters as usize),
         };
-        let n_start: usize = if self.gp_config.n_start < 0 {
+        let n_start: usize = if self.gp_config.n_start == 0 {
             // no multistart, use theta_init as is
             theta_tuning = ThetaTuning::Fixed(theta_tuning.init().to_owned());
             0 // no multistart, value not used
         } else {
-            self.gp_config.n_start.try_into().unwrap()
+            self.gp_config.n_start
         };
 
         let theta_tunings = if let NbClusters::Fixed { nb } = n_clusters {
@@ -328,7 +329,7 @@ impl Gpx {
         recombination: Recombination,
         theta_init: Option<Vec<f64>>,
         theta_bounds: Option<Vec<Vec<f64>>>,
-        n_start: isize,
+        n_start: usize,
         max_eval: usize,
         seed: Option<u64>,
         verbose: Option<Py<PyAny>>,

@@ -137,7 +137,7 @@ class TestGpMix(unittest.TestCase):
     def test_fixed_theta_no_optim(self):
         print(f"gpx.theta = {self.gpx.thetas()}")
         self.assertNotEqual(0.314, self.gpx.thetas().item())
-        self.gpx = egx.Gpx.builder(n_start=-1, theta_init=[0.314]).fit(self.xt, self.yt)
+        self.gpx = egx.Gpx.builder(n_start=0, theta_init=[0.314]).fit(self.xt, self.yt)
         print(f"gpx.theta = {self.gpx.thetas()}")
         self.assertEqual(0.314, self.gpx.thetas().item())
 
