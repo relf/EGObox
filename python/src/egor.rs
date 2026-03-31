@@ -13,6 +13,7 @@
 
 use crate::domain::*;
 use crate::gp_config::*;
+use crate::gp_mix::Gpx;
 use crate::logging::init_logger;
 use crate::qei_config::*;
 use crate::trego_config::{TregoConfig, TregoConfigSpec};
@@ -501,6 +502,22 @@ impl Egor {
             x_doe,
             y_doe,
         }
+    }
+
+    /// This function loads surrogate models from a file and returns them as a list of Gpx objects.
+    /// The file is expected to be a binary file containing a serialized vector of boxed
+    /// surrogate models (Vec<Box<dyn MixtureGpSurrogate>>) generated during optimization execution
+    #[pyo3(signature = (file))]
+    fn load_gps(&self, file: String) -> Vec<Gpx> {
+        let filepath = std::path::Path::new(&file);
+
+        let data: Vec<u8> = std::fs::read(filepath).unwrap();
+        let gp_models: Vec<Box<dyn egobox_moe::MixtureGpSurrogate>> =
+            bincode::serde::decode_from_slice(&data, bincode::config::standard())
+                .map(|(res, _)| res)
+                .unwrap_or_default();
+
+        gp_models.into_iter().map(Gpx::from).collect()
     }
 }
 

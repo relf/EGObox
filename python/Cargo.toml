@@ -52,6 +52,7 @@ ctrlc.workspace = true
 
 argmin_testfunctions.workspace = true
 pyo3-stub-gen = { version = "0.20", features = ["numpy"] }
+bincode.workspace = true
 
 [[bin]]
 name = "stub_gen"

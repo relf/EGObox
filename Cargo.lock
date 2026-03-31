@@ -611,6 +611,7 @@ version = "0.36.1"
 dependencies = [
  "argmin",
  "argmin_testfunctions",
+ "bincode",
  "ctrlc",
  "egobox-doe",
  "egobox-ego",

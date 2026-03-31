@@ -175,6 +175,23 @@ class TestEgor(unittest.TestCase):
         self.assertAlmostEqual(-15.125, optim.result.y_opt[0], delta=1e-3)
         self.assertAlmostEqual(18.935, optim.result.x_opt[0], delta=5e-2)
 
+    def test_xsinx_gp_as_rbf(self):
+        os.environ["EGOR_USE_GP_RECORDER"] = "1"  # force using Gp as RBF
+        theta_init = [3.14]  # fixed theta value
+        outdir = "./test_dir"
+        egor = egx.Egor(
+            [[0.0, 25.0]],
+            seed=42,
+            gp_config=egx.GpConfig(
+                theta_init=theta_init, n_start=0
+            ),  # no hyperparameter optimization
+            verbose=egx.Verbose.INFO,
+            outdir=outdir,
+        )  # test list of list api
+        _ = egor.minimize(xsinx, max_iters=5)
+        gps = egor.load_gps(os.path.join(outdir, "egor_gp.bin"))
+        self.assertEqual(gps[0].thetas().item(), theta_init[0])
+
     def test_xsinx_with_warmstart(self):
         if os.path.exists("./test_dir/egor_initial_doe.npy"):
             os.remove("./test_dir/egor_initial_doe.npy")

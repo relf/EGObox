@@ -558,3 +558,9 @@ impl Gpx {
         likelihoods.into_pyarray(py)
     }
 }
+
+impl From<Box<dyn MixtureGpSurrogate>> for Gpx {
+    fn from(moe: Box<dyn MixtureGpSurrogate>) -> Self {
+        Gpx(moe)
+    }
+}
