@@ -100,23 +100,25 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
 enum DataClustering {
     /// Clustering is not updated given values are used as is
-    Disabled,
+    Fixed,
     /// Clustering is recomputed
-    Enabled,
+    Regenerate,
 }
 
 impl From<bool> for DataClustering {
     fn from(value: bool) -> Self {
         if value {
-            DataClustering::Enabled
+            DataClustering::Regenerate
         } else {
-            DataClustering::Disabled
+            DataClustering::Fixed
         }
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
 enum ThetaOptimization {
     /// Theta is not optimized given values are used as is
     Disabled,
@@ -176,8 +178,6 @@ where
         let mut best_theta_inits = if let Some(inits) = theta_inits {
             inits.to_owned()
         } else {
-            // otherwise suppose one cluster but will not be used
-            // as number of cluster determination is automated
             let nb = self.config.gp.n_clusters.n_or_else_one();
             let mut inits = Array2::zeros((nb, dim));
             let default_init = self.config.gp.theta_tuning.init();
@@ -201,7 +201,7 @@ where
 
         for (i, active) in actives.outer_iter().enumerate() {
             let gp = match make_clustering {
-                DataClustering::Enabled => {
+                DataClustering::Regenerate => {
                     /* init || recluster */
                     match self.config.gp.n_clusters {
                         NbClusters::Auto { max: _ } => {
@@ -212,25 +212,37 @@ where
                             }
                         }
                         NbClusters::Fixed { nb: _ } => {
-                            let theta_tunings = if self.config.gp.kpls_dim.is_some() {
-                                // KPLS takes priority: use full theta optimization
-                                // in PLS-reduced space
-                                best_theta_inits
-                                    .outer_iter()
-                                    .map(|init| ThetaTuning::Full {
-                                        init: init.to_owned(),
-                                        bounds: theta_bounds.to_owned(),
-                                    })
-                                    .collect::<Vec<_>>()
-                            } else {
-                                best_theta_inits
-                                    .outer_iter()
-                                    .map(|init| ThetaTuning::Partial {
-                                        init: init.to_owned(),
-                                        bounds: theta_bounds.to_owned(),
-                                        active: Self::strip(&active.to_vec(), init.len()),
-                                    })
-                                    .collect::<Vec<_>>()
+                            let theta_tunings = match optimize_theta {
+                                ThetaOptimization::Enabled => {
+                                    // set hyperparameters optimization
+                                    if self.config.gp.kpls_dim.is_some() {
+                                        // KPLS takes priority: use full theta optimization
+                                        // in PLS-reduced space
+                                        best_theta_inits
+                                            .outer_iter()
+                                            .map(|init| ThetaTuning::Full {
+                                                init: init.to_owned(),
+                                                bounds: theta_bounds.to_owned(),
+                                            })
+                                            .collect::<Vec<_>>()
+                                    } else {
+                                        best_theta_inits
+                                            .outer_iter()
+                                            .map(|init| ThetaTuning::Partial {
+                                                init: init.to_owned(),
+                                                bounds: theta_bounds.to_owned(),
+                                                active: Self::strip(&active.to_vec(), init.len()),
+                                            })
+                                            .collect::<Vec<_>>()
+                                    }
+                                }
+                                ThetaOptimization::Disabled => {
+                                    // just use previous hyperparameters
+                                    best_theta_inits
+                                        .outer_iter()
+                                        .map(|init| ThetaTuning::Fixed(init.to_owned()))
+                                        .collect::<Vec<_>>()
+                                }
                             };
                             builder.set_theta_tunings(&theta_tunings);
                             if i == 0 && model_name == "Objective" {
@@ -266,7 +278,7 @@ where
                     }
                     gp
                 }
-                DataClustering::Disabled => {
+                DataClustering::Fixed => {
                     let clustering = clustering.unwrap();
 
                     let theta_tunings = match optimize_theta {
@@ -454,8 +466,8 @@ where
                         .1
                         .slice(s![.., k])
                         .to_owned(),
-                    DataClustering::Disabled,
-                    ThetaOptimization::Enabled,
+                    DataClustering::Fixed,
+                    (self.config.gp.theta_tuning.is_fixed()).into(),
                     state.surrogate.clusterings.as_ref().unwrap()[k].as_ref(),
                     state.surrogate.theta_inits.as_ref().unwrap()[k].as_ref(),
                     &state.coego.activity,
@@ -732,8 +744,9 @@ where
                     let do_clustering = ((init && i == 0) || recluster).into();
                     let optimize_theta = ((iter as usize * self.config.qei_config.batch + i)
                         .is_multiple_of(self.config.qei_config.optmod)
-                        && j == 0)
-                        .into();
+                        && j == 0
+                        && !self.config.gp.theta_tuning.is_fixed())
+                    .into();
 
                     self.make_clustered_surrogate(
                         &name,

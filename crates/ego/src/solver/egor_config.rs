@@ -702,7 +702,7 @@ impl EgorConfig {
 
     /// Checks and wraps an EgorConfig
     pub fn check(self) -> Result<ValidEgorConfig> {
-        let config = self.0;
+        let mut config = self.0;
         // Check cstr_tol length if any
         if config.n_cstr > 0
             && let Some(cstr_tol) = config.cstr_tol.as_ref()
@@ -713,6 +713,15 @@ impl EgorConfig {
                 cstr_tol.len(),
                 config.n_cstr
             )));
+        }
+
+        // Fix theta tuning if n_statt is 0
+        if config.gp.n_start == 0 {
+            log::info!(
+                "n_start is 0, setting theta value to {}",
+                config.gp.theta_tuning.init()
+            );
+            config.gp.theta_tuning = config.gp.theta_tuning.to_fixed();
         }
 
         // When both CoEGO and KPLS are enabled, KPLS takes priority for GP training

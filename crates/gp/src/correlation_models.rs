@@ -56,7 +56,7 @@ pub trait CorrelationModel<F: Float>: Clone + Copy + Default + fmt::Display + Sy
         weights: &ArrayBase<impl Data<Elem = F>, Ix2>,
     ) -> Array2<F>;
 
-    /// Compute gradients of `r(x, x')` at given `x` given a set of `x`in`` training samples, aka `xtrain`,
+    /// Compute gradients of `r(x, x')` at given `x` given a set of `x'` training samples, aka `xtrain`,
     /// `theta` parameters, and PLS `weights`.
     /// The returned jacobian matrix is dr/dx where r is the correlation function vector between x and xtrain (shape nt).
     /// Gradients are computed with respect to `x` and returned as a matrix of shape (nt, nx)
