@@ -176,7 +176,6 @@ class TestEgor(unittest.TestCase):
         self.assertAlmostEqual(18.935, optim.result.x_opt[0], delta=5e-2)
 
     def test_xsinx_gp_as_rbf(self):
-        os.environ["EGOR_USE_GP_RECORDER"] = "1"  # force using Gp as RBF
         theta_init = [3.14]  # fixed theta value
         outdir = "./test_dir"
         egor = egx.Egor(

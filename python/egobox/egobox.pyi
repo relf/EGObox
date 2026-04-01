@@ -249,6 +249,12 @@ class Egor:
                 x_doe (array[ns, nx]): x values of the final DOE
                 y_doe (array[ns, 1 + n_cstr]): y values of the final DOE
         """
+    def load_gp_models(self, file: builtins.str) -> builtins.list[Gpx]:
+        r"""
+        This function loads surrogate models from a file and returns them as a list of Gpx objects.
+        The file is expected to be a binary file containing a serialized vector of boxed
+        surrogate models (Vec<Box<dyn MixtureGpSurrogate>>) generated during optimization execution
+        """
 
 @typing.final
 class EgorOptim:
@@ -396,14 +402,14 @@ class GpConfig:
         r"""
         (int >= 0)
         Number of internal GP hyperpameters optimization restart (multistart)
-        When is negative optimization is disabled and theta init value is used
+        When zero, optimization is disabled and theta init value is used as is.
         """
     @n_start.setter
     def n_start(self, value: builtins.int) -> None:
         r"""
         (int >= 0)
         Number of internal GP hyperpameters optimization restart (multistart)
-        When is negative optimization is disabled and theta init value is used
+        When zero, optimization is disabled and theta init value is used as is.
         """
     @property
     def max_eval(self) -> builtins.int:
@@ -480,6 +486,7 @@ class GpMix:
     
         n_start (int >= 0):
             Number of internal GP hyperpameters optimization restart (multistart)
+            When is zero, optimization is disabled and theta init value is used as is.
     
         max_eval (int >= 0):
             Max number of likelihood evaluations during GP hyperparameters optimization
