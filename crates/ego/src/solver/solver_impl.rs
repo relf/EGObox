@@ -799,7 +799,7 @@ where
                 };
 
                 #[cfg(feature = "persistent")]
-                if self.config.runtime_flags.use_gp_recorder {
+                if self.config.outdir.is_some() && i == 0 && j == 0 {
                     use crate::utils::{EGOR_GP_FILENAME, EGOR_INITIAL_GP_FILENAME, gp_recorder};
 
                     let default_dir = String::from("./");

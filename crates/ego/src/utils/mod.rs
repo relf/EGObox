@@ -15,6 +15,7 @@ pub(crate) mod run_recorder;
 pub use bounds::*;
 pub use cstr_pof::*;
 pub use find_result::*;
+pub use gp_recorder::*;
 pub use hot_start::*;
 pub use logei_helper::*;
 pub use misc::*;

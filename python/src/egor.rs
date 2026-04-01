@@ -508,15 +508,12 @@ impl Egor {
     /// The file is expected to be a binary file containing a serialized vector of boxed
     /// surrogate models (Vec<Box<dyn MixtureGpSurrogate>>) generated during optimization execution
     #[pyo3(signature = (file))]
-    fn load_gps(&self, file: String) -> Vec<Gpx> {
-        let filepath = std::path::Path::new(&file);
-
-        let data: Vec<u8> = std::fs::read(filepath).unwrap();
-        let gp_models: Vec<Box<dyn egobox_moe::MixtureGpSurrogate>> =
-            bincode::serde::decode_from_slice(&data, bincode::config::standard())
-                .map(|(res, _)| res)
-                .unwrap_or_default();
-
+    fn load_gp_models(&self, file: String) -> Vec<Gpx> {
+        let msg = format!(
+            "Failed to load GP models from file {}. Make sure the file exists and is a valid GP models file.",
+            file
+        );
+        let gp_models = egobox_ego::load_gp_models(file.clone()).expect(&msg);
         gp_models.into_iter().map(Gpx::from).collect()
     }
 }

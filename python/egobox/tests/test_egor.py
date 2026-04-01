@@ -189,7 +189,9 @@ class TestEgor(unittest.TestCase):
             outdir=outdir,
         )  # test list of list api
         _ = egor.minimize(xsinx, max_iters=5)
-        gps = egor.load_gps(os.path.join(outdir, "egor_gp.bin"))
+        gps = egor.load_gp_models(os.path.join(outdir, "egor_gp.bin"))
+        self.assertEqual(gps[0].thetas().item(), theta_init[0])
+        gps = egor.load_gp_models(os.path.join(outdir, "egor_initial_gp.bin"))
         self.assertEqual(gps[0].thetas().item(), theta_init[0])
 
     def test_xsinx_with_warmstart(self):
