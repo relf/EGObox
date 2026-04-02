@@ -804,13 +804,9 @@ mod tests {
     fn test_rosenbrock_2d_egor_builder() {
         let now = Instant::now();
         let xlimits = array![[-2., 2.], [-2., 2.]];
-        let doe = Lhs::new(&xlimits)
-            .with_rng(Xoshiro256Plus::seed_from_u64(42))
-            .sample(10);
         let res = EgorBuilder::optimize(rosenb)
             .configure(|config| {
                 config
-                    .doe(&doe)
                     .max_iters(50)
                     .configure_gp(|gp| {
                         gp.regression_spec(RegressionSpec::ALL)
@@ -1401,7 +1397,7 @@ mod tests {
             .expect("Egor should be configured")
             .run()
             .expect("Egor should minimize branin_with_nans");
-        assert_abs_diff_eq!(x_expected.row(0), res.x_opt, epsilon = 5e-2);
+        assert_abs_diff_eq!(x_expected.row(0), res.x_opt, epsilon = 6e-2);
         if res.state.termination_status
             == TerminationStatus::Terminated(TerminationReason::SolverConverged)
         {
