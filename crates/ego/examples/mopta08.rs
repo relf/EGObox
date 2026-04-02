@@ -11,7 +11,6 @@ use std::io::{BufRead, BufReader};
 use std::iter::zip;
 use std::path::Path;
 use std::process::Command;
-use log::LevelFilter;
 
 const DIM_X: usize = 124;
 const DIM_Y: usize = 69;
