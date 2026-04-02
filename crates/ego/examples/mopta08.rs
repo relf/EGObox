@@ -10,6 +10,7 @@ use std::io::{BufRead, BufReader};
 use std::iter::zip;
 use std::path::Path;
 use std::process::Command;
+use log::LevelFilter;
 
 const DIM_X: usize = 124;
 const DIM_Y: usize = 69;
@@ -306,7 +307,7 @@ fn main() -> anyhow::Result<()> {
                     })
                     .infill_optimizer(InfillOptimizer::Cobyla)
                     .n_start(50)
-                    .infill_strategy(InfillStrategy::EI)
+                    .infill_strategy(InfillStrategy::LogEI)
                     .cstr_infill(true)
                     .configure_qei(|qei_config| {
                         qei_config
@@ -319,6 +320,7 @@ fn main() -> anyhow::Result<()> {
                     .coego(CoegoStatus::Enabled(5))
                     .hot_start(HotStartMode::Enabled)
             })
+            .verbose(LevelFilter::Info)
             .min_within(&xlimits)
             .expect("Egor configured")
             .run()
