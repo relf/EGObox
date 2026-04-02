@@ -259,14 +259,6 @@ where
                     let gp = builder
                         .train(xt.view(), yt.view())
                         .expect("GP training failure");
-                    best_theta_inits = Array2::from_shape_vec(
-                        (gp.experts().len(), gp.experts()[0].theta().len()),
-                        gp.experts()
-                            .iter()
-                            .flat_map(|expert| expert.theta().to_vec())
-                            .collect(),
-                    )
-                    .expect("Theta initialization failure");
 
                     if i == 0 {
                         info!(
@@ -323,6 +315,15 @@ where
                         .expect("GP training failure")
                 }
             };
+
+            best_theta_inits = Array2::from_shape_vec(
+                (gp.experts().len(), gp.experts()[0].theta().len()),
+                gp.experts()
+                    .iter()
+                    .flat_map(|expert| expert.theta().to_vec())
+                    .collect(),
+            )
+            .expect("Theta initialization failure");
 
             // Cooperative activity: update theta in mono cluster setting
             if self.config.activity_strategy.is_cooperative() {
@@ -467,7 +468,7 @@ where
                         .slice(s![.., k])
                         .to_owned(),
                     DataClustering::Fixed,
-                    (self.config.gp.theta_tuning.is_fixed()).into(),
+                    (!self.config.gp.theta_tuning.is_fixed()).into(),
                     state.surrogate.clusterings.as_ref().unwrap()[k].as_ref(),
                     state.surrogate.theta_inits.as_ref().unwrap()[k].as_ref(),
                     &state.coego.activity,
