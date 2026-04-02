@@ -3,6 +3,7 @@ use egobox_ego::{
     CoegoStatus, EgorBuilder, HotStartMode, InfillOptimizer, InfillStrategy, ObjFn, QEiStrategy,
 };
 use egobox_moe::{CorrelationSpec, NbClusters, RegressionSpec};
+use log::LevelFilter;
 use ndarray::{Array1, Array2, ArrayView1, ArrayView2, s};
 use std::fs::{File, remove_file};
 use std::io::prelude::*;
@@ -10,7 +11,6 @@ use std::io::{BufRead, BufReader};
 use std::iter::zip;
 use std::path::Path;
 use std::process::Command;
-use log::LevelFilter;
 
 const DIM_X: usize = 124;
 const DIM_Y: usize = 69;
