@@ -80,10 +80,14 @@ def main():
             outdir=outdir,
             seed=run,
             verbose=egx.Verbose.INFO,
-            target=0.01,  
+            target=0.01,
         )
 
-        optim = opt.minimize(rosenbrock, max_iters=max_iters, run_info=egx.RunInfo(fname="Rosenbrock20D", num=run+1))
+        optim = opt.minimize(
+            rosenbrock,
+            max_iters=max_iters,
+            run_info=egx.RunInfo(fname="Rosenbrock20D", num=run + 1),
+        )
 
         print(f"Best value (y*): {optim.result.y_opt}")
         print(
