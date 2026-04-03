@@ -9,7 +9,6 @@
 use crate::utils::differences;
 use linfa::Float;
 use ndarray::{Array1, Array2, ArrayBase, Axis, Data, Ix1, Ix2, Zip};
-use ndarray_einsum::einsum;
 #[cfg(feature = "serializable")]
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
@@ -124,10 +123,8 @@ impl<F: Float> CorrelationModel<F> for SquaredExponentialCorr {
         theta: &ArrayBase<impl Data<Elem = F>, Ix1>,
         weights: &ArrayBase<impl Data<Elem = F>, Ix2>,
     ) -> Array2<F> {
-        let theta_w = (theta * weights)
-            .mapv(|v| v.powf(F::cast(2.)))
-            .sum_axis(Axis(1));
-        let r = d.mapv(|v| v.powf(F::cast(2.))).dot(&theta_w);
+        let theta_w_sq = (theta * weights).mapv(|v| v * v).sum_axis(Axis(1));
+        let r = d.mapv(|v| v * v).dot(&theta_w_sq);
         r.mapv(|v| F::exp(F::cast(-0.5) * v))
             .into_shape_with_order((d.nrows(), 1))
             .unwrap()
@@ -141,14 +138,15 @@ impl<F: Float> CorrelationModel<F> for SquaredExponentialCorr {
         weights: &ArrayBase<impl Data<Elem = F>, Ix2>,
     ) -> Array2<F> {
         let d = differences(x, xtrain);
-        let r = self.rval_from_distances(&d, theta, weights);
-
-        let dtheta_w = (theta * weights)
-            .mapv(|v| v.powf(F::cast(2)))
-            .sum_axis(Axis(1))
-            .mapv(|v| F::cast(-v));
-
-        d * &dtheta_w * &r
+        let neg_theta_w_sq = (theta * weights).mapv(|v| -(v * v)).sum_axis(Axis(1));
+        let r = {
+            let exponent = d.mapv(|v| v * v).dot(&neg_theta_w_sq.mapv(|v| -v));
+            exponent
+                .mapv(|v| F::exp(F::cast(-0.5) * v))
+                .into_shape_with_order((d.nrows(), 1))
+                .unwrap()
+        };
+        d * &neg_theta_w_sq * &r
     }
 
     fn rval_with_jac(
@@ -159,14 +157,15 @@ impl<F: Float> CorrelationModel<F> for SquaredExponentialCorr {
         weights: &ArrayBase<impl Data<Elem = F>, Ix2>,
     ) -> (Array2<F>, Array2<F>) {
         let d = differences(x, xtrain);
-        let r = self.rval_from_distances(&d, theta, weights);
-
-        let dtheta_w = (theta * weights)
-            .mapv(|v| v.powf(F::cast(2)))
-            .sum_axis(Axis(1))
-            .mapv(|v| F::cast(-v));
-
-        let jr = d * &dtheta_w * &r;
+        let neg_theta_w_sq = (theta * weights).mapv(|v| -(v * v)).sum_axis(Axis(1));
+        let r = {
+            let exponent = d.mapv(|v| v * v).dot(&neg_theta_w_sq.mapv(|v| -v));
+            exponent
+                .mapv(|v| F::exp(F::cast(-0.5) * v))
+                .into_shape_with_order((d.nrows(), 1))
+                .unwrap()
+        };
+        let jr = d * &neg_theta_w_sq * &r;
         (r, jr)
     }
 
@@ -251,14 +250,17 @@ impl<F: Float> CorrelationModel<F> for AbsoluteExponentialCorr {
         weights: &ArrayBase<impl Data<Elem = F>, Ix2>,
     ) -> (Array2<F>, Array2<F>) {
         let d = differences(x, xtrain);
-        let r = self.rval_from_distances(&d, theta, weights);
-        let sign_d = d.mapv(|v| v.signum());
-
-        let dtheta_w = sign_d
-            * (theta * weights.mapv(|v| v.abs()))
-                .sum_axis(Axis(1))
-                .mapv(|v| F::cast(-1.) * v);
-        let jr = &dtheta_w * &r;
+        let neg_theta_w = (theta * weights.mapv(|v| v.abs()))
+            .sum_axis(Axis(1))
+            .mapv(|v| -v);
+        let r = {
+            let exponent = d.mapv(|v| v.abs()).dot(&neg_theta_w.mapv(|v| -v));
+            exponent
+                .mapv(|v| F::exp(-v))
+                .into_shape_with_order((d.nrows(), 1))
+                .unwrap()
+        };
+        let jr = &(d.mapv(|v| v.signum()) * &neg_theta_w) * &r;
         (r, jr)
     }
 
@@ -310,8 +312,24 @@ impl<F: Float> CorrelationModel<F> for Matern32Corr {
         theta: &ArrayBase<impl Data<Elem = F>, Ix1>,
         weights: &ArrayBase<impl Data<Elem = F>, Ix2>,
     ) -> Array2<F> {
-        let (a, b) = self._compute_r_factors(d, theta, weights);
-        let r = a * b;
+        let sqrt3 = F::cast(3.).sqrt();
+        let theta_w = theta * weights.mapv(|v| v.abs());
+
+        let mut r = Array1::zeros(d.nrows());
+        Zip::from(&mut r).and(d.rows()).for_each(|r_i, d_i| {
+            let mut a = F::one();
+            let mut b_sum = F::zero();
+            Zip::from(&d_i).and(theta_w.rows()).for_each(|&d_ij, tw_j| {
+                let abs_d = d_ij.abs();
+                let mut prod = F::one();
+                for &tw in tw_j.iter() {
+                    prod *= F::one() + sqrt3 * tw * abs_d;
+                    b_sum += tw * abs_d;
+                }
+                a *= prod;
+            });
+            *r_i = a * F::exp(-sqrt3 * b_sum);
+        });
         r.into_shape_with_order((d.nrows(), 1)).unwrap()
     }
 
@@ -323,8 +341,8 @@ impl<F: Float> CorrelationModel<F> for Matern32Corr {
         weights: &ArrayBase<impl Data<Elem = F>, Ix2>,
     ) -> Array2<F> {
         let d = differences(x, xtrain);
-        let (a, b) = self._compute_r_factors(&d, theta, weights);
-        self._jac_helper(&d, &a, &b, xtrain, theta, weights)
+        let r = self.rval_from_distances(&d, theta, weights);
+        self._jac_from_r(&d, &r, theta, weights)
     }
 
     fn rval_with_jac(
@@ -335,10 +353,9 @@ impl<F: Float> CorrelationModel<F> for Matern32Corr {
         weights: &ArrayBase<impl Data<Elem = F>, Ix2>,
     ) -> (Array2<F>, Array2<F>) {
         let d = differences(x, xtrain);
-        let (a, b) = self._compute_r_factors(&d, theta, weights);
-        let r = &a * &b;
-        let jr = self._jac_helper(&d, &a, &b, xtrain, theta, weights);
-        (r.into_shape_with_order((d.nrows(), 1)).unwrap(), jr)
+        let r = self.rval_from_distances(&d, theta, weights);
+        let jr = self._jac_from_r(&d, &r, theta, weights);
+        (r, jr)
     }
 
     fn theta_influence_factors(&self) -> (F, F) {
@@ -353,92 +370,42 @@ impl fmt::Display for Matern32Corr {
 }
 
 impl Matern32Corr {
-    fn _compute_r_factors<F: Float>(
+    /// Compute the jacobian dr/dx from precomputed distances and correlation values.
+    ///
+    /// For Matern 3/2, f(u) = 1 + √3·u is always positive, so the
+    /// "product-excluding-one-factor" can be computed via division, reducing
+    /// the O(n·d²·h²) nested loop to O(n·d·h).
+    fn _jac_from_r<F: Float>(
         &self,
         d: &ArrayBase<impl Data<Elem = F>, Ix2>,
-        theta: &ArrayBase<impl Data<Elem = F>, Ix1>,
-        weights: &ArrayBase<impl Data<Elem = F>, Ix2>,
-    ) -> (Array1<F>, Array1<F>) {
-        let sqrt3 = F::cast(3.).sqrt();
-        let theta_w = theta * weights.mapv(|v| v.abs());
-
-        let abs_d = d.mapv(|v| v.abs());
-        let d_theta_w = abs_d.dot(&theta_w);
-
-        let mut a = Array1::ones(d.nrows());
-        Zip::from(&mut a)
-            .and(abs_d.rows())
-            .for_each(|a_i, abs_d_i| {
-                Zip::from(abs_d_i)
-                    .and(theta_w.rows())
-                    .for_each(|abs_d_ij, theta_w_j| {
-                        *a_i *= theta_w_j
-                            .mapv(|v| F::one() + sqrt3 * v * *abs_d_ij)
-                            .product();
-                    });
-            });
-
-        let b = d_theta_w.sum_axis(Axis(1)).mapv(|v| F::exp(-sqrt3 * v));
-        (a, b)
-    }
-
-    fn _jac_helper<F: Float>(
-        &self,
-        d: &ArrayBase<impl Data<Elem = F>, Ix2>,
-        a: &ArrayBase<impl Data<Elem = F>, Ix1>,
-        b: &ArrayBase<impl Data<Elem = F>, Ix1>,
-        xtrain: &ArrayBase<impl Data<Elem = F>, Ix2>,
+        r: &ArrayBase<impl Data<Elem = F>, Ix2>,
         theta: &ArrayBase<impl Data<Elem = F>, Ix1>,
         weights: &ArrayBase<impl Data<Elem = F>, Ix2>,
     ) -> Array2<F> {
-        let sqrt3 = F::cast(3.).sqrt();
-        let theta_w = weights.mapv(|v| v.abs()).dot(theta);
-        let sign_d = d.mapv(|v| v.signum());
-        let mut db = Array2::<F>::zeros((xtrain.nrows(), xtrain.ncols()));
-        let abs_d = d.mapv(|v| v.abs());
-        Zip::from(db.rows_mut())
-            .and(a)
-            .and(b)
-            .and(sign_d.rows())
-            .for_each(|mut db_i, ai, bi, si| {
-                Zip::from(&mut db_i)
-                    .and(&si)
-                    .and(&theta_w)
-                    .for_each(|db_ij, sij, theta_wj| {
-                        *db_ij = -sqrt3 * *theta_wj * *sij * *bi * *ai;
-                    });
-            });
+        let three = F::cast(3.);
+        let sqrt3 = three.sqrt();
+        let neg3 = F::cast(-3.);
         let theta_w = theta * weights.mapv(|v| v.abs());
-        let mut da = Array2::<F>::zeros((xtrain.nrows(), xtrain.ncols()));
-        Zip::from(da.rows_mut())
-            .and(abs_d.rows())
-            .and(sign_d.rows())
-            .for_each(|mut da_i, abs_d_i, sign_i| {
-                Zip::indexed(&mut da_i)
-                    .and(&sign_i)
-                    .for_each(|j, da_ij, sign_ij| {
-                        Zip::indexed(theta_w.columns()).for_each(|k, theta_w_k| {
-                            let mut term = F::one();
-                            let deriv = sqrt3 * theta_w_k[j] * *sign_ij;
-                            Zip::indexed(theta_w.rows()).and(abs_d_i).for_each(
-                                |p, theta_w_p, abs_d_ip| {
-                                    Zip::indexed(theta_w_p).for_each(|l, theta_w_pl| {
-                                        if l != k || p != j {
-                                            let v = *theta_w_pl * *abs_d_ip;
-                                            term *= F::one() + sqrt3 * v
-                                        }
-                                    });
-                                },
-                            );
-                            *da_ij += deriv * term;
-                        });
-                    });
+
+        let mut jr = Array2::zeros((d.nrows(), d.ncols()));
+        Zip::from(jr.rows_mut())
+            .and(d.rows())
+            .and(r.column(0))
+            .for_each(|mut jr_i, d_i, &r_i| {
+                Zip::from(&mut jr_i).and(&d_i).and(theta_w.rows()).for_each(
+                    |jr_ij, &d_ij, tw_j| {
+                        let abs_d = d_ij.abs();
+                        let sign_d = d_ij.signum();
+                        let mut sum = F::zero();
+                        for &tw in tw_j.iter() {
+                            let f = F::one() + sqrt3 * tw * abs_d;
+                            sum += tw * tw * abs_d / f;
+                        }
+                        *jr_ij = neg3 * sign_d * r_i * sum;
+                    },
+                );
             });
-        let da = einsum("i,ij->ij", &[b, &da])
-            .unwrap()
-            .into_shape_with_order((xtrain.nrows(), xtrain.ncols()))
-            .unwrap();
-        db + da
+        jr
     }
 }
 
@@ -479,8 +446,26 @@ impl<F: Float> CorrelationModel<F> for Matern52Corr {
         theta: &ArrayBase<impl Data<Elem = F>, Ix1>,
         weights: &ArrayBase<impl Data<Elem = F>, Ix2>,
     ) -> Array2<F> {
-        let (a, b) = self.compute_r_factors(d, theta, weights);
-        let r = a * b;
+        let sqrt5 = F::cast(5.).sqrt();
+        let div5_3 = F::cast(5. / 3.);
+        let theta_w = theta * weights.mapv(|v| v.abs());
+
+        let mut r = Array1::zeros(d.nrows());
+        Zip::from(&mut r).and(d.rows()).for_each(|r_i, d_i| {
+            let mut a = F::one();
+            let mut b_sum = F::zero();
+            Zip::from(&d_i).and(theta_w.rows()).for_each(|&d_ij, tw_j| {
+                let abs_d = d_ij.abs();
+                let mut prod = F::one();
+                for &tw in tw_j.iter() {
+                    let u = tw * abs_d;
+                    prod *= F::one() + sqrt5 * u + div5_3 * u * u;
+                    b_sum += tw * abs_d;
+                }
+                a *= prod;
+            });
+            *r_i = a * F::exp(-sqrt5 * b_sum);
+        });
         r.into_shape_with_order((d.nrows(), 1)).unwrap()
     }
 
@@ -492,9 +477,8 @@ impl<F: Float> CorrelationModel<F> for Matern52Corr {
         weights: &ArrayBase<impl Data<Elem = F>, Ix2>,
     ) -> Array2<F> {
         let d = differences(x, xtrain);
-        let (a, b) = self.compute_r_factors(&d, theta, weights);
-
-        self._jac_helper(&d, &a, &b, xtrain, theta, weights)
+        let r = self.rval_from_distances(&d, theta, weights);
+        self._jac_from_r(&d, &r, theta, weights)
     }
 
     fn rval_with_jac(
@@ -505,11 +489,9 @@ impl<F: Float> CorrelationModel<F> for Matern52Corr {
         weights: &ArrayBase<impl Data<Elem = F>, Ix2>,
     ) -> (Array2<F>, Array2<F>) {
         let d = differences(x, xtrain);
-        let (a, b) = self.compute_r_factors(&d, theta, weights);
-        let r = &a * &b;
-        let jr = self._jac_helper(&d, &a, &b, xtrain, theta, weights);
-
-        (r.into_shape_with_order((d.nrows(), 1)).unwrap(), jr)
+        let r = self.rval_from_distances(&d, theta, weights);
+        let jr = self._jac_from_r(&d, &r, theta, weights);
+        (r, jr)
     }
 
     fn theta_influence_factors(&self) -> (F, F) {
@@ -524,95 +506,45 @@ impl fmt::Display for Matern52Corr {
 }
 
 impl Matern52Corr {
-    fn compute_r_factors<F: Float>(
+    /// Compute the jacobian dr/dx from precomputed distances and correlation values.
+    ///
+    /// Uses the algebraic identity: combining the db (exponential derivative) and da
+    /// (polynomial derivative) terms yields a closed-form O(n·d·h) formula, replacing
+    /// the O(n·d²·h²) "product-excluding-one-factor" loop. This is possible because
+    /// the Matern 5/2 polynomial f(u) = 1 + √5u + 5/3·u² is always positive
+    /// (negative discriminant), so division by f is safe.
+    fn _jac_from_r<F: Float>(
         &self,
         d: &ArrayBase<impl Data<Elem = F>, Ix2>,
-        theta: &ArrayBase<impl Data<Elem = F>, Ix1>,
-        weights: &ArrayBase<impl Data<Elem = F>, Ix2>,
-    ) -> (Array1<F>, Array1<F>) {
-        let sqrt5 = F::cast(5).sqrt();
-        let div5_3 = F::cast(5. / 3.);
-        let theta_w = theta * weights.mapv(|v| v.abs());
-
-        let mut a = Array1::ones(d.nrows());
-        Zip::from(&mut a).and(d.rows()).for_each(|a_i, d_i| {
-            Zip::from(&d_i)
-                .and(theta_w.rows())
-                .for_each(|d_ij, theta_w_j| {
-                    *a_i *= theta_w_j
-                        .mapv(|v| {
-                            F::one() + sqrt5 * v * d_ij.abs() + div5_3 * (v * v * *d_ij * *d_ij)
-                        })
-                        .product();
-                });
-        });
-
-        let d_theta_w = d.mapv(|v| v.abs()).dot(&theta_w);
-        let b = d_theta_w.sum_axis(Axis(1)).mapv(|v| F::exp(-sqrt5 * v));
-        (a, b)
-    }
-
-    fn _jac_helper<F: Float>(
-        &self,
-        d: &ArrayBase<impl Data<Elem = F>, Ix2>,
-        a: &ArrayBase<impl Data<Elem = F>, Ix1>,
-        b: &ArrayBase<impl Data<Elem = F>, Ix1>,
-        xtrain: &ArrayBase<impl Data<Elem = F>, Ix2>,
+        r: &ArrayBase<impl Data<Elem = F>, Ix2>,
         theta: &ArrayBase<impl Data<Elem = F>, Ix1>,
         weights: &ArrayBase<impl Data<Elem = F>, Ix2>,
     ) -> Array2<F> {
-        let sqrt5 = F::cast(5).sqrt();
+        let sqrt5 = F::cast(5.).sqrt();
         let div5_3 = F::cast(5. / 3.);
-        let div10_3 = F::cast(2.) * div5_3;
-
-        let theta_w = weights.mapv(|v| v.abs()).dot(theta);
-        let sign_d = d.mapv(|v| v.signum());
-        let mut db = Array2::<F>::zeros((xtrain.nrows(), xtrain.ncols()));
-        let abs_d = d.mapv(|v| v.abs());
-        Zip::from(db.rows_mut())
-            .and(a)
-            .and(b)
-            .and(sign_d.rows())
-            .for_each(|mut db_i, ai, bi, si| {
-                Zip::from(&mut db_i)
-                    .and(&si)
-                    .and(&theta_w)
-                    .for_each(|db_ij, sij, theta_wj| {
-                        *db_ij = -sqrt5 * *theta_wj * *sij * *bi * *ai;
-                    });
-            });
+        let neg5_3 = F::cast(-5. / 3.);
         let theta_w = theta * weights.mapv(|v| v.abs());
-        let mut da = Array2::<F>::zeros((xtrain.nrows(), xtrain.ncols()));
-        Zip::from(da.rows_mut())
-            .and(abs_d.rows())
-            .and(sign_d.rows())
-            .for_each(|mut da_i, abs_d_i, sign_i| {
-                Zip::indexed(&mut da_i).and(&abs_d_i).and(&sign_i).for_each(
-                    |j, da_ij, abs_d_ij, sign_ij| {
-                        Zip::indexed(theta_w.columns()).for_each(|k, theta_w_k| {
-                            let mut term = F::one();
-                            let deriv = sqrt5 * theta_w_k[j] * *sign_ij
-                                + div10_3 * theta_w_k[j] * theta_w_k[j] * *sign_ij * *abs_d_ij;
-                            Zip::indexed(theta_w.rows()).and(abs_d_i).for_each(
-                                |p, theta_w_p, abs_d_ip| {
-                                    Zip::indexed(theta_w_p).for_each(|l, theta_w_pl| {
-                                        if l != k || p != j {
-                                            let v = *theta_w_pl * *abs_d_ip;
-                                            term *= F::one() + sqrt5 * v + div5_3 * v * v;
-                                        }
-                                    });
-                                },
-                            );
-                            *da_ij += deriv * term;
-                        });
+
+        let mut jr = Array2::zeros((d.nrows(), d.ncols()));
+        Zip::from(jr.rows_mut())
+            .and(d.rows())
+            .and(r.column(0))
+            .for_each(|mut jr_i, d_i, &r_i| {
+                Zip::from(&mut jr_i).and(&d_i).and(theta_w.rows()).for_each(
+                    |jr_ij, &d_ij, tw_j| {
+                        let abs_d = d_ij.abs();
+                        let sign_d = d_ij.signum();
+                        let mut sum = F::zero();
+                        for &tw in tw_j.iter() {
+                            let u = tw * abs_d;
+                            let f = F::one() + sqrt5 * u + div5_3 * u * u;
+                            sum += tw * tw * abs_d * (F::one() + sqrt5 * u) / f;
+                        }
+                        *jr_ij = neg5_3 * sign_d * r_i * sum;
                     },
                 );
             });
-        let da = einsum("i,ij->ij", &[b, &da])
-            .unwrap()
-            .into_shape_with_order((xtrain.nrows(), xtrain.ncols()))
-            .unwrap();
-        db + da
+        jr
     }
 }
 

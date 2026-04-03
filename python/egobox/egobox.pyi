@@ -273,6 +273,22 @@ class EgorOptim:
         """
 
 @typing.final
+class EgorOptim:
+    r"""
+    Egor optimization output
+    """
+    @property
+    def result(self) -> OptimResult:
+        r"""
+        Result of optimization run
+        """
+    @property
+    def status(self) -> RunStatus:
+        r"""
+        Status of optimization run
+        """
+
+@typing.final
 class GpConfig:
     r"""
     GP configuration used by `Egor` and `GpMix`
