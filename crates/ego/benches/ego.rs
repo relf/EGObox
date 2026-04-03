@@ -27,8 +27,7 @@ fn criterion_ego(c: &mut Criterion) {
                                     .correlation_spec(CorrelationSpec::MATERN52)
                             })
                             .infill_strategy(InfillStrategy::WB2S)
-                            .max_iters(10)
-                            .target(5e-1)
+                            .max_iters(5)
                             .seed(42)
                     })
                     .min_within(&xlimits)
@@ -49,8 +48,50 @@ fn criterion_ego(c: &mut Criterion) {
                                     .correlation_spec(CorrelationSpec::MATERN32)
                             })
                             .infill_strategy(InfillStrategy::WB2S)
-                            .max_iters(10)
+                            .max_iters(5)
+                            .seed(42)
+                    })
+                    .min_within(&xlimits)
+                    .expect("Egor configured")
+                    .run()
+                    .expect("Minimization"),
+            )
+        });
+    });
+    group.bench_function("ego ackley square exp", |b| {
+        b.iter(|| {
+            std::hint::black_box(
+                EgorBuilder::optimize(ackley)
+                    .configure(|config| {
+                        config
+                            .configure_gp(|conf| {
+                                conf.regression_spec(RegressionSpec::CONSTANT)
+                                    .correlation_spec(CorrelationSpec::SQUAREDEXPONENTIAL)
+                            })
+                            .infill_strategy(InfillStrategy::WB2S)
+                            .max_iters(5)
                             .target(5e-1)
+                            .seed(42)
+                    })
+                    .min_within(&xlimits)
+                    .expect("Egor configured")
+                    .run()
+                    .expect("Minimization"),
+            )
+        });
+    });
+    group.bench_function("ego ackley abs exp", |b| {
+        b.iter(|| {
+            std::hint::black_box(
+                EgorBuilder::optimize(ackley)
+                    .configure(|config| {
+                        config
+                            .configure_gp(|conf| {
+                                conf.regression_spec(RegressionSpec::CONSTANT)
+                                    .correlation_spec(CorrelationSpec::ABSOLUTEEXPONENTIAL)
+                            })
+                            .infill_strategy(InfillStrategy::WB2S)
+                            .max_iters(5)
                             .seed(42)
                     })
                     .min_within(&xlimits)
