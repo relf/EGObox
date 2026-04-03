@@ -190,6 +190,9 @@ class Egor:
                 hot_start nb of iters is reached (provided the stopping criterion is max_iters)
                 Checkpoint information is stored in .checkpoint/egor.arg binary file.
         
+            seed (int >= 0):
+                Random generator seed to allow computation reproducibility.
+        
             verbose (int, Verbose enum, or None):
                 Logging verbosity level for the optimizer.
                 Can be either an integer or a Verbose enum value:
@@ -197,9 +200,6 @@ class Egor:
                 3 or Verbose.DEBUG, 4 (or greater) or Verbose.TRACE.
                 Default is None which means Verbose.ERROR level and possible control by
                 the EGOBOX_LOG environment variable.
-        
-            seed (int >= 0):
-                Random generator seed to allow computation reproducibility.
         
         # Returns
         
@@ -257,22 +257,6 @@ class Egor:
         This function loads surrogate models from a file and returns them as a list of Gpx objects.
         The file is expected to be a binary file containing a serialized vector of boxed
         surrogate models (Vec<Box<dyn MixtureGpSurrogate>>) generated during optimization execution
-        """
-
-@typing.final
-class EgorOptim:
-    r"""
-    Egor optimization output
-    """
-    @property
-    def result(self) -> OptimResult:
-        r"""
-        Result of optimization run
-        """
-    @property
-    def status(self) -> RunStatus:
-        r"""
-        Status of optimization run
         """
 
 @typing.final
