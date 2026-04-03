@@ -105,21 +105,6 @@ use std::cmp::Ordering;
 ///     target (float):
 ///         Known optimum used as stopping criterion.
 ///
-///     outdir (String):
-///         Directory to write optimization history and used as search path for warm start doe
-///
-///     warm_start (bool):
-///         Start by loading initial doe from <outdir> directory
-///
-///     hot_start (int >= 0 or None):
-///         When hot_start>=0 saves optimizer state at each iteration and starts from a previous checkpoint
-///         if any for the given hot_start number of iterations beyond the max_iters nb of iterations.
-///         In an unstable environment were there can be crashes it allows to restart the optimization
-///         from the last iteration till stopping criterion is reached. Just use hot_start=0 in this case.
-///         When specifying an extended nb of iterations (hot_start > 0) it can allow to continue till max_iters +
-///         hot_start nb of iters is reached (provided the stopping criterion is max_iters)
-///         Checkpoint information is stored in .checkpoint/egor.arg binary file.
-///
 ///     failsafe_strategy (FailsafeStrategy enum):
 ///         Strategy to handle objective computation failure at a given x point.
 ///         A failure is detected when the objective function returns NaN value(s).
@@ -128,17 +113,6 @@ use std::cmp::Ordering;
 ///         uses the objective surrogate prediction to fill the missing value.
 ///         In the third case Viability, a surrogate is used to model the failure region
 ///         which is used as a constraint and drive the optimization toward the viable region.
-///
-///     seed (int >= 0):
-///         Random generator seed to allow computation reproducibility.
-///
-///     verbose (int, Verbose enum, or None):
-///         Logging verbosity level for the optimizer.
-///         Can be either an integer or a Verbose enum value:
-///         0 or Verbose.ERROR, 1 or Verbose.WARNING, 2 or Verbose.INFO,
-///         3 or Verbose.DEBUG, 4 (or greater) or Verbose.TRACE.
-///         Default is None which means Verbose.ERROR level and possible control by
-///         the EGOBOX_LOG environment variable.
 ///
 /// # Returns
 ///
@@ -162,11 +136,7 @@ pub(crate) struct Egor {
     pub trego: Option<TregoConfig>,
     pub coego_n_coop: usize,
     pub target: f64,
-    pub outdir: Option<String>,
-    pub warm_start: bool,
-    pub hot_start: Option<u64>,
     pub failsafe_strategy: FailsafeStrategy,
-    pub seed: Option<u64>,
 }
 
 #[gen_stub_pymethods]
@@ -189,12 +159,7 @@ impl Egor {
         trego = None,
         coego_n_coop = 0,
         target = f64::MIN,
-        outdir = None,
-        warm_start = false,
-        hot_start = None,
         failsafe_strategy = FailsafeStrategy::Rejection,
-        seed = None,
-        verbose = None
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -214,14 +179,8 @@ impl Egor {
         trego: Option<Py<PyAny>>,
         coego_n_coop: usize,
         target: f64,
-        outdir: Option<String>,
-        warm_start: bool,
-        hot_start: Option<u64>,
         failsafe_strategy: FailsafeStrategy,
-        seed: Option<u64>,
-        verbose: Option<Py<PyAny>>,
     ) -> Self {
-        init_logger(py, verbose);
         let doe = doe.map(|x| x.to_owned_array());
         let xtypes = parse(py, xspecs.clone_ref(py));
 
@@ -264,11 +223,7 @@ impl Egor {
             trego,
             coego_n_coop,
             target,
-            outdir,
-            warm_start,
-            hot_start,
             failsafe_strategy,
-            seed,
         }
     }
 
@@ -303,13 +258,40 @@ impl Egor {
     ///           - fname (string): name of the function under optimization, used for checkpoint file naming
     ///           - num (int): number of the run, used for checkpoint file naming
     ///
+    ///     outdir (String):
+    ///         Directory to write optimization history and used as search path for warm start doe
+    ///
+    ///     warm_start (bool):
+    ///         Start by loading initial doe from <outdir> directory
+    ///
+    ///     hot_start (int >= 0 or None):
+    ///         When hot_start>=0 saves optimizer state at each iteration and starts from a previous checkpoint
+    ///         if any for the given hot_start number of iterations beyond the max_iters nb of iterations.
+    ///         In an unstable environment were there can be crashes it allows to restart the optimization
+    ///         from the last iteration till stopping criterion is reached. Just use hot_start=0 in this case.
+    ///         When specifying an extended nb of iterations (hot_start > 0) it can allow to continue till max_iters +
+    ///         hot_start nb of iters is reached (provided the stopping criterion is max_iters)
+    ///         Checkpoint information is stored in .checkpoint/egor.arg binary file.
+    ///
+    ///     seed (int >= 0):
+    ///         Random generator seed to allow computation reproducibility.
+    ///
+    ///     verbose (int, Verbose enum, or None):
+    ///         Logging verbosity level for the optimizer.
+    ///         Can be either an integer or a Verbose enum value:
+    ///         0 or Verbose.ERROR, 1 or Verbose.WARNING, 2 or Verbose.INFO,
+    ///         3 or Verbose.DEBUG, 4 (or greater) or Verbose.TRACE.
+    ///         Default is None which means Verbose.ERROR level and possible control by
+    ///         the EGOBOX_LOG environment variable.
+    ///
     /// # Returns
     ///
     ///     optimization result
     ///         x_opt (array[1, nx]): x value where fun is at its minimum subject to constraints
     ///         y_opt (array[1, nx]): fun(x_opt)
     ///
-    #[pyo3(signature = (fun, fcstrs=vec![], max_iters = 20, run_info = None))]
+    #[pyo3(signature = (fun, fcstrs=vec![], max_iters = 20, run_info = None, outdir = None, warm_start = false, hot_start = None, seed = None, verbose = None))]
+    #[allow(clippy::too_many_arguments)]
     fn minimize(
         &self,
         py: Python,
@@ -317,7 +299,13 @@ impl Egor {
         fcstrs: Vec<Py<PyAny>>,
         max_iters: usize,
         run_info: Option<Py<PyAny>>,
+        outdir: Option<String>,
+        warm_start: bool,
+        hot_start: Option<u64>,
+        seed: Option<u64>,
+        verbose: Option<Py<PyAny>>,
     ) -> PyResult<EgorOptim> {
+        init_logger(py, verbose);
         let obj = |x: &ArrayView2<f64>| -> Result<Array2<f64>> {
             Python::attach(|py| {
                 let args = (x.to_owned().into_pyarray(py),);
@@ -357,7 +345,16 @@ impl Egor {
         let mixintegor = egobox_ego::EgorFactory::optimize(obj)
             .subject_to(fcstrs)
             .configure(|config| {
-                self.apply_config(config, Some(max_iters), n_fcstr, self.doe.as_ref())
+                self.apply_config(
+                    config,
+                    Some(max_iters),
+                    n_fcstr,
+                    self.doe.as_ref(),
+                    outdir.as_ref(),
+                    warm_start,
+                    hot_start,
+                    seed,
+                )
             })
             .min_within_mixint_space(&self.xtypes)
             .expect("Egor configured");
@@ -422,22 +419,28 @@ impl Egor {
     ///     x_doe (array[ns, nx]): ns samples where function has been evaluated
     ///     y_doe (array[ns, 1 + n_cstr]): ns values of objecctive and constraints
     ///
+    ///     seed (int >= 0):
+    ///         Random generator seed to allow computation reproducibility.
+    ///
     /// # Returns
     ///     (array[1, nx]): suggested location where to evaluate objective and constraints
     ///
-    #[pyo3(signature = (x_doe, y_doe))]
+    #[pyo3(signature = (x_doe, y_doe, seed = None))]
     fn suggest(
         &self,
         py: Python,
         x_doe: PyReadonlyArray2<f64>,
         y_doe: PyReadonlyArray2<f64>,
+        seed: Option<u64>,
     ) -> Py<PyArray2<f64>> {
         let x_doe = x_doe.as_array();
         let y_doe = y_doe.as_array();
         let doe = concatenate(Axis(1), &[x_doe.view(), y_doe.view()]).unwrap();
 
         let mixintegor = egobox_ego::EgorServiceBuilder::optimize()
-            .configure(|config| self.apply_config(config, Some(1), 0, Some(&doe)))
+            .configure(|config| {
+                self.apply_config(config, Some(1), 0, Some(&doe), None, false, None, seed)
+            })
             .min_within_mixint_space(&self.xtypes)
             .expect("Egor configured");
 
@@ -601,12 +604,17 @@ impl Egor {
         theta_tuning
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn apply_config(
         &self,
         config: egobox_ego::EgorConfig,
         max_iters: Option<usize>,
         n_fcstr: usize,
         doe: Option<&Array2<f64>>,
+        outdir: Option<&String>,
+        warm_start: bool,
+        hot_start: Option<u64>,
+        seed: Option<u64>,
     ) -> egobox_ego::EgorConfig {
         let infill_strategy = self.infill_strategy();
         let cstr_strategy = self.cstr_strategy();
@@ -651,8 +659,8 @@ impl Egor {
             .infill_optimizer(infill_optimizer)
             .coego(coego_status)
             .target(self.target)
-            .warm_start(self.warm_start)
-            .hot_start(self.hot_start.into())
+            .warm_start(warm_start)
+            .hot_start(hot_start.into())
             .failsafe_strategy(failsafe_strategy);
 
         if let Some(trego) = self.trego.as_ref() {
@@ -664,10 +672,10 @@ impl Egor {
             config = config.doe(doe);
         };
 
-        if let Some(outdir) = self.outdir.as_ref().cloned() {
+        if let Some(outdir) = outdir.cloned() {
             config = config.outdir(outdir);
         };
-        if let Some(seed) = self.seed {
+        if let Some(seed) = seed {
             config = config.seed(seed);
         };
         config

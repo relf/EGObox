@@ -35,12 +35,12 @@ print(f"Using infill strategy: {criterion}")
 # -----------------------------------------------------
 # Initialize optimizer
 # -----------------------------------------------------
-opt = egx.Egor(bounds, n_doe=20, infill_strategy=criterion, seed=42)
+opt = egx.Egor(bounds, n_doe=20, infill_strategy=criterion)
 
 # -----------------------------------------------------
 # Run optimization
 # -----------------------------------------------------
-res = opt.minimize(rastrigin, max_iters=80)
+res = opt.minimize(rastrigin, max_iters=80, seed=42)
 
 print("\n===== Optimization Result =====")
 print("Best value (y*):", res.y_opt)

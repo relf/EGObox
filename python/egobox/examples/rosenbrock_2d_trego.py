@@ -52,14 +52,12 @@ opt = egx.Egor(
     trego=egx.TregoConfig(
         n_gl_steps=(1, 4), beta=0.9, alpha=1.0, d=(DMIN, DMAX)
     ),  # Enable TREGO with default parameter values
-    outdir=outdir,
-    seed=42,
 )
 
 # -----------------------------------------------------
 # Run optimization
 # -----------------------------------------------------
-res = opt.minimize(rosenbrock, max_iters=20)
+res = opt.minimize(rosenbrock, max_iters=20, outdir=outdir, seed=42)
 
 print("\n===== Optimization Result =====")
 print("Best value (y*):", res.y_opt)
