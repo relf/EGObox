@@ -123,9 +123,7 @@ impl<F: Float> CorrelationModel<F> for SquaredExponentialCorr {
         theta: &ArrayBase<impl Data<Elem = F>, Ix1>,
         weights: &ArrayBase<impl Data<Elem = F>, Ix2>,
     ) -> Array2<F> {
-        let theta_w_sq = (theta * weights)
-            .mapv(|v| v * v)
-            .sum_axis(Axis(1));
+        let theta_w_sq = (theta * weights).mapv(|v| v * v).sum_axis(Axis(1));
         let r = d.mapv(|v| v * v).dot(&theta_w_sq);
         r.mapv(|v| F::exp(F::cast(-0.5) * v))
             .into_shape_with_order((d.nrows(), 1))
@@ -140,9 +138,7 @@ impl<F: Float> CorrelationModel<F> for SquaredExponentialCorr {
         weights: &ArrayBase<impl Data<Elem = F>, Ix2>,
     ) -> Array2<F> {
         let d = differences(x, xtrain);
-        let neg_theta_w_sq = (theta * weights)
-            .mapv(|v| -(v * v))
-            .sum_axis(Axis(1));
+        let neg_theta_w_sq = (theta * weights).mapv(|v| -(v * v)).sum_axis(Axis(1));
         let r = {
             let exponent = d.mapv(|v| v * v).dot(&neg_theta_w_sq.mapv(|v| -v));
             exponent
@@ -161,9 +157,7 @@ impl<F: Float> CorrelationModel<F> for SquaredExponentialCorr {
         weights: &ArrayBase<impl Data<Elem = F>, Ix2>,
     ) -> (Array2<F>, Array2<F>) {
         let d = differences(x, xtrain);
-        let neg_theta_w_sq = (theta * weights)
-            .mapv(|v| -(v * v))
-            .sum_axis(Axis(1));
+        let neg_theta_w_sq = (theta * weights).mapv(|v| -(v * v)).sum_axis(Axis(1));
         let r = {
             let exponent = d.mapv(|v| v * v).dot(&neg_theta_w_sq.mapv(|v| -v));
             exponent
