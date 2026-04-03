@@ -22,7 +22,7 @@ egobox-doe = { version = "0.35.1", path = "../doe", features = [
     "serializable",
 ] }
 egobox-gp = { version = "0.36.1", path = "../gp", features = ["serializable"] }
-egobox-moe = { version = "0.35.1", path = "../moe", features = [
+egobox-moe = { version = "0.35.2", path = "../moe", features = [
     "serializable",
 ] }
 
