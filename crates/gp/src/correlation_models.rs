@@ -123,10 +123,10 @@ impl<F: Float> CorrelationModel<F> for SquaredExponentialCorr {
         theta: &ArrayBase<impl Data<Elem = F>, Ix1>,
         weights: &ArrayBase<impl Data<Elem = F>, Ix2>,
     ) -> Array2<F> {
-        let theta_w = (theta * weights)
-            .mapv(|v| v.powf(F::cast(2.)))
+        let theta_w_sq = (theta * weights)
+            .mapv(|v| v * v)
             .sum_axis(Axis(1));
-        let r = d.mapv(|v| v.powf(F::cast(2.))).dot(&theta_w);
+        let r = d.mapv(|v| v * v).dot(&theta_w_sq);
         r.mapv(|v| F::exp(F::cast(-0.5) * v))
             .into_shape_with_order((d.nrows(), 1))
             .unwrap()
@@ -140,14 +140,17 @@ impl<F: Float> CorrelationModel<F> for SquaredExponentialCorr {
         weights: &ArrayBase<impl Data<Elem = F>, Ix2>,
     ) -> Array2<F> {
         let d = differences(x, xtrain);
-        let r = self.rval_from_distances(&d, theta, weights);
-
-        let dtheta_w = (theta * weights)
-            .mapv(|v| v.powf(F::cast(2)))
-            .sum_axis(Axis(1))
-            .mapv(|v| F::cast(-v));
-
-        d * &dtheta_w * &r
+        let neg_theta_w_sq = (theta * weights)
+            .mapv(|v| -(v * v))
+            .sum_axis(Axis(1));
+        let r = {
+            let exponent = d.mapv(|v| v * v).dot(&neg_theta_w_sq.mapv(|v| -v));
+            exponent
+                .mapv(|v| F::exp(F::cast(-0.5) * v))
+                .into_shape_with_order((d.nrows(), 1))
+                .unwrap()
+        };
+        d * &neg_theta_w_sq * &r
     }
 
     fn rval_with_jac(
@@ -158,14 +161,17 @@ impl<F: Float> CorrelationModel<F> for SquaredExponentialCorr {
         weights: &ArrayBase<impl Data<Elem = F>, Ix2>,
     ) -> (Array2<F>, Array2<F>) {
         let d = differences(x, xtrain);
-        let r = self.rval_from_distances(&d, theta, weights);
-
-        let dtheta_w = (theta * weights)
-            .mapv(|v| v.powf(F::cast(2)))
-            .sum_axis(Axis(1))
-            .mapv(|v| F::cast(-v));
-
-        let jr = d * &dtheta_w * &r;
+        let neg_theta_w_sq = (theta * weights)
+            .mapv(|v| -(v * v))
+            .sum_axis(Axis(1));
+        let r = {
+            let exponent = d.mapv(|v| v * v).dot(&neg_theta_w_sq.mapv(|v| -v));
+            exponent
+                .mapv(|v| F::exp(F::cast(-0.5) * v))
+                .into_shape_with_order((d.nrows(), 1))
+                .unwrap()
+        };
+        let jr = d * &neg_theta_w_sq * &r;
         (r, jr)
     }
 
@@ -250,14 +256,17 @@ impl<F: Float> CorrelationModel<F> for AbsoluteExponentialCorr {
         weights: &ArrayBase<impl Data<Elem = F>, Ix2>,
     ) -> (Array2<F>, Array2<F>) {
         let d = differences(x, xtrain);
-        let r = self.rval_from_distances(&d, theta, weights);
-        let sign_d = d.mapv(|v| v.signum());
-
-        let dtheta_w = sign_d
-            * (theta * weights.mapv(|v| v.abs()))
-                .sum_axis(Axis(1))
-                .mapv(|v| F::cast(-1.) * v);
-        let jr = &dtheta_w * &r;
+        let neg_theta_w = (theta * weights.mapv(|v| v.abs()))
+            .sum_axis(Axis(1))
+            .mapv(|v| -v);
+        let r = {
+            let exponent = d.mapv(|v| v.abs()).dot(&neg_theta_w.mapv(|v| -v));
+            exponent
+                .mapv(|v| F::exp(-v))
+                .into_shape_with_order((d.nrows(), 1))
+                .unwrap()
+        };
+        let jr = &(d.mapv(|v| v.signum()) * &neg_theta_w) * &r;
         (r, jr)
     }
 
