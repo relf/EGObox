@@ -77,9 +77,6 @@ def main():
             # infill_strategy=egx.InfillStrategy.LOG_EI,
             gp_config=egx.GpConfig(kpls_dim=5, corr_spec=egx.CorrelationSpec.MATERN52),
             trego=True,
-            outdir=outdir,
-            seed=run,
-            verbose=egx.Verbose.INFO,
             target=0.01,
         )
 
@@ -87,6 +84,9 @@ def main():
             rosenbrock,
             max_iters=max_iters,
             run_info=egx.RunInfo(fname="Rosenbrock20D", num=run + 1),
+            outdir=outdir,
+            verbose=egx.Verbose.INFO,
+            seed=run,
         )
 
         print(f"Best value (y*): {optim.result.y_opt}")

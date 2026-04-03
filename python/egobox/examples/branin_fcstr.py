@@ -210,7 +210,6 @@ def main():
     egor = Egor(
         xspecs,
         n_doe=NDOE,  # Initial DOE size
-        seed=42,  # For reproducibility
     )
 
     print("Configuration:")
@@ -227,6 +226,7 @@ def main():
         branin_forrester,
         fcstrs=[constraint_branin],
         max_iters=20,
+        seed=42,  # For reproducibility
     )
 
     # Display results

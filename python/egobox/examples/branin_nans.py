@@ -285,7 +285,6 @@ def main():
         failsafe_strategy=FAILSAFE_STRATEGY,
         trego=True,  # To improve convergence
         gp_config=egx.GpConfig(corr_spec=egx.CorrelationSpec.MATERN52),
-        seed=42,
     )
 
     print("Configuration:")
@@ -302,6 +301,7 @@ def main():
         # branin_forrester,
         branin_constrained_with_nans,
         max_iters=MAX_ITERS,
+        seed=42,
     )
 
     # Display results

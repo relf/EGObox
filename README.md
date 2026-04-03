@@ -40,7 +40,7 @@ def f_obj(x: np.ndarray) -> np.ndarray:
     return (x - 3.5) * np.sin((x - 3.5) / (np.pi))
 
 # Minimize f_opt in [0, 25]
-optim = egx.Egor([[0.0, 25.0]], seed=42).minimize(f_obj, max_iters=20)
+optim = egx.Egor([[0.0, 25.0]]).minimize(f_obj, max_iters=20, seed=42)
 print(f"Optimization f={optim.result.y_opt} at {optim.result.x_opt}")  # Optimization f=[-15.12510323] at [18.93525454]
 ```
 
