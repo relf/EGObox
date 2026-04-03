@@ -62,9 +62,9 @@ pub(crate) struct GpConfig {
 
     /// (int >= 0)
     ///   Number of internal GP hyperpameters optimization restart (multistart)
-    ///   When is negative optimization is disabled and theta init value is used
+    ///   When zero, optimization is disabled and theta init value is used as is.
     #[pyo3(get, set)]
-    pub n_start: isize,
+    pub n_start: usize,
 
     /// (int >= 0)
     ///   Max number of likelihood evaluations during GP hyperparameters optimization
@@ -82,7 +82,7 @@ impl Default for GpConfig {
             Recombination::Hard,
             None,
             None,
-            egobox_ego::EGO_GP_OPTIM_N_START as isize,
+            egobox_ego::EGO_GP_OPTIM_N_START,
             egobox_ego::EGO_GP_OPTIM_MAX_EVAL,
         )
     }
@@ -111,7 +111,7 @@ impl GpConfig {
         recombination: Recombination,
         theta_init: Option<Vec<f64>>,
         theta_bounds: Option<Vec<Vec<f64>>>,
-        n_start: isize,
+        n_start: usize,
         max_eval: usize,
     ) -> Self {
         GpConfig {

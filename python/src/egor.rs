@@ -13,6 +13,7 @@
 
 use crate::domain::*;
 use crate::gp_config::*;
+use crate::gp_mix::Gpx;
 use crate::logging::init_logger;
 use crate::qei_config::*;
 use crate::trego_config::{TregoConfig, TregoConfigSpec};
@@ -502,6 +503,19 @@ impl Egor {
             y_doe,
         }
     }
+
+    /// This function loads surrogate models from a file and returns them as a list of Gpx objects.
+    /// The file is expected to be a binary file containing a serialized vector of boxed
+    /// surrogate models (Vec<Box<dyn MixtureGpSurrogate>>) generated during optimization execution
+    #[pyo3(signature = (file))]
+    fn load_gp_models(&self, file: String) -> Vec<Gpx> {
+        let msg = format!(
+            "Failed to load GP models from file {}. Make sure the file exists and is a valid GP models file.",
+            file
+        );
+        let gp_models = egobox_ego::load_gp_models(file.clone()).expect(&msg);
+        gp_models.into_iter().map(Gpx::from).collect()
+    }
 }
 
 impl Egor {
@@ -616,14 +630,13 @@ impl Egor {
             .configure_gp(|gp| {
                 let regr = RegressionSpec(self.gp_config.regr_spec);
                 let corr = CorrelationSpec(self.gp_config.corr_spec);
-                let n_start = self.gp_config.n_start.max(0) as usize;
                 gp.regression_spec(egobox_moe::RegressionSpec::from_bits(regr.0).unwrap())
                     .correlation_spec(egobox_moe::CorrelationSpec::from_bits(corr.0).unwrap())
                     .kpls_dim(self.gp_config.kpls_dim)
                     .n_clusters(self.n_clusters())
                     .recombination(self.recombination())
                     .theta_tuning(self.theta_tuning())
-                    .n_start(n_start)
+                    .n_start(self.gp_config.n_start)
                     .max_eval(self.gp_config.max_eval)
             })
             .infill_strategy(infill_strategy)

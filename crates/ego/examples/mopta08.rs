@@ -3,6 +3,7 @@ use egobox_ego::{
     CoegoStatus, EgorBuilder, HotStartMode, InfillOptimizer, InfillStrategy, ObjFn, QEiStrategy,
 };
 use egobox_moe::{CorrelationSpec, NbClusters, RegressionSpec};
+use log::LevelFilter;
 use ndarray::{Array1, Array2, ArrayView1, ArrayView2, s};
 use std::fs::{File, remove_file};
 use std::io::prelude::*;
@@ -306,7 +307,7 @@ fn main() -> anyhow::Result<()> {
                     })
                     .infill_optimizer(InfillOptimizer::Cobyla)
                     .n_start(50)
-                    .infill_strategy(InfillStrategy::EI)
+                    .infill_strategy(InfillStrategy::LogEI)
                     .cstr_infill(true)
                     .configure_qei(|qei_config| {
                         qei_config
@@ -319,6 +320,7 @@ fn main() -> anyhow::Result<()> {
                     .coego(CoegoStatus::Enabled(5))
                     .hot_start(HotStartMode::Enabled)
             })
+            .verbose(LevelFilter::Info)
             .min_within(&xlimits)
             .expect("Egor configured")
             .run()

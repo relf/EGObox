@@ -75,6 +75,16 @@ impl<F: Float> ThetaTuning<F> {
             ThetaTuning::Fixed(_) => None,
         }
     }
+
+    /// Convert to fixed theta tuning with the same initial theta value
+    pub fn to_fixed(&self) -> Self {
+        ThetaTuning::Fixed(self.init().clone())
+    }
+
+    /// Check if theta tuning is fixed
+    pub fn is_fixed(&self) -> bool {
+        matches!(self, ThetaTuning::Fixed(_))
+    }
 }
 
 /// A set of validated GP parameters.

@@ -56,7 +56,7 @@
 //! ```
 
 use crate::utils::{
-    EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER, EGOR_USE_GP_RECORDER, EGOR_USE_GP_VAR_PORTFOLIO,
+    EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER, EGOR_USE_GP_VAR_PORTFOLIO,
     EGOR_USE_MAX_PROBA_OF_FEASIBILITY, EGOR_USE_RUN_RECORDER,
 };
 use crate::{HotStartMode, criteria::*, errors::Result, types::*};
@@ -253,8 +253,6 @@ pub struct RuntimeFlags {
     pub use_gp_var_portfolio: bool,
     /// Disable middle-picker multistarter for infill optimization (env: EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER)
     pub disable_middlepicker_multistarter: bool,
-    /// Enable GP model recording to files (env: EGOR_USE_GP_RECORDER)
-    pub use_gp_recorder: bool,
     /// Enable run data recording to JSON (env: EGOR_USE_RUN_RECORDER)
     pub use_run_recorder: bool,
 }
@@ -269,7 +267,6 @@ impl Default for RuntimeFlags {
                 EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER,
             )
             .is_ok(),
-            use_gp_recorder: std::env::var(EGOR_USE_GP_RECORDER).is_ok(),
             use_run_recorder: std::env::var(EGOR_USE_RUN_RECORDER).is_ok(),
         }
     }
@@ -282,7 +279,6 @@ impl RuntimeFlags {
             use_max_proba_of_feasibility: false,
             use_gp_var_portfolio: false,
             disable_middlepicker_multistarter: false,
-            use_gp_recorder: false,
             use_run_recorder: false,
         }
     }
@@ -302,12 +298,6 @@ impl RuntimeFlags {
     /// Disable middle-picker multistarter.
     pub fn disable_middlepicker_multistarter(mut self, enabled: bool) -> Self {
         self.disable_middlepicker_multistarter = enabled;
-        self
-    }
-
-    /// Enable GP model recording.
-    pub fn use_gp_recorder(mut self, enabled: bool) -> Self {
-        self.use_gp_recorder = enabled;
         self
     }
 
@@ -702,7 +692,7 @@ impl EgorConfig {
 
     /// Checks and wraps an EgorConfig
     pub fn check(self) -> Result<ValidEgorConfig> {
-        let config = self.0;
+        let mut config = self.0;
         // Check cstr_tol length if any
         if config.n_cstr > 0
             && let Some(cstr_tol) = config.cstr_tol.as_ref()
@@ -713,6 +703,15 @@ impl EgorConfig {
                 cstr_tol.len(),
                 config.n_cstr
             )));
+        }
+
+        // Fix theta tuning if n_statt is 0
+        if config.gp.n_start == 0 {
+            log::info!(
+                "n_start is 0, setting theta value to {}",
+                config.gp.theta_tuning.init()
+            );
+            config.gp.theta_tuning = config.gp.theta_tuning.to_fixed();
         }
 
         // When both CoEGO and KPLS are enabled, KPLS takes priority for GP training

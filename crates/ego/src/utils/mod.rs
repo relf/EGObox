@@ -15,6 +15,7 @@ pub(crate) mod run_recorder;
 pub use bounds::*;
 pub use cstr_pof::*;
 pub use find_result::*;
+pub use gp_recorder::*;
 pub use hot_start::*;
 pub use logei_helper::*;
 pub use misc::*;
@@ -33,9 +34,6 @@ pub const EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER: &str =
 
 /// Env variable to enable the portfolio method used for global infill criterion optimization
 pub const EGOR_USE_GP_VAR_PORTFOLIO: &str = "EGOR_USE_GP_VAR_PORTFOLIO";
-
-/// Env variable to trigger GP recording
-pub const EGOR_USE_GP_RECORDER: &str = "EGOR_USE_GP_RECORDER";
 
 /// Gaussian process filename to save initial GPs built from initial_doe
 pub const EGOR_INITIAL_GP_FILENAME: &str = "egor_initial_gp.bin";

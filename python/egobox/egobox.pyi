@@ -10,6 +10,7 @@ __all__ = [
     "ConstraintStrategy",
     "CorrelationSpec",
     "Egor",
+    "EgorOptim",
     "ExitStatus",
     "FailsafeStrategy",
     "GpConfig",
@@ -167,7 +168,7 @@ class Egor:
         Egor object which can be used to optimize a function using the minimize method.
     """
     def __new__(cls, xspecs: typing.Any, gp_config: GpConfig = ..., n_cstr: builtins.int = 0, cstr_tol: typing.Optional[typing.Sequence[builtins.float]] = None, n_start: builtins.int = 20, n_doe: builtins.int = 0, doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, infill_strategy: InfillStrategy = InfillStrategy.LOG_EI, cstr_infill: builtins.bool = False, cstr_strategy: ConstraintStrategy = ConstraintStrategy.MC, qei_config: QEiConfig = ..., infill_optimizer: InfillOptimizer = InfillOptimizer.COBYLA, trego: typing.Optional[typing.Any] = None, coego_n_coop: builtins.int = 0, target: builtins.float = -1.7976931348623157e+308, outdir: typing.Optional[builtins.str] = None, warm_start: builtins.bool = False, hot_start: typing.Optional[builtins.int] = None, failsafe_strategy: FailsafeStrategy = FailsafeStrategy.REJECTION, seed: typing.Optional[builtins.int] = None, verbose: typing.Optional[typing.Any] = None) -> Egor: ...
-    def minimize(self, fun: typing.Any, fcstrs: typing.Sequence[typing.Any] = [], max_iters: builtins.int = 20, run_info: typing.Optional[typing.Any] = None) -> tuple[OptimResult, RunStatus]:
+    def minimize(self, fun: typing.Any, fcstrs: typing.Sequence[typing.Any] = [], max_iters: builtins.int = 20, run_info: typing.Optional[typing.Any] = None) -> EgorOptim:
         r"""
         This function finds the minimum of a given function "fun"
         
@@ -247,6 +248,28 @@ class Egor:
                 y_opt (array[1, nx]): fun(x_opt)
                 x_doe (array[ns, nx]): x values of the final DOE
                 y_doe (array[ns, 1 + n_cstr]): y values of the final DOE
+        """
+    def load_gp_models(self, file: builtins.str) -> builtins.list[Gpx]:
+        r"""
+        This function loads surrogate models from a file and returns them as a list of Gpx objects.
+        The file is expected to be a binary file containing a serialized vector of boxed
+        surrogate models (Vec<Box<dyn MixtureGpSurrogate>>) generated during optimization execution
+        """
+
+@typing.final
+class EgorOptim:
+    r"""
+    Egor optimization output
+    """
+    @property
+    def result(self) -> OptimResult:
+        r"""
+        Result of optimization run
+        """
+    @property
+    def status(self) -> RunStatus:
+        r"""
+        Status of optimization run
         """
 
 @typing.final
@@ -379,14 +402,14 @@ class GpConfig:
         r"""
         (int >= 0)
         Number of internal GP hyperpameters optimization restart (multistart)
-        When is negative optimization is disabled and theta init value is used
+        When zero, optimization is disabled and theta init value is used as is.
         """
     @n_start.setter
     def n_start(self, value: builtins.int) -> None:
         r"""
         (int >= 0)
         Number of internal GP hyperpameters optimization restart (multistart)
-        When is negative optimization is disabled and theta init value is used
+        When zero, optimization is disabled and theta init value is used as is.
         """
     @property
     def max_eval(self) -> builtins.int:
@@ -463,6 +486,7 @@ class GpMix:
     
         n_start (int >= 0):
             Number of internal GP hyperpameters optimization restart (multistart)
+            When is zero, optimization is disabled and theta init value is used as is.
     
         max_eval (int >= 0):
             Max number of likelihood evaluations during GP hyperparameters optimization
@@ -667,16 +691,19 @@ class QEiConfig:
     
     Parameters
     ----------
-    q_batch : int
+    
+    batch : int
         Number of points to evaluate in parallel at each iteration.
         When set to 1, standard sequential EGO is used.
-    q_ei_strategy : QEiStrategy
+    
+    strategy : QEiStrategy
         Strategy for selecting multiple points:
         * KB (Kriging Believer): Uses the GP mean prediction as a pseudo-observation
         * KBLB (Kriging Believer Lower Bound): Uses GP mean - std as pseudo-observation
         * KBUB (Kriging Believer Upper Bound): Uses GP mean + std as pseudo-observation
         * CLMIN (Constant Liar Minimum): Uses the current best value as pseudo-observation
-    q_optmod : int
+    
+    optmod : int
         Interval between two hyperparameter optimizations when computing q points.
         For example, with q_optmod=2, hyperparameters are optimized every 2 points.
     """
