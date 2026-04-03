@@ -54,11 +54,11 @@ def main():
 
     dim = 20
     bounds = [[-2.0, 2.0]] * dim
-    n_doe = 60
+    n_doe = dim + 1
     max_iters = args.max_iters
     base_seed = args.seed
     n_runs = args.n_runs
-    base_outdir = "rosenbrock20D_out"
+    base_outdir = "rosenbrock20D_001_out"
 
     all_histories = []
 
@@ -75,13 +75,15 @@ def main():
             bounds,
             n_doe=n_doe,
             # infill_strategy=egx.InfillStrategy.LOG_EI,
-            # gp_config=egx.GpConfig(corr_spec=egx.CorrelationSpec.SQUARED_EXPONENTIAL),
+            gp_config=egx.GpConfig(kpls_dim=5, corr_spec=egx.CorrelationSpec.MATERN52),
+            trego=True,
             outdir=outdir,
-            seed=seed,
+            seed=run,
             verbose=egx.Verbose.INFO,
+            target=0.01,  
         )
 
-        optim = opt.minimize(rosenbrock, max_iters=max_iters)
+        optim = opt.minimize(rosenbrock, max_iters=max_iters, run_info=egx.RunInfo(fname="Rosenbrock20D", num=run+1))
 
         print(f"Best value (y*): {optim.result.y_opt}")
         print(
