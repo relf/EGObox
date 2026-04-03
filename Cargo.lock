@@ -692,7 +692,7 @@ dependencies = [
 
 [[package]]
 name = "egobox-gp"
-version = "0.36.0"
+version = "0.36.1"
 dependencies = [
  "anyhow",
  "approx",
