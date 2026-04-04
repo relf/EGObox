@@ -1,6 +1,23 @@
 # Changes
 
-## Version 0.37.0 - unreleased
+## Version 0.38.0 - unreleased
+
+## Version 0.37.0 - 07/04/2026
+
+This release introduces breaking changes in the Python API: `seed`, `verbose`, `warm_start` and `hot_start`
+are moved from the `Egor` constructor to the `minimize()` method (see <https://github.com/relf/EGObox/pull/406>) 
+which now retuns a new structure containing previous `result` structure and 
+a `status` of the optimization execution (see <https://github.com/relf/EGObox/pull/397>) 
+
+* **Breaking changes**:
+  * Move arguments from `Egor` constructor to `minimize()` method by @relf in <https://github.com/relf/EGObox/pull/406>
+  * Add optimization run status as an output of `minimize()` by @relf in <https://github.com/relf/EGObox/pull/397>
+* Add `verbose` option to control log level (disable notebooks logging) by @relf in <https://github.com/relf/EGObox/pull/392>
+* Make CoEGO and KPLS compatible by @relf in <https://github.com/relf/EGObox/pull/398>
+* Fix `Egor` GP config when `n_start` option is zeroed by @relf in <https://github.com/relf/EGObox/pull/403>
+* Improve Matern kernels runtime performance by @relf in <https://github.com/relf/EGObox/pull/405>
+* Remove unused coego check by @relf in <https://github.com/relf/EGObox/pull/400>
+
 
 ## Version 0.36.1 - 18/02/2026
 
