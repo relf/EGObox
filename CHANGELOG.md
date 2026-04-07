@@ -5,9 +5,9 @@
 ## Version 0.37.0 - 07/04/2026
 
 This release introduces breaking changes in the Python API: `seed`, `verbose`, `warm_start` and `hot_start`
-are moved from the `Egor` constructor to the `minimize()` method (see <https://github.com/relf/EGObox/pull/406>) 
-which now retuns a new structure containing previous `result` structure and 
-a `status` of the optimization execution (see <https://github.com/relf/EGObox/pull/397>) 
+are moved from the `Egor` constructor to the `minimize()` method (see <https://github.com/relf/EGObox/pull/406>)
+which now retuns a new structure containing previous `result` structure and
+a `status` of the optimization execution (see <https://github.com/relf/EGObox/pull/397>)
 
 * **Breaking changes**:
   * Move arguments from `Egor` constructor to `minimize()` method by @relf in <https://github.com/relf/EGObox/pull/406>
