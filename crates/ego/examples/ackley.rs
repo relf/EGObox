@@ -35,7 +35,7 @@ struct Args {
 
 fn run_egor(dim: usize, outdir: &String, num: usize) -> Result<OptimResult<f64>> {
     let n_doe = 20;
-    let max_iters = 480;
+    let max_iters = 100;
 
     let data = [-32.768, 32.768].repeat(dim);
     let xlimits = Array::from_shape_vec((dim, 2), data).unwrap();
@@ -47,7 +47,7 @@ fn run_egor(dim: usize, outdir: &String, num: usize) -> Result<OptimResult<f64>>
                 .configure_gp(|gp| {
                     gp.regression_spec(RegressionSpec::CONSTANT)
                         .correlation_spec(CorrelationSpec::MATERN52)
-                        .kpls(20)
+                    //.kpls(20)
                 })
                 .infill_strategy(InfillStrategy::LogEI)
                 .infill_optimizer(InfillOptimizer::Slsqp)
@@ -63,6 +63,7 @@ fn run_egor(dim: usize, outdir: &String, num: usize) -> Result<OptimResult<f64>>
                 .max_iters(max_iters)
             //.hot_start(HotStartMode::ExtendedIters(10))
         })
+        .verbose(log::LevelFilter::Info)
         .min_within(&xlimits)
         .expect("Egor configured")
         .run_info(RunInfo {
