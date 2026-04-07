@@ -18,7 +18,6 @@ a `status` of the optimization execution (see <https://github.com/relf/EGObox/pu
 * Improve Matern kernels runtime performance by @relf in <https://github.com/relf/EGObox/pull/405>
 * Remove unused coego check by @relf in <https://github.com/relf/EGObox/pull/400>
 
-
 ## Version 0.36.1 - 18/02/2026
 
 This release adds the following features:
