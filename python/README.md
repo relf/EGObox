@@ -22,9 +22,9 @@ def f_obj(x: np.ndarray) -> np.ndarray:
     return (x - 3.5) * np.sin((x - 3.5) / (np.pi))
 
 # Minimize f_opt in [0, 25]
-result, status = egx.Egor([[0.0, 25.0]]).minimize(f_obj, max_iters=20, seed=42)
-print(f"Optimization f={res.y_opt} at {res.x_opt}")  # Optimization f=[-15.12510323] at [18.93525454]
-print(f"Status {status.exit} in {status.elapsed_time}s")  # ExitStatus.SOLVER_CONVERGED in 0.021s
+optim = egx.Egor([[0.0, 25.0]]).minimize(f_obj, max_iters=20, seed=42)
+print(f"Optimization f={optim.result.y_opt} at {optim.result.x_opt}")  # Optimization f=[-15.12510323] at [18.93525454]
+print(f"Status {optim.status.exit} in {optim.status.elapsed_time}s")  # ExitStatus.SOLVER_CONVERGED in 0.021s
 ```
 
 ### Gpx surrogate model
