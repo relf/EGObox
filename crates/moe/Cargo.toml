@@ -1,7 +1,7 @@
 [package]
 name = "egobox-moe"
 authors.workspace = true
-version = "0.35.1"
+version = "0.35.2"
 license.workspace = true
 edition.workspace = true
 homepage.workspace = true
@@ -30,8 +30,8 @@ serializable = [
 blas = ["ndarray-linalg", "linfa/ndarray-linalg", "linfa-pls/blas"]
 
 [dependencies]
-egobox-doe = { version = "0.35.0", path = "../doe" }
-egobox-gp = { version = "0.36.0", path = "../gp" }
+egobox-doe = { version = "0.35.1", path = "../doe" }
+egobox-gp = { version = "0.36.1", path = "../gp" }
 
 linfa.workspace = true
 linfa-linalg.workspace = true

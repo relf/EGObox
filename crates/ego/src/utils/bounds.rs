@@ -107,21 +107,25 @@ mod tests {
 
     test_theta_bounds!(1, SquaredExponential);
     test_theta_bounds!(10, SquaredExponential);
+    test_theta_bounds!(20, SquaredExponential);
     test_theta_bounds!(50, SquaredExponential);
     test_theta_bounds!(100, SquaredExponential);
     test_theta_bounds!(200, SquaredExponential);
     test_theta_bounds!(1, AbsoluteExponential);
     test_theta_bounds!(10, AbsoluteExponential);
+    test_theta_bounds!(20, AbsoluteExponential);
     test_theta_bounds!(50, AbsoluteExponential);
     test_theta_bounds!(100, AbsoluteExponential);
     test_theta_bounds!(200, AbsoluteExponential);
     test_theta_bounds!(1, Matern32);
     test_theta_bounds!(10, Matern32);
+    test_theta_bounds!(20, Matern32);
     test_theta_bounds!(50, Matern32);
     test_theta_bounds!(100, Matern32);
     test_theta_bounds!(200, Matern32);
     test_theta_bounds!(1, Matern52);
     test_theta_bounds!(10, Matern52);
+    test_theta_bounds!(20, Matern52);
     test_theta_bounds!(50, Matern52);
     test_theta_bounds!(100, Matern52);
     test_theta_bounds!(200, Matern52);
