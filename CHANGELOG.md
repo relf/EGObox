@@ -136,7 +136,7 @@ See also some breaking changes description in optimizer options in PR #253
 
 ## Version 0.27.0 - 13/03/2025
 
-* `ego`: 
+* `ego`:
   * Implement upper trusted bound criterion for constraint handling by @relf in <https://github.com/relf/egobox/pull/245>
   * Implement constrained infill criterion by @relf in <https://github.com/relf/egobox/pull/246>
 * `moe`: Relax number of points required wrt regression spec by @relf in <https://github.com/relf/egobox/pull/244>
