@@ -24,7 +24,9 @@ use egobox_gp::ThetaTuning;
 use egobox_moe::NbClusters;
 use ndarray::{Array1, Array2, ArrayView2, Axis, array, concatenate};
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyArrayMethods, PyReadonlyArray2, ToPyArray};
+use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
+use pyo3::types::PyBool;
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 use std::cmp::Ordering;
 
@@ -126,8 +128,9 @@ use std::cmp::Ordering;
 ///         Deprecated: use warm_start argument in minimize() instead.
 ///         Start by loading initial doe from <outdir> directory.
 ///
-///     hot_start (int >= 0 or None):
+///     hot_start (bool, int >= 0 or None):
 ///         Deprecated: use hot_start argument in minimize() instead.
+///         When True, hot_start behaves like hot_start=0 with no iteration extension.
 ///         When hot_start>=0 saves optimizer state at each iteration and starts from a previous checkpoint.
 ///
 ///     verbose (int, Verbose enum, or None):
@@ -213,7 +216,7 @@ impl Egor {
         seed: Option<u64>,
         outdir: Option<String>,
         warm_start: bool,
-        hot_start: Option<u64>,
+        hot_start: Option<Py<PyAny>>,
         verbose: Option<Py<PyAny>>,
     ) -> Self {
         // Emit deprecation warnings for parameters that moved to minimize()/suggest()
@@ -253,6 +256,8 @@ impl Egor {
                 "Passing 'verbose' to Egor() is deprecated. Use 'verbose' argument of minimize() instead.",
             );
         }
+
+        let hot_start = normalize_hot_start(py, hot_start).expect("Bad hot_start value");
 
         let doe = doe.map(|x| x.to_owned_array());
         let xtypes = parse(py, xspecs.clone_ref(py));
@@ -341,7 +346,8 @@ impl Egor {
     ///     warm_start (bool):
     ///         Start by loading initial doe from <outdir> directory
     ///
-    ///     hot_start (int >= 0 or None):
+    ///     hot_start (bool, int >= 0 or None):
+    ///         When True, hot_start behaves like hot_start=0 with no iteration extension.
     ///         When hot_start>=0 saves optimizer state at each iteration and starts from a previous checkpoint
     ///         if any for the given hot_start number of iterations beyond the max_iters nb of iterations.
     ///         In an unstable environment were there can be crashes it allows to restart the optimization
@@ -378,7 +384,7 @@ impl Egor {
         run_info: Option<Py<PyAny>>,
         outdir: Option<String>,
         warm_start: bool,
-        hot_start: Option<u64>,
+        hot_start: Option<Py<PyAny>>,
         seed: Option<u64>,
         verbose: Option<Py<PyAny>>,
     ) -> PyResult<EgorOptim> {
@@ -388,7 +394,10 @@ impl Egor {
         let seed = seed.or(self.seed);
         let outdir = outdir.or_else(|| self.outdir.clone());
         let warm_start = if warm_start { true } else { self.warm_start };
-        let hot_start = hot_start.or(self.hot_start);
+        let hot_start = match hot_start {
+            Some(hot_start) => normalize_hot_start(py, Some(hot_start))?,
+            None => self.hot_start,
+        };
 
         let obj = |x: &ArrayView2<f64>| -> Result<Array2<f64>> {
             Python::attach(|py| {
@@ -766,5 +775,25 @@ impl Egor {
             config = config.seed(seed);
         };
         config
+    }
+}
+
+fn normalize_hot_start(py: Python, hot_start: Option<Py<PyAny>>) -> PyResult<Option<u64>> {
+    match hot_start {
+        Some(hot_start) => {
+            let hot_start = hot_start.bind(py);
+            if hot_start.is_none() {
+                Ok(None)
+            } else if hot_start.is_instance_of::<PyBool>() {
+                Ok(hot_start.extract::<bool>()?.then_some(0))
+            } else if let Ok(ext_iters) = hot_start.extract::<u64>() {
+                Ok(Some(ext_iters))
+            } else {
+                Err(PyTypeError::new_err(
+                    "hot_start must be a bool, a non-negative integer, or None",
+                ))
+            }
+        }
+        None => Ok(None),
     }
 }
