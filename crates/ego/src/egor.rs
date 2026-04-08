@@ -262,6 +262,12 @@ impl<O: ObjFn, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> E
 
         let exec = Executor::new(self.fobj.clone(), self.solver.clone()).timer(true);
 
+        let exec = if let Some(timeout) = self.solver.config.timeout {
+            exec.timeout(std::time::Duration::from_secs_f64(timeout))
+        } else {
+            exec
+        };
+
         let exec = if self.solver.config.hot_start != HotStartMode::Disabled {
             let chkpt_dir = if let Some(outdir) = self.solver.config.outdir.as_ref() {
                 outdir

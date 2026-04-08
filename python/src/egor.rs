@@ -359,6 +359,11 @@ impl Egor {
     ///     seed (int >= 0):
     ///         Random generator seed to allow computation reproducibility.
     ///
+    ///     timeout (float or None):
+    ///         Optional timeout in seconds. The optimization is stopped when the elapsed time
+    ///         exceeds this duration. The actual runtime may slightly exceed the specified timeout
+    ///         as the check is performed after each iteration.
+    ///
     ///     verbose (int, Verbose enum, or None):
     ///         Logging verbosity level for the optimizer.
     ///         Can be either an integer or a Verbose enum value:
@@ -373,7 +378,7 @@ impl Egor {
     ///         x_opt (array[1, nx]): x value where fun is at its minimum subject to constraints
     ///         y_opt (array[1, nx]): fun(x_opt)
     ///
-    #[pyo3(signature = (fun, fcstrs=vec![], max_iters = 20, run_info = None, outdir = None, warm_start = false, hot_start = None, seed = None, verbose = None))]
+    #[pyo3(signature = (fun, fcstrs=vec![], max_iters = 20, run_info = None, outdir = None, warm_start = false, hot_start = None, seed = None, timeout = None, verbose = None))]
     #[allow(clippy::too_many_arguments)]
     fn minimize(
         &self,
@@ -386,6 +391,7 @@ impl Egor {
         warm_start: bool,
         hot_start: Option<Py<PyAny>>,
         seed: Option<u64>,
+        timeout: Option<f64>,
         verbose: Option<Py<PyAny>>,
     ) -> PyResult<EgorOptim> {
         init_logger(py, verbose);
@@ -447,6 +453,7 @@ impl Egor {
                     warm_start,
                     hot_start,
                     seed,
+                    timeout,
                 )
             })
             .min_within_mixint_space(&self.xtypes)
@@ -535,7 +542,17 @@ impl Egor {
 
         let mixintegor = egobox_ego::EgorServiceBuilder::optimize()
             .configure(|config| {
-                self.apply_config(config, Some(1), 0, Some(&doe), None, false, None, seed)
+                self.apply_config(
+                    config,
+                    Some(1),
+                    0,
+                    Some(&doe),
+                    None,
+                    false,
+                    None,
+                    seed,
+                    None,
+                )
             })
             .min_within_mixint_space(&self.xtypes)
             .expect("Egor configured");
@@ -711,6 +728,7 @@ impl Egor {
         warm_start: bool,
         hot_start: Option<u64>,
         seed: Option<u64>,
+        timeout: Option<f64>,
     ) -> egobox_ego::EgorConfig {
         let infill_strategy = self.infill_strategy();
         let cstr_strategy = self.cstr_strategy();
@@ -758,6 +776,10 @@ impl Egor {
             .warm_start(warm_start)
             .hot_start(hot_start.into())
             .failsafe_strategy(failsafe_strategy);
+
+        if let Some(timeout) = timeout {
+            config = config.timeout(timeout);
+        }
 
         if let Some(trego) = self.trego.as_ref() {
             let strategy: egobox_ego::TregoStrategy = trego.clone().into();

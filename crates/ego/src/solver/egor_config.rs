@@ -339,6 +339,8 @@ pub struct ValidEgorConfig {
     pub(crate) infill_optimizer: InfillOptimizer,
     /// Specification of a target objective value which is used to stop the algorithm once reached
     pub(crate) target: f64,
+    /// Optional timeout in seconds: the optimization is stopped when the elapsed time exceeds this duration
+    pub(crate) timeout: Option<f64>,
     /// Directory to save intermediate results: inital doe + evalutions at each iteration
     pub(crate) outdir: Option<String>,
     /// If true use `outdir` to retrieve and start from previous results
@@ -377,6 +379,7 @@ impl Default for ValidEgorConfig {
             infill_criterion: Box::new(LOG_EI),
             infill_optimizer: InfillOptimizer::Slsqp,
             target: f64::MIN,
+            timeout: None,
             outdir: None,
             warm_start: false,
             hot_start: HotStartMode::Disabled,
@@ -524,6 +527,12 @@ impl EgorConfig {
     /// Sets a known target minimum to be used as a stopping criterion.
     pub fn target(mut self, target: f64) -> Self {
         self.0.target = target;
+        self
+    }
+
+    /// Sets a timeout in seconds: the optimization is stopped when the elapsed time exceeds this duration.
+    pub fn timeout(mut self, timeout: f64) -> Self {
+        self.0.timeout = Some(timeout);
         self
     }
 
