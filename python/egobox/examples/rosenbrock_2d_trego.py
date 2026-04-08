@@ -57,11 +57,11 @@ opt = egx.Egor(
 # -----------------------------------------------------
 # Run optimization
 # -----------------------------------------------------
-res = opt.minimize(rosenbrock, max_iters=20, outdir=outdir, seed=42)
+optim = opt.minimize(rosenbrock, max_iters=20, outdir=outdir, seed=42)
 
 print("\n===== Optimization Result =====")
-print("Best value (y*):", res.y_opt)
-print("Best point (x*):", res.x_opt)
+print("Best value (y*):", optim.result.y_opt)
+print("Best point (x*):", optim.result.x_opt)
 print("Known optimum: f(1, 1) = 0")
 
 
@@ -136,7 +136,7 @@ contour = plt.contour(XX, YY, ZZ, levels=levels, cmap="viridis", alpha=0.6)
 plt.colorbar(contour, label="log(Rosenbrock value)")
 
 # Plot all sampled points (distinguish DOE from iterative points)
-X_data = np.array(res.x_doe)
+X_data = np.array(optim.result.x_doe)
 
 # Plot initial DOE points
 plt.scatter(
@@ -177,8 +177,8 @@ plt.scatter(
 
 # Plot best found
 plt.scatter(
-    res.x_opt[0],
-    res.x_opt[1],
+    optim.result.x_opt[0],
+    optim.result.x_opt[1],
     c="lime",
     s=150,
     marker="^",
