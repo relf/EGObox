@@ -114,6 +114,26 @@ use std::cmp::Ordering;
 ///         In the third case Viability, a surrogate is used to model the failure region
 ///         which is used as a constraint and drive the optimization toward the viable region.
 ///
+///     seed (int >= 0 or None):
+///         Deprecated: use seed argument in minimize() or suggest() instead.
+///         Random generator seed to allow computation reproducibility.
+///
+///     outdir (String or None):
+///         Deprecated: use outdir argument in minimize() instead.
+///         Directory to write optimization history and used as search path for warm start doe.
+///
+///     warm_start (bool):
+///         Deprecated: use warm_start argument in minimize() instead.
+///         Start by loading initial doe from <outdir> directory.
+///
+///     hot_start (int >= 0 or None):
+///         Deprecated: use hot_start argument in minimize() instead.
+///         When hot_start>=0 saves optimizer state at each iteration and starts from a previous checkpoint.
+///
+///     verbose (int, Verbose enum, or None):
+///         Deprecated: use verbose argument in minimize() instead.
+///         Logging verbosity level for the optimizer.
+///
 /// # Returns
 ///
 ///     Egor object which can be used to optimize a function using the minimize method.
@@ -137,6 +157,11 @@ pub(crate) struct Egor {
     pub coego_n_coop: usize,
     pub target: f64,
     pub failsafe_strategy: FailsafeStrategy,
+    // Deprecated fields (kept for backward compatibility)
+    pub seed: Option<u64>,
+    pub outdir: Option<String>,
+    pub warm_start: bool,
+    pub hot_start: Option<u64>,
 }
 
 #[gen_stub_pymethods]
@@ -160,6 +185,11 @@ impl Egor {
         coego_n_coop = 0,
         target = f64::MIN,
         failsafe_strategy = FailsafeStrategy::Rejection,
+        seed = None,
+        outdir = None,
+        warm_start = false,
+        hot_start = None,
+        verbose = None
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -180,7 +210,50 @@ impl Egor {
         coego_n_coop: usize,
         target: f64,
         failsafe_strategy: FailsafeStrategy,
+        seed: Option<u64>,
+        outdir: Option<String>,
+        warm_start: bool,
+        hot_start: Option<u64>,
+        verbose: Option<Py<PyAny>>,
     ) -> Self {
+        // Emit deprecation warnings for parameters that moved to minimize()/suggest()
+        let warn = |msg: &str| {
+            let warnings = py.import("warnings").unwrap();
+            let depr = py
+                .import("builtins")
+                .unwrap()
+                .getattr("DeprecationWarning")
+                .unwrap();
+            warnings.call_method1("warn", (msg, depr)).ok();
+        };
+
+        if seed.is_some() {
+            warn(
+                "Passing 'seed' to Egor() is deprecated. Use 'seed' argument of minimize() or suggest() instead.",
+            );
+        }
+        if outdir.is_some() {
+            warn(
+                "Passing 'outdir' to Egor() is deprecated. Use 'outdir' argument of minimize() instead.",
+            );
+        }
+        if warm_start {
+            warn(
+                "Passing 'warm_start' to Egor() is deprecated. Use 'warm_start' argument of minimize() instead.",
+            );
+        }
+        if hot_start.is_some() {
+            warn(
+                "Passing 'hot_start' to Egor() is deprecated. Use 'hot_start' argument of minimize() instead.",
+            );
+        }
+        if verbose.is_some() {
+            init_logger(py, verbose);
+            warn(
+                "Passing 'verbose' to Egor() is deprecated. Use 'verbose' argument of minimize() instead.",
+            );
+        }
+
         let doe = doe.map(|x| x.to_owned_array());
         let xtypes = parse(py, xspecs.clone_ref(py));
 
@@ -224,6 +297,10 @@ impl Egor {
             coego_n_coop,
             target,
             failsafe_strategy,
+            seed,
+            outdir,
+            warm_start,
+            hot_start,
         }
     }
 
@@ -306,6 +383,13 @@ impl Egor {
         verbose: Option<Py<PyAny>>,
     ) -> PyResult<EgorOptim> {
         init_logger(py, verbose);
+
+        // Merge: minimize() args take precedence over deprecated constructor args
+        let seed = seed.or(self.seed);
+        let outdir = outdir.or_else(|| self.outdir.clone());
+        let warm_start = if warm_start { true } else { self.warm_start };
+        let hot_start = hot_start.or(self.hot_start);
+
         let obj = |x: &ArrayView2<f64>| -> Result<Array2<f64>> {
             Python::attach(|py| {
                 let args = (x.to_owned().into_pyarray(py),);
@@ -350,7 +434,7 @@ impl Egor {
                     Some(max_iters),
                     n_fcstr,
                     self.doe.as_ref(),
-                    outdir.as_ref(),
+                    outdir.as_deref(),
                     warm_start,
                     hot_start,
                     seed,
@@ -433,6 +517,9 @@ impl Egor {
         y_doe: PyReadonlyArray2<f64>,
         seed: Option<u64>,
     ) -> Py<PyArray2<f64>> {
+        // Merge: suggest() seed arg takes precedence over deprecated constructor seed
+        let seed = seed.or(self.seed);
+
         let x_doe = x_doe.as_array();
         let y_doe = y_doe.as_array();
         let doe = concatenate(Axis(1), &[x_doe.view(), y_doe.view()]).unwrap();
@@ -611,7 +698,7 @@ impl Egor {
         max_iters: Option<usize>,
         n_fcstr: usize,
         doe: Option<&Array2<f64>>,
-        outdir: Option<&String>,
+        outdir: Option<&str>,
         warm_start: bool,
         hot_start: Option<u64>,
         seed: Option<u64>,
@@ -672,8 +759,8 @@ impl Egor {
             config = config.doe(doe);
         };
 
-        if let Some(outdir) = outdir.cloned() {
-            config = config.outdir(outdir);
+        if let Some(outdir) = outdir {
+            config = config.outdir(outdir.to_owned());
         };
         if let Some(seed) = seed {
             config = config.seed(seed);
