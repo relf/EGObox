@@ -171,11 +171,12 @@ jobs:
         uses: actions/attest-build-provenance@v3
         with:
           subject-path: 'wheels-*/*'
+      - name: Install uv
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        uses: astral-sh/setup-uv@v7
       - name: Publish to PyPI
         if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
-        uses: PyO3/maturin-action@v1
-        env:
-          MATURIN_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
-        with:
-          command: upload
-          args: --non-interactive --skip-existing wheels-*/*
+        # no credentials needed here because we're using Trusted Publishing
+        # see: https://github.com/astral-sh/trusted-publishing-examples/blob/main/.github/workflows/release.yml
+        run: uv publish 'wheels-*/*'
+
