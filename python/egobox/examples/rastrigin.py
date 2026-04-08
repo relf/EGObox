@@ -40,11 +40,11 @@ opt = egx.Egor(bounds, n_doe=20, infill_strategy=criterion)
 # -----------------------------------------------------
 # Run optimization
 # -----------------------------------------------------
-res = opt.minimize(rastrigin, max_iters=80, seed=42)
+optim = opt.minimize(rastrigin, max_iters=80, seed=42)
 
 print("\n===== Optimization Result =====")
-print("Best value (y*):", res.y_opt)
-print("Best point (x*):", res.x_opt)
+print("Best value (y*):", optim.result.y_opt)
+print("Best point (x*):", optim.result.x_opt)
 
 # -----------------------------------------------------
 # Plot Rastrigin function and sample points
@@ -60,11 +60,16 @@ plt.contourf(XX, YY, ZZ, levels=50, cmap="viridis")
 plt.colorbar(label="Rastrigin value")
 
 # Plot training samples
-X_data = np.array(res.x_doe)
+X_data = np.array(optim.result.x_doe)
 plt.scatter(X_data[:, 0], X_data[:, 1], c="red", s=30, label="Sampled points")
 
 plt.scatter(
-    res.x_opt[0], res.x_opt[1], c="white", s=100, edgecolors="black", label="Best point"
+    optim.result.x_opt[0],
+    optim.result.x_opt[1],
+    c="white",
+    s=100,
+    edgecolors="black",
+    label="Best point",
 )
 plt.title("Rastrigin Function + Sampled Points")
 plt.xlabel("x₁")

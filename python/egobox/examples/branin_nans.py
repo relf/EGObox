@@ -297,7 +297,7 @@ def main():
     print()
 
     # Run optimization
-    res = egor.minimize(
+    optim = egor.minimize(
         # branin_forrester,
         branin_constrained_with_nans,
         max_iters=MAX_ITERS,
@@ -309,19 +309,21 @@ def main():
     print("=" * 70)
     print("Optimization Results")
     print("=" * 70)
-    print(f"Optimum found at: x = [{res.x_opt[0]:.5f}, {res.x_opt[1]:.5f}]")
-    print(f"Objective value: f(x*) = {res.y_opt[0]:.6f}")
     print(
-        f"Constraint value: g(x*) = {constraint_branin(res.x_opt):.6f} (should be ≤ 0)"
+        f"Optimum found at: x = [{optim.result.x_opt[0]:.5f}, {optim.result.x_opt[1]:.5f}]"
+    )
+    print(f"Objective value: f(x*) = {optim.result.y_opt[0]:.6f}")
+    print(
+        f"Constraint value: g(x*) = {constraint_branin(optim.result.x_opt):.6f} (should be ≤ 0)"
     )
     print()
 
     # Transform to original domain for comparison
-    x1_original = res.x_opt[0] * 15 - 5
-    x2_original = res.x_opt[1] * 15
+    x1_original = optim.result.x_opt[0] * 15 - 5
+    x2_original = optim.result.x_opt[1] * 15
     print(f"In original domain: x = [{x1_original:.5f}, {x2_original:.5f}]")
     print(
-        f"Product x₁·x₂ = {res.x_opt[0] * res.x_opt[1]:.6f} (should be ≥ {BRANIN_CSTR_CONST})"
+        f"Product x₁·x₂ = {optim.result.x_opt[0] * optim.result.x_opt[1]:.6f} (should be ≥ {BRANIN_CSTR_CONST})"
     )
     print()
 
@@ -334,8 +336,8 @@ def main():
     print()
 
     # Error from known optimum
-    error_x = np.linalg.norm(res.x_opt - x_known)
-    error_y = abs(res.y_opt[0] - y_known)
+    error_x = np.linalg.norm(optim.result.x_opt - x_known)
+    error_y = abs(optim.result.y_opt[0] - y_known)
     print(f"Distance from known optimum: {error_x:.6f}")
     print(f"Objective error: {error_y:.6f}")
     print("=" * 70)
@@ -344,7 +346,7 @@ def main():
     print("\nGenerating visualization...")
     gif_path = os.path.join(os.getcwd(), "branin_nans_animation.gif")
     _fig, _anim = plot_constrained_branin(
-        res,
+        optim.result,
         initial_doe,
         animate=True,
         save_gif=False,

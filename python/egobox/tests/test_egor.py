@@ -4,6 +4,7 @@ import numpy as np
 import egobox as egx
 import time
 import logging
+import tempfile
 
 logging.basicConfig(level=logging.INFO)
 
@@ -218,6 +219,36 @@ class TestEgor(unittest.TestCase):
         os.remove("./test_dir/egor_initial_doe.npy")
         self.assertTrue(os.path.exists("./test_dir/egor_doe.npy"))
         os.remove("./test_dir/egor_doe.npy")
+
+    def test_xsinx_with_hotstart_bool(self):
+        xlimits = [[0.0, 25.0]]
+
+        with tempfile.TemporaryDirectory() as outdir:
+            egor = egx.Egor(xlimits)
+            first = egor.minimize(
+                xsinx, max_iters=1, outdir=outdir, hot_start=True, seed=42
+            )
+            second = egor.minimize(
+                xsinx, max_iters=1, outdir=outdir, hot_start=True, seed=42
+            )
+
+            self.assertTrue(
+                os.path.exists(os.path.join(outdir, "egor_checkpoint.json"))
+            )
+            self.assertEqual(first.result.x_doe.shape[0], second.result.x_doe.shape[0])
+
+    def test_minimize_hotstart_false_overrides_constructor_hotstart(self):
+        xlimits = [[0.0, 25.0]]
+
+        with tempfile.TemporaryDirectory() as outdir:
+            egor = egx.Egor(xlimits, hot_start=True)
+            _ = egor.minimize(
+                xsinx, max_iters=1, outdir=outdir, hot_start=False, seed=42
+            )
+
+            self.assertFalse(
+                os.path.exists(os.path.join(outdir, "egor_checkpoint.json"))
+            )
 
     def test_g24(self):
         n_doe = 5

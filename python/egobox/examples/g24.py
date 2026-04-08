@@ -60,5 +60,5 @@ egor = egx.Egor(
     target=-5.50,  # known reference objective value
 )
 
-res = egor.minimize(g24, max_iters=30)
-print(f"Optimization f={res.y_opt} at {res.x_opt}")
+optim = egor.minimize(g24, max_iters=30)
+print(f"Optimization f={optim.result.y_opt} at {optim.result.x_opt}")

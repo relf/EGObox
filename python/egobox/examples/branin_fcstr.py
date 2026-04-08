@@ -222,12 +222,14 @@ def main():
     print()
 
     # Run optimization
-    res = egor.minimize(
+    optim = egor.minimize(
         branin_forrester,
         fcstrs=[constraint_branin],
         max_iters=20,
         seed=42,  # For reproducibility
     )
+
+    res = optim.result
 
     # Display results
     print()
