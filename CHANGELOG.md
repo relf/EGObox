@@ -2,6 +2,11 @@
 
 ## Version 0.38.0 - unreleased
 
+## Version 0.37.1 - 08/04/2026
+
+* Keep backward compatibility with constructor options by @relf in <https://github.com/relf/EGObox/pull/409>
+* Fix Python examples  by @relf in <https://github.com/relf/EGObox/pull/410>
+
 ## Version 0.37.0 - 07/04/2026
 
 This release introduces breaking changes in the Python API: `seed`, `verbose`, `warm_start` and `hot_start`
