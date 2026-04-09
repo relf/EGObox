@@ -51,7 +51,7 @@ serde_json.workspace = true
 ctrlc.workspace = true
 
 argmin_testfunctions.workspace = true
-pyo3-stub-gen = { version = "0.20", features = ["numpy"] }
+pyo3-stub-gen = { version = "0.21", features = ["numpy"] }
 bincode.workspace = true
 
 [[bin]]
