@@ -478,7 +478,6 @@ impl EgorConfig {
     /// so the number of GP surrogate models for constraints may be larger
     /// than the number of user-visible constraints.
     pub fn cstr_specs(mut self, specs: Vec<CstrSpec>) -> Self {
-        self.0.n_cstr = specs.len();
         self.0.cstr_specs = Some(specs);
         self
     }
@@ -740,6 +739,12 @@ impl EgorConfig {
     pub fn check(self) -> Result<ValidEgorConfig> {
         let mut config = self.0;
 
+        log::info!(
+            "n_cstr: {}, cstr_specs: {:?}",
+            config.n_cstr,
+            config.cstr_specs
+        );
+
         // When cstr_specs is set, derive internal n_cstr and validate
         if let Some(ref specs) = config.cstr_specs {
             // If n_cstr is set and does not match the number of specs, return an error
@@ -767,7 +772,7 @@ impl EgorConfig {
             )));
         }
 
-        // Fix theta tuning if n_statt is 0
+        // Fix theta tuning if n_start is 0
         if config.gp.n_start == 0 {
             log::info!(
                 "n_start is 0, setting theta value to {}",

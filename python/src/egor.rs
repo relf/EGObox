@@ -745,8 +745,6 @@ impl Egor {
             CoegoStatus::Enabled(self.coego_n_coop)
         };
 
-        let cstr_tol = self.cstr_tol(n_fcstr);
-
         let mut config = config
             .n_cstr(self.n_cstr)
             .max_iters(max_iters.unwrap_or(1))
@@ -756,6 +754,7 @@ impl Egor {
         // Only set cstr_tol explicitly when user provided it or no cstr_specs is used.
         // When cstr_specs is set without explicit cstr_tol, let Rust default it.
         if self.cstr_tol.is_some() || self.cstr_specs.is_none() {
+            let cstr_tol = self.cstr_tol(n_fcstr);
             config = config.cstr_tol(cstr_tol);
         }
 

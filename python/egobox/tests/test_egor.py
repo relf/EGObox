@@ -432,20 +432,18 @@ class TestEgor(unittest.TestCase):
     def test_branin_constrained(self):
         xspecs = [[0.0, 1.0], [0.0, 1.0]]
         egor = egx.Egor(
-            xspecs,
-            n_cstr=0,
-            cstr_specs=[egx.CstrSpec.geq(0.5)],
-            n_doe=15,
+            xspecs, cstr_specs=[egx.CstrSpec.geq(0.5)], n_doe=15, trego=True
         )
         optim = egor.minimize(
             branin_constrained,
-            max_iters=50,
+            max_iters=70,
             seed=42,
+            # verbose=egx.Verbose.INFO,
         )
         print(
             f"Optimum found at: x = {optim.result.x_opt}, f(x*) = {optim.result.y_opt[0]}"
         )
-        self.assertAlmostEqual(0.707, optim.result.y_opt[0], delta=5e-1)
+        self.assertAlmostEqual(0.707, optim.result.y_opt[0], delta=1e-1)
 
     def test_constrained_branin_with_nans(self):
         def branin_constrained_with_nans(x):
