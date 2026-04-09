@@ -150,6 +150,12 @@ where
             && is_update_ok(&x_data, &x_new.row(0))
         {
             let y_new = self.eval_obj(problem, &x_new);
+            // Apply constraint transformation if cstr_specs are set
+            let y_new = if let Some(ref specs) = self.config.cstr_specs {
+                crate::types::transform_constraints(&y_new, specs)
+            } else {
+                y_new
+            };
 
             debug!("y_old-y_new={}", y_old - y_new[[0, 0]],);
             let c_new = self.eval_problem_fcstrs(problem, &x_new);

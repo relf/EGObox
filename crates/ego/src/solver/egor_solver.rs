@@ -234,6 +234,12 @@ where
             let x = sampling.sample(n_doe);
             (self.eval_obj(problem, &x), x)
         };
+        // Apply constraint transformation if cstr_specs are set
+        let y_data = if let Some(ref specs) = self.config.cstr_specs {
+            crate::types::transform_constraints(&y_data, specs)
+        } else {
+            y_data
+        };
         let doe = concatenate![Axis(1), x_data, y_data];
         if let Some(path) = self.config.outdir.as_ref() {
             std::fs::create_dir_all(path)?;
@@ -242,8 +248,9 @@ where
             write_npy(filepath, &doe).expect("Write initial doe");
         }
 
-        let clusterings = vec![None; self.config.n_cstr + 1];
-        let theta_inits = vec![None; self.config.n_cstr + 1];
+        let n_int_cstr = self.config.n_internal_cstr();
+        let clusterings = vec![None; n_int_cstr + 1];
+        let theta_inits = vec![None; n_int_cstr + 1];
         let no_point_added_retries = MAX_POINT_ADDITION_RETRY;
 
         let c_data = self.eval_problem_fcstrs(problem, &x_data);
@@ -278,7 +285,7 @@ where
         initial_state.max_iters = self.config.max_iters as u64;
         initial_state.doe.no_point_added_retries = no_point_added_retries;
         initial_state.doe.cstr_tol = self.config.cstr_tol.clone().unwrap_or(Array1::from_elem(
-            self.config.n_cstr + c_data.ncols(),
+            n_int_cstr + c_data.ncols(),
             DEFAULT_CSTR_TOL,
         ));
         initial_state.target_cost = self.config.target;

@@ -212,6 +212,77 @@ pub(crate) enum SparseMethod {
     Vfe = 2,
 }
 
+/// CstrSpec specifies how a constraint should be interpreted by the optimizer.
+///
+/// Instead of requiring constraints to be formulated as c <= 0,
+/// users can specify constraint bounds directly.
+///
+/// # Examples
+///
+/// ```python
+/// import egobox as egx
+///
+/// # c <= 5.0
+/// spec1 = egx.CstrSpec.leq(5.0)
+///
+/// # c >= 2.0
+/// spec2 = egx.CstrSpec.geq(2.0)
+///
+/// # c = 4.0 (equality constraint, expands to two internal constraints)
+/// spec3 = egx.CstrSpec.eq(4.0)
+///
+/// # 1.0 <= c <= 3.0 (double-sided, expands to two internal constraints)
+/// spec4 = egx.CstrSpec.btw(1.0, 3.0)
+/// ```
+#[gen_stub_pyclass]
+#[pyclass]
+#[derive(Debug, Clone)]
+pub(crate) struct CstrSpec {
+    pub(crate) inner: egobox_ego::CstrSpec,
+}
+
+#[gen_stub_pymethods]
+#[pymethods]
+impl CstrSpec {
+    /// Constraint c <= bound, transformed to c - bound <= 0
+    #[staticmethod]
+    pub fn leq(bound: f64) -> Self {
+        CstrSpec {
+            inner: egobox_ego::CstrSpec::Leq(bound),
+        }
+    }
+
+    /// Constraint c >= bound, transformed to bound - c <= 0
+    #[staticmethod]
+    pub fn geq(bound: f64) -> Self {
+        CstrSpec {
+            inner: egobox_ego::CstrSpec::Geq(bound),
+        }
+    }
+
+    /// Equality constraint c = value, expands to two internal constraints:
+    /// c - value <= 0 and value - c <= 0
+    #[staticmethod]
+    pub fn eq(value: f64) -> Self {
+        CstrSpec {
+            inner: egobox_ego::CstrSpec::Eq(value),
+        }
+    }
+
+    /// Double-sided constraint lower <= c <= upper, expands to two internal constraints:
+    /// lower - c <= 0 and c - upper <= 0
+    #[staticmethod]
+    pub fn btw(lower: f64, upper: f64) -> Self {
+        CstrSpec {
+            inner: egobox_ego::CstrSpec::Btw(lower, upper),
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        format!("{:?}", self.inner)
+    }
+}
+
 /// RunInfo contains information about a single run of the optimization algorithm,
 /// the name of the function being optimized and the run number (useful for logging and saving results).
 /// This is given by the user when calling the optimization function and is used for logging and saving results.
