@@ -138,15 +138,14 @@ def branin(x):
 BRANIN_CSTR_CONST = 0.2
 
 
-def branin_constraint(x, gradient=False):
+def branin_constrained(x):
     """
-    Constraint function: x1 * x2 - 0.2 >= 0
-    Returns positive value if constraint is violated.
+    Branin function with a constraint y*y >= 0.2
     """
-    if gradient:
-        return np.array([-x[1], -x[0]])
-    else:
-        return BRANIN_CSTR_CONST - x[0] * x[1]
+    x = np.atleast_2d(x)
+    obj = branin(x)
+    cstr = obj * obj
+    return np.hstack((obj, cstr.reshape(-1, 1)))
 
 
 class TestEgor(unittest.TestCase):
@@ -429,6 +428,24 @@ class TestEgor(unittest.TestCase):
         self.assertAlmostEqual(-5.5080, result.y_opt[0], delta=1e-2)
         self.assertAlmostEqual(2.3295, result.x_opt[0], delta=1e-2)
         self.assertAlmostEqual(3.1785, result.x_opt[1], delta=1e-2)
+
+    def test_branin_constrained(self):
+        xspecs = [[0.0, 1.0], [0.0, 1.0]]
+        egor = egx.Egor(
+            xspecs,
+            n_cstr=0,
+            cstr_specs=[egx.CstrSpec.geq(0.5)],
+            n_doe=15,
+        )
+        optim = egor.minimize(
+            branin_constrained,
+            max_iters=50,
+            seed=42,
+        )
+        print(
+            f"Optimum found at: x = {optim.result.x_opt}, f(x*) = {optim.result.y_opt[0]}"
+        )
+        self.assertAlmostEqual(0.707, optim.result.y_opt[0], delta=5e-1)
 
     def test_constrained_branin_with_nans(self):
         def branin_constrained_with_nans(x):

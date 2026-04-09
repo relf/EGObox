@@ -751,8 +751,13 @@ impl Egor {
             .n_cstr(self.n_cstr)
             .max_iters(max_iters.unwrap_or(1))
             .n_start(self.n_start)
-            .n_doe(self.n_doe)
-            .cstr_tol(cstr_tol);
+            .n_doe(self.n_doe);
+
+        // Only set cstr_tol explicitly when user provided it or no cstr_specs is used.
+        // When cstr_specs is set without explicit cstr_tol, let Rust default it.
+        if self.cstr_tol.is_some() || self.cstr_specs.is_none() {
+            config = config.cstr_tol(cstr_tol);
+        }
 
         if let Some(ref cstr_specs) = self.cstr_specs {
             config = config.cstr_specs(cstr_specs.clone());

@@ -742,6 +742,7 @@ impl EgorConfig {
 
         // When cstr_specs is set, derive internal n_cstr and validate
         if let Some(ref specs) = config.cstr_specs {
+            // If n_cstr is set and does not match the number of specs, return an error
             if config.n_cstr != specs.len() && config.n_cstr != 0 {
                 return Err(crate::EgoError::InvalidConfigError(format!(
                     "EgorConfig invalid: n_cstr ({}) does not match cstr_specs length ({}). \
@@ -754,14 +755,15 @@ impl EgorConfig {
         }
 
         // Check cstr_tol length if any
-        if config.n_cstr > 0
+        let n_eff_cstr = config.n_internal_cstr();
+        if n_eff_cstr > 0
             && let Some(cstr_tol) = config.cstr_tol.as_ref()
-            && cstr_tol.len() != config.n_cstr
+            && cstr_tol.len() != n_eff_cstr
         {
             return Err(crate::EgoError::InvalidConfigError(format!(
-                "EgorConfig invalid: cstr_tol length ({}) does not match n_cstr ({})",
+                "EgorConfig invalid: cstr_tol length ({}) does not match effective constraint count ({})",
                 cstr_tol.len(),
-                config.n_cstr
+                n_eff_cstr
             )));
         }
 
