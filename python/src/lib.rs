@@ -24,6 +24,9 @@ use pyo3_stub_gen::define_stub_info_gatherer;
 #[doc(hidden)]
 #[pymodule]
 fn egobox(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    // egobox version
+    m.add("__version__", env!("CARGO_PKG_VERSION"))?;
+
     // utils
     m.add_function(wrap_pyfunction!(lhs, m)?)?;
     m.add_function(wrap_pyfunction!(sampling::sampling, m)?)?;
