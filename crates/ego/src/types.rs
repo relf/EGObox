@@ -114,13 +114,13 @@ pub enum FailsafeStrategy {
 /// ```
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum CstrSpec {
-    /// Constraint `c <= n`, transformed to `c - n <= 0`
+    /// Constraint `c <= Z`, transformed to `c - Z <= 0`
     Leq(f64),
-    /// Constraint `c >= n`, transformed to `n - c <= 0`
+    /// Constraint `c >= Z`, transformed to `Z - c <= 0`
     Geq(f64),
-    /// Constraint `c = n`, expanded to `c - n <= 0` AND `n - c <= 0`
+    /// Constraint `c = Z`, expanded to `c - Z <= 0` AND `Z - c <= 0`
     Eq(f64),
-    /// Constraint `lo <= c <= hi`, expanded to `lo - c <= 0` AND `c - hi <= 0`
+    /// Constraint `LO <= c <= HI`, expanded to `LO - c <= 0` AND `c - HI <= 0`
     Btw(f64, f64),
 }
 
@@ -136,9 +136,9 @@ impl CstrSpec {
     /// Transform a raw constraint value into internal `<= 0` constraint value(s)
     pub fn transform(&self, raw: f64) -> Vec<f64> {
         match self {
-            CstrSpec::Leq(n) => vec![raw - n],
-            CstrSpec::Geq(n) => vec![n - raw],
-            CstrSpec::Eq(n) => vec![raw - n, n - raw],
+            CstrSpec::Leq(z) => vec![raw - z],
+            CstrSpec::Geq(z) => vec![z - raw],
+            CstrSpec::Eq(z) => vec![raw - z, z - raw],
             CstrSpec::Btw(lo, hi) => vec![lo - raw, raw - hi],
         }
     }
@@ -158,8 +158,8 @@ pub fn n_internal_cstrs(specs: &[CstrSpec]) -> usize {
 /// columns have been transformed (and potentially expanded for Equal/Between specs).
 pub fn transform_constraints(y: &Array2<f64>, specs: &[CstrSpec]) -> Array2<f64> {
     let nrows = y.nrows();
-    let n_int = n_internal_cstrs(specs);
-    let mut result = Array2::zeros((nrows, 1 + n_int));
+    let n_intern = n_internal_cstrs(specs);
+    let mut result = Array2::zeros((nrows, 1 + n_intern));
 
     // Copy objective column
     result.column_mut(0).assign(&y.column(0));

@@ -113,14 +113,14 @@
 //! # fn g24(x: &ArrayView1<f64>) -> f64 { -x[0] - x[1] }
 //!
 //! // Constraints now return raw values (not necessarily <= 0)
-//! fn g24_c1_raw(x: &ArrayView1<f64>) -> f64 {
+//! fn g24_c1(x: &ArrayView1<f64>) -> f64 {
 //!     -2.0 * x[0].powf(4.0) + 8.0 * x[0].powf(3.0)
-//!     - 8.0 * x[0].powf(2.0) + x[1] - 2.0
+//!     - 8.0 * x[0].powf(2.0) + x[1]
 //! }
 //!
-//! fn g24_c2_raw(x: &ArrayView1<f64>) -> f64 {
+//! fn g24_c2(x: &ArrayView1<f64>) -> f64 {
 //!     -4.0 * x[0].powf(4.0) + 32.0 * x[0].powf(3.0)
-//!     - 88.0 * x[0].powf(2.0) + 96.0 * x[0] + x[1] - 36.0
+//!     - 88.0 * x[0].powf(2.0) + 96.0 * x[0] + x[1]
 //! }
 //!
 //! fn f_g24(x: &ArrayView2<f64>) -> Array2<f64> {
@@ -128,7 +128,7 @@
 //!     Zip::from(y.rows_mut())
 //!         .and(x.rows())
 //!         .for_each(|mut yi, xi| {
-//!             yi.assign(&array![g24(&xi), g24_c1_raw(&xi), g24_c2_raw(&xi)]);
+//!             yi.assign(&array![g24(&xi), g24_c1(&xi), g24_c2(&xi)]);
 //!         });
 //!     y
 //! }
@@ -137,8 +137,7 @@
 //! let doe = Lhs::new(&xlimits).sample(10);
 //! let res = EgorBuilder::optimize(f_g24).configure(|config|
 //!             config
-//!                 // Both constraints are c <= 0
-//!                 .cstr_specs(vec![CstrSpec::Leq(0.0), CstrSpec::Leq(0.0)])
+//!                 .cstr_specs(vec![CstrSpec::Leq(2.0), CstrSpec::Leq(36.0)])
 //!                 .infill_strategy(InfillStrategy::EI)
 //!                 .infill_optimizer(InfillOptimizer::Cobyla)
 //!                 .doe(&doe)
