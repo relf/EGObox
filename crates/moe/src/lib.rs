@@ -96,6 +96,7 @@ mod gaussian_mixture;
 mod surrogates;
 mod types;
 
+mod affined_surrogate;
 mod algorithm;
 mod metrics;
 mod mixint;
@@ -111,6 +112,7 @@ pub use metrics::*;
 pub use surrogates::*;
 pub use types::*;
 
+pub use affined_surrogate::*;
 pub use algorithm::*;
 pub use parameters::*;
 pub use xtypes::*;

@@ -149,6 +149,63 @@ pub fn n_internal_cstrs(specs: &[CstrSpec]) -> usize {
     specs.iter().map(|s| s.n_internal()).sum()
 }
 
+/// Describes how an internal constraint column is obtained.
+///
+/// Used during surrogate training to decide whether a column requires
+/// a fresh GP training or can be derived from another surrogate.
+#[derive(Clone, Debug)]
+pub enum InternalCstrKind {
+    /// A directly-trained constraint (internal column index used as training target).
+    Primary,
+    /// An affine transform of another internal constraint column.
+    Derived {
+        /// Internal column index of the primary source.
+        source: usize,
+        /// Scale factor applied to source predictions.
+        scale: f64,
+        /// Constant added after scaling: `pred = scale * source_pred + offset`.
+        offset: f64,
+    },
+}
+
+/// Build a mapping from internal constraint column indices to their kind.
+///
+/// Index 0 is the objective (always `Primary`).
+/// Subsequent indices correspond to expanded internal constraints.
+///
+/// For `Leq`/`Geq` specs: one `Primary` column.
+/// For `Eq(z)` specs: `Primary` then `Derived { source, scale: -1.0, offset: 0.0 }`.
+/// For `Btw(lo, hi)` specs: `Primary` then `Derived { source, scale: -1.0, offset: lo - hi }`.
+pub fn internal_cstr_mapping(specs: &[CstrSpec]) -> Vec<InternalCstrKind> {
+    let mut mapping = vec![InternalCstrKind::Primary]; // index 0 = objective
+    for spec in specs {
+        match spec {
+            CstrSpec::Leq(_) | CstrSpec::Geq(_) => {
+                mapping.push(InternalCstrKind::Primary);
+            }
+            CstrSpec::Eq(_) => {
+                let source = mapping.len();
+                mapping.push(InternalCstrKind::Primary);
+                mapping.push(InternalCstrKind::Derived {
+                    source,
+                    scale: -1.0,
+                    offset: 0.0,
+                });
+            }
+            CstrSpec::Btw(lo, hi) => {
+                let source = mapping.len();
+                mapping.push(InternalCstrKind::Primary);
+                mapping.push(InternalCstrKind::Derived {
+                    source,
+                    scale: -1.0,
+                    offset: lo - hi,
+                });
+            }
+        }
+    }
+    mapping
+}
+
 /// Transform raw constraint columns in `y` according to `specs`.
 ///
 /// Input `y` has shape `(nrows, 1 + n_user_cstrs)` where column 0 is the objective

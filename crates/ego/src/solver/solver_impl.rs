@@ -19,6 +19,8 @@ use egobox_doe::{Lhs, LhsKind};
 use egobox_gp::ThetaTuning;
 use env_logger::{Builder, Env};
 
+#[cfg(feature = "persistent")]
+use egobox_moe::{AffinedSurrogate, clone_surrogate};
 use egobox_moe::{Clustering, CorrelationSpec, MixtureGpSurrogate, NbClusters, RegressionSpec};
 use log::{debug, info};
 use ndarray::{Array1, Array2, ArrayBase, Axis, Data, Ix1, Ix2, Zip, concatenate, s};
@@ -110,7 +112,7 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum DataClustering {
     /// Clustering is not updated given values are used as is
     Fixed,
@@ -128,7 +130,7 @@ impl From<bool> for DataClustering {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum ThetaOptimization {
     /// Theta is not optimized given values are used as is
     Disabled,
@@ -457,6 +459,17 @@ where
             &state.surrogate.data.as_ref().unwrap().0.nrows()
         );
 
+        let mapping = self
+            .config
+            .cstr_specs
+            .as_ref()
+            .map(|s| internal_cstr_mapping(s));
+
+        #[cfg(feature = "persistent")]
+        if let Some(ref mapping) = mapping {
+            return self.refresh_surrogates_with_mapping(state, mapping);
+        }
+
         (0..=self.config.n_internal_cstr())
             .into_par_iter()
             .map(|k| {
@@ -485,6 +498,179 @@ where
                 .0
             })
             .collect()
+    }
+
+    /// Optimized refresh: train only primary constraint columns and derive
+    /// transformed ones via [`AffinedSurrogate`] wrappers.
+    #[cfg(feature = "persistent")]
+    fn refresh_surrogates_with_mapping(
+        &self,
+        state: &EgorState<f64>,
+        mapping: &[InternalCstrKind],
+    ) -> Vec<Box<dyn egobox_moe::MixtureGpSurrogate>> {
+        let primary_indices: Vec<usize> = mapping
+            .iter()
+            .enumerate()
+            .filter_map(|(i, kind)| matches!(kind, InternalCstrKind::Primary).then_some(i))
+            .collect();
+
+        let primary_models: Vec<(usize, Box<dyn MixtureGpSurrogate>)> = primary_indices
+            .into_par_iter()
+            .map(|k| {
+                let name = if k == 0 {
+                    "Objective".to_string()
+                } else {
+                    format!("Constraint[{k}]")
+                };
+                let model = self
+                    .make_clustered_surrogate(
+                        &name,
+                        &state.surrogate.data.as_ref().unwrap().0,
+                        &state
+                            .surrogate
+                            .data
+                            .as_ref()
+                            .unwrap()
+                            .1
+                            .slice(s![.., k])
+                            .to_owned(),
+                        DataClustering::Fixed,
+                        (!self.config.gp.theta_tuning.is_fixed()).into(),
+                        state.surrogate.clusterings.as_ref().unwrap()[k].as_ref(),
+                        state.surrogate.theta_inits.as_ref().unwrap()[k].as_ref(),
+                        &state.coego.activity,
+                    )
+                    .0;
+                (k, model)
+            })
+            .collect();
+
+        let mut models: Vec<Option<Box<dyn MixtureGpSurrogate>>> =
+            (0..mapping.len()).map(|_| None).collect();
+        for (k, model) in primary_models {
+            models[k] = Some(model);
+        }
+
+        for (k, kind) in mapping.iter().enumerate() {
+            if let InternalCstrKind::Derived {
+                source,
+                scale,
+                offset,
+            } = kind
+            {
+                let cloned = clone_surrogate(models[*source].as_ref().unwrap().as_ref());
+                models[k] = Some(Box::new(AffinedSurrogate::new(cloned, *scale, *offset)));
+            }
+        }
+
+        models.into_iter().map(|o| o.unwrap()).collect()
+    }
+
+    /// Train all constraint columns in parallel (no deduplication).
+    #[allow(clippy::too_many_arguments)]
+    fn train_all_columns(
+        &self,
+        xt: &Array2<f64>,
+        yt: &Array2<f64>,
+        do_clustering: DataClustering,
+        optimize_theta: ThetaOptimization,
+        clusterings: &[Option<Clustering>],
+        theta_inits: &[Option<Array2<f64>>],
+        actives: &Array2<usize>,
+    ) -> (Vec<Box<dyn MixtureGpSurrogate>>, Vec<Array2<f64>>) {
+        let models_and_inits = (0..=self.config.n_internal_cstr())
+            .into_par_iter()
+            .map(|k| {
+                let name = if k == 0 {
+                    "Objective".to_string()
+                } else {
+                    format!("Constraint[{k}]")
+                };
+                self.make_clustered_surrogate(
+                    &name,
+                    xt,
+                    &yt.slice(s![.., k]).to_owned(),
+                    do_clustering,
+                    optimize_theta,
+                    clusterings[k].as_ref(),
+                    theta_inits[k].as_ref(),
+                    actives,
+                )
+            });
+        models_and_inits.unzip()
+    }
+
+    /// Train only primary constraint columns and derive transformed ones
+    /// via [`AffinedSurrogate`] wrappers.
+    #[cfg(feature = "persistent")]
+    #[allow(clippy::too_many_arguments)]
+    fn train_with_mapping(
+        &self,
+        mapping: &[InternalCstrKind],
+        xt: &Array2<f64>,
+        yt: &Array2<f64>,
+        do_clustering: DataClustering,
+        optimize_theta: ThetaOptimization,
+        clusterings: &[Option<Clustering>],
+        theta_inits: &[Option<Array2<f64>>],
+        actives: &Array2<usize>,
+    ) -> (Vec<Box<dyn MixtureGpSurrogate>>, Vec<Array2<f64>>) {
+        let primary_indices: Vec<usize> = mapping
+            .iter()
+            .enumerate()
+            .filter_map(|(i, kind)| matches!(kind, InternalCstrKind::Primary).then_some(i))
+            .collect();
+
+        let primary_results: Vec<(usize, Box<dyn MixtureGpSurrogate>, Array2<f64>)> =
+            primary_indices
+                .into_par_iter()
+                .map(|k| {
+                    let name = if k == 0 {
+                        "Objective".to_string()
+                    } else {
+                        format!("Constraint[{k}]")
+                    };
+                    let (model, inits) = self.make_clustered_surrogate(
+                        &name,
+                        xt,
+                        &yt.slice(s![.., k]).to_owned(),
+                        do_clustering,
+                        optimize_theta,
+                        clusterings[k].as_ref(),
+                        theta_inits[k].as_ref(),
+                        actives,
+                    );
+                    (k, model, inits)
+                })
+                .collect();
+
+        let mut models: Vec<Option<Box<dyn MixtureGpSurrogate>>> =
+            (0..mapping.len()).map(|_| None).collect();
+        let mut inits: Vec<Option<Array2<f64>>> = (0..mapping.len()).map(|_| None).collect();
+
+        for (k, model, init) in primary_results {
+            models[k] = Some(model);
+            inits[k] = Some(init);
+        }
+
+        for (k, kind) in mapping.iter().enumerate() {
+            if let InternalCstrKind::Derived {
+                source,
+                scale,
+                offset,
+            } = kind
+            {
+                let source_model = models[*source].as_ref().unwrap();
+                let cloned = clone_surrogate(source_model.as_ref());
+                models[k] = Some(Box::new(AffinedSurrogate::new(cloned, *scale, *offset)));
+                inits[k] = inits[*source].clone();
+            }
+        }
+
+        (
+            models.into_iter().map(|o| o.unwrap()).collect(),
+            inits.into_iter().map(|o| o.unwrap()).collect(),
+        )
     }
 
     /// This function is the main EGO algorithm iteration:
@@ -751,35 +937,54 @@ where
                 let actives = activity;
 
                 info!("Train surrogates with {} points...", xt.nrows());
-                let models_and_inits =
-                    (0..=self.config.n_internal_cstr())
-                        .into_par_iter()
-                        .map(|k| {
-                            let name = if k == 0 {
-                                "Objective".to_string()
-                            } else {
-                                format!("Constraint[{k}]")
-                            };
-                            let do_clustering = ((init && i == 0) || recluster).into();
-                            let optimize_theta = ((iter as usize * self.config.qei_config.batch
-                                + i)
-                                .is_multiple_of(self.config.qei_config.optmod)
-                                && j == 0
-                                && !self.config.gp.theta_tuning.is_fixed())
-                            .into();
 
-                            self.make_clustered_surrogate(
-                                &name,
-                                &xt,
-                                &yt.slice(s![.., k]).to_owned(),
-                                do_clustering,
-                                optimize_theta,
-                                clusterings[k].as_ref(),
-                                theta_inits[k].as_ref(),
-                                actives,
-                            )
-                        });
-                let (models, inits): (Vec<_>, Vec<_>) = models_and_inits.unzip();
+                let do_clustering = ((init && i == 0) || recluster).into();
+                let optimize_theta = ((iter as usize * self.config.qei_config.batch + i)
+                    .is_multiple_of(self.config.qei_config.optmod)
+                    && j == 0
+                    && !self.config.gp.theta_tuning.is_fixed())
+                .into();
+
+                let mapping = self
+                    .config
+                    .cstr_specs
+                    .as_ref()
+                    .map(|s| internal_cstr_mapping(s));
+
+                #[cfg(feature = "persistent")]
+                let (models, inits) = if let Some(ref mapping) = mapping {
+                    self.train_with_mapping(
+                        mapping,
+                        &xt,
+                        &yt,
+                        do_clustering,
+                        optimize_theta,
+                        clusterings,
+                        theta_inits,
+                        actives,
+                    )
+                } else {
+                    self.train_all_columns(
+                        &xt,
+                        &yt,
+                        do_clustering,
+                        optimize_theta,
+                        clusterings,
+                        theta_inits,
+                        actives,
+                    )
+                };
+
+                #[cfg(not(feature = "persistent"))]
+                let (models, inits) = self.train_all_columns(
+                    &xt,
+                    &yt,
+                    do_clustering,
+                    optimize_theta,
+                    clusterings,
+                    theta_inits,
+                    actives,
+                );
 
                 // Handle failsafe imputation on the first iteration
                 if iter == 0
