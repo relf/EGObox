@@ -326,6 +326,11 @@ pub struct ValidEgorConfig {
     pub(crate) n_cstr: usize,
     /// Optional constraints violation tolerance meaning cstr < cstr_tol is considered valid
     pub(crate) cstr_tol: Option<Array1<f64>>,
+    /// Optional constraint specifications allowing to define how each constraint
+    /// should be interpreted (e.g. `c <= n`, `c >= n`, `c = n` or `n1 <= c <= n2`).
+    /// When set, `n_cstr` is derived from the number of specs.
+    /// Equal and Between specs expand into two internal `<= 0` constraints each.
+    pub(crate) cstr_specs: Option<Vec<CstrSpec>>,
     /// Initial doe can be either \[x\] with x inputs only or an evaluated doe \[x, y\]
     /// Note: x dimension is determined using `xlimits.nrows()`
     pub(crate) doe: Option<Array2<f64>>,
@@ -373,6 +378,7 @@ impl Default for ValidEgorConfig {
             n_doe: 0,
             n_cstr: 0,
             cstr_tol: None,
+            cstr_specs: None,
             doe: None,
             qei_config: QEiConfig::default(),
             gp: GpConfig::default(),
@@ -399,6 +405,18 @@ impl ValidEgorConfig {
     /// Check whether we are in a discrete optimization context
     pub fn discrete(&self) -> bool {
         crate::utils::discrete(&self.xtypes)
+    }
+
+    /// Returns the number of internal `<= 0` constraints after expanding `cstr_specs`.
+    ///
+    /// When `cstr_specs` is set, Equal and Between specs each expand to 2 internal constraints.
+    /// When `cstr_specs` is not set, this equals `n_cstr` (legacy behavior).
+    pub fn n_internal_cstr(&self) -> usize {
+        if let Some(ref specs) = self.cstr_specs {
+            crate::types::n_internal_cstrs(specs)
+        } else {
+            self.n_cstr
+        }
     }
 }
 
@@ -443,6 +461,24 @@ impl EgorConfig {
     /// Sets the tolerance on constraints violation (`cstr < tol`)
     pub fn cstr_tol(mut self, tol: Array1<f64>) -> Self {
         self.0.cstr_tol = Some(tol);
+        self
+    }
+
+    /// Sets constraint specifications allowing to define how each constraint
+    /// should be interpreted.
+    ///
+    /// When set, `n_cstr` is automatically derived from the number of specs.
+    /// Internally, all constraints are converted to `c' <= 0` form:
+    /// - `CstrSpec::Leq(n)`: `c <= n` → `c - n <= 0`
+    /// - `CstrSpec::Geq(n)`: `c >= n` → `n - c <= 0`
+    /// - `CstrSpec::Eq(n)`: `c = n` → two constraints: `c - n <= 0` and `n - c <= 0`
+    /// - `CstrSpec::Btw(lo, hi)`: `lo <= c <= hi` → two constraints: `lo - c <= 0` and `c - hi <= 0`
+    ///
+    /// Note: `Equal` and `Between` expand to two internal constraints each,
+    /// so the number of GP surrogate models for constraints may be larger
+    /// than the number of user-visible constraints.
+    pub fn cstr_specs(mut self, specs: Vec<CstrSpec>) -> Self {
+        self.0.cstr_specs = Some(specs);
         self
     }
 
@@ -702,19 +738,41 @@ impl EgorConfig {
     /// Checks and wraps an EgorConfig
     pub fn check(self) -> Result<ValidEgorConfig> {
         let mut config = self.0;
+
+        log::info!(
+            "n_cstr: {}, cstr_specs: {:?}",
+            config.n_cstr,
+            config.cstr_specs
+        );
+
+        // When cstr_specs is set, derive internal n_cstr and validate
+        if let Some(ref specs) = config.cstr_specs {
+            // If n_cstr is set and does not match the number of specs, return an error
+            if config.n_cstr != specs.len() && config.n_cstr != 0 {
+                return Err(crate::EgoError::InvalidConfigError(format!(
+                    "EgorConfig invalid: n_cstr ({}) does not match cstr_specs length ({}). \
+                     When using cstr_specs, n_cstr is derived automatically.",
+                    config.n_cstr,
+                    specs.len()
+                )));
+            }
+            config.n_cstr = specs.len();
+        }
+
         // Check cstr_tol length if any
-        if config.n_cstr > 0
+        let n_eff_cstr = config.n_internal_cstr();
+        if n_eff_cstr > 0
             && let Some(cstr_tol) = config.cstr_tol.as_ref()
-            && cstr_tol.len() != config.n_cstr
+            && cstr_tol.len() != n_eff_cstr
         {
             return Err(crate::EgoError::InvalidConfigError(format!(
-                "EgorConfig invalid: cstr_tol length ({}) does not match n_cstr ({})",
+                "EgorConfig invalid: cstr_tol length ({}) does not match effective constraint count ({})",
                 cstr_tol.len(),
-                config.n_cstr
+                n_eff_cstr
             )));
         }
 
-        // Fix theta tuning if n_statt is 0
+        // Fix theta tuning if n_start is 0
         if config.gp.n_start == 0 {
             log::info!(
                 "n_start is 0, setting theta value to {}",

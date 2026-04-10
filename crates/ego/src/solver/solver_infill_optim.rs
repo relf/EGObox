@@ -176,7 +176,7 @@ where
                 // handle constraints metamodelized constraints
                 vec![]
             } else {
-                (0..self.config.n_cstr)
+                (0..self.config.n_internal_cstr())
                     .map(|i| {
                         let active = active.to_vec();
                         let cstr = move |x: &[f64],

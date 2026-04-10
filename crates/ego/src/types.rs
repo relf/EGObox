@@ -84,6 +84,101 @@ pub enum FailsafeStrategy {
     Viability,
 }
 
+/// Constraint specification allowing the user to define how each constraint
+/// should be interpreted. Instead of requiring constraints to be formulated
+/// as `c <= 0`, users can specify bounds directly.
+///
+/// Internally, every specification is converted to one or more `c' <= 0`
+/// constraints before entering the optimization pipeline.
+///
+/// # Examples
+/// ```
+/// use egobox_ego::CstrSpec;
+///
+/// // c <= 5.0  ->  c - 5 <= 0
+/// let spec = CstrSpec::Leq(5.0);
+/// assert_eq!(spec.n_internal(), 1);
+/// assert_eq!(spec.transform(3.0), vec![-2.0]);
+///
+/// // c >= 2.0  ->  2 - c <= 0
+/// let spec = CstrSpec::Geq(2.0);
+/// assert_eq!(spec.transform(3.0), vec![-1.0]);
+///
+/// // c = 4.0  ->  c - 4 <= 0  AND  4 - c <= 0
+/// let spec = CstrSpec::Eq(4.0);
+/// assert_eq!(spec.n_internal(), 2);
+///
+/// // 1.0 <= c <= 3.0  ->  1 - c <= 0  AND  c - 3 <= 0
+/// let spec = CstrSpec::Btw(1.0, 3.0);
+/// assert_eq!(spec.n_internal(), 2);
+/// ```
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum CstrSpec {
+    /// Constraint `c <= Z`, transformed to `c - Z <= 0`
+    Leq(f64),
+    /// Constraint `c >= Z`, transformed to `Z - c <= 0`
+    Geq(f64),
+    /// Constraint `c = Z`, expanded to `c - Z <= 0` AND `Z - c <= 0`
+    Eq(f64),
+    /// Constraint `LO <= c <= HI`, expanded to `LO - c <= 0` AND `c - HI <= 0`
+    Btw(f64, f64),
+}
+
+impl CstrSpec {
+    /// Number of internal `<= 0` constraints this spec expands to
+    pub fn n_internal(&self) -> usize {
+        match self {
+            CstrSpec::Leq(_) | CstrSpec::Geq(_) => 1,
+            CstrSpec::Eq(_) | CstrSpec::Btw(_, _) => 2,
+        }
+    }
+
+    /// Transform a raw constraint value into internal `<= 0` constraint value(s)
+    pub fn transform(&self, raw: f64) -> Vec<f64> {
+        match self {
+            CstrSpec::Leq(z) => vec![raw - z],
+            CstrSpec::Geq(z) => vec![z - raw],
+            CstrSpec::Eq(z) => vec![raw - z, z - raw],
+            CstrSpec::Btw(lo, hi) => vec![lo - raw, raw - hi],
+        }
+    }
+}
+
+/// Compute the total number of internal constraints from a slice of [`CstrSpec`]
+pub fn n_internal_cstrs(specs: &[CstrSpec]) -> usize {
+    specs.iter().map(|s| s.n_internal()).sum()
+}
+
+/// Transform raw constraint columns in `y` according to `specs`.
+///
+/// Input `y` has shape `(nrows, 1 + n_user_cstrs)` where column 0 is the objective
+/// and columns `1..` are the raw user constraint values.
+///
+/// Returns a new array with shape `(nrows, 1 + n_internal_cstrs)` where the constraint
+/// columns have been transformed (and potentially expanded for Equal/Between specs).
+pub fn transform_constraints(y: &Array2<f64>, specs: &[CstrSpec]) -> Array2<f64> {
+    let nrows = y.nrows();
+    let n_intern = n_internal_cstrs(specs);
+    let mut result = Array2::zeros((nrows, 1 + n_intern));
+
+    // Copy objective column
+    result.column_mut(0).assign(&y.column(0));
+
+    // Transform constraint columns
+    for row_idx in 0..nrows {
+        let mut col = 1usize;
+        for (i, spec) in specs.iter().enumerate() {
+            let raw = y[[row_idx, 1 + i]];
+            let transformed = spec.transform(raw);
+            for v in &transformed {
+                result[[row_idx, col]] = *v;
+                col += 1;
+            }
+        }
+    }
+    result
+}
+
 /// A trait for types that can be returned by an objective function.
 ///
 /// This allows objective functions to return either `Array2<f64>` directly

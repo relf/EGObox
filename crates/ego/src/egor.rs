@@ -101,6 +101,54 @@
 //! println!("G24 min result = {:?}", res);
 //! ```
 //!
+//! ## Using constraint specifications
+//!
+//! Instead of requiring constraints to be formulated as `c <= 0`, you can specify
+//! constraint bounds directly using [`CstrSpec`]:
+//!
+//! ```no_run
+//! # use ndarray::{array, Array2, ArrayView1, ArrayView2, Zip};
+//! # use egobox_doe::{Lhs, SamplingMethod};
+//! # use egobox_ego::{EgorBuilder, InfillStrategy, InfillOptimizer, CstrSpec};
+//! # fn g24(x: &ArrayView1<f64>) -> f64 { -x[0] - x[1] }
+//!
+//! // Constraints now return raw values (not necessarily <= 0)
+//! fn g24_c1(x: &ArrayView1<f64>) -> f64 {
+//!     -2.0 * x[0].powf(4.0) + 8.0 * x[0].powf(3.0)
+//!     - 8.0 * x[0].powf(2.0) + x[1]
+//! }
+//!
+//! fn g24_c2(x: &ArrayView1<f64>) -> f64 {
+//!     -4.0 * x[0].powf(4.0) + 32.0 * x[0].powf(3.0)
+//!     - 88.0 * x[0].powf(2.0) + 96.0 * x[0] + x[1]
+//! }
+//!
+//! fn f_g24(x: &ArrayView2<f64>) -> Array2<f64> {
+//!     let mut y = Array2::zeros((x.nrows(), 3));
+//!     Zip::from(y.rows_mut())
+//!         .and(x.rows())
+//!         .for_each(|mut yi, xi| {
+//!             yi.assign(&array![g24(&xi), g24_c1(&xi), g24_c2(&xi)]);
+//!         });
+//!     y
+//! }
+//!
+//! let xlimits = array![[0., 3.], [0., 4.]];
+//! let doe = Lhs::new(&xlimits).sample(10);
+//! let res = EgorBuilder::optimize(f_g24).configure(|config|
+//!             config
+//!                 .cstr_specs(vec![CstrSpec::Leq(2.0), CstrSpec::Leq(36.0)])
+//!                 .infill_strategy(InfillStrategy::EI)
+//!                 .infill_optimizer(InfillOptimizer::Cobyla)
+//!                 .doe(&doe)
+//!                 .max_iters(40)
+//!                 .target(-5.5080))
+//!            .min_within(&xlimits)
+//!            .expect("optimizer configured")
+//!            .run()
+//!            .expect("g24 minimized");
+//! ```
+//!
 use crate::EgorConfig;
 use crate::EgorState;
 use crate::HotStartMode;

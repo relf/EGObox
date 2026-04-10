@@ -42,6 +42,7 @@ fn egobox(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ConstraintStrategy>()?;
     m.add_class::<QEiStrategy>()?;
     m.add_class::<FailsafeStrategy>()?;
+    m.add_class::<CstrSpec>()?;
     m.add_class::<Verbose>()?;
     m.add_class::<InfillOptimizer>()?;
     m.add_class::<XType>()?;

@@ -56,18 +56,28 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
         x_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
         y_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
     ) -> Array2<f64> {
+        // Apply constraint transformation if cstr_specs are set
+        let y_data_owned;
+        let y_data: &ArrayBase<_, Ix2> = if let Some(ref specs) = self.config.cstr_specs {
+            y_data_owned = crate::types::transform_constraints(&y_data.to_owned(), specs);
+            &y_data_owned
+        } else {
+            y_data_owned = y_data.to_owned();
+            &y_data_owned
+        };
         let mut rng = if let Some(seed) = self.config.seed {
             Xoshiro256Plus::seed_from_u64(seed)
         } else {
             Xoshiro256Plus::from_entropy()
         };
-        let mut clusterings = vec![None; 1 + self.config.n_cstr];
-        let mut theta_tunings = vec![None; 1 + self.config.n_cstr];
+        let n_int_cstr = self.config.n_internal_cstr();
+        let mut clusterings = vec![None; 1 + n_int_cstr];
+        let mut theta_tunings = vec![None; 1 + n_int_cstr];
         let cstr_tol = self
             .config
             .cstr_tol
             .clone()
-            .unwrap_or(Array1::from_elem(self.config.n_cstr, DEFAULT_CSTR_TOL));
+            .unwrap_or(Array1::from_elem(n_int_cstr, DEFAULT_CSTR_TOL));
 
         // TODO: Manage fonction constraints
         let fcstrs = Vec::<Cstr>::new();
@@ -407,11 +417,10 @@ where
         let sampling = Lhs::new(&self.xlimits)
             .with_rng(sub_rng)
             .kind(LhsKind::Maximin);
-        let cstr_tol = self
-            .config
-            .cstr_tol
-            .clone()
-            .unwrap_or(Array1::from_elem(self.config.n_cstr, DEFAULT_CSTR_TOL));
+        let cstr_tol = self.config.cstr_tol.clone().unwrap_or(Array1::from_elem(
+            self.config.n_internal_cstr(),
+            DEFAULT_CSTR_TOL,
+        ));
         let (scale_infill_obj, scale_cstr, scale_fcstr, scale_wb2) = self.compute_scaling(
             &sampling,
             obj_model.as_ref(),
@@ -448,7 +457,7 @@ where
             &state.surrogate.data.as_ref().unwrap().0.nrows()
         );
 
-        (0..=self.config.n_cstr)
+        (0..=self.config.n_internal_cstr())
             .into_par_iter()
             .map(|k| {
                 let name = if k == 0 {
@@ -603,6 +612,12 @@ where
         };
 
         let y_actual = self.eval_obj(problem, &x_dat);
+        // Apply constraint transformation if cstr_specs are set
+        let y_actual = if let Some(ref specs) = self.config.cstr_specs {
+            crate::types::transform_constraints(&y_actual, specs)
+        } else {
+            y_actual
+        };
         let y_penalized = match self.config.failsafe_strategy {
             FailsafeStrategy::Imputation => Some(y_penalized),
             _ => None,
@@ -736,30 +751,34 @@ where
                 let actives = activity;
 
                 info!("Train surrogates with {} points...", xt.nrows());
-                let models_and_inits = (0..=self.config.n_cstr).into_par_iter().map(|k| {
-                    let name = if k == 0 {
-                        "Objective".to_string()
-                    } else {
-                        format!("Constraint[{k}]")
-                    };
-                    let do_clustering = ((init && i == 0) || recluster).into();
-                    let optimize_theta = ((iter as usize * self.config.qei_config.batch + i)
-                        .is_multiple_of(self.config.qei_config.optmod)
-                        && j == 0
-                        && !self.config.gp.theta_tuning.is_fixed())
-                    .into();
+                let models_and_inits =
+                    (0..=self.config.n_internal_cstr())
+                        .into_par_iter()
+                        .map(|k| {
+                            let name = if k == 0 {
+                                "Objective".to_string()
+                            } else {
+                                format!("Constraint[{k}]")
+                            };
+                            let do_clustering = ((init && i == 0) || recluster).into();
+                            let optimize_theta = ((iter as usize * self.config.qei_config.batch
+                                + i)
+                                .is_multiple_of(self.config.qei_config.optmod)
+                                && j == 0
+                                && !self.config.gp.theta_tuning.is_fixed())
+                            .into();
 
-                    self.make_clustered_surrogate(
-                        &name,
-                        &xt,
-                        &yt.slice(s![.., k]).to_owned(),
-                        do_clustering,
-                        optimize_theta,
-                        clusterings[k].as_ref(),
-                        theta_inits[k].as_ref(),
-                        actives,
-                    )
-                });
+                            self.make_clustered_surrogate(
+                                &name,
+                                &xt,
+                                &yt.slice(s![.., k]).to_owned(),
+                                do_clustering,
+                                optimize_theta,
+                                clusterings[k].as_ref(),
+                                theta_inits[k].as_ref(),
+                                actives,
+                            )
+                        });
                 let (models, inits): (Vec<_>, Vec<_>) = models_and_inits.unzip();
 
                 // Handle failsafe imputation on the first iteration
@@ -776,8 +795,10 @@ where
                                 "Impute failed initial points ({} points)...",
                                 xfail_points.nrows()
                             );
-                            let mut y_pen_imputed =
-                                Array2::zeros((xfail_points.nrows(), 1 + self.config.n_cstr));
+                            let mut y_pen_imputed = Array2::zeros((
+                                xfail_points.nrows(),
+                                1 + self.config.n_internal_cstr(),
+                            ));
                             Zip::from(y_pen_imputed.rows_mut())
                                 .and(xfail_points.rows())
                                 .for_each(|mut y_row, xfail| {
@@ -817,7 +838,7 @@ where
                     };
                 }
 
-                (0..=self.config.n_cstr).for_each(|k| {
+                (0..=self.config.n_internal_cstr()).for_each(|k| {
                     clusterings[k] = Some(models[k].to_clustering());
                     theta_inits[k] = Some(inits[k].to_owned());
                 });
@@ -933,7 +954,8 @@ where
 
                 match self.compute_virtual_point(&xk, y_data, obj_model.as_ref(), cstr_models) {
                     Ok(yk) => {
-                        let yk = Array2::from_shape_vec((1, 1 + self.config.n_cstr), yk).unwrap();
+                        let yk = Array2::from_shape_vec((1, 1 + self.config.n_internal_cstr()), yk)
+                            .unwrap();
                         y_dat = concatenate![Axis(0), y_dat, yk];
 
                         let yk_pen =

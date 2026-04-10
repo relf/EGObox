@@ -148,6 +148,7 @@ pub(crate) struct Egor {
     pub gp_config: GpConfig,
     pub n_cstr: usize,
     pub cstr_tol: Option<Vec<f64>>,
+    pub cstr_specs: Option<Vec<egobox_ego::CstrSpec>>,
     pub n_start: usize,
     pub n_doe: usize,
     pub doe: Option<Array2<f64>>,
@@ -176,6 +177,7 @@ impl Egor {
         gp_config = GpConfig::default(),
         n_cstr = 0,
         cstr_tol = None,
+        cstr_specs = None,
         n_start = 20,
         n_doe = 0,
         doe = None,
@@ -201,6 +203,7 @@ impl Egor {
         gp_config: GpConfig,
         n_cstr: usize,
         cstr_tol: Option<Vec<f64>>,
+        cstr_specs: Option<Vec<CstrSpec>>,
         n_start: usize,
         n_doe: usize,
         doe: Option<PyReadonlyArray2<f64>>,
@@ -290,6 +293,7 @@ impl Egor {
             gp_config,
             n_cstr,
             cstr_tol,
+            cstr_specs: cstr_specs.map(|specs| specs.into_iter().map(|s| s.inner).collect()),
             n_start,
             n_doe,
             doe,
@@ -741,14 +745,24 @@ impl Egor {
             CoegoStatus::Enabled(self.coego_n_coop)
         };
 
-        let cstr_tol = self.cstr_tol(n_fcstr);
-
         let mut config = config
             .n_cstr(self.n_cstr)
             .max_iters(max_iters.unwrap_or(1))
             .n_start(self.n_start)
-            .n_doe(self.n_doe)
-            .cstr_tol(cstr_tol)
+            .n_doe(self.n_doe);
+
+        // Only set cstr_tol explicitly when user provided it or no cstr_specs is used.
+        // When cstr_specs is set without explicit cstr_tol, let Rust default it.
+        if self.cstr_tol.is_some() || self.cstr_specs.is_none() {
+            let cstr_tol = self.cstr_tol(n_fcstr);
+            config = config.cstr_tol(cstr_tol);
+        }
+
+        if let Some(ref cstr_specs) = self.cstr_specs {
+            config = config.cstr_specs(cstr_specs.clone());
+        }
+
+        let mut config = config
             .configure_gp(|gp| {
                 let regr = RegressionSpec(self.gp_config.regr_spec);
                 let corr = CorrelationSpec(self.gp_config.corr_spec);
