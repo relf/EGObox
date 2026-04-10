@@ -1,7 +1,7 @@
-use crate::errors::Result;
-use crate::types::*;
-use crate::surrogates::*;
 use crate::IaeAlphaPlotData;
+use crate::errors::Result;
+use crate::surrogates::*;
+use crate::types::*;
 use ndarray::{Array1, Array2, ArrayView2};
 
 #[cfg(feature = "serializable")]
@@ -54,7 +54,11 @@ impl AffinedSurrogate {
 
 impl std::fmt::Display for AffinedSurrogate {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Affine({} * {} + {})", self.scale, &self.inner, self.offset)
+        write!(
+            f,
+            "Affine({} * {} + {})",
+            self.scale, &self.inner, self.offset
+        )
     }
 }
 
@@ -91,15 +95,19 @@ impl GpSurrogate for AffinedSurrogate {
 
     fn predict_valvar(&self, x: &ArrayView2<f64>) -> Result<(Array1<f64>, Array1<f64>)> {
         let (val, var) = self.inner.predict_valvar(x)?;
-        Ok((val * self.scale + self.offset, var * (self.scale * self.scale)))
+        Ok((
+            val * self.scale + self.offset,
+            var * (self.scale * self.scale),
+        ))
     }
 
     #[cfg(feature = "persistent")]
     fn save(&self, path: &str, format: GpFileFormat) -> Result<()> {
         let mut file = fs::File::create(path).unwrap();
         let bytes = match format {
-            GpFileFormat::Json => serde_json::to_vec(self as &dyn GpSurrogate)
-                .map_err(MoeError::SaveJsonError)?,
+            GpFileFormat::Json => {
+                serde_json::to_vec(self as &dyn GpSurrogate).map_err(MoeError::SaveJsonError)?
+            }
             GpFileFormat::Binary => {
                 bincode::serde::encode_to_vec(self as &dyn GpSurrogate, bincode::config::standard())
                     .map_err(MoeError::SaveBinaryError)?
@@ -183,9 +191,7 @@ impl MixtureGpSurrogate for AffinedSurrogate {
 /// This produces an independent owned copy suitable for wrapping
 /// in [`AffinedSurrogate`].
 #[cfg(feature = "persistent")]
-pub fn clone_surrogate(
-    surrogate: &dyn MixtureGpSurrogate,
-) -> Box<dyn MixtureGpSurrogate> {
+pub fn clone_surrogate(surrogate: &dyn MixtureGpSurrogate) -> Box<dyn MixtureGpSurrogate> {
     let json = serde_json::to_string(surrogate).expect("surrogate serialization");
     serde_json::from_str(&json).expect("surrogate deserialization")
 }
