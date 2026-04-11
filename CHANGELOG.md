@@ -2,6 +2,13 @@
 
 ## Version 0.38.0 - unreleased
 
+## Version 0.37.2 - 11/04/2026
+
+* Implement timeout feature by @relf in <https://github.com/relf/EGObox/pull/411>
+* Add `__version__` attribute to the `egobox` module by @relf in <https://github.com/relf/EGObox/pull/412>
+* Handle other constraint formats (not only `c <= 0`) by @relf in <https://github.com/relf/EGObox/pull/414>
+* Avoid double training in case of eq or btw constraint by @relf in <https://github.com/relf/EGObox/pull/415>
+
 ## Version 0.37.1 - 08/04/2026
 
 * Keep backward compatibility with constructor options by @relf in <https://github.com/relf/EGObox/pull/409>
