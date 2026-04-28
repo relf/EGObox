@@ -47,7 +47,7 @@ rand_xoshiro.workspace = true
 statrs.workspace = true
 
 paste = "1.0"
-bitflags = { version = "2.4.1", features = ["serde"] }
+bitflags = { version = "2.11.1", features = ["serde"] }
 log.workspace = true
 env_logger.workspace = true
 thiserror.workspace = true
