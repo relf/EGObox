@@ -2,6 +2,10 @@
 
 ## Version 0.38.0 - unreleased
 
+## Version 0.37.3 - 28/04/2026
+
+* Fix Rust structures export for Python import by @relf in <https://github.com/relf/EGObox/pull/421>
+
 ## Version 0.37.2 - 11/04/2026
 
 * Implement timeout feature by @relf in <https://github.com/relf/EGObox/pull/411>
