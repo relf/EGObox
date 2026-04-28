@@ -39,7 +39,7 @@ linfa-clustering = { version = "0.8", default-features = false }
 linfa-pls = { version = "0.8", default-features = false }
 
 ndarray.workspace = true
-ndarray-linalg = { version = "0.17", optional = true }
+ndarray-linalg = { version = "0.18", optional = true }
 ndarray-stats.workspace = true
 ndarray-rand.workspace = true
 ndarray-npy.workspace = true
