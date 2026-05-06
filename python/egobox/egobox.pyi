@@ -9,6 +9,7 @@ import typing
 __all__ = [
     "ConstraintStrategy",
     "CorrelationSpec",
+    "CstrSpec",
     "Egor",
     "EgorOptim",
     "ExitStatus",
@@ -47,6 +48,56 @@ class CorrelationSpec:
     ABSOLUTE_EXPONENTIAL: builtins.int = 2
     MATERN32: builtins.int = 4
     MATERN52: builtins.int = 8
+
+@typing.final
+class CstrSpec:
+    r"""
+    CstrSpec specifies how a constraint should be interpreted by the optimizer.
+    
+    Instead of requiring constraints to be formulated as c <= 0,
+    users can specify constraint bounds directly.
+    
+    # Examples
+    
+    ```python
+    import egobox as egx
+    
+    # c <= 5.0
+    spec1 = egx.CstrSpec.leq(5.0)
+    
+    # c >= 2.0
+    spec2 = egx.CstrSpec.geq(2.0)
+    
+    # c = 4.0 (equality constraint, expands to two internal constraints)
+    spec3 = egx.CstrSpec.eq(4.0)
+    
+    # 1.0 <= c <= 3.0 (double-sided, expands to two internal constraints)
+    spec4 = egx.CstrSpec.btw(1.0, 3.0)
+    ```
+    """
+    @staticmethod
+    def leq(bound: builtins.float) -> CstrSpec:
+        r"""
+        Constraint c <= bound, transformed to c - bound <= 0
+        """
+    @staticmethod
+    def geq(bound: builtins.float) -> CstrSpec:
+        r"""
+        Constraint c >= bound, transformed to bound - c <= 0
+        """
+    @staticmethod
+    def eq(value: builtins.float) -> CstrSpec:
+        r"""
+        Equality constraint c = value, expands to two internal constraints:
+        c - value <= 0 and value - c <= 0
+        """
+    @staticmethod
+    def btw(lower: builtins.float, upper: builtins.float) -> CstrSpec:
+        r"""
+        Double-sided constraint lower <= c <= upper, expands to two internal constraints:
+        lower - c <= 0 and c - upper <= 0
+        """
+    def __repr__(self) -> builtins.str: ...
 
 @typing.final
 class Egor:
@@ -162,7 +213,7 @@ class Egor:
     
         Egor object which can be used to optimize a function using the minimize method.
     """
-    def __new__(cls, xspecs: typing.Any, gp_config: GpConfig = ..., n_cstr: builtins.int = 0, cstr_tol: typing.Optional[typing.Sequence[builtins.float]] = None, n_start: builtins.int = 20, n_doe: builtins.int = 0, doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, infill_strategy: InfillStrategy = InfillStrategy.LOG_EI, cstr_infill: builtins.bool = False, cstr_strategy: ConstraintStrategy = ConstraintStrategy.MC, qei_config: QEiConfig = ..., infill_optimizer: InfillOptimizer = InfillOptimizer.COBYLA, trego: typing.Optional[typing.Any] = None, coego_n_coop: builtins.int = 0, target: builtins.float = -1.7976931348623157e+308, failsafe_strategy: FailsafeStrategy = FailsafeStrategy.REJECTION, seed: typing.Optional[builtins.int] = None, outdir: typing.Optional[builtins.str] = None, warm_start: builtins.bool = False, hot_start: typing.Optional[typing.Any] = None, verbose: typing.Optional[typing.Any] = None) -> Egor: ...
+    def __new__(cls, xspecs: typing.Any, gp_config: GpConfig = ..., n_cstr: builtins.int = 0, cstr_tol: typing.Optional[typing.Sequence[builtins.float]] = None, cstr_specs: typing.Optional[typing.Sequence[CstrSpec]] = None, n_start: builtins.int = 20, n_doe: builtins.int = 0, doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, infill_strategy: InfillStrategy = InfillStrategy.LOG_EI, cstr_infill: builtins.bool = False, cstr_strategy: ConstraintStrategy = ConstraintStrategy.MC, qei_config: QEiConfig = ..., infill_optimizer: InfillOptimizer = InfillOptimizer.COBYLA, trego: typing.Optional[typing.Any] = None, coego_n_coop: builtins.int = 0, target: builtins.float = -1.7976931348623157e+308, failsafe_strategy: FailsafeStrategy = FailsafeStrategy.REJECTION, seed: typing.Optional[builtins.int] = None, outdir: typing.Optional[builtins.str] = None, warm_start: builtins.bool = False, hot_start: typing.Optional[typing.Any] = None, verbose: typing.Optional[typing.Any] = None) -> Egor: ...
     def minimize(self, fun: typing.Any, fcstrs: typing.Sequence[typing.Any] = [], max_iters: builtins.int = 20, run_info: typing.Optional[typing.Any] = None, outdir: typing.Optional[builtins.str] = None, warm_start: builtins.bool = False, hot_start: typing.Optional[typing.Any] = None, seed: typing.Optional[builtins.int] = None, timeout: typing.Optional[builtins.float] = None, verbose: typing.Optional[typing.Any] = None) -> EgorOptim:
         r"""
         This function finds the minimum of a given function "fun"
@@ -407,7 +458,7 @@ class GpConfig:
         When None the default is 1e-2 for all components
         """
     @theta_init.setter
-    def theta_init(self, value: typing.Optional[builtins.list[builtins.float]]) -> None:
+    def theta_init(self, value: typing.Optional[typing.Sequence[builtins.float]]) -> None:
         r"""
         ([nx] where nx is the dimension of inputs x)
         Initial guess for GP theta hyperparameters.
@@ -421,7 +472,7 @@ class GpConfig:
         When None the default is [1e-6, 1e2] for all components
         """
     @theta_bounds.setter
-    def theta_bounds(self, value: typing.Optional[builtins.list[builtins.list[builtins.float]]]) -> None:
+    def theta_bounds(self, value: typing.Optional[typing.Sequence[typing.Sequence[builtins.float]]]) -> None:
         r"""
         ([[lower_1, upper_1], ..., [lower_nx, upper_nx]] where nx is the dimension of inputs x)
         Space search when optimizing theta GP hyperparameters
