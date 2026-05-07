@@ -16,14 +16,25 @@ Add model output format selection for `fit` by output file extension:
 
 Add tabular input/output data format support:
 - `fit` input format inferred from extension (`.npy` -> `npy`, otherwise `csv`),
-- `predict --input-format csv|npy`,
-- `predict --output-format csv|npy`.
+- `predict` input/output formats inferred from extension (`.npy` -> `npy`, otherwise `csv`).
 
 Add optional CSV header row support for `fit` and `predict`.
 
 Add multi-output fit support:
 - `fit --outputs N` uses the last `N` columns as outputs (default `N=1`),
 - one surrogate model is trained and saved per output column.
+
+Make `fit` training input a required positional argument (not `-i/--input`).
+
+Make `fit` output optional with default file `surrogate_model.gpx`.
+
+Make `predict` input a required positional argument and `predict` output optional with
+default file `surrogate_predictions.csv`.
+
+Make `predict` model optional with default file `surrogate_model.gpx`.
+
+Make `predict` use all surrogates by default (unless `--model-index` is set) and
+write a single output containing input columns followed by predicted output columns.
 
 ## gpx 0.2.0 - 04/12/2025
 
