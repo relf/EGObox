@@ -35,7 +35,7 @@ trains one surrogate model per output column.
 `gpx predict` uses `surrogate_model.gpx` by default; use `--model` to change it.
 By default `gpx predict` uses all surrogate models from the model file and writes
 one output file containing inputs followed by predicted outputs (training-like layout).
-Use `-m/--model-index` to predict a single output model.
+Use `-i/--model-index` to predict a single output model.
 `gpx predict` auto-detects input format from input file extension:
 - `.npy` -> `npy`
 - otherwise -> `csv`
