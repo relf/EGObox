@@ -31,6 +31,8 @@ trains one surrogate model per output column.
 `gpx fit` auto-detects model output format from output file extension:
 - `.json` -> `json`
 - otherwise -> `binary`
+`gpx qa` and `gpx spec` use all surrogates by default; use `-i/--model-index`
+to target a single surrogate.
 `gpx predict` takes input as a required positional argument.
 `gpx predict` uses `surrogate_model.gpx` by default; use `--model` to change it.
 By default `gpx predict` uses all surrogate models from the model file and writes
