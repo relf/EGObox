@@ -21,7 +21,13 @@ gpx spec --help
 gpx predict --help
 ```
 
-`gpx fit` supports training input as `csv` (default) or `npy` via `--input-format`.
-`gpx fit` supports model output in `binary` (default) or `json` via `--format`.
+`gpx fit` auto-detects training input format from file extension:
+- `.npy` -> `npy`
+- otherwise -> `csv`
+`gpx fit` uses the last `N` columns as outputs via `--outputs N` (default `1`) and
+trains one surrogate model per output column.
+`gpx fit` auto-detects model output format from output file extension:
+- `.json` -> `json`
+- otherwise -> `binary`
 `gpx predict` supports input and output data as `csv` (default) or `npy` via
 `--input-format` and `--output-format`.

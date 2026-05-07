@@ -2,7 +2,6 @@ use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, Subcommand, ValueEnum};
 use egobox_moe::GpMetric;
 use egobox_moe::GpMixture;
-use egobox_moe::GpSurrogate;
 use egobox_moe::MixtureGpSurrogate;
 use linfa::Dataset;
 use linfa::traits::Fit;
@@ -11,6 +10,7 @@ use ndarray_npy::{read_npy, write_npy};
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fs;
+use std::path::Path;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -39,17 +39,13 @@ enum Commands {
         #[arg(short, long)]
         input: String,
 
-        /// Training input data format
-        #[arg(long, value_enum, default_value_t = DataFormat::Csv)]
-        input_format: DataFormat,
+        /// Number of output columns taken from the end of each training row
+        #[arg(long, default_value_t = 1)]
+        outputs: usize,
 
         /// Output model file path
         #[arg(short, long)]
         output: String,
-
-        /// Model output format
-        #[arg(long, value_enum, default_value_t = ModelFormat::Binary)]
-        format: ModelFormat,
     },
     /// Assess quality metrics of one or several GP models
     Qa {
@@ -173,7 +169,8 @@ fn decode_binary_models(data: &[u8]) -> Result<Vec<Box<dyn MixtureGpSurrogate>>>
 }
 
 fn decode_json_models(data: &[u8]) -> Result<Vec<Box<dyn MixtureGpSurrogate>>> {
-    let gp_models: Vec<Box<dyn MixtureGpSurrogate>> = serde_json::from_slice(data).unwrap_or_default();
+    let gp_models: Vec<Box<dyn MixtureGpSurrogate>> =
+        serde_json::from_slice(data).unwrap_or_default();
 
     if !gp_models.is_empty() {
         return Ok(gp_models);
@@ -272,8 +269,7 @@ fn read_input_csv(path: &str, nx: usize) -> Result<Array2<f64>> {
 }
 
 fn read_input_npy(path: &str, nx: usize) -> Result<Array2<f64>> {
-    let x: Array2<f64> =
-        read_npy(path).with_context(|| format!("cannot read input NPY {path}"))?;
+    let x: Array2<f64> = read_npy(path).with_context(|| format!("cannot read input NPY {path}"))?;
 
     if x.ncols() != nx {
         bail!(
@@ -298,14 +294,19 @@ fn read_input_data(path: &str, nx: usize, format: DataFormat) -> Result<Array2<f
     }
 }
 
-fn read_training_csv(path: &str) -> Result<(Array2<f64>, Array1<f64>)> {
+fn read_training_csv(path: &str, n_outputs: usize) -> Result<(Array2<f64>, Array2<f64>)> {
+    if n_outputs == 0 {
+        bail!("number of outputs must be >= 1");
+    }
+
     let content =
         fs::read_to_string(path).with_context(|| format!("cannot read training CSV {path}"))?;
 
     let mut nrows = 0usize;
     let mut nx = 0usize;
     let mut x_flat_values = Vec::new();
-    let mut y_values = Vec::new();
+    let mut y_flat_values = Vec::new();
+    let mut ncols_expected = 0usize;
     let mut first_non_empty = true;
 
     for (line_index, raw_line) in content.lines().enumerate() {
@@ -328,27 +329,31 @@ fn read_training_csv(path: &str) -> Result<(Array2<f64>, Array1<f64>)> {
         };
         first_non_empty = false;
 
-        if row.len() < 2 {
+        if row.len() <= n_outputs {
             bail!(
-                "invalid training row at line {}: expected at least 2 columns (features + output), got {}",
+                "invalid training row at line {}: expected at least {} columns (features + {} output(s)), got {}",
                 line_index + 1,
+                n_outputs + 1,
+                n_outputs,
                 row.len()
             );
         }
 
-        if nx == 0 {
-            nx = row.len() - 1;
-        } else if row.len() != nx + 1 {
+        if ncols_expected == 0 {
+            ncols_expected = row.len();
+            nx = ncols_expected - n_outputs;
+        } else if row.len() != ncols_expected {
             bail!(
                 "inconsistent training row width at line {}: expected {} columns, got {}",
                 line_index + 1,
-                nx + 1,
+                ncols_expected,
                 row.len()
             );
         }
 
-        x_flat_values.extend_from_slice(&row[..nx]);
-        y_values.push(row[nx]);
+        let y_start = row.len() - n_outputs;
+        x_flat_values.extend_from_slice(&row[..y_start]);
+        y_flat_values.extend_from_slice(&row[y_start..]);
         nrows += 1;
     }
 
@@ -358,18 +363,25 @@ fn read_training_csv(path: &str) -> Result<(Array2<f64>, Array1<f64>)> {
 
     let x = Array2::from_shape_vec((nrows, nx), x_flat_values)
         .map_err(|e| anyhow!("cannot build training input matrix from CSV {path}: {e}"))?;
-    let y = Array1::from_vec(y_values);
+    let y = Array2::from_shape_vec((nrows, n_outputs), y_flat_values)
+        .map_err(|e| anyhow!("cannot build training output matrix from CSV {path}: {e}"))?;
     Ok((x, y))
 }
 
-fn read_training_npy(path: &str) -> Result<(Array2<f64>, Array1<f64>)> {
+fn read_training_npy(path: &str, n_outputs: usize) -> Result<(Array2<f64>, Array2<f64>)> {
+    if n_outputs == 0 {
+        bail!("number of outputs must be >= 1");
+    }
+
     let xy: Array2<f64> =
         read_npy(path).with_context(|| format!("cannot read training NPY {path}"))?;
 
-    if xy.ncols() < 2 {
+    if xy.ncols() <= n_outputs {
         bail!(
-            "invalid training NPY {}: expected at least 2 columns (features + output), got {}",
+            "invalid training NPY {}: expected at least {} columns (features + {} output(s)), got {}",
             path,
+            n_outputs + 1,
+            n_outputs,
             xy.ncols()
         );
     }
@@ -378,16 +390,20 @@ fn read_training_npy(path: &str) -> Result<(Array2<f64>, Array1<f64>)> {
         bail!("training NPY {path} does not contain any sample row");
     }
 
-    let nx = xy.ncols() - 1;
+    let nx = xy.ncols() - n_outputs;
     let x = xy.slice(ndarray::s![.., ..nx]).to_owned();
-    let y = xy.column(nx).to_owned();
+    let y = xy.slice(ndarray::s![.., nx..]).to_owned();
     Ok((x, y))
 }
 
-fn read_training_data(path: &str, format: DataFormat) -> Result<(Array2<f64>, Array1<f64>)> {
+fn read_training_data(
+    path: &str,
+    format: DataFormat,
+    n_outputs: usize,
+) -> Result<(Array2<f64>, Array2<f64>)> {
     match format {
-        DataFormat::Csv => read_training_csv(path),
-        DataFormat::Npy => read_training_npy(path),
+        DataFormat::Csv => read_training_csv(path, n_outputs),
+        DataFormat::Npy => read_training_npy(path, n_outputs),
     }
 }
 
@@ -467,6 +483,32 @@ fn write_predictions_data(
     }
 }
 
+fn infer_fit_input_format(input: &str) -> DataFormat {
+    let is_npy = Path::new(input)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("npy"));
+
+    if is_npy {
+        DataFormat::Npy
+    } else {
+        DataFormat::Csv
+    }
+}
+
+fn infer_fit_model_format(output: &str) -> ModelFormat {
+    let is_json = Path::new(output)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("json"));
+
+    if is_json {
+        ModelFormat::Json
+    } else {
+        ModelFormat::Binary
+    }
+}
+
 fn run_qa(model: &str, kfold: usize) -> Result<()> {
     let gp_models = load_models(model)?;
 
@@ -491,34 +533,44 @@ fn run_qa(model: &str, kfold: usize) -> Result<()> {
     Ok(())
 }
 
-fn run_fit(input: &str, input_format: DataFormat, output: &str, format: ModelFormat) -> Result<()> {
-    let (x, y) = read_training_data(input, input_format)?;
-    let ds = Dataset::new(x, y);
+fn run_fit(input: &str, outputs: usize, output: &str) -> Result<()> {
+    let input_format = infer_fit_input_format(input);
+    let format = infer_fit_model_format(output);
+    let (x, y_all) = read_training_data(input, input_format, outputs)?;
+    let mut gp_models: Vec<Box<dyn MixtureGpSurrogate>> = Vec::with_capacity(y_all.ncols());
 
-    let gp = GpMixture::params()
-        .fit(&ds)
-        .map_err(|e| anyhow!("default GP training failed: {e}"))?;
+    for iy in 0..y_all.ncols() {
+        let y = y_all.column(iy).to_owned();
+        let ds = Dataset::new(x.clone(), y);
+        let gp = GpMixture::params()
+            .fit(&ds)
+            .map_err(|e| anyhow!("default GP training failed for output {}: {e}", iy))?;
+        gp_models.push(Box::new(gp) as Box<dyn MixtureGpSurrogate>);
+    }
 
     match format {
         ModelFormat::Binary => {
-            let bytes = bincode::serde::encode_to_vec(&gp, bincode::config::standard())
-                .map_err(|e| anyhow!("cannot serialize trained model to binary: {e}"))?;
+            let bytes = bincode::serde::encode_to_vec(&gp_models, bincode::config::standard())
+                .map_err(|e| anyhow!("cannot serialize trained model(s) to binary: {e}"))?;
             fs::write(output, bytes)
                 .with_context(|| format!("cannot write binary model file {output}"))?;
         }
         ModelFormat::Json => {
-            let text =
-                serde_json::to_string_pretty(&gp).map_err(|e| anyhow!("cannot serialize trained model to JSON: {e}"))?;
+            let text = serde_json::to_string_pretty(&gp_models)
+                .map_err(|e| anyhow!("cannot serialize trained model(s) to JSON: {e}"))?;
             fs::write(output, text)
                 .with_context(|| format!("cannot write JSON model file {output}"))?;
         }
     }
 
-    let (nx, ny) = gp.dims();
-    println!("Trained default GP surrogate from {input}");
-    println!("Training samples: {}", ds.records().nrows());
+    let nx = x.ncols();
+    let ny = y_all.ncols();
+    println!("Trained default GP surrogate model(s) from {input}");
+    println!("Training samples: {}", x.nrows());
     println!("Input dimension: {nx}");
     println!("Output dimension: {ny}");
+    println!("Generated surrogate models: {}", gp_models.len());
+    println!("Output columns used: last {outputs}");
     println!("Input format: {:?}", input_format);
     println!("Output format: {:?}", format);
     println!("Saved model to {output}");
@@ -615,10 +667,9 @@ fn main() -> Result<()> {
     match cli.command {
         Commands::Fit {
             input,
-            input_format,
+            outputs,
             output,
-            format,
-        } => run_fit(&input, input_format, &output, format),
+        } => run_fit(&input, outputs, &output),
         Commands::Qa { model, kfold } => run_qa(&model, kfold),
         Commands::Spec { model, model_index } => run_spec(&model, model_index),
         Commands::Predict {
