@@ -24,6 +24,14 @@ Add multi-output fit support:
 - `fit --outputs N` uses the last `N` columns as outputs (default `N=1`),
 - one surrogate model is trained and saved per output column.
 
+Add fit-time surrogate configuration options:
+- `fit --regression-spec <constant|linear|quadratic|all>`,
+- `fit --correlation-spec <squared-exponential|absolute-exponential|matern32|matern52|all>`,
+- `fit --kpls-dim <N>`,
+- `fit --n-clusters <N>`,
+- `fit --recombination <hard|smooth>`,
+- `fit --smooth-factor <F>` (smooth recombination only).
+
 Make `fit` training input a required positional argument (not `-i/--input`).
 
 Make `fit` output optional with default file `surrogate_model.gpx`.

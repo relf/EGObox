@@ -1,38 +1,85 @@
-use anyhow::{Context, Result, anyhow, bail};
+//! Command-line entrypoint for the `gpx` executable.
+//!
+//! This module defines the CLI surface and dispatches each subcommand
+//! to its implementation module.
+
+mod commands;
+mod io;
+mod services;
+
+use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
-use egobox_moe::GpMetric;
-use egobox_moe::GpMixture;
-use egobox_moe::MixtureGpSurrogate;
-use linfa::Dataset;
-use linfa::traits::Fit;
-use ndarray::Array2;
-use ndarray_npy::{read_npy, write_npy};
-use rayon::prelude::*;
-use std::collections::HashMap;
-use std::fs;
-use std::path::Path;
+use egobox_moe::{CorrelationSpec, RegressionSpec};
+
+use crate::commands::{run_fit, run_predict, run_qa, run_spec};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
-struct Cli {
+pub struct Cli {
     #[command(subcommand)]
-    command: Commands,
+    pub command: Commands,
 }
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
-enum ModelFormat {
+pub enum ModelFormat {
     Json,
     Binary,
 }
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
-enum DataFormat {
+pub enum DataFormat {
     Csv,
     Npy,
 }
 
+#[derive(Copy, Clone, Debug, ValueEnum)]
+pub enum RegressionChoice {
+    Constant,
+    Linear,
+    Quadratic,
+    All,
+}
+
+impl From<RegressionChoice> for RegressionSpec {
+    fn from(value: RegressionChoice) -> Self {
+        match value {
+            RegressionChoice::Constant => RegressionSpec::CONSTANT,
+            RegressionChoice::Linear => RegressionSpec::LINEAR,
+            RegressionChoice::Quadratic => RegressionSpec::QUADRATIC,
+            RegressionChoice::All => RegressionSpec::ALL,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+pub enum CorrelationChoice {
+    SquaredExponential,
+    AbsoluteExponential,
+    Matern32,
+    Matern52,
+    All,
+}
+
+impl From<CorrelationChoice> for CorrelationSpec {
+    fn from(value: CorrelationChoice) -> Self {
+        match value {
+            CorrelationChoice::SquaredExponential => CorrelationSpec::SQUAREDEXPONENTIAL,
+            CorrelationChoice::AbsoluteExponential => CorrelationSpec::ABSOLUTEEXPONENTIAL,
+            CorrelationChoice::Matern32 => CorrelationSpec::MATERN32,
+            CorrelationChoice::Matern52 => CorrelationSpec::MATERN52,
+            CorrelationChoice::All => CorrelationSpec::ALL,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+pub enum RecombinationChoice {
+    Hard,
+    Smooth,
+}
+
 #[derive(Subcommand)]
-enum Commands {
+pub enum Commands {
     /// Fit GP surrogates from tabular data
     Fit {
         /// Training input file
@@ -41,6 +88,30 @@ enum Commands {
         /// Number of output columns taken from the end of each training row
         #[arg(long, default_value_t = 1)]
         outputs: usize,
+
+        /// Regression model specification used when fitting each surrogate
+        #[arg(long, value_enum, default_value_t = RegressionChoice::Constant)]
+        regression_spec: RegressionChoice,
+
+        /// Correlation model specification used when fitting each surrogate
+        #[arg(long, value_enum, default_value_t = CorrelationChoice::SquaredExponential)]
+        correlation_spec: CorrelationChoice,
+
+        /// Optional number of PLS components for KPLS dimension reduction
+        #[arg(long)]
+        kpls_dim: Option<usize>,
+
+        /// Number of clusters (number of local experts)
+        #[arg(long, default_value_t = 1)]
+        n_clusters: usize,
+
+        /// Recombination mode used to combine experts
+        #[arg(long, value_enum, default_value_t = RecombinationChoice::Smooth)]
+        recombination: RecombinationChoice,
+
+        /// Optional smooth recombination factor (used only when recombination is smooth)
+        #[arg(long)]
+        smooth_factor: Option<f64>,
 
         /// Output model file path
         #[arg(short, long, default_value = "surrogate_model.gpx")]
@@ -93,792 +164,6 @@ enum Commands {
     },
 }
 
-#[derive(Debug, Clone)]
-struct Metrics {
-    pub q2: f64,
-    pub pva: f64,
-    pub iae_alpha: f64,
-}
-
-fn compute_metrics(
-    gp_models: &[Box<dyn MixtureGpSurrogate>],
-    indices: &[usize],
-    kfold: usize,
-) -> Vec<(usize, Metrics)> {
-    let mut res: Vec<_> = indices
-        .par_iter()
-        .enumerate()
-        .map(|(pos, idx)| {
-            let i = *idx;
-            let gp = gp_models[i].as_ref();
-            let scores: Vec<_> = [GpMetric::Q2, GpMetric::Pva, GpMetric::IAEAlphaWithPlot]
-                .par_iter()
-                .map(|m| {
-                    let score = gp.score(*m, kfold);
-                    (m, score)
-                })
-                .collect();
-            let scores: HashMap<_, _> = scores.into_iter().collect();
-
-            if pos == 0
-                && let Some(data) = &scores.get(&GpMetric::IAEAlphaWithPlot).unwrap().plot_data
-            {
-                println!("\nIAEα plot data for selected GP model index {}:", i);
-                println!("Alpha | Empirical coverage | Target coverage | Delta");
-                println!("---------------------------------------------------");
-                for i in 0..data.alphas.len() {
-                    let alpha = data.alphas[i];
-                    let delta = data.deltas[i];
-
-                    println!(
-                        "{:5.2}% |       {:5.2}%      |     {:5.2}%    | {:5.2}%",
-                        alpha * 100.,
-                        delta * 100.,
-                        (1. - alpha) * 100.,
-                        (delta - (1. - alpha)).abs() * 100.
-                    );
-                }
-                println!();
-            }
-
-            (
-                i,
-                Metrics {
-                    q2: scores.get(&GpMetric::Q2).unwrap().value,
-                    pva: scores.get(&GpMetric::Pva).unwrap().value,
-                    iae_alpha: scores.get(&GpMetric::IAEAlphaWithPlot).unwrap().value,
-                },
-            )
-        })
-        .collect();
-    res.sort_by_key(|(i, _)| *i);
-    res
-}
-
-fn decode_binary_models(data: &[u8]) -> Result<Vec<Box<dyn MixtureGpSurrogate>>> {
-    let gp_models: Vec<Box<dyn MixtureGpSurrogate>> =
-        bincode::serde::decode_from_slice(data, bincode::config::standard())
-            .map(|(res, _)| res)
-            .unwrap_or_default();
-
-    if !gp_models.is_empty() {
-        return Ok(gp_models);
-    }
-
-    let gp: Box<GpMixture> = bincode::serde::decode_from_slice(data, bincode::config::standard())
-        .map(|(res, _)| res)
-        .map_err(|e| anyhow!("cannot decode binary model: {e}"))?;
-    Ok(vec![gp as Box<dyn MixtureGpSurrogate>])
-}
-
-fn decode_json_models(data: &[u8]) -> Result<Vec<Box<dyn MixtureGpSurrogate>>> {
-    let gp_models: Vec<Box<dyn MixtureGpSurrogate>> =
-        serde_json::from_slice(data).unwrap_or_default();
-
-    if !gp_models.is_empty() {
-        return Ok(gp_models);
-    }
-
-    let gp: Box<GpMixture> =
-        serde_json::from_slice(data).map_err(|e| anyhow!("cannot decode JSON model: {e}"))?;
-    Ok(vec![gp as Box<dyn MixtureGpSurrogate>])
-}
-
-fn load_models(path: &str) -> Result<Vec<Box<dyn MixtureGpSurrogate>>> {
-    let data: Vec<u8> = fs::read(path).with_context(|| format!("cannot read model file {path}"))?;
-
-    decode_binary_models(&data)
-        .or_else(|_| decode_json_models(&data))
-        .map_err(|e| anyhow!("cannot decode model file {path}: {e}"))
-}
-
-fn select_model(
-    gp_models: &[Box<dyn MixtureGpSurrogate>],
-    model_index: usize,
-) -> Result<&dyn MixtureGpSurrogate> {
-    gp_models
-        .get(model_index)
-        .map(|m| m.as_ref())
-        .ok_or_else(|| {
-            anyhow!(
-                "model index {} is out of range [0, {})",
-                model_index,
-                gp_models.len()
-            )
-        })
-}
-
-fn parse_csv_row(line: &str) -> Result<Vec<f64>> {
-    line.split(',')
-        .map(str::trim)
-        .map(|cell| {
-            cell.parse::<f64>()
-                .map_err(|e| anyhow!("invalid float value '{cell}': {e}"))
-        })
-        .collect()
-}
-
-fn is_header_row(line: &str) -> bool {
-    let cells: Vec<_> = line.split(',').map(str::trim).collect();
-    !cells.is_empty() && cells.iter().all(|cell| cell.parse::<f64>().is_err())
-}
-
-fn read_input_csv(path: &str, nx: usize) -> Result<Array2<f64>> {
-    let content =
-        fs::read_to_string(path).with_context(|| format!("cannot read input CSV {path}"))?;
-
-    let mut nrows = 0usize;
-    let mut flat_values = Vec::new();
-    let mut first_non_empty = true;
-
-    for (line_index, raw_line) in content.lines().enumerate() {
-        let line = raw_line.trim();
-        if line.is_empty() {
-            continue;
-        }
-
-        let row = match parse_csv_row(line) {
-            Ok(row) => row,
-            Err(_e) if first_non_empty && is_header_row(line) => {
-                first_non_empty = false;
-                continue;
-            }
-            Err(e) => {
-                return Err(e)
-                    .with_context(|| format!("invalid CSV row at line {}", line_index + 1));
-            }
-        };
-        first_non_empty = false;
-
-        if row.len() != nx {
-            bail!(
-                "invalid input dimension at line {}: expected {} values, got {}",
-                line_index + 1,
-                nx,
-                row.len()
-            );
-        }
-
-        flat_values.extend(row);
-        nrows += 1;
-    }
-
-    if nrows == 0 {
-        bail!("input CSV {path} does not contain any sample row");
-    }
-
-    Array2::from_shape_vec((nrows, nx), flat_values)
-        .map_err(|e| anyhow!("cannot build input matrix from CSV {path}: {e}"))
-}
-
-fn read_input_npy(path: &str, nx: usize) -> Result<Array2<f64>> {
-    let x: Array2<f64> = read_npy(path).with_context(|| format!("cannot read input NPY {path}"))?;
-
-    if x.ncols() != nx {
-        bail!(
-            "invalid input dimension in NPY {}: expected {} columns, got {}",
-            path,
-            nx,
-            x.ncols()
-        );
-    }
-
-    if x.nrows() == 0 {
-        bail!("input NPY {path} does not contain any sample row");
-    }
-
-    Ok(x)
-}
-
-fn read_input_data(path: &str, nx: usize, format: DataFormat) -> Result<Array2<f64>> {
-    match format {
-        DataFormat::Csv => read_input_csv(path, nx),
-        DataFormat::Npy => read_input_npy(path, nx),
-    }
-}
-
-fn read_training_csv(path: &str, n_outputs: usize) -> Result<(Array2<f64>, Array2<f64>)> {
-    if n_outputs == 0 {
-        bail!("number of outputs must be >= 1");
-    }
-
-    let content =
-        fs::read_to_string(path).with_context(|| format!("cannot read training CSV {path}"))?;
-
-    let mut nrows = 0usize;
-    let mut nx = 0usize;
-    let mut x_flat_values = Vec::new();
-    let mut y_flat_values = Vec::new();
-    let mut ncols_expected = 0usize;
-    let mut first_non_empty = true;
-
-    for (line_index, raw_line) in content.lines().enumerate() {
-        let line = raw_line.trim();
-        if line.is_empty() {
-            continue;
-        }
-
-        let row = match parse_csv_row(line) {
-            Ok(row) => row,
-            Err(_e) if first_non_empty && is_header_row(line) => {
-                first_non_empty = false;
-                continue;
-            }
-            Err(e) => {
-                return Err(e).with_context(|| {
-                    format!("invalid training CSV row at line {}", line_index + 1)
-                });
-            }
-        };
-        first_non_empty = false;
-
-        if row.len() <= n_outputs {
-            bail!(
-                "invalid training row at line {}: expected at least {} columns (features + {} output(s)), got {}",
-                line_index + 1,
-                n_outputs + 1,
-                n_outputs,
-                row.len()
-            );
-        }
-
-        if ncols_expected == 0 {
-            ncols_expected = row.len();
-            nx = ncols_expected - n_outputs;
-        } else if row.len() != ncols_expected {
-            bail!(
-                "inconsistent training row width at line {}: expected {} columns, got {}",
-                line_index + 1,
-                ncols_expected,
-                row.len()
-            );
-        }
-
-        let y_start = row.len() - n_outputs;
-        x_flat_values.extend_from_slice(&row[..y_start]);
-        y_flat_values.extend_from_slice(&row[y_start..]);
-        nrows += 1;
-    }
-
-    if nrows == 0 {
-        bail!("training CSV {path} does not contain any sample row");
-    }
-
-    let x = Array2::from_shape_vec((nrows, nx), x_flat_values)
-        .map_err(|e| anyhow!("cannot build training input matrix from CSV {path}: {e}"))?;
-    let y = Array2::from_shape_vec((nrows, n_outputs), y_flat_values)
-        .map_err(|e| anyhow!("cannot build training output matrix from CSV {path}: {e}"))?;
-    Ok((x, y))
-}
-
-fn read_training_npy(path: &str, n_outputs: usize) -> Result<(Array2<f64>, Array2<f64>)> {
-    if n_outputs == 0 {
-        bail!("number of outputs must be >= 1");
-    }
-
-    let xy: Array2<f64> =
-        read_npy(path).with_context(|| format!("cannot read training NPY {path}"))?;
-
-    if xy.ncols() <= n_outputs {
-        bail!(
-            "invalid training NPY {}: expected at least {} columns (features + {} output(s)), got {}",
-            path,
-            n_outputs + 1,
-            n_outputs,
-            xy.ncols()
-        );
-    }
-
-    if xy.nrows() == 0 {
-        bail!("training NPY {path} does not contain any sample row");
-    }
-
-    let nx = xy.ncols() - n_outputs;
-    let x = xy.slice(ndarray::s![.., ..nx]).to_owned();
-    let y = xy.slice(ndarray::s![.., nx..]).to_owned();
-    Ok((x, y))
-}
-
-fn read_training_data(
-    path: &str,
-    format: DataFormat,
-    n_outputs: usize,
-) -> Result<(Array2<f64>, Array2<f64>)> {
-    match format {
-        DataFormat::Csv => read_training_csv(path, n_outputs),
-        DataFormat::Npy => read_training_npy(path, n_outputs),
-    }
-}
-
-fn write_predictions_table_csv(
-    path: &str,
-    x: &Array2<f64>,
-    preds: &Array2<f64>,
-    variances: Option<&Array2<f64>>,
-) -> Result<()> {
-    if x.nrows() != preds.nrows() {
-        bail!(
-            "row count mismatch between inputs ({}) and predictions ({})",
-            x.nrows(),
-            preds.nrows()
-        );
-    }
-
-    if let Some(var) = variances
-        && (var.nrows() != preds.nrows() || var.ncols() != preds.ncols())
-    {
-        bail!(
-            "variance matrix shape mismatch: expected ({}, {}), got ({}, {})",
-            preds.nrows(),
-            preds.ncols(),
-            var.nrows(),
-            var.ncols()
-        );
-    }
-
-    let mut out = String::new();
-    for i in 0..x.nrows() {
-        let mut values = Vec::with_capacity(x.ncols() + preds.ncols());
-        for j in 0..x.ncols() {
-            values.push(format!("{:.16e}", x[(i, j)]));
-        }
-        for j in 0..preds.ncols() {
-            values.push(format!("{:.16e}", preds[(i, j)]));
-        }
-        if let Some(var) = variances {
-            for j in 0..var.ncols() {
-                values.push(format!("{:.16e}", var[(i, j)]));
-            }
-        }
-        out.push_str(&values.join(","));
-        out.push('\n');
-    }
-
-    fs::write(path, out).with_context(|| format!("cannot write output CSV {path}"))
-}
-
-fn write_predictions_table_npy(
-    path: &str,
-    x: &Array2<f64>,
-    preds: &Array2<f64>,
-    variances: Option<&Array2<f64>>,
-) -> Result<()> {
-    if x.nrows() != preds.nrows() {
-        bail!(
-            "row count mismatch between inputs ({}) and predictions ({})",
-            x.nrows(),
-            preds.nrows()
-        );
-    }
-
-    if let Some(var) = variances
-        && (var.nrows() != preds.nrows() || var.ncols() != preds.ncols())
-    {
-        bail!(
-            "variance matrix shape mismatch: expected ({}, {}), got ({}, {})",
-            preds.nrows(),
-            preds.ncols(),
-            var.nrows(),
-            var.ncols()
-        );
-    }
-
-    let out_ncols = x.ncols() + preds.ncols() + variances.map_or(0, |v| v.ncols());
-    let mut flat = Vec::with_capacity(x.nrows() * out_ncols);
-    for i in 0..x.nrows() {
-        for j in 0..x.ncols() {
-            flat.push(x[(i, j)]);
-        }
-        for j in 0..preds.ncols() {
-            flat.push(preds[(i, j)]);
-        }
-        if let Some(var) = variances {
-            for j in 0..var.ncols() {
-                flat.push(var[(i, j)]);
-            }
-        }
-    }
-
-    let out = Array2::from_shape_vec((x.nrows(), out_ncols), flat)
-        .map_err(|e| anyhow!("cannot build prediction output matrix: {e}"))?;
-    write_npy(path, &out).with_context(|| format!("cannot write output NPY {path}"))
-}
-
-fn write_predictions_table_data(
-    path: &str,
-    format: DataFormat,
-    x: &Array2<f64>,
-    preds: &Array2<f64>,
-    variances: Option<&Array2<f64>>,
-) -> Result<()> {
-    match format {
-        DataFormat::Csv => write_predictions_table_csv(path, x, preds, variances),
-        DataFormat::Npy => write_predictions_table_npy(path, x, preds, variances),
-    }
-}
-
-fn infer_fit_input_format(input: &str) -> DataFormat {
-    let is_npy = Path::new(input)
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("npy"));
-
-    if is_npy {
-        DataFormat::Npy
-    } else {
-        DataFormat::Csv
-    }
-}
-
-fn infer_fit_model_format(output: &str) -> ModelFormat {
-    let is_json = Path::new(output)
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("json"));
-
-    if is_json {
-        ModelFormat::Json
-    } else {
-        ModelFormat::Binary
-    }
-}
-
-fn infer_predict_input_format(input: &str) -> DataFormat {
-    let is_npy = Path::new(input)
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("npy"));
-
-    if is_npy {
-        DataFormat::Npy
-    } else {
-        DataFormat::Csv
-    }
-}
-
-fn infer_predict_output_format(output: &str) -> DataFormat {
-    let is_npy = Path::new(output)
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("npy"));
-
-    if is_npy {
-        DataFormat::Npy
-    } else {
-        DataFormat::Csv
-    }
-}
-
-fn run_qa(model: &str, model_index: Option<usize>, kfold: usize) -> Result<()> {
-    let gp_models = load_models(model)?;
-
-    let selected_indices: Vec<usize> = if let Some(index) = model_index {
-        vec![index]
-    } else {
-        (0..gp_models.len()).collect()
-    };
-    if selected_indices.is_empty() {
-        bail!("no model selected for QA");
-    }
-    for &index in &selected_indices {
-        let _ = select_model(&gp_models, index)?;
-    }
-
-    if let Some(index) = model_index {
-        println!("Loaded GP model: {}", gp_models[index]);
-    } else {
-        gp_models.iter().for_each(|gp| {
-            println!("Loaded GP model: {}", gp);
-        });
-    }
-
-    let ref_index = selected_indices[0];
-    let (xt, _yt) = gp_models[ref_index].training_data();
-    println!(
-        "Training data (reference model {}): {} samples ({}-dim)",
-        ref_index,
-        xt.nrows(),
-        xt.ncols()
-    );
-
-    let k = if kfold == 0 { xt.nrows() } else { kfold };
-    let res = compute_metrics(&gp_models, &selected_indices, k);
-
-    println!(
-        "\nMetric interpretation reminder (cf. Marrel2024 https://cea.hal.science/cea-04322810v2/document):"
-    );
-    println!("- Q2 (to maximize, <= 1):");
-    println!("  high and close to 1 -> good predictive capability.");
-    println!("  low (Q2 <= 0.5, e.g.) -> poor predictive capability.");
-    println!("- PVA (to minimize, >= 0):");
-    println!(
-        "  close to 0 -> predictive variances have the right order of magnitude vs prediction errors."
-    );
-    println!("  high -> unreliable intervals (over- or under-confident model).");
-    println!("- IAEα (to minimize, in [0, 0.5]):");
-    println!("  close to 0 -> reliable predicted intervals only when Q2 is also high.");
-    println!(
-        "  close to 0.5 -> unreliable intervals; interpret jointly with Q2, PVA, and the alpha-PI plot."
-    );
-    println!();
-
-    if let Some(index) = model_index {
-        println!("QA mode: selected surrogate index {index}");
-    } else {
-        println!("QA mode: all surrogates ({} model(s))", gp_models.len());
-    }
-
-    for (i, m) in res {
-        println!(
-            "GP({}): Q2 = {:.2}, PVA = {:.2}, IAEα = {:.2}",
-            i, m.q2, m.pva, m.iae_alpha
-        );
-    }
-
-    Ok(())
-}
-
-fn run_fit(input: &str, outputs: usize, output: &str) -> Result<()> {
-    let input_format = infer_fit_input_format(input);
-    let format = infer_fit_model_format(output);
-    let (x, y_all) = read_training_data(input, input_format, outputs)?;
-    let mut gp_models: Vec<Box<dyn MixtureGpSurrogate>> = Vec::with_capacity(y_all.ncols());
-
-    for iy in 0..y_all.ncols() {
-        let y = y_all.column(iy).to_owned();
-        let ds = Dataset::new(x.clone(), y);
-        let gp = GpMixture::params()
-            .fit(&ds)
-            .map_err(|e| anyhow!("default GP training failed for output {}: {e}", iy))?;
-        gp_models.push(Box::new(gp) as Box<dyn MixtureGpSurrogate>);
-    }
-
-    match format {
-        ModelFormat::Binary => {
-            let bytes = bincode::serde::encode_to_vec(&gp_models, bincode::config::standard())
-                .map_err(|e| anyhow!("cannot serialize trained model(s) to binary: {e}"))?;
-            fs::write(output, bytes)
-                .with_context(|| format!("cannot write binary model file {output}"))?;
-        }
-        ModelFormat::Json => {
-            let text = serde_json::to_string_pretty(&gp_models)
-                .map_err(|e| anyhow!("cannot serialize trained model(s) to JSON: {e}"))?;
-            fs::write(output, text)
-                .with_context(|| format!("cannot write JSON model file {output}"))?;
-        }
-    }
-
-    let nx = x.ncols();
-    let ny = y_all.ncols();
-    println!("Trained default GP surrogate model(s) from {input}");
-    println!("Training samples: {}", x.nrows());
-    println!("Input dimension: {nx}");
-    println!("Output dimension: {ny}");
-    println!("Generated surrogate models: {}", gp_models.len());
-    println!("Output columns used: last {outputs}");
-    println!("Input format: {:?}", input_format);
-    println!("Output format: {:?}", format);
-    println!("Saved model to {output}");
-
-    Ok(())
-}
-
-fn run_spec(model: &str, model_index: Option<usize>) -> Result<()> {
-    let gp_models = load_models(model)?;
-    let gp0 = gp_models
-        .first()
-        .ok_or_else(|| anyhow!("no GP model found in file {model}"))?;
-    let (nx, _ny0) = gp0.dims();
-    let total_outputs = gp_models.len();
-
-    let selected_indices: Vec<usize> = if let Some(index) = model_index {
-        vec![index]
-    } else {
-        (0..gp_models.len()).collect()
-    };
-    for &index in &selected_indices {
-        let _ = select_model(&gp_models, index)?;
-    }
-    let reference_index = selected_indices[0];
-    let (xt, _yt) = gp_models[reference_index].training_data();
-    let selected_count = selected_indices.len();
-
-    println!("Model file: {model}");
-    println!("Model count in file: {}", gp_models.len());
-    match model_index {
-        Some(index) => println!("Spec mode: selected surrogate index {index}"),
-        None => println!("Spec mode: all surrogates"),
-    }
-    println!("Surrogate models:");
-    for &i in &selected_indices {
-        let surrogate = gp_models[i].as_ref();
-        let (sx, sy) = surrogate.dims();
-        println!("  - model[{i}]: {surrogate}");
-        println!("    input dimension: {sx}");
-        println!("    output dimension: {sy}");
-    }
-    println!("Input specification:");
-    println!("  - supported formats: csv, npy");
-    println!("  - csv row layout: x1,x2,...,x{nx}");
-    println!("  - npy array shape: (n_samples, {nx})");
-    println!("  - expected input dimension: {nx}");
-    println!("Output specification:");
-    println!("  - output dimension (number of surrogates): {total_outputs}");
-    if selected_count == 1 {
-        println!("  - predict csv columns: prediction");
-        println!("  - predict --with-variance csv columns: prediction,variance");
-        println!("  - predict npy shape: (n_samples, 1)");
-        println!("  - predict --with-variance npy shape: (n_samples, 2)");
-    } else {
-        println!(
-            "  - predict csv columns: y_pred1..y_pred{}, y_var1..y_var{} (with --with-variance)",
-            selected_count, selected_count
-        );
-        println!("  - predict npy shape: (n_samples, {})", selected_count);
-        println!(
-            "  - predict --with-variance npy shape: (n_samples, {})",
-            2 * selected_count
-        );
-    }
-    println!("Training data summary:");
-    println!("  - reference model: {reference_index}");
-    println!("  - samples: {}", xt.nrows());
-    println!("  - input dimension: {}", xt.ncols());
-
-    Ok(())
-}
-
-fn run_predict(
-    model: &str,
-    input: &str,
-    output: &str,
-    with_variance: bool,
-    model_index: Option<usize>,
-) -> Result<()> {
-    let input_format = infer_predict_input_format(input);
-    let output_format = infer_predict_output_format(output);
-
-    let gp_models = load_models(model)?;
-    let (nx, _ny) = gp_models
-        .first()
-        .ok_or_else(|| anyhow!("no GP model found in file {model}"))?
-        .dims();
-
-    let x = read_input_data(input, nx, input_format)?;
-
-    let selected_indices: Vec<usize> = if let Some(index) = model_index {
-        vec![index]
-    } else {
-        (0..gp_models.len()).collect()
-    };
-
-    if selected_indices.is_empty() {
-        bail!("no model selected for prediction");
-    }
-
-    let mut pred_flat = Vec::with_capacity(x.nrows() * selected_indices.len());
-    let mut var_flat = if with_variance {
-        Some(Vec::with_capacity(x.nrows() * selected_indices.len()))
-    } else {
-        None
-    };
-
-    for &idx in &selected_indices {
-        let gp = select_model(&gp_models, idx)?;
-        let (mx, _my) = gp.dims();
-        if mx != nx {
-            bail!(
-                "model {} input dimension mismatch: expected {}, got {}",
-                idx,
-                nx,
-                mx
-            );
-        }
-
-        let pred = gp.predict(&x.view())?;
-        pred_flat.extend(pred.iter().copied());
-
-        if let Some(var_values) = var_flat.as_mut() {
-            let var = gp.predict_var(&x.view())?;
-            var_values.extend(var.iter().copied());
-        }
-    }
-
-    let preds = Array2::from_shape_vec((selected_indices.len(), x.nrows()), pred_flat)
-        .map_err(|e| anyhow!("cannot build prediction matrix: {e}"))?
-        .reversed_axes()
-        .to_owned();
-
-    let variances = if let Some(values) = var_flat {
-        Some(
-            Array2::from_shape_vec((selected_indices.len(), x.nrows()), values)
-                .map_err(|e| anyhow!("cannot build variance matrix: {e}"))?
-                .reversed_axes()
-                .to_owned(),
-        )
-    } else {
-        None
-    };
-
-    write_predictions_table_data(output, output_format, &x, &preds, variances.as_ref())?;
-
-    println!(
-        "Predicted {} sample(s) from {} and wrote {}",
-        x.nrows(),
-        input,
-        output
-    );
-    if let Some(index) = model_index {
-        println!("Model file: {model} (index {index})");
-    } else {
-        println!(
-            "Model file: {} (all {} models)",
-            model,
-            selected_indices.len()
-        );
-    }
-    println!("Input format: {:?}", input_format);
-    println!("Output format: {:?}", output_format);
-    match output_format {
-        DataFormat::Csv => {
-            if with_variance {
-                println!(
-                    "Output columns: x1..x{}, y_pred1..y_pred{}, y_var1..y_var{}",
-                    x.ncols(),
-                    preds.ncols(),
-                    preds.ncols()
-                );
-            } else {
-                println!(
-                    "Output columns: x1..x{}, y_pred1..y_pred{}",
-                    x.ncols(),
-                    preds.ncols()
-                );
-            }
-        }
-        DataFormat::Npy => {
-            let output_cols = if with_variance {
-                x.ncols() + 2 * preds.ncols()
-            } else {
-                x.ncols() + preds.ncols()
-            };
-            if with_variance {
-                println!(
-                    "Output array shape: (n_samples, {}) [inputs, predictions, variances]",
-                    output_cols
-                );
-            } else {
-                println!(
-                    "Output array shape: (n_samples, {}) [inputs, predictions]",
-                    output_cols
-                );
-            }
-        }
-    }
-
-    Ok(())
-}
-
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
@@ -886,8 +171,24 @@ fn main() -> Result<()> {
         Commands::Fit {
             input,
             outputs,
+            regression_spec,
+            correlation_spec,
+            kpls_dim,
+            n_clusters,
+            recombination,
+            smooth_factor,
             output,
-        } => run_fit(&input, outputs, &output),
+        } => run_fit(
+            &input,
+            outputs,
+            regression_spec,
+            correlation_spec,
+            kpls_dim,
+            n_clusters,
+            recombination,
+            smooth_factor,
+            &output,
+        ),
         Commands::Qa {
             model,
             model_index,
