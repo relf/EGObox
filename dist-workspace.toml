@@ -8,7 +8,7 @@ cargo-dist-version = "0.31.0"
 # CI backends to support
 ci = "github"
 # The installers to generate for each app
-installers = ["shell", "powershell"]
+installers = ["shell", "powershell", "homebrew"]
 # Target platforms to build apps for (Rust target-triple syntax)
 targets = [
     "aarch64-apple-darwin",
@@ -28,6 +28,10 @@ install-path = "CARGO_HOME"
 pr-run-mode = "plan"
 # A prefix git tags must include for dist to care about them
 tag-namespace = "gpx"
+# A GitHub repo to push Homebrew formulas to
+tap = "relf/homebrew-tap"
+# Publish jobs to run in CI
+publish-jobs = ["homebrew"]
 
 [dist.github-custom-runners]
 x86_64-pc-windows-msvc = "windows-latest"
