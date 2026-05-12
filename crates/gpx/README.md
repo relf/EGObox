@@ -1,8 +1,7 @@
 # Gaussian Process Quality Assurance
 
 `gpx` is a companion executable of the `egobox` library.
-It can assess surrogate quality, display model input/output specification,
-and run predictions from CSV inputs.
+It can fit GP surrogates to given data, assess surrogate quality, display model input/output specification, and run predictions from CSV inputs.
 CSV files for `fit` and `predict` may include an optional header row.
 
 ## Installation
@@ -19,6 +18,7 @@ gpx fit --help
 gpx qa --help
 gpx spec --help
 gpx predict --help
+gpx py --help
 ```
 
 `gpx fit` auto-detects training input format from file extension:
@@ -52,3 +52,10 @@ Use `-m/--model-index` to predict a single output model.
 `gpx predict` auto-detects output format from output file extension:
 - `.npy` -> `npy`
 - otherwise -> `csv`
+`gpx py` generates a Python helper script from an existing model file.
+Defaults:
+- model: `surrogate_model.gpx` (`--model`)
+- output script: `gpx.py` (`-o/--output`)
+The generated script embeds the model bytes and provides:
+- `predict(x, with_variance=False, model_index=None)`
+At runtime, the generated Python helper invokes `gpx predict` via subprocess.

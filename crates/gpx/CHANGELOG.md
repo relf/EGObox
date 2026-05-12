@@ -8,7 +8,8 @@ Add executable subcommands to:
 - assess model quality (`qa`),
 - display input/output specifications (`spec`),
 - fit a default GP surrogate from tabular training data (`fit`),
-- predict outputs from tabular inputs (`predict`).
+- predict outputs from tabular inputs (`predict`),
+- generate a Python helper from a saved model (`py`).
 
 Add model output format selection for `fit` by output file extension:
 - `.json` -> `json`,
@@ -43,6 +44,10 @@ Make `predict` model optional with default file `surrogate_model.gpx`.
 
 Make `predict` use all surrogates by default (unless `--model-index` is set) and
 write a single output containing input columns followed by predicted output columns.
+
+Add `py` command to generate a Python script (`gpx.py` by default) with an
+inlined model (`surrogate_model.gpx` by default) exposing
+`predict(x, with_variance=False, model_index=None)`.
 
 ## gpx 0.2.0 - 04/12/2025
 
