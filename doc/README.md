@@ -16,6 +16,10 @@
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/relf/egobox/blob/master/doc/Gpx_Tutorial.ipynb)
 
+## Mixture of Gaussian process surrogates command line tool: _gpx_
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/relf/egobox/blob/master/doc/gpx_cli.ipynb)
+
 ## Gaussian process surrogates: _SparseGpx_
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/relf/egobox/blob/master/doc/SparseGpx_Tutorial.ipynb)
