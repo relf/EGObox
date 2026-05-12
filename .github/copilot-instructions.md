@@ -9,7 +9,7 @@ EGObox is a Rust library for Bayesian optimization implementing Efficient Global
 - `gp`: Gaussian Process regression with Kriging, PLS dimension reduction, sparse methods
 - `moe`: Mixture of Experts using GP models for increased accuracy via weighted local models
 - `ego`: The main EGO optimizer with constraint handling and mixed-integer support
-- `gpqa`: Quality assurance for GP models
+- `gpx`: GP surrogate executable with fit, quality assessment, specification, and prediction support
 
 **Python bindings (`python/`)**: PyO3-based Python package wrapping Rust optimizer (`Egor`) and surrogate model (`Gpx`)
 
@@ -50,6 +50,29 @@ cd crates/ego && cargo run --example xsinx --release
 cd crates/gp && cargo run --example kriging --release
 cd crates/moe && cargo run --example clustering --release
 ```
+
+### Gpx CLI Development
+`gpx` workflows are centered around 4 subcommands:
+- `fit`: train a default GP surrogate from tabular data
+- `qa`: assess model quality metrics
+- `spec`: print model input/output specifications
+- `predict`: produce predictions from tabular inputs
+
+Data/model formats currently supported by `gpx`:
+- Model files: `binary` (default) and `json` (`fit --format`)
+- Fit inputs: `csv` (default) and `npy` (`fit --input-format`)
+- Predict inputs/outputs: `csv` (default) and `npy` (`predict --input-format`, `predict --output-format`)
+- CSV parsing supports an optional header row for `fit` and `predict` inputs
+
+Recommended local validation sequence when editing `gpx`:
+```bash
+cargo check -p gpx
+cargo run -p gpx -- fit --help
+cargo run -p gpx -- predict --help
+```
+
+Note: if VS Code task `Rust: cargo check - egobox` is misconfigured in a local workspace,
+prefer direct cargo commands in terminal (`cargo check --all`, `cargo check -p gpx`).
 
 ### Python Development
 ```bash
@@ -120,6 +143,8 @@ let model = Model::load("model.json")?;
 - [crates/ego/src/solver/](../crates/ego/src/solver/): Core solver implementation, config, ask-tell interface
 - [crates/gp/src/algorithm.rs](../crates/gp/src/algorithm.rs): GP training algorithm (~1800 lines)
 - [crates/moe/src/algorithm.rs](../crates/moe/src/algorithm.rs): Mixture of experts implementation
+- [crates/gpx/src/main.rs](../crates/gpx/src/main.rs): Gpx CLI implementation (`fit`, `qa`, `spec`, `predict`)
+- [crates/gpx/README.md](../crates/gpx/README.md): Gpx command usage and format options
 - [python/src/lib.rs](../python/src/lib.rs): PyO3 module definition
 - [python/src/egor.rs](../python/src/egor.rs): Python Egor class wrapping Rust
 - [doc/](../doc/): Jupyter notebooks with tutorials

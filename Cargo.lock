@@ -912,15 +912,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "gpqa"
-version = "0.2.1"
+name = "gpx"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "bincode",
  "clap",
  "egobox-ego",
  "egobox-moe",
+ "linfa",
+ "ndarray",
+ "ndarray-npy",
  "rayon",
+ "serde_json",
 ]
 
 [[package]]

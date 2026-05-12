@@ -1,13 +1,13 @@
 [package]
-name = "gpqa"
-version = "0.2.1"
+name = "gpx"
+version = "0.3.0"
 authors.workspace = true
 license.workspace = true
 edition.workspace = true
 homepage.workspace = true
 repository.workspace = true
 readme = "README.md"
-description = "Utility to assess Egor GPs quality saved using GP recorder"
+description = "GP surrogate executable for quality assessment, I/O specification, and prediction"
 keywords = ["machine-learning", "bayesian", "optimization"]
 categories = ["algorithms", "mathematics", "science"]
 
@@ -17,7 +17,11 @@ egobox-moe = { version = "0.35", path = "../moe" }
 anyhow.workspace = true
 clap.workspace = true
 bincode.workspace = true
+serde_json.workspace = true
 rayon.workspace = true
+ndarray.workspace = true
+ndarray-npy.workspace = true
+linfa.workspace = true
 
 [[bin]]
-name = "gpqa"
+name = "gpx"
