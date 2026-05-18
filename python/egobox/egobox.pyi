@@ -455,28 +455,28 @@ class GpConfig:
         r"""
         ([nx] where nx is the dimension of inputs x)
         Initial guess for GP theta hyperparameters.
-        When None the default is 1e-2 for all components
+        When None the default is 1e-1 for all components
         """
     @theta_init.setter
     def theta_init(self, value: typing.Optional[typing.Sequence[builtins.float]]) -> None:
         r"""
         ([nx] where nx is the dimension of inputs x)
         Initial guess for GP theta hyperparameters.
-        When None the default is 1e-2 for all components
+        When None the default is 1e-1 for all components
         """
     @property
     def theta_bounds(self) -> typing.Optional[builtins.list[builtins.list[builtins.float]]]:
         r"""
         ([[lower_1, upper_1], ..., [lower_nx, upper_nx]] where nx is the dimension of inputs x)
         Space search when optimizing theta GP hyperparameters
-        When None the default is [1e-6, 1e2] for all components
+        When None the default is [1e-2, 1e1] for all components
         """
     @theta_bounds.setter
     def theta_bounds(self, value: typing.Optional[typing.Sequence[typing.Sequence[builtins.float]]]) -> None:
         r"""
         ([[lower_1, upper_1], ..., [lower_nx, upper_nx]] where nx is the dimension of inputs x)
         Space search when optimizing theta GP hyperparameters
-        When None the default is [1e-6, 1e2] for all components
+        When None the default is [1e-2, 1e1] for all components
         """
     @property
     def n_start(self) -> builtins.int:

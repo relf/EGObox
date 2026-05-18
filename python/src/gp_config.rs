@@ -50,13 +50,13 @@ pub(crate) struct GpConfig {
 
     /// ([nx] where nx is the dimension of inputs x)
     ///   Initial guess for GP theta hyperparameters.
-    ///   When None the default is 1e-2 for all components
+    ///   When None the default is 1e-1 for all components
     #[pyo3(get, set)]
     pub theta_init: Option<Vec<f64>>,
 
     /// ([[lower_1, upper_1], ..., [lower_nx, upper_nx]] where nx is the dimension of inputs x)
     ///   Space search when optimizing theta GP hyperparameters
-    ///   When None the default is [1e-6, 1e2] for all components
+    ///   When None the default is [1e-2, 1e1] for all components
     #[pyo3(get, set)]
     pub theta_bounds: Option<Vec<Vec<f64>>>,
 
