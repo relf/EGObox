@@ -58,7 +58,7 @@ def main():
     max_iters = args.max_iters
     base_seed = args.seed
     n_runs = args.n_runs
-    base_outdir = "rosenbrock20D_001_out"
+    base_outdir = "rosenbrock20D_007_out"
 
     all_histories = []
 
@@ -74,7 +74,7 @@ def main():
         opt = egx.Egor(
             bounds,
             n_doe=n_doe,
-            # infill_strategy=egx.InfillStrategy.LOG_EI,
+            infill_strategy=egx.InfillStrategy.LOG_EI,
             gp_config=egx.GpConfig(kpls_dim=5, corr_spec=egx.CorrelationSpec.MATERN52),
             trego=True,
             target=0.01,
@@ -86,6 +86,7 @@ def main():
             run_info=egx.RunInfo(fname="Rosenbrock20D", num=run + 1),
             outdir=outdir,
             verbose=egx.Verbose.INFO,
+            timeout=9600,  # seconds
             seed=run,
         )
 
