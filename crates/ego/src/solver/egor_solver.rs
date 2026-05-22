@@ -296,9 +296,7 @@ where
             }
             if cstr_tol.len() < n_total_cstr {
                 let mut tol = cstr_tol.to_vec();
-                tol.extend(
-                    std::iter::repeat(DEFAULT_CSTR_TOL).take(n_total_cstr - cstr_tol.len()),
-                );
+                tol.extend(std::iter::repeat(DEFAULT_CSTR_TOL).take(n_total_cstr - cstr_tol.len()));
                 Array1::from_vec(tol)
             } else {
                 cstr_tol

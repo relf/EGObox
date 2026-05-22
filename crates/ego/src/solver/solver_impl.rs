@@ -1097,11 +1097,9 @@ where
                     .kind(LhsKind::Maximin)
                     .with_rng(sub_rng);
 
-                let fcstr_mapping = crate::types::function_cstr_affine_mapping(
-                    cstr_funcs.len(),
-                    fcstr_specs,
-                )
-                .expect("validated function-constraint specs");
+                let fcstr_mapping =
+                    crate::types::function_cstr_affine_mapping(cstr_funcs.len(), fcstr_specs)
+                        .expect("validated function-constraint specs");
 
                 let transformed_fcstrs = fcstr_mapping
                     .iter()

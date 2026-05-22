@@ -149,9 +149,9 @@
 //!            .expect("g24 minimized");
 //! ```
 //!
+use crate::EgoError;
 use crate::EgorConfig;
 use crate::EgorState;
-use crate::EgoError;
 use crate::HotStartMode;
 use crate::errors::Result;
 use crate::types::*;
@@ -289,7 +289,9 @@ impl<O: ObjFn, C: CstrFn> EgorFactory<O, C> {
         let config = self.config.xtypes(&to_xtypes(xlimits));
         Ok(Egor {
             fobj: match self.fcstr_specs {
-                Some(specs) => ProblemFunc::new(self.fobj).subject_to_with_specs(self.fcstrs, specs),
+                Some(specs) => {
+                    ProblemFunc::new(self.fobj).subject_to_with_specs(self.fcstrs, specs)
+                }
                 None => ProblemFunc::new(self.fobj).subject_to(self.fcstrs),
             },
             solver: EgorSolver::new(config.check()?),
@@ -309,7 +311,9 @@ impl<O: ObjFn, C: CstrFn> EgorFactory<O, C> {
         let config = self.config.xtypes(xtypes);
         Ok(Egor {
             fobj: match self.fcstr_specs {
-                Some(specs) => ProblemFunc::new(self.fobj).subject_to_with_specs(self.fcstrs, specs),
+                Some(specs) => {
+                    ProblemFunc::new(self.fobj).subject_to_with_specs(self.fcstrs, specs)
+                }
                 None => ProblemFunc::new(self.fobj).subject_to(self.fcstrs),
             },
             solver: EgorSolver::new(config.check()?),
