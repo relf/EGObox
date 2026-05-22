@@ -129,6 +129,22 @@ class Egor:
             and `n_fcstr` the number of constraints passed as functions.
             When None, tolerances default to DEFAULT_CSTR_TOL=1e-4.
     
+        cstr_specs (list(n_cstr,) or None):
+            Optional list of CstrSpec objects describing how each surrogate-modeled
+            constraint (returned by `fun`) should be interpreted.
+            This allows users to define bounds directly instead of manually rewriting
+            constraints in `c <= 0` form:
+              * CstrSpec.leq(bound): c <= bound
+              * CstrSpec.geq(bound): c >= bound
+              * CstrSpec.eq(value): c == value (expands to two internal constraints)
+              * CstrSpec.btw(lower, upper): lower <= c <= upper
+                (expands to two internal constraints)
+    
+            When set, `n_cstr` is inferred from `len(cstr_specs)` (legacy `n_cstr`
+            value is ignored if set to zero, or must match otherwise).
+            If `cstr_tol` is explicitly provided, its length must match the total
+            number of internal constraints after expansion.
+    
         n_start (int > 0):
             Number of runs of infill strategy optimizations (best result taken)
     
@@ -237,14 +253,14 @@ class Egor:
                 to be made negative by the optimizer (which drives the input array "x").
                 Otherwise the function has to return the gradient (ndarray[nx,]) of the constraint function
                 wrt the "nx" components of "x".
-
+        
             fcstr_specs:
                 optional list of CstrSpec objects, one per fcstr, specifying how each function
                 constraint should be interpreted.
                 Length must be zero (legacy behavior) or equal to len(fcstrs).
                 This allows raw constraints not written as c <= 0, for example:
                 CstrSpec.leq(b), CstrSpec.geq(b), CstrSpec.eq(v), CstrSpec.btw(lo, hi).
-
+        
                 Note: CstrSpec.eq and CstrSpec.btw expand to two internal constraints each.
                 When cstr_tol is explicitly provided, ensure its size covers all internal
                 constraints: surrogate constraints + expanded function constraints.
