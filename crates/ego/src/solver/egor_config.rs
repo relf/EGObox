@@ -763,10 +763,10 @@ impl EgorConfig {
         let n_eff_cstr = config.n_internal_cstr();
         if n_eff_cstr > 0
             && let Some(cstr_tol) = config.cstr_tol.as_ref()
-            && cstr_tol.len() != n_eff_cstr
+            && cstr_tol.len() < n_eff_cstr
         {
             return Err(crate::EgoError::InvalidConfigError(format!(
-                "EgorConfig invalid: cstr_tol length ({}) does not match effective constraint count ({})",
+                "EgorConfig invalid: cstr_tol length ({}) is smaller than effective surrogate constraint count ({})",
                 cstr_tol.len(),
                 n_eff_cstr
             )));

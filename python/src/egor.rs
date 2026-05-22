@@ -24,7 +24,7 @@ use egobox_gp::ThetaTuning;
 use egobox_moe::NbClusters;
 use ndarray::{Array1, Array2, ArrayView2, Axis, array, concatenate};
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyArrayMethods, PyReadonlyArray2, ToPyArray};
-use pyo3::exceptions::PyTypeError;
+use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyBool;
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
@@ -56,6 +56,22 @@ use std::cmp::Ordering;
 ///         list size should be equal to n_cstr + n_fctrs where n_cstr is the `n_cstr` argument
 ///         and `n_fcstr` the number of constraints passed as functions.
 ///         When None, tolerances default to DEFAULT_CSTR_TOL=1e-4.
+///
+///     cstr_specs (list(n_cstr,) or None):
+///         Optional list of CstrSpec objects describing how each surrogate-modeled
+///         constraint (returned by `fun`) should be interpreted.
+///         This allows users to define bounds directly instead of manually rewriting
+///         constraints in `c <= 0` form:
+///           * CstrSpec.leq(bound): c <= bound
+///           * CstrSpec.geq(bound): c >= bound
+///           * CstrSpec.eq(value): c == value (expands to two internal constraints)
+///           * CstrSpec.btw(lower, upper): lower <= c <= upper
+///             (expands to two internal constraints)
+///
+///         When set, `n_cstr` is inferred from `len(cstr_specs)` (legacy `n_cstr`
+///         value is ignored if set to zero, or must match otherwise).
+///         If `cstr_tol` is explicitly provided, its length must match the total
+///         number of internal constraints after expansion.
 ///
 ///     n_start (int > 0):
 ///         Number of runs of infill strategy optimizations (best result taken)
@@ -335,6 +351,17 @@ impl Egor {
     ///         Otherwise the function has to return the gradient (ndarray[nx,]) of the constraint function
     ///         wrt the "nx" components of "x".
     ///
+    ///     fcstr_specs:
+    ///         optional list of CstrSpec objects, one per fcstr, specifying how each function
+    ///         constraint should be interpreted.
+    ///         Length must be zero (legacy behavior) or equal to len(fcstrs).
+    ///         This allows raw constraints not written as c <= 0, for example:
+    ///         CstrSpec.leq(b), CstrSpec.geq(b), CstrSpec.eq(v), CstrSpec.btw(lo, hi).
+    ///
+    ///         Note: CstrSpec.eq and CstrSpec.btw expand to two internal constraints each.
+    ///         When cstr_tol is explicitly provided, ensure its size covers all internal
+    ///         constraints: surrogate constraints + expanded function constraints.
+    ///
     ///     max_iters:
     ///         the iteration budget, number of fun calls is "n_doe + q_batch * max_iters".
     ///
@@ -382,13 +409,14 @@ impl Egor {
     ///         x_opt (array[1, nx]): x value where fun is at its minimum subject to constraints
     ///         y_opt (array[1, nx]): fun(x_opt)
     ///
-    #[pyo3(signature = (fun, fcstrs=vec![], max_iters = 20, run_info = None, outdir = None, warm_start = false, hot_start = None, seed = None, timeout = None, verbose = None))]
+    #[pyo3(signature = (fun, fcstrs=vec![], fcstr_specs=vec![], max_iters = 20, run_info = None, outdir = None, warm_start = false, hot_start = None, seed = None, timeout = None, verbose = None))]
     #[allow(clippy::too_many_arguments)]
     fn minimize(
         &self,
         py: Python,
         fun: Py<PyAny>,
         fcstrs: Vec<Py<PyAny>>,
+        fcstr_specs: Vec<CstrSpec>,
         max_iters: usize,
         run_info: Option<Py<PyAny>>,
         outdir: Option<String>,
@@ -427,6 +455,19 @@ impl Egor {
         };
 
         let n_fcstr = fcstrs.len();
+        if !fcstr_specs.is_empty() && fcstr_specs.len() != n_fcstr {
+            return Err(PyValueError::new_err(format!(
+                "fcstr_specs length ({}) must match fcstrs length ({})",
+                fcstr_specs.len(),
+                n_fcstr
+            )));
+        }
+
+        let fcstr_specs = fcstr_specs
+            .into_iter()
+            .map(|spec| spec.inner)
+            .collect::<Vec<_>>();
+
         let fcstrs = fcstrs
             .iter()
             .map(|cstr| {
@@ -445,8 +486,14 @@ impl Egor {
             })
             .collect::<Vec<_>>();
 
-        let mixintegor = egobox_ego::EgorFactory::optimize(obj)
-            .subject_to(fcstrs)
+        let factory = egobox_ego::EgorFactory::optimize(obj);
+        let factory = if fcstr_specs.is_empty() {
+            factory.subject_to(fcstrs)
+        } else {
+            factory.subject_to_with_specs(fcstrs, fcstr_specs)
+        };
+
+        let mixintegor = factory
             .configure(|config| {
                 self.apply_config(
                     config,
@@ -751,9 +798,10 @@ impl Egor {
             .n_start(self.n_start)
             .n_doe(self.n_doe);
 
-        // Only set cstr_tol explicitly when user provided it or no cstr_specs is used.
-        // When cstr_specs is set without explicit cstr_tol, let Rust default it.
-        if self.cstr_tol.is_some() || self.cstr_specs.is_none() {
+        // Only set cstr_tol explicitly when user provided it.
+        // Otherwise let Rust infer the correct total length, including
+        // expanded constraints and function constraints.
+        if self.cstr_tol.is_some() {
             let cstr_tol = self.cstr_tol(n_fcstr);
             config = config.cstr_tol(cstr_tol);
         }

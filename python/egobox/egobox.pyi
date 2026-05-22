@@ -214,7 +214,7 @@ class Egor:
         Egor object which can be used to optimize a function using the minimize method.
     """
     def __new__(cls, xspecs: typing.Any, gp_config: GpConfig = ..., n_cstr: builtins.int = 0, cstr_tol: typing.Optional[typing.Sequence[builtins.float]] = None, cstr_specs: typing.Optional[typing.Sequence[CstrSpec]] = None, n_start: builtins.int = 20, n_doe: builtins.int = 0, doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, infill_strategy: InfillStrategy = InfillStrategy.LOG_EI, cstr_infill: builtins.bool = False, cstr_strategy: ConstraintStrategy = ConstraintStrategy.MC, qei_config: QEiConfig = ..., infill_optimizer: InfillOptimizer = InfillOptimizer.COBYLA, trego: typing.Optional[typing.Any] = None, coego_n_coop: builtins.int = 0, target: builtins.float = -1.7976931348623157e+308, failsafe_strategy: FailsafeStrategy = FailsafeStrategy.REJECTION, seed: typing.Optional[builtins.int] = None, outdir: typing.Optional[builtins.str] = None, warm_start: builtins.bool = False, hot_start: typing.Optional[typing.Any] = None, verbose: typing.Optional[typing.Any] = None) -> Egor: ...
-    def minimize(self, fun: typing.Any, fcstrs: typing.Sequence[typing.Any] = [], max_iters: builtins.int = 20, run_info: typing.Optional[typing.Any] = None, outdir: typing.Optional[builtins.str] = None, warm_start: builtins.bool = False, hot_start: typing.Optional[typing.Any] = None, seed: typing.Optional[builtins.int] = None, timeout: typing.Optional[builtins.float] = None, verbose: typing.Optional[typing.Any] = None) -> EgorOptim:
+    def minimize(self, fun: typing.Any, fcstrs: typing.Sequence[typing.Any] = [], fcstr_specs: typing.Sequence[CstrSpec] = [], max_iters: builtins.int = 20, run_info: typing.Optional[typing.Any] = None, outdir: typing.Optional[builtins.str] = None, warm_start: builtins.bool = False, hot_start: typing.Optional[typing.Any] = None, seed: typing.Optional[builtins.int] = None, timeout: typing.Optional[builtins.float] = None, verbose: typing.Optional[typing.Any] = None) -> EgorOptim:
         r"""
         This function finds the minimum of a given function "fun"
         
@@ -237,6 +237,17 @@ class Egor:
                 to be made negative by the optimizer (which drives the input array "x").
                 Otherwise the function has to return the gradient (ndarray[nx,]) of the constraint function
                 wrt the "nx" components of "x".
+
+            fcstr_specs:
+                optional list of CstrSpec objects, one per fcstr, specifying how each function
+                constraint should be interpreted.
+                Length must be zero (legacy behavior) or equal to len(fcstrs).
+                This allows raw constraints not written as c <= 0, for example:
+                CstrSpec.leq(b), CstrSpec.geq(b), CstrSpec.eq(v), CstrSpec.btw(lo, hi).
+
+                Note: CstrSpec.eq and CstrSpec.btw expand to two internal constraints each.
+                When cstr_tol is explicitly provided, ensure its size covers all internal
+                constraints: surrogate constraints + expanded function constraints.
         
             max_iters:
                 the iteration budget, number of fun calls is "n_doe + q_batch * max_iters".
