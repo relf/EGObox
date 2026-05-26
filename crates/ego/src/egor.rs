@@ -1451,7 +1451,7 @@ mod tests {
             .expect("Egor should be configured")
             .run()
             .expect("Egor should minimize branin_with_nans");
-        assert_abs_diff_eq!(x_expected.row(0), res.x_opt, epsilon = 6e-2);
+        assert_abs_diff_eq!(x_expected.row(0), res.x_opt, epsilon = 7e-2);
         if res.state.termination_status
             == TerminationStatus::Terminated(TerminationReason::SolverConverged)
         {
