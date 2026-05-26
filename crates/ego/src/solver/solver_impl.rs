@@ -945,6 +945,8 @@ where
                     && !self.config.gp.theta_tuning.is_fixed())
                 .into();
 
+                info!("Train surrogates with {} points... do_clustering={:?} optimize_theta={:?}", xt.nrows(),do_clustering,optimize_theta);
+
                 let mapping = self
                     .config
                     .cstr_specs

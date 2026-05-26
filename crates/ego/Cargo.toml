@@ -1,7 +1,7 @@
 [package]
 name = "egobox-ego"
 authors.workspace = true
-version = "0.38.1"
+version = "0.38.2"
 license.workspace = true
 edition.workspace = true
 homepage.workspace = true
@@ -21,7 +21,7 @@ blas = ["ndarray-linalg", "linfa/ndarray-linalg", "linfa-pls/blas"]
 egobox-doe = { version = "0.35.1", path = "../doe", features = [
     "serializable",
 ] }
-egobox-gp = { version = "0.36.1", path = "../gp", features = ["serializable"] }
+egobox-gp = { version = "0.36.2", path = "../gp", features = ["serializable"] }
 egobox-moe = { version = "0.35.3", path = "../moe", features = [
     "serializable",
 ] }
@@ -38,8 +38,8 @@ ndarray-rand.workspace = true
 ndarray-npy.workspace = true
 rayon.workspace = true
 
-cobyla = { version = "1.0" }
-slsqp = { version = "1.0" }
+cobyla = { version = "1.0.2" }
+slsqp = { version = "1.0.1" }
 nlopt = { version = "0.8", optional = true }
 
 rand_xoshiro = { version = "0.6", features = ["serde1"] }
