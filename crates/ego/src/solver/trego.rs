@@ -106,6 +106,29 @@ where
 
         let pb = problem.take_problem().unwrap();
         let fcstrs = pb.constraints();
+        let fcstr_specs = pb.constraint_specs();
+        let fcstr_mapping = crate::types::function_cstr_affine_mapping(fcstrs.len(), fcstr_specs)
+            .expect("validated function-constraint specs");
+        let transformed_fcstrs = fcstr_mapping
+            .iter()
+            .map(|(raw_idx, affine_scale, affine_offset)| {
+                let cstr = fcstrs[*raw_idx].clone();
+                let affine_scale = *affine_scale;
+                let affine_offset = *affine_offset;
+                move |x: &[f64],
+                      gradient: Option<&mut [f64]>,
+                      params: &mut InfillObjData<f64>|
+                      -> f64 {
+                    if let Some(g) = gradient {
+                        let raw = cstr(x, Some(g), params);
+                        g.iter_mut().for_each(|v| *v *= affine_scale);
+                        affine_scale * raw + affine_offset
+                    } else {
+                        affine_scale * cstr(x, None, params) + affine_offset
+                    }
+                }
+            })
+            .collect::<Vec<_>>();
         // Optimize infill criterion
         let mut rng = new_state.take_rng().unwrap();
         let sub_rng = Xoshiro256Plus::seed_from_u64(rng.r#gen());
@@ -115,7 +138,7 @@ where
         let infill_optpb = InfillOptProblem {
             obj_model: obj_model.as_ref(),
             cstr_models,
-            cstr_funcs: fcstrs,
+            cstr_funcs: &transformed_fcstrs,
             cstr_tols: &cstr_tols,
             viability_model: None,
             infill_data,

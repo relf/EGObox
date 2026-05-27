@@ -98,11 +98,21 @@ pub enum FailsafeStrategy {
 /// // c <= 5.0  ->  c - 5 <= 0
 /// let spec = CstrSpec::Leq(5.0);
 /// assert_eq!(spec.n_internal(), 1);
-/// assert_eq!(spec.transform(3.0), vec![-2.0]);
+/// let transformed: Vec<f64> = spec
+///     .terms()
+///     .into_iter()
+///     .map(|(scale, offset)| scale * 3.0 + offset)
+///     .collect();
+/// assert_eq!(transformed, vec![-2.0]);
 ///
 /// // c >= 2.0  ->  2 - c <= 0
 /// let spec = CstrSpec::Geq(2.0);
-/// assert_eq!(spec.transform(3.0), vec![-1.0]);
+/// let transformed: Vec<f64> = spec
+///     .terms()
+///     .into_iter()
+///     .map(|(scale, offset)| scale * 3.0 + offset)
+///     .collect();
+/// assert_eq!(transformed, vec![-1.0]);
 ///
 /// // c = 4.0  ->  c - 4 <= 0  AND  4 - c <= 0
 /// let spec = CstrSpec::Eq(4.0);
@@ -133,13 +143,15 @@ impl CstrSpec {
         }
     }
 
-    /// Transform a raw constraint value into internal `<= 0` constraint value(s)
-    pub fn transform(&self, raw: f64) -> Vec<f64> {
+    /// Canonical internal affine terms as `(scale, offset)` pairs.
+    ///
+    /// Each internal constraint is `scale * raw + offset <= 0`.
+    pub fn terms(&self) -> Vec<(f64, f64)> {
         match self {
-            CstrSpec::Leq(z) => vec![raw - z],
-            CstrSpec::Geq(z) => vec![z - raw],
-            CstrSpec::Eq(z) => vec![raw - z, z - raw],
-            CstrSpec::Btw(lo, hi) => vec![lo - raw, raw - hi],
+            CstrSpec::Leq(z) => vec![(1.0, -z)],
+            CstrSpec::Geq(z) => vec![(-1.0, *z)],
+            CstrSpec::Eq(z) => vec![(1.0, -z), (-1.0, *z)],
+            CstrSpec::Btw(lo, hi) => vec![(-1.0, *lo), (1.0, -hi)],
         }
     }
 }
@@ -226,7 +238,11 @@ pub fn transform_constraints(y: &Array2<f64>, specs: &[CstrSpec]) -> Array2<f64>
         let mut col = 1usize;
         for (i, spec) in specs.iter().enumerate() {
             let raw = y[[row_idx, 1 + i]];
-            let transformed = spec.transform(raw);
+            let transformed = spec
+                .terms()
+                .into_iter()
+                .map(|(scale, offset)| scale * raw + offset)
+                .collect::<Vec<_>>();
             for v in &transformed {
                 result[[row_idx, col]] = *v;
                 col += 1;
@@ -234,6 +250,65 @@ pub fn transform_constraints(y: &Array2<f64>, specs: &[CstrSpec]) -> Array2<f64>
         }
     }
     result
+}
+
+/// Transform raw function-constraint columns in `c_data` according to `specs`.
+///
+/// Input `c_data` has shape `(nrows, n_user_fcstrs)` with one column per user
+/// function constraint. Output has shape `(nrows, n_internal_fcstrs)` where
+/// Equal/Between specs expand to two columns.
+pub fn transform_function_constraints(c_data: &Array2<f64>, specs: &[CstrSpec]) -> Array2<f64> {
+    let nrows = c_data.nrows();
+    let n_intern = n_internal_cstrs(specs);
+    let mut result = Array2::zeros((nrows, n_intern));
+
+    for row_idx in 0..nrows {
+        let mut col = 0usize;
+        for (i, spec) in specs.iter().enumerate() {
+            let raw = c_data[[row_idx, i]];
+            for v in spec
+                .terms()
+                .into_iter()
+                .map(|(scale, offset)| scale * raw + offset)
+            {
+                result[[row_idx, col]] = v;
+                col += 1;
+            }
+        }
+    }
+    result
+}
+
+/// Build affine expansion mapping for function constraints.
+///
+/// Returns tuples `(raw_index, scale, offset)` describing each internal function
+/// constraint as `scale * raw_fcstr[raw_index] + offset <= 0`.
+///
+/// If `specs` is `None`, legacy behavior is preserved with one identity mapping
+/// per function constraint.
+pub fn function_cstr_affine_mapping(
+    n_fcstrs: usize,
+    specs: Option<&[CstrSpec]>,
+) -> Result<Vec<(usize, f64, f64)>> {
+    match specs {
+        Some(specs) => {
+            if specs.len() != n_fcstrs {
+                return Err(EgoError::InvalidConfigError(format!(
+                    "fcstr_specs length ({}) does not match fcstrs length ({})",
+                    specs.len(),
+                    n_fcstrs
+                )));
+            }
+            let mut mapping = Vec::new();
+            for (idx, spec) in specs.iter().enumerate() {
+                for (scale, offset) in spec.terms() {
+                    mapping.push((idx, scale, offset));
+                }
+            }
+            Ok(mapping)
+        }
+        None => Ok((0..n_fcstrs).map(|idx| (idx, 1.0, 0.0)).collect()),
+    }
 }
 
 /// A trait for types that can be returned by an objective function.
@@ -283,7 +358,10 @@ where
 /// provided by the user and used by the internal optimizer
 pub trait Constraints<C: CstrFn> {
     /// Returns the list of constraints functions
-    fn constraints(&self) -> &[impl CstrFn];
+    fn constraints(&self) -> &[C];
+
+    /// Optional specifications for function constraints.
+    fn constraint_specs(&self) -> Option<&[CstrSpec]>;
 }
 
 /// As structure to handle the objective and constraints functions for implementing
@@ -292,6 +370,7 @@ pub trait Constraints<C: CstrFn> {
 pub struct ProblemFunc<O: ObjFn, C: CstrFn> {
     fobj: O,
     fcstrs: Vec<C>,
+    fcstr_specs: Option<Vec<CstrSpec>>,
 }
 
 impl<O: ObjFn, C: CstrFn> ProblemFunc<O, C> {
@@ -300,12 +379,21 @@ impl<O: ObjFn, C: CstrFn> ProblemFunc<O, C> {
         ProblemFunc {
             fobj,
             fcstrs: vec![],
+            fcstr_specs: None,
         }
     }
 
     /// Add constraints functions
     pub fn subject_to(mut self, fcstrs: Vec<C>) -> Self {
         self.fcstrs = fcstrs;
+        self.fcstr_specs = None;
+        self
+    }
+
+    /// Add constraints functions with corresponding constraint specifications.
+    pub fn subject_to_with_specs(mut self, fcstrs: Vec<C>, fcstr_specs: Vec<CstrSpec>) -> Self {
+        self.fcstrs = fcstrs;
+        self.fcstr_specs = Some(fcstr_specs);
         self
     }
 }
@@ -326,8 +414,12 @@ impl<O: ObjFn, C: CstrFn> CostFunction for ProblemFunc<O, C> {
 }
 
 impl<O: ObjFn, C: CstrFn> Constraints<C> for ProblemFunc<O, C> {
-    fn constraints(&self) -> &[impl CstrFn] {
+    fn constraints(&self) -> &[C] {
         &self.fcstrs
+    }
+
+    fn constraint_specs(&self) -> Option<&[CstrSpec]> {
+        self.fcstr_specs.as_deref()
     }
 }
 

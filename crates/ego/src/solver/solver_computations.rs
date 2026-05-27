@@ -574,8 +574,14 @@ where
     ) -> Array2<f64> {
         let problem = pb.take_problem().unwrap();
         let fcstrs = problem.constraints();
+        let fcstr_specs = problem.constraint_specs();
 
         let res = self.eval_fcstrs(fcstrs, x);
+        let res = if let Some(specs) = fcstr_specs {
+            crate::types::transform_function_constraints(&res, specs)
+        } else {
+            res
+        };
 
         pb.problem = Some(problem);
         res

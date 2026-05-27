@@ -386,6 +386,44 @@ class TestEgor(unittest.TestCase):
         self.assertEqual((n_doe + max_iters, 2), optim.result.x_doe.shape)
         self.assertEqual((n_doe + max_iters, 1), optim.result.y_doe.shape)
 
+    def test_g24_with_fcstrs_and_specs(self):
+        n_doe = 5
+        max_iters = 5
+        egor = egx.Egor(
+            [[0.0, 3.0], [0.0, 4.0]],
+            n_doe=n_doe,
+        )
+        start = time.process_time()
+        fcstrs = [g24_c1, g24_c2]
+        fcstr_specs = [egx.CstrSpec.leq(0.0), egx.CstrSpec.leq(0.0)]
+        optim = egor.minimize(
+            g24_bare,
+            max_iters=max_iters,
+            fcstrs=fcstrs,
+            fcstr_specs=fcstr_specs,
+            seed=42,
+        )
+        end = time.process_time()
+        print(
+            f"Optimization f={optim.result.y_opt} at {optim.result.x_opt} in {end - start}s"
+        )
+        self.assertAlmostEqual(-5.5080, optim.result.y_opt[0], delta=1e-2)
+        self.assertAlmostEqual(2.3295, optim.result.x_opt[0], delta=1e-2)
+        self.assertAlmostEqual(3.1785, optim.result.x_opt[1], delta=1e-2)
+
+    def test_fcstr_specs_length_mismatch(self):
+        egor = egx.Egor([[0.0, 3.0], [0.0, 4.0]], n_doe=5)
+        fcstrs = [g24_c1, g24_c2]
+        fcstr_specs = [egx.CstrSpec.leq(0.0)]
+        with self.assertRaises(ValueError):
+            _ = egor.minimize(
+                g24_bare,
+                max_iters=5,
+                fcstrs=fcstrs,
+                fcstr_specs=fcstr_specs,
+                seed=42,
+            )
+
     def test_g24_with_qei(self):
         n_doe = 5
         max_iters = 20

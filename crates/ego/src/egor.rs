@@ -149,6 +149,7 @@
 //!            .expect("g24 minimized");
 //! ```
 //!
+use crate::EgoError;
 use crate::EgorConfig;
 use crate::EgorState;
 use crate::HotStartMode;
@@ -199,6 +200,7 @@ impl Default for RunInfo {
 pub struct EgorFactory<O: ObjFn, C: CstrFn = Cstr> {
     fobj: O,
     fcstrs: Vec<C>,
+    fcstr_specs: Option<Vec<CstrSpec>>,
     config: EgorConfig,
     run_info: RunInfo,
     verbose: Option<log::LevelFilter>,
@@ -214,6 +216,7 @@ impl<O: ObjFn, C: CstrFn> EgorFactory<O, C> {
         EgorFactory {
             fobj,
             fcstrs: vec![],
+            fcstr_specs: None,
             config: EgorConfig::default(),
             run_info: RunInfo::default(),
             verbose: None,
@@ -231,7 +234,31 @@ impl<O: ObjFn, C: CstrFn> EgorFactory<O, C> {
     /// arguments.
     pub fn subject_to(mut self, fcstrs: Vec<C>) -> Self {
         self.fcstrs = fcstrs;
+        self.fcstr_specs = None;
         self
+    }
+
+    /// Define function constraints and how each should be interpreted.
+    ///
+    /// `fcstr_specs` must contain one specification per function constraint.
+    /// Each specification can expand internally (e.g. `Eq` and `Btw`).
+    pub fn subject_to_with_specs(mut self, fcstrs: Vec<C>, fcstr_specs: Vec<CstrSpec>) -> Self {
+        self.fcstrs = fcstrs;
+        self.fcstr_specs = Some(fcstr_specs);
+        self
+    }
+
+    fn validate_fcstr_specs(&self) -> Result<()> {
+        if let Some(specs) = self.fcstr_specs.as_ref()
+            && specs.len() != self.fcstrs.len()
+        {
+            return Err(EgoError::InvalidConfigError(format!(
+                "fcstr_specs length ({}) does not match fcstrs length ({})",
+                specs.len(),
+                self.fcstrs.len()
+            )));
+        }
+        Ok(())
     }
 
     /// Set execution metadata used to qualify optimization run
@@ -258,9 +285,15 @@ impl<O: ObjFn, C: CstrFn> EgorFactory<O, C> {
         xlimits: &ArrayBase<impl Data<Elem = f64>, Ix2>,
     ) -> Result<Egor<O, C, GpMixtureParams<f64>>> {
         crate::utils::logging::init_logger(self.verbose);
+        self.validate_fcstr_specs()?;
         let config = self.config.xtypes(&to_xtypes(xlimits));
         Ok(Egor {
-            fobj: ProblemFunc::new(self.fobj).subject_to(self.fcstrs),
+            fobj: match self.fcstr_specs {
+                Some(specs) => {
+                    ProblemFunc::new(self.fobj).subject_to_with_specs(self.fcstrs, specs)
+                }
+                None => ProblemFunc::new(self.fobj).subject_to(self.fcstrs),
+            },
             solver: EgorSolver::new(config.check()?),
             run_info: self.run_info,
         })
@@ -274,9 +307,15 @@ impl<O: ObjFn, C: CstrFn> EgorFactory<O, C> {
         xtypes: &[XType],
     ) -> Result<Egor<O, C, MixintGpMixtureParams>> {
         crate::utils::logging::init_logger(self.verbose);
+        self.validate_fcstr_specs()?;
         let config = self.config.xtypes(xtypes);
         Ok(Egor {
-            fobj: ProblemFunc::new(self.fobj).subject_to(self.fcstrs),
+            fobj: match self.fcstr_specs {
+                Some(specs) => {
+                    ProblemFunc::new(self.fobj).subject_to_with_specs(self.fcstrs, specs)
+                }
+                None => ProblemFunc::new(self.fobj).subject_to(self.fcstrs),
+            },
             solver: EgorSolver::new(config.check()?),
             run_info: self.run_info,
         })
@@ -1131,6 +1170,60 @@ mod tests {
         println!("G24 optim result = {res:?}");
         let expected = array![2.3295, 3.1785];
         assert_abs_diff_eq!(expected, res.x_opt, epsilon = 1e-1);
+    }
+
+    #[test]
+    #[serial]
+    fn test_egor_g24_with_domain_constraints_specs() {
+        let xlimits = array![[0., 3.], [0., 4.]];
+        let doe = Lhs::new(&xlimits)
+            .with_rng(Xoshiro256Plus::seed_from_u64(42))
+            .sample(3);
+        let c1 = |x: &[f64], g: Option<&mut [f64]>, _u: &mut InfillObjData<f64>| {
+            if g.is_some() {
+                panic!("c1: gradient not implemented")
+            }
+            g24_c1(&Array1::from_vec(x.to_vec()))
+        };
+        let c2 = |x: &[f64], g: Option<&mut [f64]>, _u: &mut InfillObjData<f64>| {
+            if g.is_some() {
+                panic!("c2: gradient not implemented")
+            }
+            g24_c2(&Array1::from_vec(x.to_vec()))
+        };
+        let res = EgorBuilder::optimize(f_g24_bare)
+            .subject_to_with_specs(vec![c1, c2], vec![CstrSpec::Leq(0.0), CstrSpec::Leq(0.0)])
+            .configure(|config| {
+                config
+                    .doe(&doe)
+                    .max_iters(50)
+                    .infill_optimizer(InfillOptimizer::Cobyla)
+                    .seed(42)
+            })
+            .min_within(&xlimits)
+            .expect("Egor configured")
+            .run()
+            .expect("Minimize failure");
+        let expected = array![2.3295, 3.1785];
+        assert_abs_diff_eq!(expected, res.x_opt, epsilon = 1e-1);
+    }
+
+    #[test]
+    #[serial]
+    fn test_subject_to_with_specs_length_mismatch() {
+        let xlimits = array![[0., 3.], [0., 4.]];
+        let c1 = |x: &[f64], _g: Option<&mut [f64]>, _u: &mut InfillObjData<f64>| {
+            g24_c1(&Array1::from_vec(x.to_vec()))
+        };
+        let c2 = |x: &[f64], _g: Option<&mut [f64]>, _u: &mut InfillObjData<f64>| {
+            g24_c2(&Array1::from_vec(x.to_vec()))
+        };
+
+        let res = EgorBuilder::optimize(f_g24_bare)
+            .subject_to_with_specs(vec![c1, c2], vec![CstrSpec::Leq(0.0)])
+            .min_within(&xlimits);
+
+        assert!(matches!(res, Err(EgoError::InvalidConfigError(_))));
     }
 
     #[test]

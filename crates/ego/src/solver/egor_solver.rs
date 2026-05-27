@@ -284,10 +284,29 @@ where
         initial_state.doe.doe_size = doe.nrows();
         initial_state.max_iters = self.config.max_iters as u64;
         initial_state.doe.no_point_added_retries = no_point_added_retries;
-        initial_state.doe.cstr_tol = self.config.cstr_tol.clone().unwrap_or(Array1::from_elem(
-            n_int_cstr + c_data.ncols(),
-            DEFAULT_CSTR_TOL,
-        ));
+        let n_total_cstr = n_int_cstr + c_data.ncols();
+        initial_state.doe.cstr_tol = if let Some(cstr_tol) = self.config.cstr_tol.clone() {
+            if cstr_tol.len() > n_total_cstr {
+                return Err(EgoError::InvalidConfigError(format!(
+                    "cstr_tol length ({}) is larger than total internal constraint count ({})",
+                    cstr_tol.len(),
+                    n_total_cstr
+                ))
+                .into());
+            }
+            if cstr_tol.len() < n_total_cstr {
+                let mut tol = cstr_tol.to_vec();
+                tol.extend(std::iter::repeat_n(
+                    DEFAULT_CSTR_TOL,
+                    n_total_cstr - cstr_tol.len(),
+                ));
+                Array1::from_vec(tol)
+            } else {
+                cstr_tol
+            }
+        } else {
+            Array1::from_elem(n_total_cstr, DEFAULT_CSTR_TOL)
+        };
         initial_state.target_cost = self.config.target;
 
         let best_index = find_best_result_index(&y_data, &c_data, &initial_state.doe.cstr_tol);

@@ -83,6 +83,7 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
 
         // TODO: Manage fonction constraints
         let fcstrs = Vec::<Cstr>::new();
+        let fcstr_specs = None;
         // TODO: c_data has to be passed as argument or better computed using fcstrs(x_data)
         let c_data = Array2::zeros((x_data.nrows(), 0));
         // TODO: Coego not implemented
@@ -105,6 +106,7 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
             &cstr_tol,
             best_index,
             &fcstrs,
+            fcstr_specs,
             feasibility,
             &mut rng,
         );
@@ -412,6 +414,30 @@ where
 
         let pb = problem.take_problem().unwrap();
         let fcstrs = pb.constraints();
+        let fcstr_specs = pb.constraint_specs();
+
+        let fcstr_mapping = crate::types::function_cstr_affine_mapping(fcstrs.len(), fcstr_specs)
+            .expect("validated function-constraint specs");
+        let transformed_fcstrs = fcstr_mapping
+            .iter()
+            .map(|(raw_idx, affine_scale, affine_offset)| {
+                let cstr = fcstrs[*raw_idx].clone();
+                let affine_scale = *affine_scale;
+                let affine_offset = *affine_offset;
+                move |x: &[f64],
+                      gradient: Option<&mut [f64]>,
+                      params: &mut InfillObjData<f64>|
+                      -> f64 {
+                    if let Some(g) = gradient {
+                        let raw = cstr(x, Some(g), params);
+                        g.iter_mut().for_each(|v| *v *= affine_scale);
+                        affine_scale * raw + affine_offset
+                    } else {
+                        affine_scale * cstr(x, None, params) + affine_offset
+                    }
+                }
+            })
+            .collect::<Vec<_>>();
 
         let mut rng = state.take_rng().unwrap();
         let sub_rng = Xoshiro256Plus::seed_from_u64(rng.r#gen());
@@ -428,7 +454,7 @@ where
             obj_model.as_ref(),
             cstr_models,
             &cstr_tol,
-            fcstrs,
+            &transformed_fcstrs,
             fmin,
             1., // FIXME: TREGO does not use sigma weighting portfolio
         );
@@ -713,6 +739,7 @@ where
             let init = new_state.get_iter() == 0;
             let pb = problem.take_problem().unwrap();
             let fcstrs = pb.constraints();
+            let fcstr_specs = pb.constraint_specs();
 
             let (x_dat, y_dat, c_dat, y_penalized, infill_value) = self.select_next_points(
                 init,
@@ -728,6 +755,7 @@ where
                 &state.doe.cstr_tol,
                 state.surrogate.best_index.unwrap(),
                 fcstrs,
+                fcstr_specs,
                 state.feasibility,
                 &mut rng,
             );
@@ -884,6 +912,7 @@ where
         cstr_tol: &Array1<f64>,
         best_index: usize,
         cstr_funcs: &[impl CstrFn],
+        fcstr_specs: Option<&[CstrSpec]>,
         feasibility: bool,
         rng: &mut Xoshiro256Plus,
     ) -> (Array2<f64>, Array2<f64>, Array2<f64>, Array2<f64>, f64) {
@@ -1068,12 +1097,37 @@ where
                     .kind(LhsKind::Maximin)
                     .with_rng(sub_rng);
 
+                let fcstr_mapping =
+                    crate::types::function_cstr_affine_mapping(cstr_funcs.len(), fcstr_specs)
+                        .expect("validated function-constraint specs");
+
+                let transformed_fcstrs = fcstr_mapping
+                    .iter()
+                    .map(|(raw_idx, affine_scale, affine_offset)| {
+                        let cstr = cstr_funcs[*raw_idx].clone();
+                        let affine_scale = *affine_scale;
+                        let affine_offset = *affine_offset;
+                        move |x: &[f64],
+                              gradient: Option<&mut [f64]>,
+                              params: &mut InfillObjData<f64>|
+                              -> f64 {
+                            if let Some(g) = gradient {
+                                let raw = cstr(x, Some(g), params);
+                                g.iter_mut().for_each(|v| *v *= affine_scale);
+                                affine_scale * raw + affine_offset
+                            } else {
+                                affine_scale * cstr(x, None, params) + affine_offset
+                            }
+                        }
+                    })
+                    .collect::<Vec<_>>();
+
                 let (scale_infill_obj, scale_cstr, scale_fcstr, scale_wb2) = self.compute_scaling(
                     &sampling,
                     obj_model.as_ref(),
                     cstr_models,
                     cstr_tol,
-                    cstr_funcs,
+                    &transformed_fcstrs,
                     fmin,
                     *sigma_weight,
                 );
@@ -1093,7 +1147,7 @@ where
                     sigma_weight: *sigma_weight,
                 };
 
-                let cstr_funcs = cstr_funcs
+                let cstr_funcs = transformed_fcstrs
                     .iter()
                     .enumerate()
                     .map(|(i, cstr)| {
@@ -1115,7 +1169,13 @@ where
                             } else {
                                 x
                             };
-                            cstr(x, gradient, params) / scale_fc
+                            if let Some(g) = gradient {
+                                let v = cstr(x, Some(g), params) / scale_fc;
+                                g.iter_mut().for_each(|gi| *gi /= scale_fc);
+                                v
+                            } else {
+                                cstr(x, None, params) / scale_fc
+                            }
                         }
                     })
                     .collect::<Vec<_>>();
