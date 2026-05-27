@@ -1,4 +1,4 @@
-use crate::criteria::InfillCriterion;
+use crate::criteria::{InfillComposition, InfillCriterion};
 use crate::utils::{d_log_ei_helper, log_ei_helper, norm_cdf, norm_pdf};
 use egobox_moe::MixtureGpSurrogate;
 use ndarray::{Array1, ArrayView};
@@ -99,6 +99,10 @@ pub struct LogExpectedImprovement;
 impl InfillCriterion for LogExpectedImprovement {
     fn name(&self) -> &'static str {
         "LogEI"
+    }
+
+    fn composition(&self) -> InfillComposition {
+        InfillComposition::Log
     }
 
     /// Compute LogEI infill criterion at given `x` point using the surrogate model `obj_model`

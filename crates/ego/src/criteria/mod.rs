@@ -9,6 +9,15 @@ use dyn_clonable::*;
 use egobox_moe::MixtureGpSurrogate;
 use ndarray::{Array1, ArrayView2};
 
+/// How an infill criterion combines with feasibility terms.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InfillComposition {
+    /// Criterion values combine multiplicatively with feasibility terms.
+    Linear,
+    /// Criterion values combine additively in log-space with feasibility terms.
+    Log,
+}
+
 /// A trait for infill criterion which maximmum location will
 /// determine the next most promising point expected to be the
 /// optimum location of the objective function
@@ -17,6 +26,11 @@ use ndarray::{Array1, ArrayView2};
 pub trait InfillCriterion: Clone + Sync {
     /// Name of the infill criterion
     fn name(&self) -> &'static str;
+
+    /// How the criterion combines with feasibility terms.
+    fn composition(&self) -> InfillComposition {
+        InfillComposition::Linear
+    }
 
     /// Criterion value at given point x with regards to given
     /// surrogate of the objective function, the current found min,
@@ -56,5 +70,23 @@ pub trait InfillCriterion: Clone + Sync {
 impl std::fmt::Debug for dyn InfillCriterion {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.name())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::criteria::{EI, LOG_EI, WB2, WB2S};
+
+    #[test]
+    fn test_default_composition_is_linear() {
+        assert_eq!(EI.composition(), InfillComposition::Linear);
+        assert_eq!(WB2.composition(), InfillComposition::Linear);
+        assert_eq!(WB2S.composition(), InfillComposition::Linear);
+    }
+
+    #[test]
+    fn test_logei_composition_is_log() {
+        assert_eq!(LOG_EI.composition(), InfillComposition::Log);
     }
 }
