@@ -112,7 +112,7 @@ impl InfillCriterion for LogExpectedImprovement {
         x: &[f64],
         obj_model: &dyn MixtureGpSurrogate,
         fmin: f64,
-        _sigma_weight: Option<f64>,
+        sigma_weight: Option<f64>,
         _scale: Option<f64>,
     ) -> f64 {
         let pt = ArrayView::from_shape((1, x.len()), x).unwrap();
@@ -123,7 +123,8 @@ impl InfillCriterion for LogExpectedImprovement {
                     f64::MIN
                 } else {
                     let pred = p[0];
-                    let sigma = s[0].sqrt();
+                    let k = sigma_weight.unwrap_or(1.0);
+                    let sigma = k * s[0].sqrt();
                     let u = (fmin - pred) / sigma;
                     log_ei_helper(u) + sigma.ln()
                 }
@@ -139,7 +140,7 @@ impl InfillCriterion for LogExpectedImprovement {
         x: &[f64],
         obj_model: &dyn MixtureGpSurrogate,
         fmin: f64,
-        _sigma_weight: Option<f64>,
+        sigma_weight: Option<f64>,
         _scale: Option<f64>,
     ) -> Array1<f64> {
         let pt = ArrayView::from_shape((1, x.len()), x).unwrap();
@@ -151,21 +152,24 @@ impl InfillCriterion for LogExpectedImprovement {
                 } else {
                     let pred = p[0];
                     let diff_y = fmin - pred;
+                    let k = sigma_weight.unwrap_or(1.0);
                     let sigma = s[0].sqrt();
-                    let arg = diff_y / sigma;
+                    let weighted_sigma = k * sigma;
+                    let arg = diff_y / weighted_sigma;
 
                     let (y_prime, var_prime) = obj_model.predict_valvar_gradients(&pt).unwrap();
                     let y_prime = y_prime.row(0);
                     let sig_2_prime = var_prime.row(0);
-                    let sig_prime = sig_2_prime.mapv(|v| v / (2. * sigma));
+                    let sig_prime = sig_2_prime.mapv(|v| k * v / (2. * sigma));
 
-                    let arg_prime = y_prime.mapv(|v| v / (-sigma))
-                        - diff_y.to_owned() * sig_prime.mapv(|v| v / (sigma * sigma));
+                    let arg_prime = y_prime.mapv(|v| v / (-weighted_sigma))
+                        - diff_y.to_owned()
+                            * sig_prime.mapv(|v| v / (weighted_sigma * weighted_sigma));
 
                     let dhelper = d_log_ei_helper(arg);
                     let arg1 = arg_prime.mapv(|v| dhelper * v);
 
-                    let arg2 = sig_prime / sigma;
+                    let arg2 = sig_prime / weighted_sigma;
                     arg1 + arg2
                 }
             }
@@ -256,11 +260,11 @@ mod tests {
         let x = Array1::linspace(0., 25., 100);
         write_npy("logei_x.npy", &x).expect("save x");
 
-        let grad = x.mapv(|v| LOG_EI.grad(&[v], &mixi_moe, 0., None, None)[0]);
+        let grad = x.mapv(|v| LOG_EI.grad(&[v], &mixi_moe, 0., Some(0.75), None)[0]);
         write_npy("logei_grad.npy", &grad).expect("save grad log ei");
 
         let f = |x: &Vec<f64>| -> std::result::Result<f64, anyhow::Error> {
-            Ok(LOG_EI.value(x, &mixi_moe, 0., None, None))
+            Ok(LOG_EI.value(x, &mixi_moe, 0., Some(0.75), None))
         };
         let grad_central = x.mapv(|v| vec::central_diff(&f)(&vec![v]).unwrap()[0]);
         write_npy("logei_fdiff.npy", &grad_central).expect("save fdiff log ei");
@@ -277,6 +281,26 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_logei_sigma_weight_changes_value() {
+        let xtypes = vec![XType::Float(0., 25.)];
+        let mixi = MixintContext::new(&xtypes);
+
+        let surrogate_builder = MoeBuilder::new();
+        let xt = array![[0.0], [7.0], [25.0]];
+        let yt = xsinx(&xt.view()).into_iter().collect::<Array1<_>>();
+        let ds = Dataset::new(xt, yt);
+        let mixi_moe = mixi
+            .create_surrogate(&surrogate_builder, &ds)
+            .expect("Mixint surrogate creation");
+
+        let x = [5.0];
+        let low_weight = LOG_EI.value(&x, &mixi_moe, 0.0, Some(0.5), None);
+        let high_weight = LOG_EI.value(&x, &mixi_moe, 0.0, Some(2.0), None);
+
+        assert_ne!(low_weight, high_weight);
     }
 
     #[test]
