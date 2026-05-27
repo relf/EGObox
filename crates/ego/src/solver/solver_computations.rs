@@ -29,7 +29,7 @@ fn uses_log_feasibility(composition: InfillComposition) -> bool {
     matches!(composition, InfillComposition::Log)
 }
 
-fn infeasible_infill_obj(composition: InfillComposition) -> f64 {
+fn neutral_infill_obj_factor(composition: InfillComposition) -> f64 {
     if uses_log_feasibility(composition) {
         0.0
     } else {
@@ -456,9 +456,12 @@ where
         let infill_obj = if feasibility {
             self.eval_infill_obj(x, obj_model, fmin, scale, scale_ic, sigma_weight)
         } else {
-            // when no feasible point is found, make the infill criterion value neutral factor
-            // -1 when CEI, 0 when logCEI
-            infeasible_infill_obj(composition)
+            // when no feasible point is found,
+            // make the infill criterion value a neutral factor
+            // that is -1 when CEI, 0 when logCEI
+            // in order to just use probability of feasibility for the infill criterion value
+            // and not penalize it more than that
+            neutral_infill_obj_factor(composition)
         };
         if uses_log_feasibility {
             infill_obj - logpofs(x, cstr_models, &cstr_tols.to_vec())
@@ -491,7 +494,8 @@ where
                 let infill_grad = if feasibility {
                     Array1::from_vec(self.eval_grad_infill_obj(x, obj_model, fmin, scale, scale_ic))
                 } else {
-                    // when no feasible point is found, make the infill criterion gradient neutral factor
+                    // when no feasible point is found,
+                    // make the infill criterion gradient a neutral factor
                     Array1::zeros(x.len())
                 };
 
@@ -506,8 +510,8 @@ where
                         ),
                     )
                 } else {
-                    // when no feasible point is found, make the grad infill criterion value neutral factor
-                    // -1 when CEI, 0 when logCEI
+                    // when no feasible point is found, make the grad infill criterion value
+                    // a neutral factor
                     (-1., Array1::zeros(x.len()))
                 };
 
@@ -610,8 +614,8 @@ mod tests {
 
     #[test]
     fn test_infeasible_infill_obj_matches_composition() {
-        assert_eq!(infeasible_infill_obj(InfillComposition::Linear), -1.0);
-        assert_eq!(infeasible_infill_obj(InfillComposition::Log), 0.0);
+        assert_eq!(neutral_infill_obj_factor(InfillComposition::Linear), -1.0);
+        assert_eq!(neutral_infill_obj_factor(InfillComposition::Log), 0.0);
     }
 
     #[test]
