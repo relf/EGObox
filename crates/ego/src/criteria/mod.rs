@@ -32,6 +32,11 @@ pub trait InfillCriterion: Clone + Sync {
         InfillComposition::Linear
     }
 
+    /// Whether the criterion uses a dynamic scaling factor computed from samples.
+    fn uses_dynamic_scaling(&self) -> bool {
+        false
+    }
+
     /// Criterion value at given point x with regards to given
     /// surrogate of the objective function, the current found min,
     /// an optional scaling factor and an optional weight for the

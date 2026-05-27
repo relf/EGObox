@@ -178,14 +178,17 @@ where
         debug!("Use {npts} points to evaluate scalings");
         let scaling_points = sampling.sample(npts);
 
-        let scale_ic = if self.config.infill_criterion.name() == "WB2S" {
+        let scale_ic = if self.config.infill_criterion.uses_dynamic_scaling() {
             let scale_ic = self.config.infill_criterion.scaling(
                 &scaling_points.view(),
                 obj_model,
                 fmin,
                 Some(sigma_weight),
             );
-            info!("WB2S scaling factor = {scale_ic}");
+            info!(
+                "{} scaling factor = {scale_ic}",
+                self.config.infill_criterion.name()
+            );
             scale_ic
         } else {
             1.
