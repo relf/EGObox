@@ -1,0 +1,50 @@
+site_name: EGObox
+site_description: Efficient Global Optimization toolbox for Rust and Python
+site_url: https://relf.github.io/egobox/
+repo_url: https://github.com/relf/egobox
+repo_name: relf/egobox
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  language: en
+  palette:
+    - scheme: default
+      primary: teal
+      accent: amber
+  font:
+    text: IBM Plex Sans
+    code: JetBrains Mono
+  features:
+    - navigation.sections
+    - navigation.tabs
+    - content.code.copy
+    - content.action.view
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Examples: examples.md
+  - Tutorials: tutorials.md
+  - Reference: reference.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - tables
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.snippets:
+      base_path:
+      - .
+      check_paths: true
+
+plugins:
+  - search
+
+extra_css:
+  - stylesheets/extra.css
