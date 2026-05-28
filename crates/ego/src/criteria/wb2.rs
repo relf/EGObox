@@ -16,6 +16,10 @@ impl InfillCriterion for WB2Criterion {
         if let Some(1.) = self.0 { "WB2" } else { "WB2S" }
     }
 
+    fn uses_dynamic_scaling(&self) -> bool {
+        self.0.is_none()
+    }
+
     /// Compute WB2S infill criterion at given `x` point using the surrogate model `obj_model`
     /// and the current minimum of the objective function.
     fn value(
@@ -103,6 +107,12 @@ mod tests {
     fn sphere(x: &Array2<f64>) -> Array2<f64> {
         let s = (x * x).sum_axis(Axis(1));
         s.insert_axis(Axis(1))
+    }
+
+    #[test]
+    fn test_dynamic_scaling_capability_matches_variant() {
+        assert!(!WB2.uses_dynamic_scaling());
+        assert!(WB2S.uses_dynamic_scaling());
     }
 
     #[test]

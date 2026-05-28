@@ -1,3 +1,4 @@
+use crate::criteria::InfillComposition;
 use crate::errors::Result;
 use crate::{types::*, utils};
 use egobox_moe::to_discrete_space;
@@ -23,6 +24,26 @@ use rand_xoshiro::Xoshiro256Plus;
 use serde::de::DeserializeOwned;
 
 const CSTR_DOUBT: f64 = 3.;
+
+fn uses_log_feasibility(composition: InfillComposition) -> bool {
+    matches!(composition, InfillComposition::Log)
+}
+
+fn neutral_infill_val(composition: InfillComposition) -> f64 {
+    if uses_log_feasibility(composition) {
+        0.0
+    } else {
+        -1.0
+    }
+}
+
+fn neutral_infill_grad(dim: usize) -> Array1<f64> {
+    Array1::zeros(dim)
+}
+
+fn neutral_infill(composition: InfillComposition, dim: usize) -> (f64, Array1<f64>) {
+    (neutral_infill_val(composition), neutral_infill_grad(dim))
+}
 
 /// LocalMultiStarter is a multistart strategy that samples points in the xlimits.
 #[allow(dead_code)]
@@ -157,14 +178,17 @@ where
         debug!("Use {npts} points to evaluate scalings");
         let scaling_points = sampling.sample(npts);
 
-        let scale_ic = if self.config.infill_criterion.name() == "WB2S" {
+        let scale_ic = if self.config.infill_criterion.uses_dynamic_scaling() {
             let scale_ic = self.config.infill_criterion.scaling(
                 &scaling_points.view(),
                 obj_model,
                 fmin,
                 Some(sigma_weight),
             );
-            info!("WB2S scaling factor = {scale_ic}");
+            info!(
+                "{} scaling factor = {scale_ic}",
+                self.config.infill_criterion.name()
+            );
             scale_ic
         } else {
             1.
@@ -341,6 +365,7 @@ where
     ) -> f64 {
         let mut crit_vals = Array1::zeros(x.nrows());
         let (mut nan_count, mut inf_count) = (0, 0);
+        let uses_log_feasibility = uses_log_feasibility(self.config.infill_criterion.composition());
 
         // Filter out points that are NaN or Inf in the infill criterion evaluation
         Zip::from(&mut crit_vals).and(x.rows()).for_each(|c, x| {
@@ -358,7 +383,7 @@ where
         });
         if self.config.cstr_infill {
             Zip::from(&mut crit_vals).and(x.rows()).for_each(|c, x| {
-                if self.config.infill_criterion.name() == "LogEI" {
+                if uses_log_feasibility {
                     *c -= logpofs(&x.to_vec(), cstr_models, &cstr_tols.to_vec());
                 } else {
                     *c *= pofs(&x.to_vec(), cstr_models, &cstr_tols.to_vec());
@@ -437,14 +462,19 @@ where
         feasibility: bool,
         sigma_weight: f64,
     ) -> f64 {
+        let composition = self.config.infill_criterion.composition();
+        let uses_log_feasibility = uses_log_feasibility(composition);
         let infill_obj = if feasibility {
             self.eval_infill_obj(x, obj_model, fmin, scale, scale_ic, sigma_weight)
         } else {
-            // when no feasible point is found, make the infill criterion value neutral factor
-            // -1 when CEI, 0 when logCEI
-            -((self.config.infill_criterion.name() != "LogEI") as i32 as f64)
+            // when no feasible point is found,
+            // make the infill criterion value a neutral factor
+            // that is -1 when CEI, 0 when logCEI
+            // in order to just use probability of feasibility for the infill criterion value
+            // and not penalize it more than that
+            neutral_infill_val(composition)
         };
-        if self.config.infill_criterion.name() == "LogEI" {
+        if uses_log_feasibility {
             infill_obj - logpofs(x, cstr_models, &cstr_tols.to_vec())
         } else {
             infill_obj * pofs(x, cstr_models, &cstr_tols.to_vec())
@@ -468,17 +498,18 @@ where
         if cstr_models.is_empty() {
             self.eval_grad_infill_obj(x, obj_model, fmin, scale, scale_ic)
         } else {
-            let infill_grad = if feasibility {
-                Array1::from_vec(self.eval_grad_infill_obj(x, obj_model, fmin, scale, scale_ic))
-            } else {
-                // when no feasible point is found, make the infill criterion gradient neutral factor
-                if self.config.infill_criterion.name() == "LogEI" {
-                    Array1::zeros(x.len())
-                } else {
+            let composition = self.config.infill_criterion.composition();
+            let uses_log_feasibility = uses_log_feasibility(composition);
+
+            if uses_log_feasibility {
+                let infill_grad = if feasibility {
                     Array1::from_vec(self.eval_grad_infill_obj(x, obj_model, fmin, scale, scale_ic))
-                }
-            };
-            if self.config.infill_criterion.name() == "LogEI" {
+                } else {
+                    // when no feasible point is found,
+                    // make the infill criterion gradient a neutral factor
+                    neutral_infill_grad(x.len())
+                };
+
                 let logcei_grad = infill_grad - logpofs_grad(x, cstr_models, &cstr_tols.to_vec());
                 logcei_grad.to_vec()
             } else {
@@ -490,9 +521,8 @@ where
                         ),
                     )
                 } else {
-                    // when no feasible point is found, make the grad infill criterion value neutral factor
-                    // -1 when CEI, 0 when logCEI
-                    (-1., Array1::zeros(x.len()))
+                    // when no feasible point is found, use the criterion neutral fallback
+                    neutral_infill(composition, x.len())
                 };
 
                 let pofs = pofs(x, cstr_models, &cstr_tols.to_vec());
@@ -585,5 +615,33 @@ where
 
         pb.problem = Some(problem);
         res
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_infeasible_infill_obj_matches_composition() {
+        assert_eq!(neutral_infill_val(InfillComposition::Linear), -1.0);
+        assert_eq!(neutral_infill_val(InfillComposition::Log), 0.0);
+    }
+
+    #[test]
+    fn test_uses_log_feasibility_matches_composition() {
+        assert!(!uses_log_feasibility(InfillComposition::Linear));
+        assert!(uses_log_feasibility(InfillComposition::Log));
+    }
+
+    #[test]
+    fn test_neutral_infill_matches_composition() {
+        let (linear_value, linear_grad) = neutral_infill(InfillComposition::Linear, 3);
+        assert_eq!(linear_value, -1.0);
+        assert_eq!(linear_grad, Array1::<f64>::zeros(3));
+
+        let (log_value, log_grad) = neutral_infill(InfillComposition::Log, 2);
+        assert_eq!(log_value, 0.0);
+        assert_eq!(log_grad, Array1::<f64>::zeros(2));
     }
 }

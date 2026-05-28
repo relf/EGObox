@@ -315,8 +315,8 @@ where
         initial_state.last_best_iter = 0;
 
         // Use proba of feasibility when corresponding flag is enabled
-        // (when disabled, feasibility is set to true whatever,
-        // means given infill criterion is used whatever)
+        // (when disabled, feasibility is set to true whatever the actual feasibility of the point,
+        // meaning that the criterion be used for infill will not be affected by feasibility)
         initial_state.feasibility = !self.config.runtime_flags.use_max_proba_of_feasibility || {
             is_feasible(
                 &y_data.row(best_index),
