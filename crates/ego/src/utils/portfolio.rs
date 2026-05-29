@@ -126,12 +126,12 @@ pub fn cluster_as_indices(
     log::debug!("Portfolio normalized x candidates: {normalized_candidates:?}");
     log::debug!("Portfolio nearest-neighbor distances: {nearest_neighbor_distances:?}");
     if let Some((min_distance, median_distance, max_distance)) = nearest_neighbor_summary {
-        log::debug!(
+        log::info!(
             "Portfolio nearest-neighbor summary: min={min_distance:.6} median={median_distance:.6} max={max_distance:.6}"
         );
     }
     if let Some((min_distance, median_distance, max_distance)) = pairwise_summary {
-        log::debug!(
+        log::info!(
             "Portfolio pairwise summary: min={min_distance:.6} median={median_distance:.6} max={max_distance:.6} within_tolerance={pairwise_within_tolerance}/{}",
             pairwise_values.len()
         );
