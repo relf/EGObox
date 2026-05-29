@@ -24,6 +24,59 @@ pub fn logspace(start: f64, end: f64, num: usize) -> Array1<f64> {
     }))
 }
 
+fn squared_distance(
+    xdat: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+    left: usize,
+    right: usize,
+) -> f64 {
+    xdat.row(left)
+        .iter()
+        .zip(xdat.row(right).iter())
+        .map(|(left_value, right_value)| {
+            let diff = left_value - right_value;
+            diff * diff
+        })
+        .sum()
+}
+
+fn summarize_distances(distances: &[f64]) -> Option<(f64, f64, f64)> {
+    if distances.is_empty() {
+        return None;
+    }
+
+    let mut sorted = distances.to_vec();
+    sorted.sort_by(|left, right| left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal));
+
+    let median = if sorted.len().is_multiple_of(2) {
+        let upper = sorted.len() / 2;
+        (sorted[upper - 1] + sorted[upper]) / 2.0
+    } else {
+        sorted[sorted.len() / 2]
+    };
+
+    Some((*sorted.first().unwrap(), median, *sorted.last().unwrap()))
+}
+
+fn pairwise_distance_diagnostics(
+    xdat: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+) -> (Vec<f64>, Vec<(usize, usize, f64)>) {
+    if xdat.nrows() <= 1 {
+        return (Vec::new(), Vec::new());
+    }
+
+    let mut nearest_neighbor_distances = vec![f64::INFINITY; xdat.nrows()];
+    let mut pairwise_distances = Vec::new();
+    for left in 0..xdat.nrows() {
+        for right in (left + 1)..xdat.nrows() {
+            let distance = squared_distance(xdat, left, right).sqrt();
+            nearest_neighbor_distances[left] = nearest_neighbor_distances[left].min(distance);
+            nearest_neighbor_distances[right] = nearest_neighbor_distances[right].min(distance);
+            pairwise_distances.push((left, right, distance));
+        }
+    }
+    (nearest_neighbor_distances, pairwise_distances)
+}
+
 pub fn cluster_as_indices(
     xdat: &ArrayBase<impl Data<Elem = f64>, Ix2>,
     xlimits: &ArrayBase<impl Data<Elem = f64>, Ix2>,
@@ -40,11 +93,58 @@ pub fn cluster_as_indices(
         }
     }
 
+    let raw_candidates = xdat
+        .rows()
+        .into_iter()
+        .map(|row| row.to_vec())
+        .collect::<Vec<_>>();
+    let normalized_candidates = normalized_xdat
+        .rows()
+        .into_iter()
+        .map(|row| row.to_vec())
+        .collect::<Vec<_>>();
+    let (nearest_neighbor_distances, pairwise_distances) =
+        pairwise_distance_diagnostics(&normalized_xdat);
+    let nearest_neighbor_summary = summarize_distances(&nearest_neighbor_distances);
+    let pairwise_values = pairwise_distances
+        .iter()
+        .map(|(_, _, distance)| *distance)
+        .collect::<Vec<_>>();
+    let pairwise_summary = summarize_distances(&pairwise_values);
+    let pairwise_within_tolerance = pairwise_values
+        .iter()
+        .filter(|distance| **distance <= PORTFOLIO_DBSCAN_TOLERANCE_FACTOR)
+        .count();
+
+    log::debug!(
+        "Portfolio DBSCAN params: tolerance={} min_points={} max_candidates={}",
+        PORTFOLIO_DBSCAN_TOLERANCE_FACTOR,
+        PORTFOLIO_DBSCAN_MIN_POINTS,
+        PORTFOLIO_MAX_CANDIDATES
+    );
+    log::debug!("Portfolio raw x candidates: {raw_candidates:?}");
+    log::debug!("Portfolio normalized x candidates: {normalized_candidates:?}");
+    log::debug!("Portfolio nearest-neighbor distances: {nearest_neighbor_distances:?}");
+    if let Some((min_distance, median_distance, max_distance)) = nearest_neighbor_summary {
+        log::debug!(
+            "Portfolio nearest-neighbor summary: min={min_distance:.6} median={median_distance:.6} max={max_distance:.6}"
+        );
+    }
+    if let Some((min_distance, median_distance, max_distance)) = pairwise_summary {
+        log::debug!(
+            "Portfolio pairwise summary: min={min_distance:.6} median={median_distance:.6} max={max_distance:.6} within_tolerance={pairwise_within_tolerance}/{}",
+            pairwise_values.len()
+        );
+    }
+
     // Cluster the x information
     let clusters = Dbscan::params(PORTFOLIO_DBSCAN_MIN_POINTS)
-        .tolerance(PORTFOLIO_DBSCAN_TOLERANCE_FACTOR * (xdat.ncols() as f64).sqrt())
+        .tolerance(PORTFOLIO_DBSCAN_TOLERANCE_FACTOR)
         .transform(&normalized_xdat)
         .unwrap();
+
+    let cluster_labels = clusters.iter().copied().collect::<Vec<_>>();
+    log::debug!("Portfolio DBSCAN labels: {cluster_labels:?}");
 
     let mut dict = HashMap::new();
     let mut singleton_indices = Vec::new();
@@ -54,6 +154,14 @@ pub fn cluster_as_indices(
             Some(label) => dict.entry(*label).or_insert(vec![]).push(i),
         }
     }
+
+    let mut cluster_sizes = dict
+        .iter()
+        .map(|(label, members)| (*label, members.len()))
+        .collect::<Vec<_>>();
+    cluster_sizes.sort_by_key(|(label, _)| *label);
+    log::debug!("Portfolio cluster sizes: {cluster_sizes:?}");
+    log::debug!("Portfolio singleton indices: {singleton_indices:?}");
 
     let mut representatives = dict
         .values()
@@ -74,7 +182,29 @@ pub fn cluster_as_indices(
             .partial_cmp(&infill_values[*left])
             .unwrap_or(std::cmp::Ordering::Equal)
     });
+    let representative_diagnostics = representatives
+        .iter()
+        .map(|index| {
+            (
+                *index,
+                infill_values[*index],
+                raw_candidates[*index].clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    log::debug!("Portfolio representatives before truncation: {representative_diagnostics:?}");
     representatives.truncate(PORTFOLIO_MAX_CANDIDATES);
+    let selected_diagnostics = representatives
+        .iter()
+        .map(|index| {
+            (
+                *index,
+                infill_values[*index],
+                raw_candidates[*index].clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    log::info!("Portfolio selected representatives: {selected_diagnostics:?}");
     representatives
 }
 

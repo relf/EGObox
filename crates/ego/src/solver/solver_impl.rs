@@ -965,20 +965,25 @@ where
                 log::debug!("activity: {activity:?}");
                 let actives = activity;
 
-                info!("Train surrogates with {} points...", xt.nrows());
-
-                let do_clustering = ((init && i == 0) || recluster).into();
-                let optimize_theta = ((iter as usize * self.config.qei_config.batch + i)
+                let do_clustering = (init && i == 0) || recluster;
+                let optimize_theta = (iter as usize * self.config.qei_config.batch + i)
                     .is_multiple_of(self.config.qei_config.optmod)
                     && j == 0
-                    && !self.config.gp.theta_tuning.is_fixed())
-                .into();
+                    && !self.config.gp.theta_tuning.is_fixed();
 
                 info!(
-                    "Train surrogates with {} points... clustering={:?} optimize_theta={:?}",
+                    "Train surrogates with {} points... {:?}, {:?}",
                     xt.nrows(),
-                    do_clustering,
-                    optimize_theta
+                    if do_clustering {
+                        "clustering"
+                    } else {
+                        "no clustering"
+                    },
+                    if optimize_theta {
+                        "theta optim"
+                    } else {
+                        "no theta optim"
+                    }
                 );
 
                 let mapping = self
@@ -993,8 +998,8 @@ where
                         mapping,
                         &xt,
                         &yt,
-                        do_clustering,
-                        optimize_theta,
+                        do_clustering.into(),
+                        optimize_theta.into(),
                         clusterings,
                         theta_inits,
                         actives,
@@ -1003,8 +1008,8 @@ where
                     self.train_all_columns(
                         &xt,
                         &yt,
-                        do_clustering,
-                        optimize_theta,
+                        do_clustering.into(),
+                        optimize_theta.into(),
                         clusterings,
                         theta_inits,
                         actives,
@@ -1015,8 +1020,8 @@ where
                 let (models, inits) = self.train_all_columns(
                     &xt,
                     &yt,
-                    do_clustering,
-                    optimize_theta,
+                    do_clustering.into(),
+                    optimize_theta.into(),
                     clusterings,
                     theta_inits,
                     actives,
