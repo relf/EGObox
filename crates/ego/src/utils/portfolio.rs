@@ -7,7 +7,7 @@ use ndarray::{Array1, Array2, ArrayBase, Data, Ix2};
 
 const PORTFOLIO_MAX_CANDIDATES: usize = 3;
 const PORTFOLIO_DBSCAN_MIN_POINTS: usize = 2;
-const PORTFOLIO_DBSCAN_TOLERANCE_FACTOR: f64 = 0.15;
+const PORTFOLIO_DBSCAN_TOLERANCE_FACTOR: f64 = 0.2;
 
 /// Generate `num` points spaced evenly on a log scale between `start` and `end`.
 #[allow(dead_code)]
