@@ -1266,7 +1266,7 @@ where
                 portfolio.iter().map(|v| v.0[[0, 0]]).collect::<Vec<_>>()
             );
             // Use portfolio strategy: Pick one point from portfolio
-            select_from_portfolio(portfolio)
+            select_from_portfolio(portfolio, &self.xlimits)
         } else {
             // Fallback to default returning one or several points (in case of qEI strategy)
             portfolio.remove(0)
