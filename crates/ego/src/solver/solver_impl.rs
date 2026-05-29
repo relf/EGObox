@@ -972,7 +972,7 @@ where
                     && !self.config.gp.theta_tuning.is_fixed();
 
                 info!(
-                    "Train surrogates with {} points... {:?}, {:?}",
+                    "Train surrogates with {} points... {}, {}",
                     xt.nrows(),
                     if do_clustering {
                         "clustering"

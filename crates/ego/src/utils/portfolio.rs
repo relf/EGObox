@@ -7,7 +7,7 @@ use ndarray::{Array1, Array2, ArrayBase, Data, Ix2};
 
 const PORTFOLIO_MAX_CANDIDATES: usize = 3;
 const PORTFOLIO_DBSCAN_MIN_POINTS: usize = 2;
-const PORTFOLIO_DBSCAN_TOLERANCE_FACTOR: f64 = 0.1;
+const PORTFOLIO_DBSCAN_TOLERANCE_FACTOR: f64 = 0.15;
 
 /// Generate `num` points spaced evenly on a log scale between `start` and `end`.
 #[allow(dead_code)]
@@ -160,8 +160,8 @@ pub fn cluster_as_indices(
         .map(|(label, members)| (*label, members.len()))
         .collect::<Vec<_>>();
     cluster_sizes.sort_by_key(|(label, _)| *label);
-    log::debug!("Portfolio cluster sizes: {cluster_sizes:?}");
-    log::debug!("Portfolio singleton indices: {singleton_indices:?}");
+    log::info!("Portfolio cluster sizes: {cluster_sizes:?}");
+    log::info!("Portfolio singleton indices: {singleton_indices:?}");
 
     let mut representatives = dict
         .values()
