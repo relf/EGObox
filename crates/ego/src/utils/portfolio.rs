@@ -7,7 +7,10 @@ use ndarray::{Array1, Array2, ArrayBase, Data, Ix2};
 
 const PORTFOLIO_MAX_CANDIDATES: usize = 3;
 const PORTFOLIO_DBSCAN_MIN_POINTS: usize = 2;
-const PORTFOLIO_DBSCAN_TOLERANCE_FACTOR: f64 = 0.2;
+const PORTFOLIO_DBSCAN_TOLERANCE_FALLBACK: f64 = 0.2;
+const PORTFOLIO_DBSCAN_TOLERANCE_MULTIPLIER: f64 = 1.1;
+const PORTFOLIO_DBSCAN_TOLERANCE_MIN: f64 = 0.15;
+const PORTFOLIO_DBSCAN_TOLERANCE_MAX: f64 = 0.45;
 
 /// Generate `num` points spaced evenly on a log scale between `start` and `end`.
 #[allow(dead_code)]
@@ -55,6 +58,17 @@ fn summarize_distances(distances: &[f64]) -> Option<(f64, f64, f64)> {
     };
 
     Some((*sorted.first().unwrap(), median, *sorted.last().unwrap()))
+}
+
+fn portfolio_dbscan_tolerance(nearest_neighbor_distances: &[f64]) -> f64 {
+    let Some((_, median_distance, _)) = summarize_distances(nearest_neighbor_distances) else {
+        return PORTFOLIO_DBSCAN_TOLERANCE_FALLBACK;
+    };
+
+    (median_distance * PORTFOLIO_DBSCAN_TOLERANCE_MULTIPLIER).clamp(
+        PORTFOLIO_DBSCAN_TOLERANCE_MIN,
+        PORTFOLIO_DBSCAN_TOLERANCE_MAX,
+    )
 }
 
 fn pairwise_distance_diagnostics(
@@ -106,6 +120,7 @@ pub fn cluster_as_indices(
     let (nearest_neighbor_distances, pairwise_distances) =
         pairwise_distance_diagnostics(&normalized_xdat);
     let nearest_neighbor_summary = summarize_distances(&nearest_neighbor_distances);
+    let dbscan_tolerance = portfolio_dbscan_tolerance(&nearest_neighbor_distances);
     let pairwise_values = pairwise_distances
         .iter()
         .map(|(_, _, distance)| *distance)
@@ -113,14 +128,18 @@ pub fn cluster_as_indices(
     let pairwise_summary = summarize_distances(&pairwise_values);
     let pairwise_within_tolerance = pairwise_values
         .iter()
-        .filter(|distance| **distance <= PORTFOLIO_DBSCAN_TOLERANCE_FACTOR)
+        .filter(|distance| **distance <= dbscan_tolerance)
         .count();
 
     log::debug!(
-        "Portfolio DBSCAN params: tolerance={} min_points={} max_candidates={}",
-        PORTFOLIO_DBSCAN_TOLERANCE_FACTOR,
+        "Portfolio DBSCAN params: tolerance={} min_points={} max_candidates={} multiplier={} fallback={} clamp=[{}, {}]",
+        dbscan_tolerance,
         PORTFOLIO_DBSCAN_MIN_POINTS,
-        PORTFOLIO_MAX_CANDIDATES
+        PORTFOLIO_MAX_CANDIDATES,
+        PORTFOLIO_DBSCAN_TOLERANCE_MULTIPLIER,
+        PORTFOLIO_DBSCAN_TOLERANCE_FALLBACK,
+        PORTFOLIO_DBSCAN_TOLERANCE_MIN,
+        PORTFOLIO_DBSCAN_TOLERANCE_MAX
     );
     log::debug!("Portfolio raw x candidates: {raw_candidates:?}");
     log::debug!("Portfolio normalized x candidates: {normalized_candidates:?}");
@@ -132,14 +151,14 @@ pub fn cluster_as_indices(
     }
     if let Some((min_distance, median_distance, max_distance)) = pairwise_summary {
         log::info!(
-            "Portfolio pairwise summary: min={min_distance:.6} median={median_distance:.6} max={max_distance:.6} within_tolerance={pairwise_within_tolerance}/{}",
+            "Portfolio pairwise summary: min={min_distance:.6} median={median_distance:.6} max={max_distance:.6} within_tolerance={pairwise_within_tolerance}/{} eps={dbscan_tolerance:.6}",
             pairwise_values.len()
         );
     }
 
     // Cluster the x information
     let clusters = Dbscan::params(PORTFOLIO_DBSCAN_MIN_POINTS)
-        .tolerance(PORTFOLIO_DBSCAN_TOLERANCE_FACTOR)
+        .tolerance(dbscan_tolerance)
         .transform(&normalized_xdat)
         .unwrap();
 
@@ -314,10 +333,32 @@ mod tests {
 
     #[test]
     fn test_clustering_keeps_top_three_noise_points() {
-        let x = array![[0.0], [0.3], [0.6], [0.9]];
-        let xlimits = array![[0.0, 1.0]];
+        let x = array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]];
+        let xlimits = array![[0.0, 1.0], [0.0, 1.0]];
         let cluster_memberships = cluster_as_indices(&x, &xlimits, &[1.0, 4.0, 3.0, 2.0]);
         assert_eq!(cluster_memberships, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn test_portfolio_dbscan_tolerance_uses_median_nearest_neighbor_distance() {
+        let tolerance = portfolio_dbscan_tolerance(&[0.10, 0.12, 0.14, 0.16, 0.18]);
+        assert!((tolerance - 0.154).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_portfolio_dbscan_tolerance_is_clamped() {
+        assert_eq!(
+            portfolio_dbscan_tolerance(&[]),
+            PORTFOLIO_DBSCAN_TOLERANCE_FALLBACK
+        );
+        assert_eq!(
+            portfolio_dbscan_tolerance(&[0.01, 0.02, 0.03]),
+            PORTFOLIO_DBSCAN_TOLERANCE_MIN
+        );
+        assert_eq!(
+            portfolio_dbscan_tolerance(&[1.0, 2.0, 3.0]),
+            PORTFOLIO_DBSCAN_TOLERANCE_MAX
+        );
     }
 
     #[test]
