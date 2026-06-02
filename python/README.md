@@ -11,6 +11,12 @@
 pip install egobox
 ```
 
+This installation also provides the `gpx` command-line interface:
+
+```bash
+gpx --help
+```
+
 ### Egor optimizer
 
 ```python

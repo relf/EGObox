@@ -32,6 +32,7 @@ egobox-moe = { version = "0.35.3", path = "../crates/moe", features = [
 egobox-ego = { version = "0.39.0", path = "../crates/ego", features = [
   "persistent",
 ] }
+gpx = { version = "0.4.0", path = "../crates/gpx" }
 
 argmin = { version = "0.11.0", features = ["ctrlc"] }
 

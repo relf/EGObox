@@ -17,6 +17,9 @@ dependencies = ["numpy"]
 dynamic = ["version"]
 readme = 'README.md'
 
+[project.scripts]
+gpx = "egobox.gpx_cli:main"
+
 [build-system]
 build-backend = "maturin"
 requires = ["maturin>=1.0, <2.0"]
