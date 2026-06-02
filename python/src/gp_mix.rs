@@ -105,7 +105,7 @@ use rand_xoshiro::Xoshiro256Plus;
 ///     GpMix object which can be fitted to data to get a Gpx object (a trained Gaussian processes mixture)
 ///         
 #[gen_stub_pyclass]
-#[pyclass]
+#[pyclass(skip_from_py_object)]
 pub(crate) struct GpMix {
     gp_config: GpConfig,
     xtypes: Option<Vec<egobox_moe::XType>>,
@@ -295,7 +295,7 @@ impl GpMix {
 
 /// A trained Gaussian processes mixture
 #[gen_stub_pyclass]
-#[pyclass]
+#[pyclass(skip_from_py_object)]
 pub(crate) struct Gpx(Box<dyn MixtureGpSurrogate>);
 
 #[gen_stub_pymethods]

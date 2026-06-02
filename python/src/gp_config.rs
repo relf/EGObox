@@ -4,7 +4,7 @@ use pyo3_stub_gen::derive::gen_stub_pyclass;
 
 /// GP configuration used by `Egor` and `GpMix`
 #[gen_stub_pyclass]
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 pub(crate) struct GpConfig {
     /// (RegressionSpec flags, an int in [1, 7])

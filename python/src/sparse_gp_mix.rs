@@ -64,7 +64,7 @@ use rand_xoshiro::Xoshiro256Plus;
 ///         Used mainly for debugging and development purposes
 ///         
 #[gen_stub_pyclass]
-#[pyclass]
+#[pyclass(skip_from_py_object)]
 pub(crate) struct SparseGpMix {
     pub correlation_spec: CorrelationSpec,
     pub theta_init: Option<Vec<f64>>,
@@ -228,7 +228,7 @@ impl SparseGpMix {
 
 /// A trained Gaussian processes mixture
 #[gen_stub_pyclass]
-#[pyclass]
+#[pyclass(skip_from_py_object)]
 pub(crate) struct SparseGpx(Box<GpMixture>);
 
 #[gen_stub_pymethods]

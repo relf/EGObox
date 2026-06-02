@@ -27,7 +27,7 @@ use pyo3_stub_gen::derive::gen_stub_pyclass;
 ///     For example, with q_optmod=2, hyperparameters are optimized every 2 points.
 ///
 #[gen_stub_pyclass]
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 pub(crate) struct QEiConfig {
     /// Number of points to evaluate in parallel
