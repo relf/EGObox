@@ -615,6 +615,7 @@ dependencies = [
  "egobox-gp",
  "egobox-moe",
  "env_logger",
+ "gpx",
  "linfa",
  "log",
  "ndarray",

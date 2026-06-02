@@ -21,6 +21,12 @@ use types::*;
 use pyo3::prelude::*;
 use pyo3_stub_gen::define_stub_info_gatherer;
 
+#[pyfunction]
+fn _run_gpx_cli(args: Vec<String>) -> i32 {
+    let argv: Vec<String> = std::iter::once("gpx".to_string()).chain(args).collect();
+    gpx::run_from_iter_with_exit_code(argv)
+}
+
 #[doc(hidden)]
 #[pymodule]
 fn egobox(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -30,6 +36,7 @@ fn egobox(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     // utils
     m.add_function(wrap_pyfunction!(lhs, m)?)?;
     m.add_function(wrap_pyfunction!(sampling::sampling, m)?)?;
+    m.add_function(wrap_pyfunction!(_run_gpx_cli, m)?)?;
 
     // types
     m.add_class::<sampling::Sampling>()?;
