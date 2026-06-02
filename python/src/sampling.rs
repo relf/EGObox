@@ -6,7 +6,7 @@ use pyo3::prelude::*;
 use pyo3_stub_gen::derive::{gen_stub_pyclass_enum, gen_stub_pyfunction};
 
 #[gen_stub_pyclass_enum]
-#[pyclass(eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
+#[pyclass(from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Sampling {
     Lhs = 1,

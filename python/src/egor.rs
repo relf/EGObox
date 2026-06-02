@@ -158,7 +158,7 @@ use std::cmp::Ordering;
 ///     Egor object which can be used to optimize a function using the minimize method.
 ///      
 #[gen_stub_pyclass]
-#[pyclass]
+#[pyclass(skip_from_py_object)]
 pub(crate) struct Egor {
     pub xtypes: Vec<egobox_moe::XType>,
     pub gp_config: GpConfig,
@@ -443,7 +443,7 @@ impl Egor {
                 let res = fun.bind(py).call1(args);
                 match res {
                     Ok(res) => {
-                        let pyarray = res.downcast_into::<PyArray2<f64>>().unwrap();
+                        let pyarray = res.cast_into::<PyArray2<f64>>().unwrap();
                         Ok(pyarray.to_owned_array())
                     }
                     Err(e) => {
@@ -476,7 +476,7 @@ impl Egor {
                         if let Some(g) = g {
                             let args = (Array1::from(x.to_vec()).into_pyarray(py), true);
                             let grad = cstr.bind(py).call1(args).unwrap();
-                            let grad = grad.downcast_into::<PyArray1<f64>>().unwrap().readonly();
+                            let grad = grad.cast_into::<PyArray1<f64>>().unwrap().readonly();
                             g.copy_from_slice(grad.as_slice().unwrap())
                         }
                         let args = (Array1::from(x.to_vec()).into_pyarray(py), false);

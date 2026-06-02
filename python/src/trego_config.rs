@@ -31,7 +31,7 @@ pub enum TregoConfigSpec {
 /// sigma0 : float
 ///     Initial trust region radius.
 #[gen_stub_pyclass]
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 pub(crate) struct TregoConfig {
     /// Number of global optimization steps

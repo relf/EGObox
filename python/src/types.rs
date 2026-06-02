@@ -3,7 +3,7 @@ use pyo3::prelude::*;
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pyclass_enum, gen_stub_pymethods};
 
 #[gen_stub_pyclass_enum]
-#[pyclass(eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
+#[pyclass(from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Recombination {
     /// prediction is taken from the expert with highest responsability
@@ -17,7 +17,7 @@ pub enum Recombination {
 
 /// RegressionSpec is a bitfield that specifies which regression terms to include in the model.
 #[gen_stub_pyclass]
-#[pyclass]
+#[pyclass(skip_from_py_object)]
 #[derive(Clone, Default, Debug)]
 pub(crate) struct RegressionSpec(pub(crate) u8);
 
@@ -36,7 +36,7 @@ impl RegressionSpec {
 
 /// CorrelationSpec is a bitfield that specifies which correlation terms to include in the model.
 #[gen_stub_pyclass]
-#[pyclass]
+#[pyclass(skip_from_py_object)]
 #[derive(Clone, Default, Debug)]
 pub(crate) struct CorrelationSpec(pub(crate) u8);
 
@@ -59,7 +59,7 @@ impl CorrelationSpec {
 
 /// InfillStrategy specifies the acquisition function to use for infill optimization.
 #[gen_stub_pyclass_enum]
-#[pyclass(eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
+#[pyclass(from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum InfillStrategy {
     /// Expected Improvement
@@ -78,7 +78,7 @@ pub(crate) enum InfillStrategy {
 
 /// ConstraintStrategy specifies the strategy to use for handling constraints in infill optimization.
 #[gen_stub_pyclass_enum]
-#[pyclass(eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
+#[pyclass(from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum ConstraintStrategy {
     /// Mean of the GP is used to evaluate the constraint, which is equivalent to ignoring the uncertainty on the constraint
@@ -91,7 +91,7 @@ pub(crate) enum ConstraintStrategy {
 /// see QEI is the multi-point extension of EI, see Chevalier and Ginsbourger (2013)
 /// "Fast Computation of the Multi-Points Expected Improvement with Applications in Batch Selection"
 #[gen_stub_pyclass_enum]
-#[pyclass(eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
+#[pyclass(from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum QEiStrategy {
     /// Kriging Believer, the next point is added to the GP with its predicted mean value,
@@ -113,7 +113,7 @@ pub(crate) enum QEiStrategy {
 
 /// InfillOptimizer specifies the optimization algorithm to use for infill optimization.
 #[gen_stub_pyclass_enum]
-#[pyclass(eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
+#[pyclass(from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum InfillOptimizer {
     /// Gradient free optimization algorithm that uses a simplex of n+1 points for n-dimensional optimization
@@ -124,7 +124,7 @@ pub(crate) enum InfillOptimizer {
 
 /// FailsafeStrategy specifies the strategy to use for handling failures during infill optimization.
 #[gen_stub_pyclass_enum]
-#[pyclass(eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
+#[pyclass(from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub(crate) enum FailsafeStrategy {
     /// The point is ignored, the optimization continues but may fail to explore
@@ -140,7 +140,7 @@ pub(crate) enum FailsafeStrategy {
 
 /// Verbose specifies the level of verbosity for logging.
 #[gen_stub_pyclass_enum]
-#[pyclass(eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
+#[pyclass(from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub(crate) enum Verbose {
     Error = 0,
@@ -164,7 +164,7 @@ impl From<Verbose> for log::LevelFilter {
 
 /// XType specifies the type of the input variables.
 #[gen_stub_pyclass_enum]
-#[pyclass(eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
+#[pyclass(from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum XType {
     Float = 1,
@@ -175,7 +175,7 @@ pub(crate) enum XType {
 
 /// XSpec specifies the type and limits of the input variables (aka design space).
 #[gen_stub_pyclass]
-#[pyclass]
+#[pyclass(skip_from_py_object)]
 #[derive(FromPyObject, Debug)]
 pub(crate) struct XSpec {
     #[pyo3(get)]
@@ -202,7 +202,7 @@ impl XSpec {
 
 /// SparseMethod specifies the method to use for sparse Gaussian process regression.
 /// See "Sparse Gaussian Process Regression for Big Data" by V. Vanhatalo, J. Riihimäki, J. Hartikainen, and A. Vehtari (2010)
-#[pyclass(eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
+#[pyclass(from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
 #[gen_stub_pyclass_enum]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum SparseMethod {
@@ -235,7 +235,7 @@ pub(crate) enum SparseMethod {
 /// spec4 = egx.CstrSpec.btw(1.0, 3.0)
 /// ```
 #[gen_stub_pyclass]
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone)]
 pub(crate) struct CstrSpec {
     pub(crate) inner: egobox_ego::CstrSpec,
@@ -289,7 +289,7 @@ impl CstrSpec {
 /// This information is also returned in the RunStatus to allow the user to correlate the results
 /// with the function and run number.
 #[gen_stub_pyclass]
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone)]
 pub(crate) struct RunInfo {
     /// A name for the function being optimized, used for logging and saving results
@@ -312,7 +312,7 @@ impl RunInfo {
 
 /// ExitStatus specifies the reason for the termination of the optimization algorithm.
 #[gen_stub_pyclass_enum]
-#[pyclass(eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
+#[pyclass(skip_from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum ExitStatus {
     /// Reached maximum number of iterations
@@ -349,7 +349,7 @@ impl From<argmin::core::TerminationStatus> for ExitStatus {
 /// RunStatus contains information about the status of a run of the optimization algorithm
 /// It is returned by the optimizer together with the optimization results.
 #[gen_stub_pyclass]
-#[pyclass]
+#[pyclass(skip_from_py_object)]
 #[derive(Debug, Clone)]
 pub(crate) struct RunStatus {
     /// Information about the run, provided by the user when calling the optimization function
@@ -376,7 +376,7 @@ pub(crate) struct RunStatus {
 /// including the optimal point and value found, the DOE points and values which
 /// includes initial points and the optimization history.
 #[gen_stub_pyclass]
-#[pyclass]
+#[pyclass(skip_from_py_object)]
 #[derive(Debug)]
 pub(crate) struct OptimResult {
     /// Optimal x point found by the optimization algorithm
@@ -396,7 +396,7 @@ pub(crate) struct OptimResult {
 /// Egor optimization output
 ///
 #[gen_stub_pyclass]
-#[pyclass]
+#[pyclass(skip_from_py_object)]
 #[derive(Debug)]
 pub(crate) struct EgorOptim {
     /// Result of optimization run
