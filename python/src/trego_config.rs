@@ -77,9 +77,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for TregoConfig {
                 "alpha" => cfg.alpha = dict.get_item("alpha")?.unwrap().extract()?,
                 "beta" => cfg.beta = dict.get_item("beta")?.unwrap().extract()?,
                 "sigma0" => cfg.sigma0 = dict.get_item("sigma0")?.unwrap().extract()?,
-                _ => {
-                    return Err(PyValueError::new_err(format!("unknown trego key '{key}'")))
-                }
+                _ => return Err(PyValueError::new_err(format!("unknown trego key '{key}'"))),
             }
         }
 

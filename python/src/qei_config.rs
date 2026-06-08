@@ -65,7 +65,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for QEiConfig {
                 _ => {
                     return Err(PyValueError::new_err(format!(
                         "unknown qei_config key '{key}'"
-                    )))
+                    )));
                 }
             }
         }

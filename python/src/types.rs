@@ -448,7 +448,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for RunInfo {
                 _ => {
                     return Err(PyValueError::new_err(format!(
                         "unknown run_info key '{key}'"
-                    )))
+                    )));
                 }
             }
         }

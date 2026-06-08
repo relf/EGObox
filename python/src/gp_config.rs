@@ -102,7 +102,11 @@ impl<'a, 'py> FromPyObject<'a, 'py> for GpConfig {
                 }
                 "n_start" => cfg.n_start = dict.get_item("n_start")?.unwrap().extract()?,
                 "max_eval" => cfg.max_eval = dict.get_item("max_eval")?.unwrap().extract()?,
-                _ => return Err(PyValueError::new_err(format!("unknown gp_config key '{key}'"))),
+                _ => {
+                    return Err(PyValueError::new_err(format!(
+                        "unknown gp_config key '{key}'"
+                    )));
+                }
             }
         }
 

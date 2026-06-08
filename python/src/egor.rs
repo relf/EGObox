@@ -46,11 +46,7 @@ fn parse_trego_config(py: Python, value: Py<PyAny>) -> PyResult<TregoConfigSpec>
             "alpha" => cfg.alpha = dict.get_item("alpha")?.unwrap().extract()?,
             "beta" => cfg.beta = dict.get_item("beta")?.unwrap().extract()?,
             "sigma0" => cfg.sigma0 = dict.get_item("sigma0")?.unwrap().extract()?,
-            _ => {
-                return Err(PyValueError::new_err(format!(
-                    "unknown trego key '{key}'"
-                )))
-            }
+            _ => return Err(PyValueError::new_err(format!("unknown trego key '{key}'"))),
         }
     }
 
@@ -73,7 +69,7 @@ fn parse_run_info(py: Python, value: Py<PyAny>) -> PyResult<RunInfo> {
             _ => {
                 return Err(PyValueError::new_err(format!(
                     "unknown run_info key '{key}'"
-                )))
+                )));
             }
         }
     }
