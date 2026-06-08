@@ -1,9 +1,10 @@
 use numpy::{PyArray1, PyArray2};
+use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pyclass_enum, gen_stub_pymethods};
 
 #[gen_stub_pyclass_enum]
-#[pyclass(from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
+#[pyclass(skip_from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Recombination {
     /// prediction is taken from the expert with highest responsability
@@ -13,6 +14,26 @@ pub enum Recombination {
     /// an optional heaviside factor might be used control steepness of the change between
     /// experts regions.
     Smooth = 1,
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for Recombination {
+    type Error = PyErr;
+
+    fn extract(obj: pyo3::Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if let Ok(value) = obj.extract::<PyRef<'py, Self>>() {
+            return Ok(value.clone());
+        }
+        match obj.extract::<u8>() {
+            Ok(0) => Ok(Self::Hard),
+            Ok(1) => Ok(Self::Smooth),
+            Ok(v) => Err(PyValueError::new_err(format!(
+                "recombination integer value must be in [0, 1], got {v}"
+            ))),
+            Err(_) => Err(PyTypeError::new_err(
+                "recombination must be a Recombination enum or an integer in [0, 1]",
+            )),
+        }
+    }
 }
 
 /// RegressionSpec is a bitfield that specifies which regression terms to include in the model.
@@ -59,7 +80,7 @@ impl CorrelationSpec {
 
 /// InfillStrategy specifies the acquisition function to use for infill optimization.
 #[gen_stub_pyclass_enum]
-#[pyclass(from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
+#[pyclass(skip_from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum InfillStrategy {
     /// Expected Improvement
@@ -76,9 +97,31 @@ pub(crate) enum InfillStrategy {
     LogEi = 4,
 }
 
+impl<'a, 'py> FromPyObject<'a, 'py> for InfillStrategy {
+    type Error = PyErr;
+
+    fn extract(obj: pyo3::Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if let Ok(value) = obj.extract::<PyRef<'py, Self>>() {
+            return Ok(*value);
+        }
+        match obj.extract::<u8>() {
+            Ok(1) => Ok(Self::Ei),
+            Ok(2) => Ok(Self::Wb2),
+            Ok(3) => Ok(Self::Wb2s),
+            Ok(4) => Ok(Self::LogEi),
+            Ok(v) => Err(PyValueError::new_err(format!(
+                "infill_strategy integer value must be in [1, 4], got {v}"
+            ))),
+            Err(_) => Err(PyTypeError::new_err(
+                "infill_strategy must be an InfillStrategy enum or an integer in [1, 4]",
+            )),
+        }
+    }
+}
+
 /// ConstraintStrategy specifies the strategy to use for handling constraints in infill optimization.
 #[gen_stub_pyclass_enum]
-#[pyclass(from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
+#[pyclass(skip_from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum ConstraintStrategy {
     /// Mean of the GP is used to evaluate the constraint, which is equivalent to ignoring the uncertainty on the constraint
@@ -87,11 +130,31 @@ pub(crate) enum ConstraintStrategy {
     Utb = 2,
 }
 
+impl<'a, 'py> FromPyObject<'a, 'py> for ConstraintStrategy {
+    type Error = PyErr;
+
+    fn extract(obj: pyo3::Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if let Ok(value) = obj.extract::<PyRef<'py, Self>>() {
+            return Ok(*value);
+        }
+        match obj.extract::<u8>() {
+            Ok(1) => Ok(Self::Mc),
+            Ok(2) => Ok(Self::Utb),
+            Ok(v) => Err(PyValueError::new_err(format!(
+                "cstr_strategy integer value must be in [1, 2], got {v}"
+            ))),
+            Err(_) => Err(PyTypeError::new_err(
+                "cstr_strategy must be a ConstraintStrategy enum or an integer in [1, 2]",
+            )),
+        }
+    }
+}
+
 /// QEiStrategy specifies the strategy to use for handling constraints in infill optimization.
 /// see QEI is the multi-point extension of EI, see Chevalier and Ginsbourger (2013)
 /// "Fast Computation of the Multi-Points Expected Improvement with Applications in Batch Selection"
 #[gen_stub_pyclass_enum]
-#[pyclass(from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
+#[pyclass(skip_from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum QEiStrategy {
     /// Kriging Believer, the next point is added to the GP with its predicted mean value,
@@ -111,9 +174,31 @@ pub(crate) enum QEiStrategy {
     Clmin = 4,
 }
 
+impl<'a, 'py> FromPyObject<'a, 'py> for QEiStrategy {
+    type Error = PyErr;
+
+    fn extract(obj: pyo3::Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if let Ok(value) = obj.extract::<PyRef<'py, Self>>() {
+            return Ok(*value);
+        }
+        match obj.extract::<u8>() {
+            Ok(1) => Ok(Self::Kb),
+            Ok(2) => Ok(Self::Kblb),
+            Ok(3) => Ok(Self::Kbub),
+            Ok(4) => Ok(Self::Clmin),
+            Ok(v) => Err(PyValueError::new_err(format!(
+                "qei strategy integer value must be in [1, 4], got {v}"
+            ))),
+            Err(_) => Err(PyTypeError::new_err(
+                "qei strategy must be a QEiStrategy enum or an integer in [1, 4]",
+            )),
+        }
+    }
+}
+
 /// InfillOptimizer specifies the optimization algorithm to use for infill optimization.
 #[gen_stub_pyclass_enum]
-#[pyclass(from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
+#[pyclass(skip_from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum InfillOptimizer {
     /// Gradient free optimization algorithm that uses a simplex of n+1 points for n-dimensional optimization
@@ -122,9 +207,29 @@ pub(crate) enum InfillOptimizer {
     Slsqp = 2,
 }
 
+impl<'a, 'py> FromPyObject<'a, 'py> for InfillOptimizer {
+    type Error = PyErr;
+
+    fn extract(obj: pyo3::Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if let Ok(value) = obj.extract::<PyRef<'py, Self>>() {
+            return Ok(*value);
+        }
+        match obj.extract::<u8>() {
+            Ok(1) => Ok(Self::Cobyla),
+            Ok(2) => Ok(Self::Slsqp),
+            Ok(v) => Err(PyValueError::new_err(format!(
+                "infill_optimizer integer value must be in [1, 2], got {v}"
+            ))),
+            Err(_) => Err(PyTypeError::new_err(
+                "infill_optimizer must be an InfillOptimizer enum or an integer in [1, 2]",
+            )),
+        }
+    }
+}
+
 /// FailsafeStrategy specifies the strategy to use for handling failures during infill optimization.
 #[gen_stub_pyclass_enum]
-#[pyclass(from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
+#[pyclass(skip_from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub(crate) enum FailsafeStrategy {
     /// The point is ignored, the optimization continues but may fail to explore
@@ -136,6 +241,27 @@ pub(crate) enum FailsafeStrategy {
     /// The viability of the point is modeled with a surrogate, which allows the optimization
     /// to learn which regions of the search space are more likely to fail and avoid them in the future
     Viability = 3,
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for FailsafeStrategy {
+    type Error = PyErr;
+
+    fn extract(obj: pyo3::Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if let Ok(value) = obj.extract::<PyRef<'py, Self>>() {
+            return Ok(*value);
+        }
+        match obj.extract::<u8>() {
+            Ok(1) => Ok(Self::Rejection),
+            Ok(2) => Ok(Self::Imputation),
+            Ok(3) => Ok(Self::Viability),
+            Ok(v) => Err(PyValueError::new_err(format!(
+                "failsafe_strategy integer value must be in [1, 3], got {v}"
+            ))),
+            Err(_) => Err(PyTypeError::new_err(
+                "failsafe_strategy must be a FailsafeStrategy enum or an integer in [1, 3]",
+            )),
+        }
+    }
 }
 
 /// Verbose specifies the level of verbosity for logging.
@@ -289,7 +415,7 @@ impl CstrSpec {
 /// This information is also returned in the RunStatus to allow the user to correlate the results
 /// with the function and run number.
 #[gen_stub_pyclass]
-#[pyclass(from_py_object)]
+#[pyclass(skip_from_py_object)]
 #[derive(Debug, Clone)]
 pub(crate) struct RunInfo {
     /// A name for the function being optimized, used for logging and saving results
@@ -298,6 +424,37 @@ pub(crate) struct RunInfo {
     /// A number for the run, used for logging and saving results
     #[pyo3(get, set)]
     pub(crate) num: usize,
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for RunInfo {
+    type Error = PyErr;
+
+    fn extract(obj: pyo3::Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if let Ok(info) = obj.extract::<PyRef<'py, Self>>() {
+            return Ok(info.clone());
+        }
+
+        let dict = obj.cast::<pyo3::types::PyDict>()?;
+        let mut info = RunInfo {
+            fname: "fobj".to_string(),
+            num: 1,
+        };
+
+        for key_any in dict.keys().iter() {
+            let key = key_any.extract::<String>()?;
+            match key.as_str() {
+                "fname" => info.fname = dict.get_item("fname")?.unwrap().extract()?,
+                "num" => info.num = dict.get_item("num")?.unwrap().extract()?,
+                _ => {
+                    return Err(PyValueError::new_err(format!(
+                        "unknown run_info key '{key}'"
+                    )))
+                }
+            }
+        }
+
+        Ok(info)
+    }
 }
 
 #[gen_stub_pymethods]

@@ -30,6 +30,57 @@ use pyo3::types::PyBool;
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 use std::cmp::Ordering;
 
+fn parse_trego_config(py: Python, value: Py<PyAny>) -> PyResult<TregoConfigSpec> {
+    if let Ok(spec) = value.extract(py) {
+        return Ok(spec);
+    }
+
+    let dict = value.bind(py).cast::<pyo3::types::PyDict>()?;
+    let mut cfg = TregoConfig::default();
+
+    for key_any in dict.keys().iter() {
+        let key = key_any.extract::<String>()?;
+        match key.as_str() {
+            "n_gl_steps" => cfg.n_gl_steps = dict.get_item("n_gl_steps")?.unwrap().extract()?,
+            "d" => cfg.d = dict.get_item("d")?.unwrap().extract()?,
+            "alpha" => cfg.alpha = dict.get_item("alpha")?.unwrap().extract()?,
+            "beta" => cfg.beta = dict.get_item("beta")?.unwrap().extract()?,
+            "sigma0" => cfg.sigma0 = dict.get_item("sigma0")?.unwrap().extract()?,
+            _ => {
+                return Err(PyValueError::new_err(format!(
+                    "unknown trego key '{key}'"
+                )))
+            }
+        }
+    }
+
+    Ok(TregoConfigSpec::Custom(cfg))
+}
+
+fn parse_run_info(py: Python, value: Py<PyAny>) -> PyResult<RunInfo> {
+    if let Ok(info) = value.extract(py) {
+        return Ok(info);
+    }
+
+    let dict = value.bind(py).cast::<pyo3::types::PyDict>()?;
+    let mut info = RunInfo::new("fobj".to_string(), 1);
+
+    for key_any in dict.keys().iter() {
+        let key = key_any.extract::<String>()?;
+        match key.as_str() {
+            "fname" => info.fname = dict.get_item("fname")?.unwrap().extract()?,
+            "num" => info.num = dict.get_item("num")?.unwrap().extract()?,
+            _ => {
+                return Err(PyValueError::new_err(format!(
+                    "unknown run_info key '{key}'"
+                )))
+            }
+        }
+    }
+
+    Ok(info)
+}
+
 /// Optimizer constructor
 ///
 /// # Parameters
@@ -284,8 +335,7 @@ impl Egor {
         // Parse trego configuration: boolean or custom configuration
         let trego = match trego {
             Some(trego_py) => {
-                let trego_typ: TregoConfigSpec =
-                    trego_py.extract(py).expect("Bad TREGO configuration");
+                let trego_typ = parse_trego_config(py, trego_py).expect("Bad TREGO configuration");
                 match trego_typ {
                     TregoConfigSpec::Activated(active) => {
                         if active {
@@ -511,8 +561,7 @@ impl Egor {
             .expect("Egor configured");
 
         let py_run_info = if let Some(ri) = run_info {
-            let ri: RunInfo = ri.extract(py).unwrap();
-            ri
+            parse_run_info(py, ri)?
         } else {
             RunInfo {
                 fname: "objective_function".to_string(),
