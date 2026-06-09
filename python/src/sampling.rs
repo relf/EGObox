@@ -2,11 +2,12 @@ use crate::domain;
 use egobox_doe::{LhsKind, SamplingMethod};
 use egobox_moe::MixintContext;
 use numpy::{IntoPyArray, PyArray2};
+use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::{gen_stub_pyclass_enum, gen_stub_pyfunction};
 
 #[gen_stub_pyclass_enum]
-#[pyclass(from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
+#[pyclass(skip_from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Sampling {
     Lhs = 1,
@@ -16,6 +17,31 @@ pub enum Sampling {
     LhsCentered = 5,
     LhsMaximin = 6,
     LhsCenteredMaximin = 7,
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for Sampling {
+    type Error = PyErr;
+
+    fn extract(obj: pyo3::Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if let Ok(value) = obj.extract::<PyRef<'py, Self>>() {
+            return Ok(*value);
+        }
+        match obj.extract::<u8>() {
+            Ok(1) => Ok(Self::Lhs),
+            Ok(2) => Ok(Self::FullFactorial),
+            Ok(3) => Ok(Self::Random),
+            Ok(4) => Ok(Self::LhsClassic),
+            Ok(5) => Ok(Self::LhsCentered),
+            Ok(6) => Ok(Self::LhsMaximin),
+            Ok(7) => Ok(Self::LhsCenteredMaximin),
+            Ok(v) => Err(PyValueError::new_err(format!(
+                "sampling method integer value must be in [1, 7], got {v}"
+            ))),
+            Err(_) => Err(PyTypeError::new_err(
+                "method must be a Sampling enum or an integer in [1, 7]",
+            )),
+        }
+    }
 }
 
 /// Samples generation using given method

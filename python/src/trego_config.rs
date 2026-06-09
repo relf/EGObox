@@ -1,4 +1,6 @@
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use pyo3::types::{PyAny, PyDict};
 use pyo3_stub_gen::derive::gen_stub_pyclass;
 
 /// TREGO configuration specification which can be either
@@ -31,7 +33,7 @@ pub enum TregoConfigSpec {
 /// sigma0 : float
 ///     Initial trust region radius.
 #[gen_stub_pyclass]
-#[pyclass(from_py_object)]
+#[pyclass(skip_from_py_object)]
 #[derive(Clone, Debug)]
 pub(crate) struct TregoConfig {
     /// Number of global optimization steps
@@ -54,6 +56,33 @@ pub(crate) struct TregoConfig {
     /// Initial trust region radius
     #[pyo3(get, set)]
     pub sigma0: f64,
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for TregoConfig {
+    type Error = PyErr;
+
+    fn extract(obj: pyo3::Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if let Ok(cfg) = obj.extract::<PyRef<'py, Self>>() {
+            return Ok(cfg.clone());
+        }
+
+        let dict = obj.cast::<PyDict>()?;
+        let mut cfg = TregoConfig::default();
+
+        for key_any in dict.keys().iter() {
+            let key = key_any.extract::<String>()?;
+            match key.as_str() {
+                "n_gl_steps" => cfg.n_gl_steps = dict.get_item("n_gl_steps")?.unwrap().extract()?,
+                "d" => cfg.d = dict.get_item("d")?.unwrap().extract()?,
+                "alpha" => cfg.alpha = dict.get_item("alpha")?.unwrap().extract()?,
+                "beta" => cfg.beta = dict.get_item("beta")?.unwrap().extract()?,
+                "sigma0" => cfg.sigma0 = dict.get_item("sigma0")?.unwrap().extract()?,
+                _ => return Err(PyValueError::new_err(format!("unknown trego key '{key}'"))),
+            }
+        }
+
+        Ok(cfg)
+    }
 }
 
 impl Default for TregoConfig {

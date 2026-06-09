@@ -30,6 +30,53 @@ use pyo3::types::PyBool;
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 use std::cmp::Ordering;
 
+fn parse_trego_config(py: Python, value: Py<PyAny>) -> PyResult<TregoConfigSpec> {
+    if let Ok(spec) = value.extract(py) {
+        return Ok(spec);
+    }
+
+    let dict = value.bind(py).cast::<pyo3::types::PyDict>()?;
+    let mut cfg = TregoConfig::default();
+
+    for key_any in dict.keys().iter() {
+        let key = key_any.extract::<String>()?;
+        match key.as_str() {
+            "n_gl_steps" => cfg.n_gl_steps = dict.get_item("n_gl_steps")?.unwrap().extract()?,
+            "d" => cfg.d = dict.get_item("d")?.unwrap().extract()?,
+            "alpha" => cfg.alpha = dict.get_item("alpha")?.unwrap().extract()?,
+            "beta" => cfg.beta = dict.get_item("beta")?.unwrap().extract()?,
+            "sigma0" => cfg.sigma0 = dict.get_item("sigma0")?.unwrap().extract()?,
+            _ => return Err(PyValueError::new_err(format!("unknown trego key '{key}'"))),
+        }
+    }
+
+    Ok(TregoConfigSpec::Custom(cfg))
+}
+
+fn parse_run_info(py: Python, value: Py<PyAny>) -> PyResult<RunInfo> {
+    if let Ok(info) = value.extract(py) {
+        return Ok(info);
+    }
+
+    let dict = value.bind(py).cast::<pyo3::types::PyDict>()?;
+    let mut info = RunInfo::new("fobj".to_string(), 1);
+
+    for key_any in dict.keys().iter() {
+        let key = key_any.extract::<String>()?;
+        match key.as_str() {
+            "fname" => info.fname = dict.get_item("fname")?.unwrap().extract()?,
+            "num" => info.num = dict.get_item("num")?.unwrap().extract()?,
+            _ => {
+                return Err(PyValueError::new_err(format!(
+                    "unknown run_info key '{key}'"
+                )));
+            }
+        }
+    }
+
+    Ok(info)
+}
+
 /// Optimizer constructor
 ///
 /// # Parameters
@@ -134,24 +181,18 @@ use std::cmp::Ordering;
 ///
 ///     seed (int >= 0 or None):
 ///         Deprecated: use seed argument in minimize() or suggest() instead.
-///         Random generator seed to allow computation reproducibility.
 ///
 ///     outdir (String or None):
 ///         Deprecated: use outdir argument in minimize() instead.
-///         Directory to write optimization history and used as search path for warm start doe.
 ///
 ///     warm_start (bool):
 ///         Deprecated: use warm_start argument in minimize() instead.
-///         Start by loading initial doe from <outdir> directory.
 ///
 ///     hot_start (bool, int >= 0 or None):
 ///         Deprecated: use hot_start argument in minimize() instead.
-///         When True, hot_start behaves like hot_start=0 with no iteration extension.
-///         When hot_start>=0 saves optimizer state at each iteration and starts from a previous checkpoint.
 ///
 ///     verbose (int, Verbose enum, or None):
 ///         Deprecated: use verbose argument in minimize() instead.
-///         Logging verbosity level for the optimizer.
 ///
 /// # Returns
 ///
@@ -284,8 +325,7 @@ impl Egor {
         // Parse trego configuration: boolean or custom configuration
         let trego = match trego {
             Some(trego_py) => {
-                let trego_typ: TregoConfigSpec =
-                    trego_py.extract(py).expect("Bad TREGO configuration");
+                let trego_typ = parse_trego_config(py, trego_py).expect("Bad TREGO configuration");
                 match trego_typ {
                     TregoConfigSpec::Activated(active) => {
                         if active {
@@ -378,14 +418,12 @@ impl Egor {
     ///         Start by loading initial doe from <outdir> directory
     ///
     ///     hot_start (bool, int >= 0 or None):
-    ///         When True, hot_start behaves like hot_start=0 with no iteration extension.
     ///         When hot_start>=0 saves optimizer state at each iteration and starts from a previous checkpoint
-    ///         if any for the given hot_start number of iterations beyond the max_iters nb of iterations.
+    ///         for the given hot_start number of iterations beyond the max_iters nb of iterations.
     ///         In an unstable environment were there can be crashes it allows to restart the optimization
     ///         from the last iteration till stopping criterion is reached. Just use hot_start=0 in this case.
-    ///         When specifying an extended nb of iterations (hot_start > 0) it can allow to continue till max_iters +
-    ///         hot_start nb of iters is reached (provided the stopping criterion is max_iters)
-    ///         Checkpoint information is stored in .checkpoint/egor.arg binary file.
+    ///         When True, hot_start behaves like hot_start=0 with no iteration extension.
+    ///         Checkpoint information is stored in .checkpoint or under outdir if outdir is specified.
     ///
     ///     seed (int >= 0):
     ///         Random generator seed to allow computation reproducibility.
@@ -511,8 +549,7 @@ impl Egor {
             .expect("Egor configured");
 
         let py_run_info = if let Some(ri) = run_info {
-            let ri: RunInfo = ri.extract(py).unwrap();
-            ri
+            parse_run_info(py, ri)?
         } else {
             RunInfo {
                 fname: "objective_function".to_string(),

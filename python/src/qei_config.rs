@@ -1,5 +1,7 @@
 use crate::types::*;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use pyo3::types::{PyAny, PyDict};
 use pyo3_stub_gen::derive::gen_stub_pyclass;
 
 /// Configuration for parallel (qEI) infill criterion evaluation.
@@ -27,7 +29,7 @@ use pyo3_stub_gen::derive::gen_stub_pyclass;
 ///     For example, with q_optmod=2, hyperparameters are optimized every 2 points.
 ///
 #[gen_stub_pyclass]
-#[pyclass(from_py_object)]
+#[pyclass(skip_from_py_object)]
 #[derive(Clone, Debug)]
 pub(crate) struct QEiConfig {
     /// Number of points to evaluate in parallel
@@ -41,6 +43,35 @@ pub(crate) struct QEiConfig {
     /// Interval between hyperparameter optimizations
     #[pyo3(get, set)]
     pub optmod: usize,
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for QEiConfig {
+    type Error = PyErr;
+
+    fn extract(obj: pyo3::Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if let Ok(cfg) = obj.extract::<PyRef<'py, Self>>() {
+            return Ok(cfg.clone());
+        }
+
+        let dict = obj.cast::<PyDict>()?;
+        let mut cfg = QEiConfig::default();
+
+        for key_any in dict.keys().iter() {
+            let key = key_any.extract::<String>()?;
+            match key.as_str() {
+                "batch" => cfg.batch = dict.get_item("batch")?.unwrap().extract()?,
+                "strategy" => cfg.strategy = dict.get_item("strategy")?.unwrap().extract()?,
+                "optmod" => cfg.optmod = dict.get_item("optmod")?.unwrap().extract()?,
+                _ => {
+                    return Err(PyValueError::new_err(format!(
+                        "unknown qei_config key '{key}'"
+                    )));
+                }
+            }
+        }
+
+        Ok(cfg)
+    }
 }
 
 impl Default for QEiConfig {

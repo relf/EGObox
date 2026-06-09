@@ -965,8 +965,6 @@ where
                 log::debug!("activity: {activity:?}");
                 let actives = activity;
 
-                info!("Train surrogates with {} points...", xt.nrows());
-
                 let do_clustering = ((init && i == 0) || recluster).into();
                 let optimize_theta = ((iter as usize * self.config.qei_config.batch + i)
                     .is_multiple_of(self.config.qei_config.optmod)

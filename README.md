@@ -175,7 +175,7 @@ If you find this project useful for your research, you may cite it as follows:
 @article{
   Lafage2022, 
   author = {Rémi Lafage}, 
-  title = {egobox, a Rust toolbox for efficient global optimization}, 
+  title = {EGObox, a Rust toolbox for efficient global optimization}, 
   journal = {Journal of Open Source Software} 
   year = {2022}, 
   doi = {10.21105/joss.04737}, 

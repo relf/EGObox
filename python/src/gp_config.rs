@@ -1,10 +1,12 @@
 use crate::types::*;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use pyo3::types::{PyAny, PyDict};
 use pyo3_stub_gen::derive::gen_stub_pyclass;
 
 /// GP configuration used by `Egor` and `GpMix`
 #[gen_stub_pyclass]
-#[pyclass(from_py_object)]
+#[pyclass(skip_from_py_object)]
 #[derive(Clone, Debug)]
 pub(crate) struct GpConfig {
     /// (RegressionSpec flags, an int in [1, 7])
@@ -71,6 +73,45 @@ pub(crate) struct GpConfig {
     ///   Max number of likelihood evaluations during GP hyperparameters optimization
     #[pyo3(get, set)]
     pub max_eval: usize,
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for GpConfig {
+    type Error = PyErr;
+
+    fn extract(obj: pyo3::Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if let Ok(cfg) = obj.extract::<PyRef<'py, Self>>() {
+            return Ok(cfg.clone());
+        }
+
+        let dict = obj.cast::<PyDict>()?;
+        let mut cfg = GpConfig::default();
+
+        for key_any in dict.keys().iter() {
+            let key = key_any.extract::<String>()?;
+            match key.as_str() {
+                "regr_spec" => cfg.regr_spec = dict.get_item("regr_spec")?.unwrap().extract()?,
+                "corr_spec" => cfg.corr_spec = dict.get_item("corr_spec")?.unwrap().extract()?,
+                "kpls_dim" => cfg.kpls_dim = dict.get_item("kpls_dim")?.unwrap().extract()?,
+                "n_clusters" => cfg.n_clusters = dict.get_item("n_clusters")?.unwrap().extract()?,
+                "recombination" => {
+                    cfg.recombination = dict.get_item("recombination")?.unwrap().extract()?
+                }
+                "theta_init" => cfg.theta_init = dict.get_item("theta_init")?.unwrap().extract()?,
+                "theta_bounds" => {
+                    cfg.theta_bounds = dict.get_item("theta_bounds")?.unwrap().extract()?
+                }
+                "n_start" => cfg.n_start = dict.get_item("n_start")?.unwrap().extract()?,
+                "max_eval" => cfg.max_eval = dict.get_item("max_eval")?.unwrap().extract()?,
+                _ => {
+                    return Err(PyValueError::new_err(format!(
+                        "unknown gp_config key '{key}'"
+                    )));
+                }
+            }
+        }
+
+        Ok(cfg)
+    }
 }
 
 impl Default for GpConfig {
