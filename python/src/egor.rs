@@ -181,24 +181,18 @@ fn parse_run_info(py: Python, value: Py<PyAny>) -> PyResult<RunInfo> {
 ///
 ///     seed (int >= 0 or None):
 ///         Deprecated: use seed argument in minimize() or suggest() instead.
-///         Random generator seed to allow computation reproducibility.
 ///
 ///     outdir (String or None):
 ///         Deprecated: use outdir argument in minimize() instead.
-///         Directory to write optimization history and used as search path for warm start doe.
 ///
 ///     warm_start (bool):
 ///         Deprecated: use warm_start argument in minimize() instead.
-///         Start by loading initial doe from <outdir> directory.
 ///
 ///     hot_start (bool, int >= 0 or None):
 ///         Deprecated: use hot_start argument in minimize() instead.
-///         When True, hot_start behaves like hot_start=0 with no iteration extension.
-///         When hot_start>=0 saves optimizer state at each iteration and starts from a previous checkpoint.
 ///
 ///     verbose (int, Verbose enum, or None):
 ///         Deprecated: use verbose argument in minimize() instead.
-///         Logging verbosity level for the optimizer.
 ///
 /// # Returns
 ///
@@ -424,14 +418,12 @@ impl Egor {
     ///         Start by loading initial doe from <outdir> directory
     ///
     ///     hot_start (bool, int >= 0 or None):
-    ///         When True, hot_start behaves like hot_start=0 with no iteration extension.
     ///         When hot_start>=0 saves optimizer state at each iteration and starts from a previous checkpoint
-    ///         if any for the given hot_start number of iterations beyond the max_iters nb of iterations.
+    ///         for the given hot_start number of iterations beyond the max_iters nb of iterations.
     ///         In an unstable environment were there can be crashes it allows to restart the optimization
     ///         from the last iteration till stopping criterion is reached. Just use hot_start=0 in this case.
-    ///         When specifying an extended nb of iterations (hot_start > 0) it can allow to continue till max_iters +
-    ///         hot_start nb of iters is reached (provided the stopping criterion is max_iters)
-    ///         Checkpoint information is stored in .checkpoint/egor.arg binary file.
+    ///         When True, hot_start behaves like hot_start=0 with no iteration extension.
+    ///         Checkpoint information is stored in .checkpoint or under outdir if outdir is specified.
     ///
     ///     seed (int >= 0):
     ///         Random generator seed to allow computation reproducibility.
