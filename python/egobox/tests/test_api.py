@@ -94,7 +94,9 @@ class TestApiImports(unittest.TestCase):
             return np.sum(x**2, axis=1).reshape(-1, 1)
 
         egor = egx.Egor([[0.0, 1.0]], infill_strategy=1)
-        optim = egor.minimize(fobj, max_iters=1, seed=42, run_info={"fname": "fobj", "num": 7})
+        optim = egor.minimize(
+            fobj, max_iters=1, seed=42, run_info={"fname": "fobj", "num": 7}
+        )
         self.assertEqual(optim.status.info.fname, "fobj")
         self.assertEqual(optim.status.info.num, 7)
 
@@ -122,7 +124,9 @@ class TestApiImports(unittest.TestCase):
             cst = x[:, 0].reshape(-1, 1)
             return np.hstack((obj, cst))
 
-        egor = egx.Egor([[0.0, 1.0]], n_cstr=1, cstr_specs=[{"leq": 0.8}], infill_strategy=1)
+        egor = egx.Egor(
+            [[0.0, 1.0]], n_cstr=1, cstr_specs=[{"leq": 0.8}], infill_strategy=1
+        )
         optim = egor.minimize(fobj, max_iters=1, seed=42)
         self.assertEqual(optim.status.total_iters, 1)
 
