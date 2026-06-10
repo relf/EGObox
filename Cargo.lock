@@ -916,6 +916,7 @@ dependencies = [
  "anyhow",
  "bincode",
  "clap",
+ "csv",
  "egobox-ego",
  "egobox-moe",
  "linfa",

@@ -4,64 +4,104 @@
 //! and prediction outputs.
 
 use anyhow::{Context, Result, anyhow, bail};
+use csv::ReaderBuilder;
 use ndarray::Array2;
 use ndarray_npy::{read_npy, write_npy};
-use std::fs;
+use std::fs::{self, File};
+use std::io::{BufRead, BufReader};
 
 use crate::DataFormat;
 
-fn parse_csv_row(line: &str) -> Result<Vec<f64>> {
-    line.split(',')
-        .map(str::trim)
-        .map(|cell| {
-            cell.parse::<f64>()
-                .map_err(|e| anyhow!("invalid float value '{cell}': {e}"))
-        })
-        .collect()
-}
+/// Detect the separator character used in a CSV file.
+/// Analyzes the first non-empty line and returns the most likely separator.
+/// Common separators checked: ',', ';', '\t', '|'
+fn detect_separator(path: &str) -> Result<char> {
+    let file = File::open(path)
+        .with_context(|| format!("cannot open CSV file {path} for separator detection"))?;
+    let reader = BufReader::new(file);
 
-fn is_header_row(line: &str) -> bool {
-    let cells: Vec<_> = line.split(',').map(str::trim).collect();
-    !cells.is_empty() && cells.iter().all(|cell| cell.parse::<f64>().is_err())
-}
+    let separators = [',', ';', '\t', '|'];
 
-fn read_input_csv(path: &str, nx: usize) -> Result<Array2<f64>> {
-    let content =
-        fs::read_to_string(path).with_context(|| format!("cannot read input CSV {path}"))?;
-
-    let mut nrows = 0usize;
-    let mut flat_values = Vec::new();
-    let mut first_non_empty = true;
-
-    for (line_index, raw_line) in content.lines().enumerate() {
-        let line = raw_line.trim();
+    for line in reader.lines() {
+        let line = line?;
+        let line = line.trim();
         if line.is_empty() {
             continue;
         }
 
-        let row = match parse_csv_row(line) {
-            Ok(row) => row,
-            Err(_e) if first_non_empty && is_header_row(line) => {
-                first_non_empty = false;
-                continue;
-            }
-            Err(e) => {
-                return Err(e)
-                    .with_context(|| format!("invalid CSV row at line {}", line_index + 1));
-            }
-        };
-        first_non_empty = false;
+        // Count occurrences of each separator
+        let mut counts = [(',', 0), (';', 0), ('\t', 0), ('|', 0)];
+        for sep in &separators {
+            counts.iter_mut().find(|(s, _)| s == sep).unwrap().1 = line.matches(*sep).count();
+        }
 
-        if row.len() != nx {
+        // Find the separator with the maximum count (must be > 0)
+        let mut best_sep = ',';
+        let mut max_count = 0;
+        for (sep, count) in counts {
+            if count > max_count {
+                max_count = count;
+                best_sep = sep;
+            }
+        }
+
+        if max_count > 0 {
+            return Ok(best_sep);
+        }
+
+        // If no separator found, default to comma
+        return Ok(',');
+    }
+
+    // Empty file, default to comma
+    Ok(',')
+}
+
+fn read_input_csv(path: &str, nx: usize) -> Result<Array2<f64>> {
+    let sep = detect_separator(path)?;
+
+    let file = File::open(path)
+        .with_context(|| format!("cannot open input CSV {path}"))?;
+    let reader = BufReader::new(file);
+
+    let mut csv_reader = ReaderBuilder::new()
+        .delimiter(sep as u8)
+        .has_headers(false)
+        .flexible(true)
+        .from_reader(reader);
+
+    let mut nrows = 0usize;
+    let mut flat_values = Vec::new();
+    let mut has_skipped_header = false;
+
+    for (line_index, result) in csv_reader.records().enumerate() {
+        let record = result.with_context(|| format!("error reading CSV row at line {}", line_index + 1))?;
+
+        // Check if this might be a header row (first non-empty row with non-numeric values)
+        if !has_skipped_header && line_index == 0 {
+            if let Some(first_field) = record.get(0) {
+                if first_field.trim().parse::<f64>().is_err() {
+                    has_skipped_header = true;
+                    continue;
+                }
+            }
+        }
+
+        let row_len = record.len();
+        if row_len != nx {
             bail!(
                 "invalid input dimension at line {}: expected {} values, got {}",
                 line_index + 1,
                 nx,
-                row.len()
+                row_len
             );
         }
 
-        flat_values.extend(row);
+        for field in record.iter() {
+            let value: f64 = field.trim().parse()
+                .map_err(|e| anyhow!("invalid float value '{field}': {e}"))?;
+            flat_values.push(value);
+        }
         nrows += 1;
     }
 
@@ -104,61 +144,73 @@ fn read_training_csv(path: &str, n_outputs: usize) -> Result<(Array2<f64>, Array
         bail!("number of outputs must be >= 1");
     }
 
-    let content =
-        fs::read_to_string(path).with_context(|| format!("cannot read training CSV {path}"))?;
+    let sep = detect_separator(path)?;
+
+    let file = File::open(path)
+        .with_context(|| format!("cannot open training CSV {path}"))?;
+    let reader = BufReader::new(file);
+
+    let mut csv_reader = ReaderBuilder::new()
+        .delimiter(sep as u8)
+        .has_headers(false)
+        .flexible(true)
+        .from_reader(reader);
 
     let mut nrows = 0usize;
     let mut nx = 0usize;
     let mut x_flat_values = Vec::new();
     let mut y_flat_values = Vec::new();
     let mut ncols_expected = 0usize;
-    let mut first_non_empty = true;
+    let mut has_skipped_header = false;
 
-    for (line_index, raw_line) in content.lines().enumerate() {
-        let line = raw_line.trim();
-        if line.is_empty() {
-            continue;
+    for (line_index, result) in csv_reader.records().enumerate() {
+        let record = result.with_context(|| {
+            format!("error reading training CSV row at line {}", line_index + 1)
+        })?;
+
+        // Check if this might be a header row (first non-empty row with non-numeric values)
+        if !has_skipped_header && line_index == 0 {
+            if let Some(first_field) = record.get(0) {
+                if first_field.trim().parse::<f64>().is_err() {
+                    has_skipped_header = true;
+                    continue;
+                }
+            }
         }
 
-        let row = match parse_csv_row(line) {
-            Ok(row) => row,
-            Err(_e) if first_non_empty && is_header_row(line) => {
-                first_non_empty = false;
-                continue;
-            }
-            Err(e) => {
-                return Err(e).with_context(|| {
-                    format!("invalid training CSV row at line {}", line_index + 1)
-                });
-            }
-        };
-        first_non_empty = false;
-
-        if row.len() <= n_outputs {
+        let row_len = record.len();
+        if row_len <= n_outputs {
             bail!(
                 "invalid training row at line {}: expected at least {} columns (features + {} output(s)), got {}",
                 line_index + 1,
                 n_outputs + 1,
                 n_outputs,
-                row.len()
+                row_len
             );
         }
 
         if ncols_expected == 0 {
-            ncols_expected = row.len();
+            ncols_expected = row_len;
             nx = ncols_expected - n_outputs;
-        } else if row.len() != ncols_expected {
+        } else if row_len != ncols_expected {
             bail!(
                 "inconsistent training row width at line {}: expected {} columns, got {}",
                 line_index + 1,
                 ncols_expected,
-                row.len()
+                row_len
             );
         }
 
-        let y_start = row.len() - n_outputs;
-        x_flat_values.extend_from_slice(&row[..y_start]);
-        y_flat_values.extend_from_slice(&row[y_start..]);
+        let y_start = row_len - n_outputs;
+        for (j, field) in record.iter().enumerate() {
+            let value: f64 = field.trim().parse()
+                .map_err(|e| anyhow!("invalid float value '{field}': {e}"))?;
+            if j < y_start {
+                x_flat_values.push(value);
+            } else {
+                y_flat_values.push(value);
+            }
+        }
         nrows += 1;
     }
 
