@@ -60,8 +60,7 @@ fn detect_separator(path: &str) -> Result<char> {
 fn read_input_csv(path: &str, nx: usize) -> Result<Array2<f64>> {
     let sep = detect_separator(path)?;
 
-    let file = File::open(path)
-        .with_context(|| format!("cannot open input CSV {path}"))?;
+    let file = File::open(path).with_context(|| format!("cannot open input CSV {path}"))?;
     let reader = BufReader::new(file);
 
     let mut csv_reader = ReaderBuilder::new()
@@ -75,16 +74,17 @@ fn read_input_csv(path: &str, nx: usize) -> Result<Array2<f64>> {
     let mut has_skipped_header = false;
 
     for (line_index, result) in csv_reader.records().enumerate() {
-        let record = result.with_context(|| format!("error reading CSV row at line {}", line_index + 1))?;
+        let record =
+            result.with_context(|| format!("error reading CSV row at line {}", line_index + 1))?;
 
         // Check if this might be a header row (first non-empty row with non-numeric values)
-        if !has_skipped_header && line_index == 0 {
-            if let Some(first_field) = record.get(0) {
-                if first_field.trim().parse::<f64>().is_err() {
-                    has_skipped_header = true;
-                    continue;
-                }
-            }
+        if !has_skipped_header
+            && line_index == 0
+            && let Some(first_field) = record.get(0)
+            && first_field.trim().parse::<f64>().is_err()
+        {
+            has_skipped_header = true;
+            continue;
         }
 
         let row_len = record.len();
@@ -98,7 +98,9 @@ fn read_input_csv(path: &str, nx: usize) -> Result<Array2<f64>> {
         }
 
         for field in record.iter() {
-            let value: f64 = field.trim().parse()
+            let value: f64 = field
+                .trim()
+                .parse()
                 .map_err(|e| anyhow!("invalid float value '{field}': {e}"))?;
             flat_values.push(value);
         }
@@ -146,8 +148,7 @@ fn read_training_csv(path: &str, n_outputs: usize) -> Result<(Array2<f64>, Array
 
     let sep = detect_separator(path)?;
 
-    let file = File::open(path)
-        .with_context(|| format!("cannot open training CSV {path}"))?;
+    let file = File::open(path).with_context(|| format!("cannot open training CSV {path}"))?;
     let reader = BufReader::new(file);
 
     let mut csv_reader = ReaderBuilder::new()
@@ -169,13 +170,13 @@ fn read_training_csv(path: &str, n_outputs: usize) -> Result<(Array2<f64>, Array
         })?;
 
         // Check if this might be a header row (first non-empty row with non-numeric values)
-        if !has_skipped_header && line_index == 0 {
-            if let Some(first_field) = record.get(0) {
-                if first_field.trim().parse::<f64>().is_err() {
-                    has_skipped_header = true;
-                    continue;
-                }
-            }
+        if !has_skipped_header
+            && line_index == 0
+            && let Some(first_field) = record.get(0)
+            && first_field.trim().parse::<f64>().is_err()
+        {
+            has_skipped_header = true;
+            continue;
         }
 
         let row_len = record.len();
@@ -203,7 +204,9 @@ fn read_training_csv(path: &str, n_outputs: usize) -> Result<(Array2<f64>, Array
 
         let y_start = row_len - n_outputs;
         for (j, field) in record.iter().enumerate() {
-            let value: f64 = field.trim().parse()
+            let value: f64 = field
+                .trim()
+                .parse()
                 .map_err(|e| anyhow!("invalid float value '{field}': {e}"))?;
             if j < y_start {
                 x_flat_values.push(value);
