@@ -307,7 +307,7 @@ fn write_predictions_table_csv(
                 values.push(format!("{:.16e}", var[(i, j)]));
             }
         }
-        out.push_str(&values.join(","));
+        out.push_str(&values.join(";"));
         out.push('\n');
     }
 
