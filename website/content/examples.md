@@ -8,24 +8,7 @@ The Python snippets below are included directly from source files under `python/
 
 ## Python: optimize with Egor
 
-```python
-# See python/egobox/examples/website_egor.py
-```
-
-## Python: fit and plot a surrogate model
-
-```python
-# See python/egobox/examples/website_gpx.py
-```
-
-## Rust: EGO optimizer example
-
-```rust
-// See crates/ego/examples/xsinx.rs
-```
-
-## Rust: Kriging example
-
-```rust
-// See crates/gp/examples/kriging.rs
-```
+{{ include_code(
+    url="https://raw.githubusercontent.com/relf/EGObox/refs/heads/master/python/egobox/examples/g24.py",
+    lang="python") 
+}}

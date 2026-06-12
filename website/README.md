@@ -24,7 +24,7 @@ Visit https://github.com/getzola/zola/releases and download the pre-built binary
 ## Project Structure
 
 ```
-zola_site/
+website/
 ├── config.toml      # Zola configuration
 ├── content/         # Markdown content files
 │   ├── _index.md    # Home page
@@ -45,7 +45,7 @@ zola_site/
 ### Serve locally
 
 ```bash
-cd zola_site
+cd website
 zola serve
 ```
 
@@ -54,7 +54,7 @@ The site will be available at `http://127.0.0.1:1111/`
 ### Build for production
 
 ```bash
-cd zola_site
+cd website
 zola build
 ```
 
@@ -63,28 +63,6 @@ The built site will be in the `public/` directory.
 ### Check for errors
 
 ```bash
-cd zola_site
+cd website
 zola check
 ```
-
-## Migration from MkDocs
-
-This site was migrated from MkDocs to Zola. Key changes:
-
-1. **Configuration**: `mkdocs.yml` → `config.toml`
-2. **Content**: All markdown files migrated with Zola frontmatter (`+++`)
-3. **Templates**: Custom HTML templates created (no longer using Material theme)
-4. **Build command**: `mkdocs serve` → `zola serve`
-
-## Next Steps
-
-1. Install Zola using one of the methods above
-2. Run `zola serve` to preview the site locally
-3. Test all links and navigation
-4. Deploy to GitHub Pages by pushing the `public/` directory
-
-## Notes
-
-- The code snippets that used `--8<--` (MkDocs include) now reference files directly
-- Consider adding a theme like `anubis` or `terminal` from Zola's theme library for a more polished look
-- The search index is enabled in the config

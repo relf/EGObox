@@ -15,7 +15,3 @@ The repository already contains notebook-based tutorials. This site links to tho
 | SparseGpx tutorial | [doc/SparseGpx_Tutorial.ipynb](https://github.com/relf/egobox/blob/master/doc/SparseGpx_Tutorial.ipynb) | [Open in Colab](https://colab.research.google.com/github/relf/egobox/blob/master/doc/SparseGpx_Tutorial.ipynb) |
 | Gpx CLI tutorial | [doc/gpx_cli.ipynb](https://github.com/relf/egobox/blob/master/doc/gpx_cli.ipynb) | [Open in Colab](https://colab.research.google.com/github/relf/egobox/blob/master/doc/gpx_cli.ipynb) |
 | Mauna Loa CO2 example | [doc/Gpx_MaunaLoaCO2.ipynb](https://github.com/relf/egobox/blob/master/doc/Gpx_MaunaLoaCO2.ipynb) | [Open in Colab](https://colab.research.google.com/github/relf/egobox/blob/master/doc/Gpx_MaunaLoaCO2.ipynb) |
-
-## Suggested next iteration
-
-If you want the notebooks rendered inside the website instead of linked out, the next clean step is to add Zola's notebook support or convert the notebooks into Markdown as part of the docs build.

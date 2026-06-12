@@ -42,3 +42,6 @@ history*
 # Output directories
 **/*_output/
 **/*_out/
+
+# Generated website
+website/public

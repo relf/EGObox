@@ -23,11 +23,4 @@ title = "Reference"
 - [Python examples directory](https://github.com/relf/egobox/tree/master/python/egobox/examples)
 - [Rust crate directory](https://github.com/relf/egobox/tree/master/crates)
 
-## Local docs build
 
-```bash
-conda activate base
-python --version
-python -m pip install -r requirements-docs.txt
-zola build
-```
