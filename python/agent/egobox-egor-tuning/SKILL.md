@@ -1,4 +1,13 @@
-# EGOR Parameter Tuning Skill
+---
+name: egobox-egor-tuning
+description: >
+  Use this skill whenever the user is working with the Egor optimizer.
+  Triggers on any mention of: Egor optimizer
+  Bayesian optimization in Rust/Python or requests to minimize expensive black-box functions using
+  surrogate models.
+---
+
+# EGOR Tuning Skill
 
 ## Goal
 
