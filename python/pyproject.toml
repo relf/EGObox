@@ -34,6 +34,7 @@ dev = [
     "matplotlib>=3.7.1",   # for notebooks
     "scikit-learn>=1.2.2", # for notebooks
     "pandas>=2.0.3",       # for notebooks
+    "mcp>=1.0.0",          # for MCP server
 ]
 
 [tool.maturin]
