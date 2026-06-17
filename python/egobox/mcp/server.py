@@ -199,16 +199,10 @@ async def handle_tool_call(name: str, arguments: dict[str, Any]) -> dict[str, An
 
     try:
         result = tool_map[name](**arguments)
-        return {
-            "content": [
-                {"type": "text", "text": json.dumps(result, indent=2)}
-            ]
-        }
+        return {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]}
     except Exception as e:
         return {
-            "content": [
-                {"type": "text", "text": f"Error executing {name}: {str(e)}"}
-            ]
+            "content": [{"type": "text", "text": f"Error executing {name}: {str(e)}"}]
         }
 
 
@@ -234,4 +228,5 @@ async def main() -> None:
 
 if __name__ == "__main__":
     import asyncio
+
     asyncio.run(main())

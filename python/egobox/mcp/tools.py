@@ -27,13 +27,20 @@ def gpx_fit(
 ) -> dict[str, Any]:
     """Fit GP surrogates from tabular data."""
     args = [
-        "fit", input_file,
-        "--outputs", str(outputs),
-        "--regression-spec", regression_spec,
-        "--correlation-spec", correlation_spec,
-        "--n-clusters", str(n_clusters),
-        "--recombination", recombination,
-        "--output", output_model,
+        "fit",
+        input_file,
+        "--outputs",
+        str(outputs),
+        "--regression-spec",
+        regression_spec,
+        "--correlation-spec",
+        correlation_spec,
+        "--n-clusters",
+        str(n_clusters),
+        "--recombination",
+        recombination,
+        "--output",
+        output_model,
     ]
     if kpls_dim is not None:
         args.extend(["--kpls-dim", str(kpls_dim)])
@@ -45,7 +52,9 @@ def gpx_fit(
     return {"success": True, "message": stdout, "model_path": output_model}
 
 
-def gpx_qa(model_file: str, model_index: int | None = None, kfold: int = 0) -> dict[str, Any]:
+def gpx_qa(
+    model_file: str, model_index: int | None = None, kfold: int = 0
+) -> dict[str, Any]:
     """Assess quality metrics of GP model(s)."""
     args = ["qa", "--model", model_file]
     if model_index is not None:
