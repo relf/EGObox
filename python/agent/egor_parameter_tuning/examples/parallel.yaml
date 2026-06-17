@@ -1,0 +1,11 @@
+case: parallel_evaluation
+
+dimension: 100
+
+parallel: true
+
+recommendation:
+
+  acquisition:
+    type: qEIConfig
+    batch: 10

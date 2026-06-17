@@ -1,0 +1,56 @@
+convergence:
+
+  bad_progress:
+    detection:
+      - stagnation
+      - low improvement rate
+      - surrogate uncertainty collapse
+
+    actions:
+      use:
+        - TREGO
+
+      kernel:
+        from: SquaredExponential
+        to: Matern52
+
+
+dimension:
+
+  greater_than_10:
+
+    gaussian_process:
+      use: KPLS
+
+    kpls:
+      rules:
+        - condition: dim == 20
+          kpls_dim: 5
+
+        - condition: dim == 100
+          kpls_dim: 10
+
+
+  greater_than_50:
+
+    cooperative_optimization:
+      use: CoEGO
+
+    coego:
+      n_coop_comp: 5
+
+
+parallel:
+
+  enabled:
+
+    acquisition:
+      use: qEIConfig
+
+    batch:
+      rules:
+        - condition: dim == 50
+          batch: 5
+
+        - condition: dim == 100
+          batch: 10

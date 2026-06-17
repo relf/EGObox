@@ -1,0 +1,8 @@
+case: cheap_function
+
+dimension: 3
+evaluation_time: 0.1s
+
+suggested:
+  n_initial: 30
+  exploration: high

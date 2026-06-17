@@ -1,0 +1,13 @@
+case: high_dimension
+
+dimension: 100
+
+recommendation:
+
+  model:
+    type: KPLS
+    kpls_dim: 10
+
+  optimizer:
+    type: CoEGO
+    n_coop_comp: 5
