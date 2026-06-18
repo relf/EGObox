@@ -3,7 +3,6 @@ case: expensive_function
 dimension: 12
 evaluation_time: 300s
 
-suggested:
-  n_initial: 25
-  exploration: information_gain
-  budget: limited
+recommendation:
+  n_doe: 13
+

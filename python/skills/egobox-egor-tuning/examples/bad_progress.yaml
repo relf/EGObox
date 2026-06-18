@@ -4,9 +4,8 @@ symptom:
   no improvement
 
 recommendation:
-
   use:
-    - TREGO
+    TREGO
 
   kernel:
     Matern52
