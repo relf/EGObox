@@ -39,13 +39,14 @@ pub trait InfillCriterion: Clone + Sync {
 
     /// Criterion value at given point x with regards to given
     /// surrogate of the objective function, the current found min,
-    /// an optional scaling factor and an optional weight for the
-    /// standard deviation
+    /// an optional viability model, an optional scaling factor
+    /// and an optional weight for the standard deviation
     fn value(
         &self,
         x: &[f64],
         obj_model: &dyn MixtureGpSurrogate,
         fmin: f64,
+        viability_model: Option<&dyn MixtureGpSurrogate>,
         sigma_weight: Option<f64>,
         scale: Option<f64>,
     ) -> f64;
@@ -56,6 +57,7 @@ pub trait InfillCriterion: Clone + Sync {
         x: &[f64],
         obj_model: &dyn MixtureGpSurrogate,
         fmin: f64,
+        viability_model: Option<&dyn MixtureGpSurrogate>,
         sigma_weight: Option<f64>,
         scale: Option<f64>,
     ) -> Array1<f64>;
@@ -66,6 +68,7 @@ pub trait InfillCriterion: Clone + Sync {
         _x: &ArrayView2<f64>,
         _obj_model: &dyn MixtureGpSurrogate,
         _fmin: f64,
+        _viability_model: Option<&dyn MixtureGpSurrogate>,
         _sigma_weight: Option<f64>,
     ) -> f64 {
         1.0

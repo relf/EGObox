@@ -24,6 +24,7 @@ impl InfillCriterion for ExpectedImprovement {
         x: &[f64],
         obj_model: &dyn MixtureGpSurrogate,
         fmin: f64,
+        _viability_model: Option<&dyn MixtureGpSurrogate>,
         sigma_weight: Option<f64>,
         _scale: Option<f64>,
     ) -> f64 {
@@ -53,6 +54,7 @@ impl InfillCriterion for ExpectedImprovement {
         x: &[f64],
         obj_model: &dyn MixtureGpSurrogate,
         fmin: f64,
+        _viability_model: Option<&dyn MixtureGpSurrogate>,
         sigma_weight: Option<f64>,
         _scale: Option<f64>,
     ) -> Array1<f64> {
@@ -112,6 +114,7 @@ impl InfillCriterion for LogExpectedImprovement {
         x: &[f64],
         obj_model: &dyn MixtureGpSurrogate,
         fmin: f64,
+        _viability_model: Option<&dyn MixtureGpSurrogate>,
         sigma_weight: Option<f64>,
         _scale: Option<f64>,
     ) -> f64 {
@@ -140,6 +143,7 @@ impl InfillCriterion for LogExpectedImprovement {
         x: &[f64],
         obj_model: &dyn MixtureGpSurrogate,
         fmin: f64,
+        _viability_model: Option<&dyn MixtureGpSurrogate>,
         sigma_weight: Option<f64>,
         _scale: Option<f64>,
     ) -> Array1<f64> {
@@ -209,10 +213,10 @@ mod tests {
             .expect("Mixint surrogate creation");
 
         let x = vec![3.];
-        let grad = EI.grad(&x, &mixi_moe, 0., Some(0.75), None);
+        let grad = EI.grad(&x, &mixi_moe, 0., None, Some(0.75), None);
 
         let f = |x: &Vec<f64>| -> std::result::Result<f64, anyhow::Error> {
-            Ok(EI.value(x, &mixi_moe, 0., Some(0.75), None))
+            Ok(EI.value(x, &mixi_moe, 0., None, Some(0.75), None))
         };
         let grad_central = (vec::central_diff(&f)(&x)).unwrap();
         assert_abs_diff_eq!(grad[0], grad_central[0], epsilon = 1e-6);
@@ -260,11 +264,11 @@ mod tests {
         let x = Array1::linspace(0., 25., 100);
         write_npy("logei_x.npy", &x).expect("save x");
 
-        let grad = x.mapv(|v| LOG_EI.grad(&[v], &mixi_moe, 0., Some(0.75), None)[0]);
+        let grad = x.mapv(|v| LOG_EI.grad(&[v], &mixi_moe, 0., None, Some(0.75), None)[0]);
         write_npy("logei_grad.npy", &grad).expect("save grad log ei");
 
         let f = |x: &Vec<f64>| -> std::result::Result<f64, anyhow::Error> {
-            Ok(LOG_EI.value(x, &mixi_moe, 0., Some(0.75), None))
+            Ok(LOG_EI.value(x, &mixi_moe, 0., None, Some(0.75), None))
         };
         let grad_central = x.mapv(|v| vec::central_diff(&f)(&vec![v]).unwrap()[0]);
         write_npy("logei_fdiff.npy", &grad_central).expect("save fdiff log ei");
@@ -297,8 +301,8 @@ mod tests {
             .expect("Mixint surrogate creation");
 
         let x = [5.0];
-        let low_weight = LOG_EI.value(&x, &mixi_moe, 0.0, Some(0.5), None);
-        let high_weight = LOG_EI.value(&x, &mixi_moe, 0.0, Some(2.0), None);
+        let low_weight = LOG_EI.value(&x, &mixi_moe, 0.0, None, Some(0.5), None);
+        let high_weight = LOG_EI.value(&x, &mixi_moe, 0.0, None, Some(2.0), None);
 
         assert_ne!(low_weight, high_weight);
     }

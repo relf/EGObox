@@ -360,6 +360,8 @@ pub struct ValidEgorConfig {
     pub(crate) cstr_infill: bool,
     /// Constraints criterion
     pub(crate) cstr_strategy: ConstraintStrategy,
+    /// Feasibility Enhanced criterion
+    pub(crate) fe_infill: bool,
     /// Failure handling strategy
     pub(crate) failsafe_strategy: FailsafeStrategy,
     /// Runtime behavior flags (replaces environment variable checks)
@@ -393,6 +395,7 @@ impl Default for ValidEgorConfig {
             seed: None,
             cstr_infill: false,
             cstr_strategy: ConstraintStrategy::MeanConstraint,
+            fe_infill: false,
             failsafe_strategy: FailsafeStrategy::Rejection,
             runtime_flags: RuntimeFlags::default(),
             iteration_strategy: Box::new(StandardEgoStrategy),
