@@ -124,6 +124,7 @@ where
                                 cstr_tols,
                                 *fmin,
                                 viability_model.as_ref().map(|v| v.as_ref()),
+                                None,
                                 *scale_infill_obj,
                                 *scale_wb2,
                                 *feasibility,
@@ -135,6 +136,7 @@ where
                                 obj_model,
                                 *fmin,
                                 viability_model.as_ref().map(|v| v.as_ref()),
+                                None,
                                 *scale_infill_obj,
                                 *scale_wb2,
                             )
@@ -156,25 +158,23 @@ where
                             cstr_tols,
                             *fmin,
                             viability_model.as_ref().map(|v| v.as_ref()),
+                            None,
                             *scale_infill_obj,
                             *scale_wb2,
                             *feasibility,
                             *sigma_weight,
                         )
                     } else {
-                        if self.config.fe_infill {
-                            todo!()
-                        } else {
-                            self.eval_infill_obj(
-                                &xcoop,
-                                obj_model,
-                                *fmin,
-                                viability_model.as_ref().map(|v| v.as_ref()),
-                                *scale_infill_obj,
-                                *scale_wb2,
-                                *sigma_weight,
-                            )
-                        }
+                        self.eval_infill_obj(
+                            &xcoop,
+                            obj_model,
+                            *fmin,
+                            viability_model.as_deref().filter(|_| self.config.fe_infill),
+                            None,
+                            *scale_infill_obj,
+                            *scale_wb2,
+                            *sigma_weight,
+                        )
                     }
                 };
 

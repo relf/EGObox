@@ -28,12 +28,21 @@ impl InfillCriterion for WB2Criterion {
         obj_model: &dyn MixtureGpSurrogate,
         fmin: f64,
         _viability_model: Option<&dyn MixtureGpSurrogate>,
+        _alpha: Option<f64>,
         sigma_weight: Option<f64>,
         scale: Option<f64>,
     ) -> f64 {
         let scale = scale.unwrap_or(self.0.unwrap_or(1.0));
         let pt = ArrayView::from_shape((1, x.len()), x).unwrap();
-        let ei = EI.value(x, obj_model, fmin, _viability_model, sigma_weight, None);
+        let ei = EI.value(
+            x,
+            obj_model,
+            fmin,
+            _viability_model,
+            _alpha,
+            sigma_weight,
+            None,
+        );
         scale * ei - obj_model.predict(&pt).unwrap()[0]
     }
 
@@ -45,12 +54,21 @@ impl InfillCriterion for WB2Criterion {
         obj_model: &dyn MixtureGpSurrogate,
         fmin: f64,
         _viability_model: Option<&dyn MixtureGpSurrogate>,
+        _alpha: Option<f64>,
         sigma_weight: Option<f64>,
         scale: Option<f64>,
     ) -> Array1<f64> {
         let scale = scale.unwrap_or(self.0.unwrap_or(1.0));
         let pt = ArrayView::from_shape((1, x.len()), x).unwrap();
-        let grad_ei = EI.grad(x, obj_model, fmin, _viability_model, sigma_weight, None) * scale;
+        let grad_ei = EI.grad(
+            x,
+            obj_model,
+            fmin,
+            _viability_model,
+            _alpha,
+            sigma_weight,
+            None,
+        ) * scale;
         grad_ei - obj_model.predict_gradients(&pt).unwrap().row(0)
     }
 
@@ -60,6 +78,7 @@ impl InfillCriterion for WB2Criterion {
         obj_model: &dyn MixtureGpSurrogate,
         fmin: f64,
         _viability_model: Option<&dyn MixtureGpSurrogate>,
+        _alpha: Option<f64>,
         sigma_weight: Option<f64>,
     ) -> f64 {
         if let Some(scale) = self.0 {
@@ -84,6 +103,7 @@ pub(crate) fn compute_wb2s_scale(
             xi.as_slice().unwrap(),
             obj_model,
             fmin,
+            None,
             None,
             sigma_weight,
             None,
@@ -145,17 +165,17 @@ mod tests {
         let xtest12 = vec![x1 - h, x2];
         let xtest21 = vec![x1, x2 + h];
         let xtest22 = vec![x1, x2 - h];
-        let fdiff1 = (WB2S.value(&xtest11, bgp.as_ref(), 0.1, None, None, Some(0.5))
-            - WB2S.value(&xtest12, bgp.as_ref(), 0.1, None, None, Some(0.5)))
+        let fdiff1 = (WB2S.value(&xtest11, bgp.as_ref(), 0.1, None, None, None, Some(0.5))
+            - WB2S.value(&xtest12, bgp.as_ref(), 0.1, None, None, None, Some(0.5)))
             / (2. * h);
-        let fdiff2 = (WB2S.value(&xtest21, bgp.as_ref(), 0.1, None, None, Some(0.5))
-            - WB2S.value(&xtest22, bgp.as_ref(), 0.1, None, None, Some(0.5)))
+        let fdiff2 = (WB2S.value(&xtest21, bgp.as_ref(), 0.1, None, None, None, Some(0.5))
+            - WB2S.value(&xtest22, bgp.as_ref(), 0.1, None, None, None, Some(0.5)))
             / (2. * h);
         println!("fdiff({xtest:?}) = [{fdiff1}, {fdiff2}]");
         println!(
             "grad_wbs2({:?}) = {:?}",
             xtest,
-            WB2S.grad(&xtest21, bgp.as_ref(), 0.1, None, None, Some(0.5))
+            WB2S.grad(&xtest21, bgp.as_ref(), 0.1, None, None, None, Some(0.5))
         );
 
         let h = 1e-4;

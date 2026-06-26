@@ -184,6 +184,7 @@ where
                 obj_model,
                 fmin,
                 None,
+                None,
                 Some(sigma_weight),
             );
             info!(
@@ -375,9 +376,10 @@ where
                 obj_model,
                 fmin,
                 None,
-                1.0,
+                None,
                 scale_ic,
                 sigma_weight,
+                1.0,
             );
             *c = if val.is_nan() {
                 nan_count += 1;
@@ -423,6 +425,7 @@ where
         obj_model: &dyn MixtureGpSurrogate,
         fmin: f64,
         viability_model: Option<&dyn MixtureGpSurrogate>,
+        alpha: Option<f64>,
         scale: f64,
         scale_ic: f64,
         sigma_weight: f64,
@@ -433,6 +436,7 @@ where
             obj_model,
             fmin,
             viability_model,
+            alpha,
             Some(sigma_weight),
             Some(scale_ic),
         ));
@@ -441,12 +445,14 @@ where
 
     /// Compute gradient of infill criterion objective expected to be minimized
     /// meaning infill criterion objective is negative infill criterion
+    #[allow(clippy::too_many_arguments)]
     pub fn eval_grad_infill_obj(
         &self,
         x: &[f64],
         obj_model: &dyn MixtureGpSurrogate,
         fmin: f64,
         viability_model: Option<&dyn MixtureGpSurrogate>,
+        alpha: Option<f64>,
         scale: f64,
         scale_ic: f64,
     ) -> Vec<f64> {
@@ -456,6 +462,7 @@ where
             obj_model,
             fmin,
             viability_model,
+            alpha,
             None,
             Some(scale_ic),
         ));
@@ -473,6 +480,7 @@ where
         cstr_tols: &Array1<f64>,
         fmin: f64,
         viability_model: Option<&dyn MixtureGpSurrogate>,
+        alpha: Option<f64>,
         scale: f64,
         scale_ic: f64,
         feasibility: bool,
@@ -486,6 +494,7 @@ where
                 obj_model,
                 fmin,
                 viability_model,
+                alpha,
                 scale,
                 scale_ic,
                 sigma_weight,
@@ -515,13 +524,14 @@ where
         cstr_tols: &Array1<f64>,
         fmin: f64,
         viability_model: Option<&dyn MixtureGpSurrogate>,
+        alpha: Option<f64>,
         scale: f64,
         scale_ic: f64,
         feasibility: bool,
         sigma_weight: f64,
     ) -> Vec<f64> {
         if cstr_models.is_empty() {
-            self.eval_grad_infill_obj(x, obj_model, fmin, viability_model, scale, scale_ic)
+            self.eval_grad_infill_obj(x, obj_model, fmin, viability_model, alpha, scale, scale_ic)
         } else {
             let composition = self.config.infill_criterion.composition();
             let uses_log_feasibility = uses_log_feasibility(composition);
@@ -533,6 +543,7 @@ where
                         obj_model,
                         fmin,
                         viability_model,
+                        alpha,
                         scale,
                         scale_ic,
                     ))
@@ -552,6 +563,7 @@ where
                             obj_model,
                             fmin,
                             viability_model,
+                            alpha,
                             scale,
                             scale_ic,
                             sigma_weight,
@@ -561,6 +573,7 @@ where
                             obj_model,
                             fmin,
                             viability_model,
+                            alpha,
                             scale,
                             scale_ic,
                         )),
