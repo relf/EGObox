@@ -22,13 +22,17 @@ impl InfillCriterion for WB2Criterion {
 
     /// Compute WB2S infill criterion at given `x` point using the surrogate model `obj_model`
     /// and the current minimum of the objective function.
+    ///
+    /// Uses Probability of Violation (POV) from viability_model to weight the prediction term:
+    /// WB2 = scale * EI - pov * y_pred
+    /// where pov = viability_model.predict(x) clamped to [0, 1], defaulting to 1.0 if no viability_model.
     fn value(
         &self,
         x: &[f64],
         obj_model: &dyn MixtureGpSurrogate,
         fmin: f64,
-        _viability_model: Option<&dyn MixtureGpSurrogate>,
-        _alpha: Option<f64>,
+        viability_model: Option<&dyn MixtureGpSurrogate>,
+        alpha: Option<f64>,
         sigma_weight: Option<f64>,
         scale: Option<f64>,
     ) -> f64 {
@@ -38,22 +42,31 @@ impl InfillCriterion for WB2Criterion {
             x,
             obj_model,
             fmin,
-            _viability_model,
-            _alpha,
+            viability_model,
+            alpha,
             sigma_weight,
             None,
         );
-        scale * ei - obj_model.predict(&pt).unwrap()[0]
+        let pov = if let Some(viab_model) = viability_model {
+            viab_model.predict(&pt).unwrap()[0].clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        let y_pred = obj_model.predict(&pt).unwrap()[0];
+        scale * ei - pov * y_pred
     }
 
     /// Computes derivatives of WB2S infill criterion wrt to x components at given `x` point
     /// using the surrogate model `obj_model` and the current minimum of the objective function.
+    ///
+    /// Gradient accounts for POV weighting:
+    /// grad(WB2) = scale * grad(EI) - (grad(pov) * y_pred + pov * grad(y_pred))
     fn grad(
         &self,
         x: &[f64],
         obj_model: &dyn MixtureGpSurrogate,
         fmin: f64,
-        _viability_model: Option<&dyn MixtureGpSurrogate>,
+        viability_model: Option<&dyn MixtureGpSurrogate>,
         _alpha: Option<f64>,
         sigma_weight: Option<f64>,
         scale: Option<f64>,
@@ -64,12 +77,32 @@ impl InfillCriterion for WB2Criterion {
             x,
             obj_model,
             fmin,
-            _viability_model,
+            viability_model,
             _alpha,
             sigma_weight,
             None,
         ) * scale;
-        grad_ei - obj_model.predict_gradients(&pt).unwrap().row(0)
+
+        let pov = if let Some(viab_model) = viability_model {
+            viab_model.predict(&pt).unwrap()[0].clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+
+        let y_pred = obj_model.predict(&pt).unwrap()[0];
+        let grad_y_pred = obj_model.predict_gradients(&pt).unwrap().row(0).to_owned();
+
+        // Get grad(pov) from viability model if available
+        let grad_pov = if let Some(viab_model) = viability_model {
+            viab_model.predict_gradients(&pt).unwrap().row(0).to_owned()
+        } else {
+            Array1::zeros(x.len())
+        };
+
+        // Product rule: grad(pov * y_pred) = grad(pov) * y_pred + pov * grad(y_pred)
+        let grad_pov_y_pred = &grad_pov * y_pred + &grad_y_pred * pov;
+
+        grad_ei - grad_pov_y_pred
     }
 
     fn scaling(
