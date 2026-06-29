@@ -98,7 +98,7 @@ impl InfillCriterion for ExpectedImprovement {
                         alpha.unwrap_or(ALPHA0)
                     };
 
-                    if !(f64::EPSILON..1.0).contains(&pov) {
+                    if pov <= f64::EPSILON {
                         // Shortcut: consider gradient is null
                         return Array1::zeros(pt.len());
                     }
@@ -107,14 +107,16 @@ impl InfillCriterion for ExpectedImprovement {
                     let diff_y = fmin - pred;
                     let k = sigma_weight.unwrap_or(1.0);
                     let sigma = s[0].sqrt();
-                    let arg = (fmin - pred) / (k * sigma);
+                    let weighted_sigma = k * sigma;
+                    let arg = diff_y / weighted_sigma;
 
                     let (y_prime, var_prime) = obj_model.predict_valvar_gradients(&pt).unwrap();
                     let y_prime = y_prime.row(0);
                     let sig_2_prime = var_prime.row(0);
                     let sig_prime = sig_2_prime.mapv(|v| k * v / (2. * sigma));
-                    let arg_prime = y_prime.mapv(|v| v / (-k * sigma))
-                        - diff_y.to_owned() * sig_prime.mapv(|v| v / (k * sigma * k * sigma));
+                    let arg_prime = y_prime.mapv(|v| v / (-weighted_sigma))
+                        - diff_y.to_owned()
+                            * sig_prime.mapv(|v| v / (weighted_sigma * weighted_sigma));
 
                     // EI = sigma * (pov * arg * norm_cdf(arg) + pov^alpha * norm_pdf(arg))
                     // Let f_ei = pov * arg * norm_cdf(arg) + pov^alpha * norm_pdf(arg)
@@ -130,8 +132,8 @@ impl InfillCriterion for ExpectedImprovement {
                     // df_ei/dx = d(pov)/dx * arg * norm_cdf(arg) + pov * d(arg * norm_cdf(arg))/dx
                     //          + d(pov^alpha)/dx * norm_pdf(arg) + pov^alpha * d(norm_pdf(arg))/dx
 
-                    // d(arg * norm_cdf(arg))/dx = arg_prime * (norm_cdf(arg) - arg * norm_pdf(arg))
-                    let d_arg_cdf = arg_prime.clone() * (norm_cdf_arg - arg * norm_pdf_arg);
+                    // d(arg * norm_cdf(arg))/dx = arg_prime * (norm_cdf(arg) + arg * norm_pdf(arg))
+                    let d_arg_cdf = arg_prime.clone() * (norm_cdf_arg + arg * norm_pdf_arg);
 
                     // d(norm_pdf(arg))/dx = -arg * norm_pdf(arg) * arg_prime
                     let d_pdf = -arg * norm_pdf_arg * arg_prime;
