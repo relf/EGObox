@@ -20,9 +20,9 @@ use ndarray::{Array2, ArrayView2, Zip, array};
 
 /// Scaled Branin-Hoo function
 ///
-/// The original Branin-Hoo function is defined as:
+/// The modified Branin-Hoo function is defined as:
 /// f(x1, x2) = (x2 - 5.1/(4*pi^2) * x1^2 + 5/pi * x1 - 6)^2
-///             + 10 * (1 - 1/(8*pi)) * cos(x1) + 10
+///             + 10 * (1 - 1/(8*pi)) * cos(x1) + 10 + 5 * x1
 ///
 /// This is the scaled version with x1, x2 in [0, 1]:
 /// x1_bar = 15*x1 - 5
@@ -44,9 +44,9 @@ fn branin_hoo(x: &ArrayView2<f64>) -> Array2<f64> {
             let term1 = x2_bar - 5.1 * x1_bar.powi(2) / (4.0 * std::f64::consts::PI.powi(2))
                 + 5.0 * x1_bar / std::f64::consts::PI
                 - 6.0;
-            let term2 = 10.0 * (1.0 - 1.0 / (8.0 * std::f64::consts::PI)) * x1_bar.cos() + 1.0;
+            let term2 = (1.0 - 1.0 / (8.0 * std::f64::consts::PI)) * x1_bar.cos() + 1.0;
 
-            yi[0] = term1.powi(2) + 10.0 * term2;
+            yi[0] = term1.powi(2) + 10.0 * term2 + 5.0 * x1_bar;
         });
     y
 }
@@ -83,7 +83,7 @@ fn branin_hoo_hidden(x: &ArrayView2<f64>) -> Array2<f64> {
                     - 6.0;
                 let term2 = 10.0 * (1.0 - 1.0 / (8.0 * std::f64::consts::PI)) * x1_bar.cos() + 1.0;
 
-                yi[0] = term1.powi(2) + 10.0 * term2 + 3.0 * x1_bar;
+                yi[0] = term1.powi(2) + 10.0 * term2 + 5.0 * x1_bar;
             }
         });
     y
@@ -113,6 +113,8 @@ fn main() -> egobox_ego::Result<()> {
 
     let xlimits = array![[0.0, 1.0], [0.0, 1.0]]; // x1 in [0, 1], x2 in [0, 1]
 
+    let seed = 0;
+
     // Run with standard viability handling (similar to EFI_P)
     println!("Run 1: Standard viability handling (EFI_P-like)");
     let result1 = EgorBuilder::optimize(branin_hoo_hidden)
@@ -124,9 +126,8 @@ fn main() -> egobox_ego::Result<()> {
                 .n_start(50)
                 .outdir("./branin_hoo_run1")
                 .max_iters(50)
-                .seed(42)
+                .seed(seed)
                 .feasibility_infill(FeasibleInfillStrategy::ViabilityWeighted)
-                .runtime_flags(RuntimeFlags::default().use_run_recorder(true))
         })
         .verbose(log::LevelFilter::Info)
         .min_within(&xlimits)
@@ -149,9 +150,8 @@ fn main() -> egobox_ego::Result<()> {
                 .n_start(50)
                 .outdir("./branin_hoo_run2")
                 .max_iters(50)
-                .seed(42)
-                .feasibility_infill(FeasibleInfillStrategy::AlphaPoweredViabilityWeighted(0.5))
-                .runtime_flags(RuntimeFlags::default().use_run_recorder(true))
+                .seed(seed)
+                .feasibility_infill(FeasibleInfillStrategy::AlphaPoweredViabilityWeighted(0.3))
         })
         .verbose(log::LevelFilter::Info)
         .min_within(&xlimits)
