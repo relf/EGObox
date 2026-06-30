@@ -175,6 +175,9 @@ use std::path::PathBuf;
 pub const CONFIG_FILE: &str = "egor_config.json";
 /// Numpy filename for optimization history
 pub const HISTORY_FILE: &str = "egor_history.npy";
+/// Numpy filename for failed points (if any)
+/// This file is created only if some points failed to be evaluated
+pub const FAILED_POINTS_FILE: &str = "egor_failed_points.npy";
 
 /// Egor run metadata
 #[derive(Clone)]
@@ -474,6 +477,16 @@ impl Observe<EgorState<f64>> for OptimizationObserver {
             let filepath = self.dir.join(crate::DOE_FILE);
             info!(">>> Save doe shape {:?} in {:?}", doe.shape(), filepath);
             write_npy(filepath, &doe).expect("Write current doe");
+
+            if let Some(failed_points) = state.surrogate.x_fail.as_ref() {
+                let filepath = self.dir.join(crate::FAILED_POINTS_FILE);
+                info!(
+                    ">>> Save failed points {:?} in {:?}",
+                    failed_points.shape(),
+                    filepath
+                );
+                write_npy(filepath, failed_points).expect("Write failed points");
+            }
 
             if self.best_params.is_none() {
                 // Have to initialize best params and full best costs
@@ -1283,10 +1296,11 @@ mod tests {
                 config
                     .doe(&doe)
                     .max_iters(max_iters)
-                    .target(-15.1)
+                    //.target(-15.1)
                     .infill_strategy(InfillStrategy::EI)
                     .seed(42)
             })
+            .verbose(log::LevelFilter::Debug)
             .min_within_mixint_space(&xtypes)
             .expect("Egor configured")
             .run()
