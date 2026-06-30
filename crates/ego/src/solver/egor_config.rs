@@ -718,7 +718,7 @@ impl EgorConfig {
     /// This enables the Feasibility Enhanced Expected Improvement (EFI_FE) acquisition
     /// function from Tfaily et al. (2024) for handling hidden constraints in Bayesian
     /// optimization.
-    pub fn feasible_infill(mut self, strategy: FeasibleInfillStrategy) -> Self {
+    pub fn feasible_infill_strategy(mut self, strategy: FeasibleInfillStrategy) -> Self {
         self.0.feasibility_infill = strategy;
         self
     }
