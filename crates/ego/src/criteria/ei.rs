@@ -35,21 +35,22 @@ impl InfillCriterion for ExpectedImprovement {
                 if s[0] < f64::EPSILON {
                     0.0
                 } else {
-                    let pov = if let Some(pov_model) = viability_model {
-                        pov_model.predict(&pt).unwrap()[0].clamp(0.0, 1.0)
+                    let (pov, alpha) = if let Some(pov_model) = viability_model {
+                        let s_c = s[0].sqrt();
+                        let pov = pov_model.predict(&pt).unwrap()[0].clamp(0.0, 1.0);
+                        let alpha = alpha.unwrap_or({
+                            if s_c > f64::EPSILON && pov < f64::EPSILON {
+                                0.0
+                            } else if s_c < f64::EPSILON {
+                                1.0
+                            } else {
+                                ALPHA0
+                            }
+                        });
+                        (pov, alpha)
                     } else {
-                        1.0
+                        (1.0, 1.0)
                     };
-                    let s_c = s[0].sqrt();
-                    let alpha = alpha.unwrap_or({
-                        if s_c > f64::EPSILON && pov < f64::EPSILON {
-                            0.0
-                        } else if s_c < f64::EPSILON {
-                            1.0
-                        } else {
-                            ALPHA0
-                        }
-                    });
 
                     let pred = p[0];
                     let k = sigma_weight.unwrap_or(1.0);
@@ -58,10 +59,6 @@ impl InfillCriterion for ExpectedImprovement {
 
                     let arg1 = pov * arg * norm_cdf(arg);
                     let arg2 = pov.powf(alpha) * norm_pdf(arg);
-                    println!(
-                        "EI: x={x:?} pov={pov} sigma={sigma} out={}",
-                        sigma * (arg1 + arg2)
-                    );
                     sigma * (arg1 + arg2)
                 }
             }
@@ -87,17 +84,22 @@ impl InfillCriterion for ExpectedImprovement {
                 if s[0] < f64::EPSILON {
                     Array1::zeros(pt.len())
                 } else {
-                    let pov = if let Some(pov_model) = viability_model {
-                        pov_model.predict(&pt).unwrap()[0].clamp(0.0, 1.0)
+                    let (pov, alpha) = if let Some(pov_model) = viability_model {
+                        let s_c = s[0].sqrt();
+                        let pov = pov_model.predict(&pt).unwrap()[0].clamp(0.0, 1.0);
+                        let alpha = alpha.unwrap_or({
+                            if s_c > f64::EPSILON && pov < f64::EPSILON {
+                                0.0
+                            } else if s_c < f64::EPSILON {
+                                1.0
+                            } else {
+                                ALPHA0
+                            }
+                        });
+                        (pov, alpha)
                     } else {
-                        1.0
+                        (1.0, 1.0)
                     };
-                    let alpha = if pov < f64::EPSILON {
-                        0.0
-                    } else {
-                        alpha.unwrap_or(ALPHA0)
-                    };
-
                     if pov <= f64::EPSILON {
                         // Shortcut: consider gradient is null
                         return Array1::zeros(pt.len());
