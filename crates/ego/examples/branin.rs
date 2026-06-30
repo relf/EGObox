@@ -13,9 +13,7 @@
 //!
 //! See: https://doi.org/10.1007/s00158-024-03833-8
 
-use egobox_ego::{
-    EgorBuilder, FeasibleInfillStrategy, InfillOptimizer, InfillStrategy, RuntimeFlags,
-};
+use egobox_ego::{EgorBuilder, FeasibleInfillStrategy, InfillOptimizer, InfillStrategy};
 use ndarray::{Array2, ArrayView2, Zip, array};
 
 /// Scaled Branin-Hoo function
@@ -127,7 +125,7 @@ fn main() -> egobox_ego::Result<()> {
                 .outdir("./branin_hoo_run1")
                 .max_iters(50)
                 .seed(seed)
-                .feasibility_infill(FeasibleInfillStrategy::ViabilityWeighted)
+                .feasible_infill(FeasibleInfillStrategy::ViabilityWeighted)
         })
         .verbose(log::LevelFilter::Info)
         .min_within(&xlimits)
@@ -151,7 +149,7 @@ fn main() -> egobox_ego::Result<()> {
                 .outdir("./branin_hoo_run2")
                 .max_iters(50)
                 .seed(seed)
-                .feasibility_infill(FeasibleInfillStrategy::AlphaPoweredViabilityWeighted(0.3))
+                .feasible_infill(FeasibleInfillStrategy::AlphaPoweredViabilityWeighted(0.3))
         })
         .verbose(log::LevelFilter::Info)
         .min_within(&xlimits)

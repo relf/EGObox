@@ -137,9 +137,9 @@ fn parse_run_info(py: Python, value: Py<PyAny>) -> PyResult<RunInfo> {
 ///         Infill criteria to decide best next promising point.
 ///         Can be either InfillStrategy.LOG_EI, InfillStrategy.EI, InfillStrategy.WB2, InfillStrategy.WB2S
 ///
-///     infill_optimizer (InfillOptimizer enum):
-///         Internal optimizer used to optimize infill criteria.
-///         Can be either InfillOptimizer.COBYLA or InfillOptimizer.SLSQP
+///     feasible_infill_strategy (FeasibleInfillStrategy enum):
+///         Strategy to handle feasibility information in the infill criterion.
+///         Can be either FeasibleInfillStrategy.NONE, FeasibleInfillStrategy.EFI_P, or FeasibleInfillStrategy.EFI_FE
 ///
 ///     cstr_infill (bool):
 ///         Activate constrained infill criterion where the product of probability of feasibility of constraints
@@ -148,6 +148,10 @@ fn parse_run_info(py: Python, value: Py<PyAny>) -> PyResult<RunInfo> {
 ///     cstr_strategy (ConstraintStrategy enum):
 ///         Constraint management either use the mean value or upper bound
 ///         Can be either ConstraintStrategy.MeanValue or ConstraintStrategy.UpperTrustedBound.
+///
+///     infill_optimizer (InfillOptimizer enum):
+///         Internal optimizer used to optimize infill criteria.
+///         Can be either InfillOptimizer.COBYLA or InfillOptimizer.SLSQP
 ///
 ///     qei_config (QEiConfig):
 ///         Configuration for parallel (qEI) evaluation also known as batch or multipoint evaluation.
@@ -210,6 +214,7 @@ pub(crate) struct Egor {
     pub n_doe: usize,
     pub doe: Option<Array2<f64>>,
     pub infill_strategy: InfillStrategy,
+    pub feasible_infill_strategy: FeasibleInfillStrategy,
     pub cstr_infill: bool,
     pub cstr_strategy: ConstraintStrategy,
     pub qei_config: QEiConfig,
@@ -239,6 +244,7 @@ impl Egor {
         n_doe = 0,
         doe = None,
         infill_strategy = InfillStrategy::LogEi,
+        feasible_infill_strategy = FeasibleInfillStrategy::None,
         cstr_infill = false,
         cstr_strategy = ConstraintStrategy::Mc,
         qei_config = QEiConfig::default(),
@@ -265,6 +271,7 @@ impl Egor {
         n_doe: usize,
         doe: Option<PyReadonlyArray2<f64>>,
         infill_strategy: InfillStrategy,
+        feasible_infill_strategy: FeasibleInfillStrategy,
         cstr_infill: bool,
         cstr_strategy: ConstraintStrategy,
         qei_config: QEiConfig,
@@ -356,6 +363,7 @@ impl Egor {
             infill_strategy,
             cstr_infill,
             cstr_strategy,
+            feasible_infill_strategy,
             qei_config,
             infill_optimizer,
             trego,
@@ -740,6 +748,16 @@ impl Egor {
         }
     }
 
+    fn feasible_infill_strategy(&self) -> egobox_ego::FeasibleInfillStrategy {
+        match self.feasible_infill_strategy {
+            FeasibleInfillStrategy::None => egobox_ego::FeasibleInfillStrategy::None,
+            FeasibleInfillStrategy::EfiP => egobox_ego::FeasibleInfillStrategy::ViabilityWeighted,
+            FeasibleInfillStrategy::EfiFe => {
+                egobox_ego::FeasibleInfillStrategy::AlphaPoweredViabilityWeighted(0.3)
+            }
+        }
+    }
+
     fn cstr_strategy(&self) -> egobox_ego::ConstraintStrategy {
         match self.cstr_strategy {
             ConstraintStrategy::Mc => egobox_ego::ConstraintStrategy::MeanConstraint,
@@ -819,6 +837,7 @@ impl Egor {
         timeout: Option<f64>,
     ) -> egobox_ego::EgorConfig {
         let infill_strategy = self.infill_strategy();
+        let feasible_infill_strategy = self.feasible_infill_strategy();
         let cstr_strategy = self.cstr_strategy();
         let qei_strategy = self.qei_strategy();
         let infill_optimizer = self.infill_optimizer();
@@ -861,6 +880,7 @@ impl Egor {
                     .max_eval(self.gp_config.max_eval)
             })
             .infill_strategy(infill_strategy)
+            .feasible_infill_strategy(feasible_infill_strategy)
             .cstr_infill(self.cstr_infill)
             .cstr_strategy(cstr_strategy)
             .configure_qei(|qei_config| {
