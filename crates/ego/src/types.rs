@@ -71,16 +71,16 @@ pub enum QEiStrategy {
     ConstantLiarMinimum,
 }
 
-/// Feasibility Enhanced infill criterion activation
+/// Expected Feasible Improvement infill criterion activation
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
 #[non_exhaustive]
 pub enum FeasibleInfillStrategy {
     /// No feasibility enhanced infill
     #[default]
     None,
-    /// Infill criterion weighted with full probability of viability
+    /// Infill criterion weighted with full probability of viability (aka EFI_P)
     ViabilityWeighted,
-    /// Infill criterion weighted by probability of viability to the power of alpha
+    /// Infill criterion weighted by probability of viability to the power of alpha (aka EFI_FE)
     AlphaPoweredViabilityWeighted(f64),
 }
 
