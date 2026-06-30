@@ -361,7 +361,7 @@ pub struct ValidEgorConfig {
     /// Constraints criterion
     pub(crate) cstr_strategy: ConstraintStrategy,
     /// Feasibility Enhanced criterion
-    pub(crate) fe_infill: bool,
+    pub(crate) feasibility_infill: FeasibleInfillStrategy,
     /// Failure handling strategy
     pub(crate) failsafe_strategy: FailsafeStrategy,
     /// Runtime behavior flags (replaces environment variable checks)
@@ -395,7 +395,7 @@ impl Default for ValidEgorConfig {
             seed: None,
             cstr_infill: false,
             cstr_strategy: ConstraintStrategy::MeanConstraint,
-            fe_infill: false,
+            feasibility_infill: FeasibleInfillStrategy::None,
             failsafe_strategy: FailsafeStrategy::Rejection,
             runtime_flags: RuntimeFlags::default(),
             iteration_strategy: Box::new(StandardEgoStrategy),
@@ -710,6 +710,16 @@ impl EgorConfig {
     /// Sets the objective evaluation failure handling strategy
     pub fn failsafe_strategy(mut self, failsafe_strategy: FailsafeStrategy) -> Self {
         self.0.failsafe_strategy = failsafe_strategy;
+        self
+    }
+
+    /// Sets the feasibility enhanced infill strategy
+    ///
+    /// This enables the Feasibility Enhanced Expected Improvement (EFI_FE) acquisition
+    /// function from Tfaily et al. (2024) for handling hidden constraints in Bayesian
+    /// optimization.
+    pub fn feasibility_infill(mut self, strategy: FeasibleInfillStrategy) -> Self {
+        self.0.feasibility_infill = strategy;
         self
     }
 

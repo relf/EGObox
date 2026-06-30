@@ -71,6 +71,35 @@ pub enum QEiStrategy {
     ConstantLiarMinimum,
 }
 
+/// Feasibility Enhanced infill criterion activation
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
+#[non_exhaustive]
+pub enum FeasibleInfillStrategy {
+    /// No feasibility enhanced infill
+    #[default]
+    None,
+    /// Infill criterion weighted with full probability of viability
+    ViabilityWeighted,
+    /// Infill criterion weighted by probability of viability to the power of alpha
+    AlphaPoweredViabilityWeighted(f64),
+}
+
+impl FeasibleInfillStrategy {
+    /// Returns true if feasibility-enhanced infill is enabled, false otherwise
+    pub fn is_enabled(&self) -> bool {
+        !matches!(self, FeasibleInfillStrategy::None)
+    }
+
+    /// Get alpha value for feasibility-enhanced infill, if applicable
+    pub fn alpha(&self) -> Option<f64> {
+        match self {
+            FeasibleInfillStrategy::ViabilityWeighted => Some(1.0),
+            FeasibleInfillStrategy::AlphaPoweredViabilityWeighted(alpha) => Some(*alpha),
+            _ => None,
+        }
+    }
+}
+
 /// Strategy to handle objective computation failure at a given x point
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[non_exhaustive]

@@ -361,7 +361,9 @@ where
         (model.expect("Surrogate model is trained"), best_theta_inits)
     }
 
-    fn make_viability_surrogate(
+    /// Train GP model for viability surrogate (binary classification)
+    /// given training data and surrogate builder
+    pub fn make_viability_surrogate(
         &self,
         x_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
         x_fail: &ArrayBase<impl Data<Elem = f64>, Ix2>,
@@ -1178,9 +1180,10 @@ where
                     })
                     .collect::<Vec<_>>();
 
-                // Make viability surrogate and dedicated constraint
-                let viability_model = if self.config.failsafe_strategy
+                // Make viability surrogate
+                let viability_model = if (self.config.failsafe_strategy
                     == FailsafeStrategy::Viability
+                    || self.config.feasibility_infill.is_enabled())
                     && let Some(points) = x_fail_points
                     && points.nrows() > 0
                 {
@@ -1211,6 +1214,7 @@ where
                     &cstr_funcs,
                     cstr_tol,
                     viability_model,
+                    self.config.feasibility_infill.alpha(),
                     &infill_data,
                     actives,
                 );
