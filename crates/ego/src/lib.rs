@@ -233,12 +233,22 @@
 //! ```
 //!
 //! * When the objective function evaluation fails at a given `x` point (aka hidden constraint), the optimizer
-//!   can either reject the point (default) or impute the objective value.
+//!   can either reject the point (default), impute the objective value or use a surrogate to model the probability
+//!   of feasibility.
 //!
 //! ```no_run
 //! # use egobox_ego::{EgorConfig, FailsafeStrategy};
 //! # let egor_config = EgorConfig::default();
 //!     egor_config.failsafe_strategy(FailsafeStrategy::Imputation);
+//! ```
+//!
+//! * ANother way to handle hidden constraints is to use a feasibility enhanced acquisition function (EFI_FE)
+//!   as described in \[[Tfaily2024](#Tfaily2024)\].
+//!
+//! ```no_run
+//! # use egobox_ego::{EgorConfig, FeasibleInfillStrategy};
+//! # let egor_config = EgorConfig::default();
+//!     egor_config.feasible_infill_strategy(FeasibleInfillStrategy::EfiFe);
 //! ```
 //!
 //! # Implementation notes
@@ -251,7 +261,7 @@
 //!   See \[[Zhan2024](#Zhan024)\] and \[[Pretsch2024](#Pretsch2024)\]
 //! * Theta bounds are implemented as in \[[Appriou2023](#Appriou2023)\]
 //! * Logarithm of Expected Improvement is implemented as in \[[Ament2025](#Ament2025)\]
-//! * Hidden constraints handling is implemented as in \[[Bussemaker2024](#Bussemaker2024)\]
+//! * Hidden constraints handling is implemented as in \[[Bussemaker2024](#Bussemaker2024)\] and \[[Tfaily2024](#Tfaily2024)\]
 //!
 //! # References
 //!
@@ -317,6 +327,11 @@
 //! \[<a id="Bussemaker2024">Bussemaker2024</a>\]: Bussemaker, Jasper H., et al. (2024)
 //! [Surrogate-based optimization of system architectures subject to hidden constraints.](https://hal.science/hal-04462408v2/file/DTIS2024-018-DTIS2024-018%20posprint-Accept%C3%A9e.pdf)
 //! AIAA AVIATION FORUM AND ASCEND 2024.
+//!
+//!
+//! \[<a id="Tfaily2024">Tfaily2024</a>\]: Tfaily, Ali, et al. (2024)
+//! [Bayesian optimization with hidden constraints for aircraft design.](https://hal.science/hal-04673615/)
+//! Structural and Multidisciplinary Optimization 67.7 (2024): 123.
 //!
 //! smtorg. (2018). Surrogate modeling toolbox. In [GitHub repository](https://github.com/SMTOrg/smt)
 //!

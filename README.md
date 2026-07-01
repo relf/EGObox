@@ -258,6 +258,10 @@ Bussemaker, Jasper H., et al. (2024).
 [Surrogate-based optimization of system architectures subject to hidden constraints.](https://hal.science/hal-04462408v2/file/DTIS2024-018-DTIS2024-018%20posprint-Accept%C3%A9e.pdf)
 AIAA Aviation forum and Ascend 2024.
 
+Tfaily, Ali, et al. (2024)
+[Bayesian optimization with hidden constraints for aircraft design.](https://hal.science/hal-04673615/)
+Structural and Multidisciplinary Optimization 67.7 (2024): 123.
+
 smtorg. (2018). [Surrogate modeling toolbox](https://github.com/SMTOrg/smt). GitHub.
 
 ## License
