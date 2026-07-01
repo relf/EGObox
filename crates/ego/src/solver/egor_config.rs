@@ -804,6 +804,14 @@ impl EgorConfig {
             );
         }
 
+        // Feasible infill strategy not implemented for LogEI, so warn if selected
+        if config.feasibility_infill.is_enabled() && config.infill_criterion.name() == "LogEI" {
+            return Err(crate::EgoError::InvalidConfigError(format!(
+                "Feasible infill strategy {:?} is not implemented for LogEI criterion. Consider using EI, WB2 or WB2S instead.",
+                config.feasibility_infill
+            )));
+        }
+
         Ok(config)
     }
 }
