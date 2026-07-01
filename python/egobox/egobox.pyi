@@ -13,6 +13,7 @@ __all__ = [
     "Egor",
     "EgorOptim",
     "ExitStatus",
+    "FeasibleInfillStrategy",
     "FailsafeStrategy",
     "GpConfig",
     "GpMix",
@@ -1243,6 +1244,24 @@ class ExitStatus(enum.Enum):
     UNEXPECTED_EXIT = ...
     r"""
     Solver unexpected exit. See logs for details.
+    """
+
+@typing.final
+class FeasibleInfillStrategy(enum.Enum):
+    r"""
+    Expected Feasible Improvement (EFI) strategy for hidden constraints.
+    """
+    NONE = ...
+    r"""
+    Do not use feasibility information.
+    """
+    EFI_P = ...
+    r"""
+    Expected feasible improvement weighted by full viability probability.
+    """
+    EFI_FE = ...
+    r"""
+    Feasibility-enhanced expected feasible improvement (more exploratory).
     """
 
 @typing.final
