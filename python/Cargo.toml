@@ -29,7 +29,7 @@ egobox-gp = { version = "0.36.3", path = "../crates/gp" }
 egobox-moe = { version = "0.35.3", path = "../crates/moe", features = [
   "persistent",
 ] }
-egobox-ego = { version = "0.39.0", path = "../crates/ego", features = [
+egobox-ego = { version = "0.40.0", path = "../crates/ego", features = [
   "persistent",
 ] }
 gpx = { version = "0.5.0", path = "../crates/gpx" }
