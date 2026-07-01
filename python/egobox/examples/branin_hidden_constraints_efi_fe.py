@@ -1,12 +1,13 @@
-"""Compare EFI_P vs EFI_FE on modified Branin-Hoo with Egor.
+"""
+Compare EFI_P vs EFI_FE on modified Branin-Hoo with Egor.
 
 This example reproduces the hidden-failure setup from:
 Tfaily et al. (2024), "Bayesian optimization with hidden constraints for aircraft design".
 
 Both optimizations are run with Egor and differ only by
 ``feasible_infill_strategy``:
-- ``FeasibleInfillStrategy.EFI_P`` (reference)
-- ``FeasibleInfillStrategy.EFI_FE`` (feasibility enhanced)
+- ``FeasibleInfillStrategy.EFI_P`` (reference alpha=1.0)
+- ``FeasibleInfillStrategy.EFI_FE`` (feasibility enhanced alpha=0.3)
 
 The generated figure contains, for both runs:
 - 2D Branin contour map
