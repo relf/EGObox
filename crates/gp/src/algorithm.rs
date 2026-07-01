@@ -867,9 +867,7 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>, D: Data<Elem
             .mapv(|v| num_traits::float::Float::abs(v))
             .sum_axis(Axis(1));
         if *sums.min().unwrap() == F::zero() {
-            println!(
-                "Warning: multiple x input features have the same value (at least same row twice)."
-            );
+            log::warn!("Warning: multiple x have the same value (at least same row twice).");
         }
         let fx = self.mean().coefs(&xtrain.data);
 

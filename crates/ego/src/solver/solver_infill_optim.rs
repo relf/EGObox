@@ -31,17 +31,20 @@ pub(crate) struct InfillOptProblem<'a, CstrFn> {
     pub cstr_funcs: &'a [CstrFn],
     pub cstr_tols: &'a Array1<f64>,
     pub viability_model: Option<Box<dyn MixtureGpSurrogate>>,
+    pub alpha: Option<f64>,
     pub infill_data: &'a InfillObjData<f64>,
     pub actives: &'a Array2<usize>,
 }
 
 impl<'a, CstrFn> InfillOptProblem<'a, CstrFn> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         obj_model: &'a dyn MixtureGpSurrogate,
         cstr_models: &'a [Box<dyn MixtureGpSurrogate>],
         cstr_funcs: &'a [CstrFn],
         cstr_tols: &'a Array1<f64>,
         viability_model: Option<Box<dyn MixtureGpSurrogate>>,
+        alpha: Option<f64>,
         infill_data: &'a InfillObjData<f64>,
         actives: &'a Array2<usize>,
     ) -> Self {
@@ -51,6 +54,7 @@ impl<'a, CstrFn> InfillOptProblem<'a, CstrFn> {
             cstr_funcs,
             cstr_tols,
             viability_model,
+            alpha,
             infill_data,
             actives,
         }
@@ -81,6 +85,7 @@ where
             cstr_funcs,
             cstr_tols,
             viability_model,
+            alpha,
             infill_data,
             actives,
         } = infill_optpb;
@@ -114,6 +119,10 @@ where
                         return f64::INFINITY;
                     }
 
+                    let viability_model = viability_model
+                        .as_deref()
+                        .filter(|_| self.config.feasibility_infill.is_enabled());
+
                     if let Some(grad) = gradient {
                         let g_infill_obj = if self.config.cstr_infill {
                             // Use constrained infill criterion
@@ -123,6 +132,8 @@ where
                                 cstr_models,
                                 cstr_tols,
                                 *fmin,
+                                viability_model,
+                                alpha,
                                 *scale_infill_obj,
                                 *scale_wb2,
                                 *feasibility,
@@ -133,6 +144,8 @@ where
                                 &xcoop,
                                 obj_model,
                                 *fmin,
+                                viability_model,
+                                alpha,
                                 *scale_infill_obj,
                                 *scale_wb2,
                             )
@@ -153,6 +166,8 @@ where
                             cstr_models,
                             cstr_tols,
                             *fmin,
+                            viability_model,
+                            alpha,
                             *scale_infill_obj,
                             *scale_wb2,
                             *feasibility,
@@ -163,6 +178,8 @@ where
                             &xcoop,
                             obj_model,
                             *fmin,
+                            viability_model,
+                            alpha,
                             *scale_infill_obj,
                             *scale_wb2,
                             *sigma_weight,
@@ -221,21 +238,25 @@ where
                 .collect::<Vec<_>>();
             cstr_refs.extend(cstr_funcs.clone());
 
-            // If viability model is provided, we add the corresponding constraint
-            let viability_cstr =
-                |x: &[f64], gradient: Option<&mut [f64]>, params: &mut InfillObjData<f64>| -> f64 {
-                    if let Some(viab_model) = &viability_model {
-                        let active = active.to_vec();
-                        let InfillObjData { xbest: xcoop, .. } = params;
-                        let mut xcoop = xcoop.clone();
-                        coego::set_active_x(&mut xcoop, &active, x);
-                        0.25 - Self::mean_cstr(&**viab_model, &xcoop, gradient, 1.0, &active)
-                            .clamp(0.0, 1.0)
-                    } else {
-                        -1.0
-                    }
-                };
-            if viability_model.is_some() {
+            // If viability strategy, we add the corresponding constraint
+            let viability_cstr = |x: &[f64],
+                                  gradient: Option<&mut [f64]>,
+                                  params: &mut InfillObjData<f64>|
+             -> f64 {
+                if let Some(viab_model) = &viability_model {
+                    let active = active.to_vec();
+                    let InfillObjData { xbest: xcoop, .. } = params;
+                    let mut xcoop = xcoop.clone();
+                    coego::set_active_x(&mut xcoop, &active, x);
+                    0.25 - Self::mean_cstr(&**viab_model, &xcoop, gradient, 1.0, &active)
+                        .clamp(0.0, 1.0)
+                } else {
+                    unreachable!(
+                        "Viability model should be provided when viability constraint is used in infill optimization"
+                    )
+                }
+            };
+            if self.config.failsafe_strategy == FailsafeStrategy::Viability {
                 cstr_refs.push(&viability_cstr as &(dyn OptFn<InfillObjData<f64>> + Sync));
             }
             // Limits of activated components

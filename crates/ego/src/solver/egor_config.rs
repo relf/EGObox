@@ -360,6 +360,8 @@ pub struct ValidEgorConfig {
     pub(crate) cstr_infill: bool,
     /// Constraints criterion
     pub(crate) cstr_strategy: ConstraintStrategy,
+    /// Feasibility Enhanced criterion
+    pub(crate) feasibility_infill: FeasibleInfillStrategy,
     /// Failure handling strategy
     pub(crate) failsafe_strategy: FailsafeStrategy,
     /// Runtime behavior flags (replaces environment variable checks)
@@ -393,6 +395,7 @@ impl Default for ValidEgorConfig {
             seed: None,
             cstr_infill: false,
             cstr_strategy: ConstraintStrategy::MeanConstraint,
+            feasibility_infill: FeasibleInfillStrategy::None,
             failsafe_strategy: FailsafeStrategy::Rejection,
             runtime_flags: RuntimeFlags::default(),
             iteration_strategy: Box::new(StandardEgoStrategy),
@@ -710,6 +713,16 @@ impl EgorConfig {
         self
     }
 
+    /// Sets the feasibility enhanced infill strategy
+    ///
+    /// This enables the Feasibility Enhanced Expected Improvement (EFI_FE) acquisition
+    /// function from Tfaily et al. (2024) for handling hidden constraints in Bayesian
+    /// optimization.
+    pub fn feasible_infill_strategy(mut self, strategy: FeasibleInfillStrategy) -> Self {
+        self.0.feasibility_infill = strategy;
+        self
+    }
+
     /// Configure runtime behavior flags.
     ///
     /// These flags control various runtime behaviors that were previously
@@ -789,6 +802,14 @@ impl EgorConfig {
                 "CoEGO and KPLS both enabled: KPLS will be used for GP training, \
                  CoEGO for infill criterion optimization"
             );
+        }
+
+        // Feasible infill strategy not implemented for LogEI, so warn if selected
+        if config.feasibility_infill.is_enabled() && config.infill_criterion.name() == "LogEI" {
+            return Err(crate::EgoError::InvalidConfigError(format!(
+                "Feasible infill strategy {:?} is not implemented for LogEI criterion. Consider using EI, WB2 or WB2S instead.",
+                config.feasibility_infill
+            )));
         }
 
         Ok(config)

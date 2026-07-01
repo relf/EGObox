@@ -227,10 +227,24 @@ impl<'a, 'py> FromPyObject<'a, 'py> for InfillOptimizer {
     }
 }
 
+/// Expected Feasible Improvement (EFI) is an acquisition function that takes into account the feasibility of the points in the optimization process.
+/// It is defined as the product of the Expected Improvement (EI) weighted by the probability of viability
+#[gen_stub_pyclass_enum]
+#[pyclass(from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
+pub(crate) enum FeasibleInfillStrategy {
+    /// Do not use feasibility information
+    None = 1,
+    /// Use Expected Feasible Improvement with full probability of feasibility
+    EfiP = 2,
+    /// Use Expected Feasible Improvement with 0.3 weighted probability of feasibility, which is more exploratory than EfiP
+    EfiFe = 3,
+}
+
 /// FailsafeStrategy specifies the strategy to use for handling failures during infill optimization.
 #[gen_stub_pyclass_enum]
 #[pyclass(skip_from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 pub(crate) enum FailsafeStrategy {
     /// The point is ignored, the optimization continues but may fail to explore
     /// another region of the search space

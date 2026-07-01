@@ -5,7 +5,7 @@ use ndarray::{Array1, ArrayView};
 
 use serde::{Deserialize, Serialize};
 
-const SQRT_2PI: f64 = 2.5066282746310007;
+const ALPHA0: f64 = 0.3;
 
 /// A structure for Expected Improvement implementation
 #[derive(Clone, Serialize, Deserialize)]
@@ -24,6 +24,8 @@ impl InfillCriterion for ExpectedImprovement {
         x: &[f64],
         obj_model: &dyn MixtureGpSurrogate,
         fmin: f64,
+        viability_model: Option<&dyn MixtureGpSurrogate>,
+        alpha: Option<f64>,
         sigma_weight: Option<f64>,
         _scale: Option<f64>,
     ) -> f64 {
@@ -33,13 +35,31 @@ impl InfillCriterion for ExpectedImprovement {
                 if s[0] < f64::EPSILON {
                     0.0
                 } else {
+                    let (pov, alpha) = if let Some(pov_model) = viability_model {
+                        let s_c = s[0].sqrt();
+                        let pov = pov_model.predict(&pt).unwrap()[0].clamp(0.0, 1.0);
+                        let alpha = alpha.unwrap_or({
+                            if s_c > f64::EPSILON && pov < f64::EPSILON {
+                                0.0
+                            } else if s_c < f64::EPSILON {
+                                1.0
+                            } else {
+                                ALPHA0
+                            }
+                        });
+                        (pov, alpha)
+                    } else {
+                        (1.0, 1.0)
+                    };
+
                     let pred = p[0];
                     let k = sigma_weight.unwrap_or(1.0);
                     let sigma = k * s[0].sqrt();
-                    let args0 = (fmin - pred) / sigma;
-                    let args1 = args0 * norm_cdf(args0);
-                    let args2 = norm_pdf(args0);
-                    sigma * (args1 + args2)
+                    let arg = (fmin - pred) / sigma;
+
+                    let arg1 = pov * arg * norm_cdf(arg);
+                    let arg2 = pov.powf(alpha) * norm_pdf(arg);
+                    sigma * (arg1 + arg2)
                 }
             }
             _ => 0.0,
@@ -53,6 +73,8 @@ impl InfillCriterion for ExpectedImprovement {
         x: &[f64],
         obj_model: &dyn MixtureGpSurrogate,
         fmin: f64,
+        viability_model: Option<&dyn MixtureGpSurrogate>,
+        alpha: Option<f64>,
         sigma_weight: Option<f64>,
         _scale: Option<f64>,
     ) -> Array1<f64> {
@@ -62,25 +84,85 @@ impl InfillCriterion for ExpectedImprovement {
                 if s[0] < f64::EPSILON {
                     Array1::zeros(pt.len())
                 } else {
+                    let (pov, alpha) = if let Some(pov_model) = viability_model {
+                        let s_c = s[0].sqrt();
+                        let pov = pov_model.predict(&pt).unwrap()[0].clamp(0.0, 1.0);
+                        let alpha = alpha.unwrap_or({
+                            if s_c > f64::EPSILON && pov < f64::EPSILON {
+                                0.0
+                            } else if s_c < f64::EPSILON {
+                                1.0
+                            } else {
+                                ALPHA0
+                            }
+                        });
+                        (pov, alpha)
+                    } else {
+                        (1.0, 1.0)
+                    };
+                    if pov <= f64::EPSILON {
+                        // Shortcut: consider gradient is null
+                        return Array1::zeros(pt.len());
+                    }
+
                     let pred = p[0];
                     let diff_y = fmin - pred;
                     let k = sigma_weight.unwrap_or(1.0);
                     let sigma = s[0].sqrt();
-                    let arg = (fmin - pred) / (k * sigma);
+                    let weighted_sigma = k * sigma;
+                    let arg = diff_y / weighted_sigma;
 
                     let (y_prime, var_prime) = obj_model.predict_valvar_gradients(&pt).unwrap();
                     let y_prime = y_prime.row(0);
                     let sig_2_prime = var_prime.row(0);
                     let sig_prime = sig_2_prime.mapv(|v| k * v / (2. * sigma));
-                    let arg_prime = y_prime.mapv(|v| v / (-k * sigma))
-                        - diff_y.to_owned() * sig_prime.mapv(|v| v / (k * sigma * k * sigma));
-                    let factor = k * sigma * (-arg / SQRT_2PI) * (-(arg * arg) / 2.).exp();
+                    let arg_prime = y_prime.mapv(|v| v / (-weighted_sigma))
+                        - diff_y.to_owned()
+                            * sig_prime.mapv(|v| v / (weighted_sigma * weighted_sigma));
 
-                    let arg1 = y_prime.mapv(|v| v * (-norm_cdf(arg)));
-                    let arg2 = diff_y * norm_pdf(arg) * arg_prime.to_owned();
-                    let arg3 = sig_prime.to_owned() * norm_pdf(arg);
-                    let arg4 = factor * arg_prime;
-                    arg1 + arg2 + arg3 + arg4
+                    // EI = sigma * (pov * arg * norm_cdf(arg) + pov^alpha * norm_pdf(arg))
+                    // Let f_ei = pov * arg * norm_cdf(arg) + pov^alpha * norm_pdf(arg)
+                    // d(EI)/dx = d(sigma)/dx * f_ei + sigma * df_ei/dx
+
+                    let norm_cdf_arg = norm_cdf(arg);
+                    let norm_pdf_arg = norm_pdf(arg);
+
+                    // f_ei = pov * arg * norm_cdf(arg) + pov^alpha * norm_pdf(arg)
+                    let pov_alpha = pov.powf(alpha);
+                    let f_ei = pov * arg * norm_cdf_arg + pov_alpha * norm_pdf_arg;
+
+                    // df_ei/dx = d(pov)/dx * arg * norm_cdf(arg) + pov * d(arg * norm_cdf(arg))/dx
+                    //          + d(pov^alpha)/dx * norm_pdf(arg) + pov^alpha * d(norm_pdf(arg))/dx
+
+                    // d(arg * norm_cdf(arg))/dx = arg_prime * (norm_cdf(arg) + arg * norm_pdf(arg))
+                    let d_arg_cdf = arg_prime.clone() * (norm_cdf_arg + arg * norm_pdf_arg);
+
+                    // d(norm_pdf(arg))/dx = -arg * norm_pdf(arg) * arg_prime
+                    let d_pdf = -arg * norm_pdf_arg * arg_prime;
+
+                    // d(pov^alpha)/dx = alpha * pov^(alpha-1) * d(pov)/dx
+                    let pov_grad = if let Some(pov_model) = viability_model {
+                        pov_model.predict_gradients(&pt).unwrap().row(0).to_owned()
+                    } else {
+                        Array1::zeros(x.len())
+                    };
+
+                    let d_pov_alpha = if alpha > 0.0 && pov > f64::EPSILON {
+                        alpha * pov.powf(alpha - 1.0) * pov_grad.clone()
+                    } else {
+                        Array1::zeros(x.len())
+                    };
+
+                    // df_ei/dx = pov_grad * arg * norm_cdf(arg) + pov * d_arg_cdf
+                    //          + d_pov_alpha * norm_pdf(arg) + pov_alpha * d_pdf
+                    let df_ei_dx = &pov_grad * arg * norm_cdf_arg
+                        + pov * d_arg_cdf
+                        + d_pov_alpha * norm_pdf_arg
+                        + pov_alpha * d_pdf;
+
+                    // d(sigma)/dx = sig_prime (already weighted by k)
+                    // d(EI)/dx = sig_prime * f_ei + sigma * df_ei/dx
+                    sig_prime.to_owned() * f_ei + k * sigma * df_ei_dx
                 }
             }
             _ => Array1::zeros(pt.len()),
@@ -112,6 +194,8 @@ impl InfillCriterion for LogExpectedImprovement {
         x: &[f64],
         obj_model: &dyn MixtureGpSurrogate,
         fmin: f64,
+        _viability_model: Option<&dyn MixtureGpSurrogate>,
+        _alpha: Option<f64>,
         sigma_weight: Option<f64>,
         _scale: Option<f64>,
     ) -> f64 {
@@ -140,6 +224,8 @@ impl InfillCriterion for LogExpectedImprovement {
         x: &[f64],
         obj_model: &dyn MixtureGpSurrogate,
         fmin: f64,
+        _viability_model: Option<&dyn MixtureGpSurrogate>,
+        _alpha: Option<f64>,
         sigma_weight: Option<f64>,
         _scale: Option<f64>,
     ) -> Array1<f64> {
@@ -186,13 +272,14 @@ mod tests {
     use super::*;
     use crate::types::*;
     use approx::assert_abs_diff_eq;
+    use egobox_moe::{CorrelationSpec, GpSurrogate};
     use egobox_moe::{MixintContext, MoeBuilder};
-    // use egobox_moe::GpSurrogate;
     use finitediff::vec;
     use linfa::Dataset;
-    use ndarray::{Array2, ArrayView2, array};
+    use ndarray::{Array2, ArrayView2, Axis, array};
     use ndarray_npy::write_npy;
-    // use ndarray_npy::write_npy;
+    use ndarray_rand::rand_distr::Uniform;
+    use ndarray_rand::{RandomExt, rand::SeedableRng};
 
     #[test]
     fn test_ei_gradients() {
@@ -209,10 +296,10 @@ mod tests {
             .expect("Mixint surrogate creation");
 
         let x = vec![3.];
-        let grad = EI.grad(&x, &mixi_moe, 0., Some(0.75), None);
+        let grad = EI.grad(&x, &mixi_moe, 0., None, None, Some(0.75), None);
 
         let f = |x: &Vec<f64>| -> std::result::Result<f64, anyhow::Error> {
-            Ok(EI.value(x, &mixi_moe, 0., Some(0.75), None))
+            Ok(EI.value(x, &mixi_moe, 0., None, None, Some(0.75), None))
         };
         let grad_central = (vec::central_diff(&f)(&x)).unwrap();
         assert_abs_diff_eq!(grad[0], grad_central[0], epsilon = 1e-6);
@@ -260,11 +347,11 @@ mod tests {
         let x = Array1::linspace(0., 25., 100);
         write_npy("logei_x.npy", &x).expect("save x");
 
-        let grad = x.mapv(|v| LOG_EI.grad(&[v], &mixi_moe, 0., Some(0.75), None)[0]);
+        let grad = x.mapv(|v| LOG_EI.grad(&[v], &mixi_moe, 0., None, None, Some(0.75), None)[0]);
         write_npy("logei_grad.npy", &grad).expect("save grad log ei");
 
         let f = |x: &Vec<f64>| -> std::result::Result<f64, anyhow::Error> {
-            Ok(LOG_EI.value(x, &mixi_moe, 0., Some(0.75), None))
+            Ok(LOG_EI.value(x, &mixi_moe, 0., None, None, Some(0.75), None))
         };
         let grad_central = x.mapv(|v| vec::central_diff(&f)(&vec![v]).unwrap()[0]);
         write_npy("logei_fdiff.npy", &grad_central).expect("save fdiff log ei");
@@ -297,8 +384,8 @@ mod tests {
             .expect("Mixint surrogate creation");
 
         let x = [5.0];
-        let low_weight = LOG_EI.value(&x, &mixi_moe, 0.0, Some(0.5), None);
-        let high_weight = LOG_EI.value(&x, &mixi_moe, 0.0, Some(2.0), None);
+        let low_weight = LOG_EI.value(&x, &mixi_moe, 0.0, None, None, Some(0.5), None);
+        let high_weight = LOG_EI.value(&x, &mixi_moe, 0.0, None, None, Some(2.0), None);
 
         assert_ne!(low_weight, high_weight);
     }
@@ -306,19 +393,152 @@ mod tests {
     #[test]
     fn test_d_log_ei() {
         let x = Array1::linspace(-10., 10., 100);
-        write_npy("logei_x.npy", &x).expect("save x");
+        // write_npy("logei_x.npy", &x).expect("save x");
 
-        let fx = x.mapv(log_ei_helper);
-        write_npy("logei_fx.npy", &fx).expect("save fx");
+        let _fx = x.mapv(log_ei_helper);
+        // write_npy("logei_fx.npy", &fx).expect("save fx");
 
-        let dfx = x.mapv(d_log_ei_helper);
-        write_npy("logei_dfx.npy", &dfx).expect("save dfx");
+        let _dfx = x.mapv(d_log_ei_helper);
+        // write_npy("logei_dfx.npy", &dfx).expect("save dfx");
 
-        let gradfx = x.mapv(|x| finite_diff_log_ei(x, 1e-6));
-        write_npy("logei_gradfx.npy", &gradfx).expect("save dfx");
+        let _gradfx = x.mapv(|x| finite_diff_log_ei(x, 1e-6));
+        // write_npy("logei_gradfx.npy", &gradfx).expect("save dfx");
     }
 
     fn finite_diff_log_ei(u: f64, eps: f64) -> f64 {
         (log_ei_helper(u + eps) - log_ei_helper(u - eps)) / (2.0 * eps)
+    }
+
+    // 1D problem from paper: bayesian optimization
+    // with hidden constraint for aircraft design
+    fn fe_test(x: &ArrayView2<f64>) -> Array2<f64> {
+        let y = x.map_axis(Axis(1), |row| {
+            let v = row[0];
+            if (3.5..4.8).contains(&v) || (5.2..6.3).contains(&v) {
+                f64::NAN
+            } else {
+                v.sin() + (10. / 3. * v).sin()
+            }
+        });
+        y.insert_axis(Axis(1))
+    }
+
+    fn hidden_cstr(x: &ArrayView2<f64>) -> Array2<f64> {
+        x.mapv(|v| {
+            if (3.5..4.8).contains(&v) || (5.2..6.3).contains(&v) {
+                0.
+            } else {
+                1.
+            }
+        })
+    }
+
+    #[test]
+    fn test_d_ei_fe() {
+        let uniform = Uniform::new(2., 8.);
+        let mut rng = rand_xoshiro::Xoshiro256Plus::seed_from_u64(42);
+        let xt = Array2::random_using((20, 1), uniform, &mut rng);
+
+        let mask: Vec<bool> = xt
+            .axis_iter(Axis(0))
+            .map(|row| !(4.8..5.2).contains(&row[0]))
+            .collect();
+
+        let result = xt
+            .axis_iter(Axis(0))
+            .zip(mask)
+            .filter(|(_, keep)| *keep)
+            .map(|(row, _)| row.to_owned())
+            .collect::<Vec<_>>();
+
+        let xt = ndarray::stack(
+            Axis(0),
+            &result.iter().map(|r| r.view()).collect::<Vec<_>>(),
+        )
+        .unwrap();
+
+        let xtypes = vec![XType::Float(2., 8.)];
+        let mixi = MixintContext::new(&xtypes);
+
+        let surrogate_builder =
+            MoeBuilder::new().correlation_spec(CorrelationSpec::ABSOLUTEEXPONENTIAL);
+        let yt = hidden_cstr(&xt.view()).into_iter().collect::<Array1<_>>();
+        let ds = Dataset::new(xt.clone(), yt.clone());
+        let viab = mixi
+            .create_surrogate(&surrogate_builder, &ds)
+            .expect("Mixint surrogate creation");
+
+        // Plot the viability function and its variance over a range of x values
+        let x = Array1::linspace(2., 8., 100).insert_axis(Axis(1));
+        let (viab_val, _viab_var) = viab.predict_valvar(&x.view()).unwrap();
+
+        write_npy("ei_fe_xt.npy", &xt).expect("save x training");
+        write_npy("ei_fe_yt.npy", &yt).expect("save y training");
+
+        write_npy("ei_fe_x.npy", &x).expect("save x");
+        write_npy("ei_fe_viability.npy", &viab_val).expect("save viability");
+
+        let y = fe_test(&xt.view());
+        let mask_f: Vec<bool> = y.axis_iter(Axis(0)).map(|row| row[0].is_finite()).collect();
+        let res_x_f = xt
+            .axis_iter(Axis(0))
+            .zip(mask_f.clone())
+            .filter(|(_, keep)| *keep)
+            .map(|(row, _)| row.to_owned())
+            .collect::<Vec<_>>();
+        let xt_valid = ndarray::stack(
+            Axis(0),
+            &res_x_f.iter().map(|r| r.view()).collect::<Vec<_>>(),
+        )
+        .unwrap();
+        let res_y_f = y
+            .axis_iter(Axis(0))
+            .zip(mask_f.clone())
+            .filter(|(_, keep)| *keep)
+            .map(|(row, _)| row[0])
+            .collect::<Vec<_>>();
+        let yt_valid = Array1::from_vec(res_y_f);
+
+        let surrogate_builder_f = MoeBuilder::new();
+        let ds = Dataset::new(xt_valid.clone(), yt_valid.clone());
+        let sm_f = mixi
+            .create_surrogate(&surrogate_builder_f, &ds)
+            .expect("Mixint surrogate creation");
+        let (sm_val, sm_var) = sm_f.predict_valvar(&x.view()).unwrap();
+        write_npy("ei_fe_sm_val.npy", &sm_val).expect("save sm");
+        write_npy("ei_fe_sm_var.npy", &sm_var.mapv(|v| v.sqrt())).expect("save sm sigma");
+
+        // let efi_p = x
+        //     .axis_iter(Axis(0))
+        //     .map(|row| {
+        //         EI.value(
+        //             &row.to_owned().to_vec(),
+        //             &sm_f,
+        //             -1.0,
+        //             Some(&viab),
+        //             None,
+        //             None,
+        //         )
+        //     })
+        //     .collect::<Array1<_>>();
+        // write_npy("ei_fe_efi_p.npy", &efi_p).expect("save efi_p");
+        let fmin = yt_valid.iter().cloned().fold(f64::INFINITY, f64::min);
+        println!("fmin = {fmin}");
+
+        let efi_fe = x
+            .axis_iter(Axis(0))
+            .map(|row| {
+                EI.value(
+                    &row.to_owned().to_vec(),
+                    &sm_f,
+                    fmin,
+                    Some(&viab),
+                    None,
+                    None,
+                    None,
+                )
+            })
+            .collect::<Array1<_>>();
+        write_npy("ei_fe_efi_fe.npy", &efi_fe).expect("save efi_fe");
     }
 }

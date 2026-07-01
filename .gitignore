@@ -21,6 +21,7 @@
 **/*.json
 **/*.bin
 *.npy
+*.png
 input.txt
 output.txt
 mopta08.exe

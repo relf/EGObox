@@ -39,23 +39,30 @@ pub trait InfillCriterion: Clone + Sync {
 
     /// Criterion value at given point x with regards to given
     /// surrogate of the objective function, the current found min,
+    /// an optional viability model, an optional alpha parameter,
     /// an optional scaling factor and an optional weight for the
     /// standard deviation
+    #[allow(clippy::too_many_arguments)]
     fn value(
         &self,
         x: &[f64],
         obj_model: &dyn MixtureGpSurrogate,
         fmin: f64,
+        viability_model: Option<&dyn MixtureGpSurrogate>,
+        alpha: Option<f64>,
         sigma_weight: Option<f64>,
         scale: Option<f64>,
     ) -> f64;
 
     /// Derivatives wrt x components of the criterion value
+    #[allow(clippy::too_many_arguments)]
     fn grad(
         &self,
         x: &[f64],
         obj_model: &dyn MixtureGpSurrogate,
         fmin: f64,
+        viability_model: Option<&dyn MixtureGpSurrogate>,
+        alpha: Option<f64>,
         sigma_weight: Option<f64>,
         scale: Option<f64>,
     ) -> Array1<f64>;
@@ -66,6 +73,8 @@ pub trait InfillCriterion: Clone + Sync {
         _x: &ArrayView2<f64>,
         _obj_model: &dyn MixtureGpSurrogate,
         _fmin: f64,
+        _viability_model: Option<&dyn MixtureGpSurrogate>,
+        _alpha: Option<f64>,
         _sigma_weight: Option<f64>,
     ) -> f64 {
         1.0

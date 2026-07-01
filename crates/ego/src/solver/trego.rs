@@ -135,15 +135,33 @@ where
         let multistarter =
             LocalLhsMultiStarter::new(self.xlimits.clone(), xbest.to_owned(), max_dist, sub_rng);
 
-        let infill_optpb = InfillOptProblem {
-            obj_model: obj_model.as_ref(),
-            cstr_models,
-            cstr_funcs: &transformed_fcstrs,
-            cstr_tols: &cstr_tols,
-            viability_model: None,
-            infill_data,
-            actives: &state.coego.activity,
+        // Make viability surrogate
+        let x_fail_points = state.surrogate.x_fail.as_ref();
+        let viability_model = if (self.config.failsafe_strategy == FailsafeStrategy::Viability
+            || self.config.feasibility_infill.is_enabled())
+            && let Some(points) = x_fail_points
+            && points.nrows() > 0
+        {
+            info!(
+                "Build viability surrogate with {} safe and {} failed points...",
+                x_data.nrows(),
+                points.nrows()
+            );
+            x_fail_points.map(|xfail_points| self.make_viability_surrogate(&x_data, xfail_points))
+        } else {
+            None
         };
+
+        let infill_optpb = InfillOptProblem::new(
+            obj_model.as_ref(),
+            cstr_models,
+            &transformed_fcstrs,
+            &cstr_tols,
+            viability_model,
+            self.config.feasibility_infill.alpha(),
+            infill_data,
+            &state.coego.activity,
+        );
 
         let (infill_obj, x_opt) = self.optimize_infill_criterion(
             infill_optpb,
