@@ -199,8 +199,8 @@ Bouhlel, M. A., Bartoli, N., Otsmane, A., & Morlier, J. (2016).
 [Improving kriging surrogates of high-dimensional design models by partial least squares dimension reduction](https://doi.org/10.1007/s00158-015-1395-9).
 Structural and Multidisciplinary Optimization, 53(5), 935–952.
 
-Bouhlel, M. A., Hwang, J. T., Bartoli, N., Lafage, R., Morlier, J., & Martins, J. R. R. A.
-(2019). [A python surrogate modeling framework with derivatives](https://doi.org/10.1016/j.advengsoft.2019.03.005).
+Bouhlel, M. A., Hwang, J. T., Bartoli, N., Lafage, R., Morlier, J., & Martins, J. R. R. A. (2019).
+[A python surrogate modeling framework with derivatives](https://doi.org/10.1016/j.advengsoft.2019.03.005).
 Advances in Engineering Software, 102662.
 
 Dubreuil, S., Bartoli, N., Gogu, C., & Lefebvre, T. (2020).
@@ -208,7 +208,8 @@ Dubreuil, S., Bartoli, N., Gogu, C., & Lefebvre, T. (2020).
 Structural and Multidisciplinary Optimization, 62(4), 1739–1765.
 
 Jin, R. and Chen, W. and Sudjianto, A. (2005).
-[An efficient algorithm for constructing optimal design of computer experiments](https://doi.org/10.1016/j.jspi.2004.02.01) Journal of Statistical Planning and Inference, 134:268-287.
+[An efficient algorithm for constructing optimal design of computer experiments](https://doi.org/10.1016/j.jspi.2004.02.01)
+Journal of Statistical Planning and Inference, 134:268-287.
 
 Bettebghor, Dimitri, et al. (2011).
 [Surrogate modeling approximation using a mixture of experts based on EM joint estimation](https://hal.archives-ouvertes.fr/hal-01852300/document)
@@ -239,7 +240,7 @@ Zhan, Dawei, et al. (2024).
 [A cooperative approach to efficient global optimization](https://link.springer.com/article/10.1007/s10898-023-01316-6).
 Journal of Global Optimization 88.2 (2024): 327-357
 
-Lisa Pretsch et al. (2025)
+Lisa Pretsch et al. (2025).
 [Bayesian optimization of cooperative components for multi-stage aero-structural compressor blade design](https://www.researchgate.net/publication/391492598_Bayesian_optimization_of_cooperative_components_for_multi-stage_aero-structural_compressor_blade_design). Struct Multidisc Optim 68, 84 (2025)
 
 Appriou, T., Rullière, D. & Gaudrie, D, (2024)
@@ -258,7 +259,7 @@ Bussemaker, Jasper H., et al. (2024).
 [Surrogate-based optimization of system architectures subject to hidden constraints.](https://hal.science/hal-04462408v2/file/DTIS2024-018-DTIS2024-018%20posprint-Accept%C3%A9e.pdf)
 AIAA Aviation forum and Ascend 2024.
 
-Tfaily, Ali, et al. (2024)
+Tfaily, Ali, et al. (2024).
 [Bayesian optimization with hidden constraints for aircraft design.](https://hal.science/hal-04673615/)
 Structural and Multidisciplinary Optimization 67.7 (2024): 123.
 
