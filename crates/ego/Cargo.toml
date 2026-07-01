@@ -21,7 +21,7 @@ blas = ["ndarray-linalg", "linfa/ndarray-linalg", "linfa-pls/blas"]
 egobox-doe = { version = "0.35.1", path = "../doe", features = [
     "serializable",
 ] }
-egobox-gp = { version = "0.36.2", path = "../gp", features = ["serializable"] }
+egobox-gp = { version = "0.36.3", path = "../gp", features = ["serializable"] }
 egobox-moe = { version = "0.35.3", path = "../moe", features = [
     "serializable",
 ] }
