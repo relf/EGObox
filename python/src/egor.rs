@@ -751,10 +751,8 @@ impl Egor {
     fn feasible_infill_strategy(&self) -> egobox_ego::FeasibleInfillStrategy {
         match self.feasible_infill_strategy {
             FeasibleInfillStrategy::None => egobox_ego::FeasibleInfillStrategy::None,
-            FeasibleInfillStrategy::EfiP => egobox_ego::FeasibleInfillStrategy::ViabilityWeighted,
-            FeasibleInfillStrategy::EfiFe => {
-                egobox_ego::FeasibleInfillStrategy::AlphaPoweredViabilityWeighted(0.3)
-            }
+            FeasibleInfillStrategy::EfiP => egobox_ego::FeasibleInfillStrategy::EfiP,
+            FeasibleInfillStrategy::EfiFe => egobox_ego::FeasibleInfillStrategy::EfiFe(0.3),
         }
     }
 

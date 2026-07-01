@@ -125,7 +125,7 @@ fn main() -> egobox_ego::Result<()> {
                 .outdir("./branin_hoo_run1")
                 .max_iters(50)
                 .seed(seed)
-                .feasible_infill_strategy(FeasibleInfillStrategy::ViabilityWeighted)
+                .feasible_infill_strategy(FeasibleInfillStrategy::EfiP)
         })
         .verbose(log::LevelFilter::Info)
         .min_within(&xlimits)
@@ -149,9 +149,7 @@ fn main() -> egobox_ego::Result<()> {
                 .outdir("./branin_hoo_run2")
                 .max_iters(50)
                 .seed(seed)
-                .feasible_infill_strategy(FeasibleInfillStrategy::AlphaPoweredViabilityWeighted(
-                    0.3,
-                ))
+                .feasible_infill_strategy(FeasibleInfillStrategy::EfiFe(0.3))
         })
         .verbose(log::LevelFilter::Info)
         .min_within(&xlimits)

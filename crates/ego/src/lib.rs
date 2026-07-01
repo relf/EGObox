@@ -248,7 +248,7 @@
 //! ```no_run
 //! # use egobox_ego::{EgorConfig, FeasibleInfillStrategy};
 //! # let egor_config = EgorConfig::default();
-//!     egor_config.feasible_infill_strategy(FeasibleInfillStrategy::EfiFe);
+//!     egor_config.feasible_infill_strategy(FeasibleInfillStrategy::EfiFe(0.3));
 //! ```
 //!
 //! # Implementation notes

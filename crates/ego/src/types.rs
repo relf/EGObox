@@ -79,9 +79,9 @@ pub enum FeasibleInfillStrategy {
     #[default]
     None,
     /// Infill criterion weighted with full probability of viability (aka EFI_P)
-    ViabilityWeighted,
+    EfiP,
     /// Infill criterion weighted by probability of viability to the power of alpha (aka EFI_FE)
-    AlphaPoweredViabilityWeighted(f64),
+    EfiFe(f64),
 }
 
 impl FeasibleInfillStrategy {
@@ -93,8 +93,8 @@ impl FeasibleInfillStrategy {
     /// Get alpha value for feasibility-enhanced infill, if applicable
     pub fn alpha(&self) -> Option<f64> {
         match self {
-            FeasibleInfillStrategy::ViabilityWeighted => Some(1.0),
-            FeasibleInfillStrategy::AlphaPoweredViabilityWeighted(alpha) => Some(*alpha),
+            FeasibleInfillStrategy::EfiP => Some(1.0),
+            FeasibleInfillStrategy::EfiFe(alpha) => Some(*alpha),
             _ => None,
         }
     }
