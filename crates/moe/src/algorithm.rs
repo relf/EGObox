@@ -878,7 +878,6 @@ impl GpMixture {
     /// Returns the ouputs as a (n, 1) column vector
     pub fn predict_hard(&self, x: &ArrayBase<impl Data<Elem = f64>, Ix2>) -> Result<Array1<f64>> {
         let clustering = self.gmx.predict(x);
-        trace!("Clustering {clustering:?}");
         let mut preds = Array1::zeros((x.nrows(),));
         Zip::from(&mut preds)
             .and(x.rows())
@@ -896,7 +895,6 @@ impl GpMixture {
         x: &ArrayBase<impl Data<Elem = f64>, Ix2>,
     ) -> Result<Array1<f64>> {
         let clustering = self.gmx.predict(x);
-        trace!("Clustering {clustering:?}");
         let mut variances = Array1::zeros(x.nrows());
         Zip::from(&mut variances)
             .and(x.rows())
@@ -917,7 +915,6 @@ impl GpMixture {
         x: &ArrayBase<impl Data<Elem = f64>, Ix2>,
     ) -> Result<(Array1<f64>, Array1<f64>)> {
         let clustering = self.gmx.predict(x);
-        trace!("Clustering {clustering:?}");
         let mut preds = Array1::zeros((x.nrows(),));
         let mut variances = Array1::zeros(x.nrows());
         Zip::from(&mut preds)
