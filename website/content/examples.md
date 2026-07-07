@@ -15,7 +15,7 @@ The Python snippets below are included directly from source files under `python/
     lang="python") 
 }}
 
-![Rastrigin function optimization](/static/img/website_rastrigin.png)
+![Rastrigin function optimization](../static/img/website_rastrigin.png)
 
 ### Constrained optimization: G24
 
@@ -31,4 +31,4 @@ The Python snippets below are included directly from source files under `python/
     lang="python") 
 }}
 
-![Gpx surrogate model](/static/img/website_gpx.png)
+![Gpx surrogate model](../static/img/website_gpx.png)

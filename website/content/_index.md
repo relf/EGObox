@@ -18,7 +18,6 @@ Rust toolbox for Efficient Global Optimization method (arguably the most well-kn
 - Rust crates for DOE, GP, MOE, and EGO workflows
 - Examples and notebook-based tutorials
 
-
 ## Cite
 
 The EGObox toolbox rationale is described in the [JOSS paper](https://doi.org/10.21105/joss.04737):
