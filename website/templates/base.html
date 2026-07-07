@@ -13,7 +13,10 @@
 <body>
     <header>
         <div class="container">
-            <h1>{{ config.title }}</h1>
+            <div class="site-brand">
+                <img src="{{ get_url(path='img/LOGO_EGOBOX_v4_100x100.png') }}" alt="EGObox logo" class="site-logo">
+                <h1>{{ config.title }}</h1>
+            </div>
         </div>
     </header>
     <nav>
