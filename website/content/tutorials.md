@@ -4,9 +4,7 @@ title = "Tutorials"
 
 # Tutorials
 
-The repository already contains notebook-based tutorials. This site links to those sources directly so the companion website stays thin while the notebooks remain the canonical long-form material.
-
-## Optimization and surrogate modeling notebooks
+Below is a list of tutorials and notebooks that illustrate the use of EGObox for optimization and surrogate modeling.
 
 | Topic | Repository notebook | Colab |
 | --- | --- | --- |

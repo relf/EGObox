@@ -55,7 +55,7 @@ XX, YY = np.meshgrid(X, Y)
 XY = np.column_stack([XX.ravel(), YY.ravel()])
 ZZ = rastrigin(XY).reshape(XX.shape)
 
-plt.figure(figsize=(7, 6))
+fig = plt.figure(figsize=(7, 6))
 plt.contourf(XX, YY, ZZ, levels=50, cmap="viridis")
 plt.colorbar(label="Rastrigin value")
 
@@ -71,8 +71,10 @@ plt.scatter(
     edgecolors="black",
     label="Best point",
 )
-plt.title("Rastrigin Function + Sampled Points")
+plt.title("Rastrigin Function - Known Global Minimum = 0 at (0, 0)")
 plt.xlabel("x₁")
 plt.ylabel("x₂")
 plt.legend()
 plt.show()
+
+fig.savefig("website_rastrigin.png", dpi=150)

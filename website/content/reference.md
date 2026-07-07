@@ -7,8 +7,7 @@ title = "Reference"
 ## Python package
 
 - [PyPI package](https://pypi.org/project/egobox/)
-- [Python package README](https://github.com/relf/egobox/blob/master/python/README.md)
-- [Website Python API tables](python-api)
+- [Python API tables](python-api)
 
 ## Rust crates
 
@@ -19,9 +18,9 @@ title = "Reference"
 
 ## Repository entry points
 
-- [Root README](https://github.com/relf/egobox/blob/master/README.md)
-- [Notebook index](https://github.com/relf/egobox/blob/master/notebooks/README.md)
-- [Python examples directory](https://github.com/relf/egobox/tree/master/python/egobox/examples)
-- [Rust crate directory](https://github.com/relf/egobox/tree/master/crates)
+- [Root README](https://github.com/relf/EGObox/blob/master/README.md)
+- [Notebook index](https://github.com/relf/EGObox/blob/master/notebooks/README.md)
+- [Python examples directory](https://github.com/relf/EGObox/tree/master/python/egobox/examples)
+- [Rust crate directory](https://github.com/relf/EGObox/tree/master/crates)
 
 

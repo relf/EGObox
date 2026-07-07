@@ -21,8 +21,6 @@
 **/*.json
 **/*.bin
 *.npy
-*.png
-!website/static/img/LOGO_EGOBOX_v4_100x100.png
 input.txt
 output.txt
 mopta08.exe
