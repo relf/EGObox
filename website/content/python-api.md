@@ -27,6 +27,7 @@ Egor(
     n_doe=0,
     doe=None,
     infill_strategy=InfillStrategy.LOG_EI,
+    feasible_infill_strategy=FeasibleInfillStrategy.NONE,
     cstr_infill=False,
     cstr_strategy=ConstraintStrategy.MC,
     qei_config=QEiConfig(),
@@ -50,6 +51,7 @@ Otherwise see [XSpec](#xspec) for more details. |
 | `n_doe` | `int` | `0` | Initial DOE size (auto-computed when `0`, if DOE not provided). |
 | `doe` | `Optional[NDArray[float64]]` | `None` | Initial DOE matrix (`x` only or concatenated `x,y`). |
 | `infill_strategy` | `InfillStrategy` | `InfillStrategy.LOG_EI` | Infill criterion. Possible values: `InfillStrategy.LOG_EI`, `InfillStrategy.EI`, `InfillStrategy.WB2`, `InfillStrategy.WB2S`. |
+| `feasible_infill_strategy` | `FeasibleInfillStrategy` | `FeasibleInfillStrategy.NONE` | Feasibility-aware infill mode. Possible values: `FeasibleInfillStrategy.NONE`, `FeasibleInfillStrategy.EFI_P`, `FeasibleInfillStrategy.EFI_FE`. |
 | `cstr_infill` | `bool` | `False` | Enables constrained infill with probability-of-feasibility factor. Possible values: `True`, `False`. |
 | `cstr_strategy` | `ConstraintStrategy` | `ConstraintStrategy.MC` | Constraint handling strategy. Possible values: `ConstraintStrategy.MC`, `ConstraintStrategy.UTB`. |
 | `qei_config` | `QEiConfig` | `QEiConfig()` | Parallel/qEI batch configuration. |
