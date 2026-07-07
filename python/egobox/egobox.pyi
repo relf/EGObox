@@ -13,8 +13,8 @@ __all__ = [
     "Egor",
     "EgorOptim",
     "ExitStatus",
-    "FeasibleInfillStrategy",
     "FailsafeStrategy",
+    "FeasibleInfillStrategy",
     "GpConfig",
     "GpMix",
     "Gpx",
@@ -163,9 +163,9 @@ class Egor:
             Infill criteria to decide best next promising point.
             Can be either InfillStrategy.LOG_EI, InfillStrategy.EI, InfillStrategy.WB2, InfillStrategy.WB2S
     
-        infill_optimizer (InfillOptimizer enum):
-            Internal optimizer used to optimize infill criteria.
-            Can be either InfillOptimizer.COBYLA or InfillOptimizer.SLSQP
+        feasible_infill_strategy (FeasibleInfillStrategy enum):
+            Strategy to handle feasibility information in the infill criterion.
+            Can be either FeasibleInfillStrategy.NONE, FeasibleInfillStrategy.EFI_P, or FeasibleInfillStrategy.EFI_FE
     
         cstr_infill (bool):
             Activate constrained infill criterion where the product of probability of feasibility of constraints
@@ -174,6 +174,10 @@ class Egor:
         cstr_strategy (ConstraintStrategy enum):
             Constraint management either use the mean value or upper bound
             Can be either ConstraintStrategy.MeanValue or ConstraintStrategy.UpperTrustedBound.
+    
+        infill_optimizer (InfillOptimizer enum):
+            Internal optimizer used to optimize infill criteria.
+            Can be either InfillOptimizer.COBYLA or InfillOptimizer.SLSQP
     
         qei_config (QEiConfig):
             Configuration for parallel (qEI) evaluation also known as batch or multipoint evaluation.
@@ -207,30 +211,24 @@ class Egor:
     
         seed (int >= 0 or None):
             Deprecated: use seed argument in minimize() or suggest() instead.
-            Random generator seed to allow computation reproducibility.
     
         outdir (String or None):
             Deprecated: use outdir argument in minimize() instead.
-            Directory to write optimization history and used as search path for warm start doe.
     
         warm_start (bool):
             Deprecated: use warm_start argument in minimize() instead.
-            Start by loading initial doe from <outdir> directory.
     
         hot_start (bool, int >= 0 or None):
             Deprecated: use hot_start argument in minimize() instead.
-            When True, hot_start behaves like hot_start=0 with no iteration extension.
-            When hot_start>=0 saves optimizer state at each iteration and starts from a previous checkpoint.
     
         verbose (int, Verbose enum, or None):
             Deprecated: use verbose argument in minimize() instead.
-            Logging verbosity level for the optimizer.
     
     # Returns
     
         Egor object which can be used to optimize a function using the minimize method.
     """
-    def __new__(cls, xspecs: typing.Any, gp_config: GpConfig = ..., n_cstr: builtins.int = 0, cstr_tol: typing.Optional[typing.Sequence[builtins.float]] = None, cstr_specs: typing.Optional[typing.Sequence[CstrSpec]] = None, n_start: builtins.int = 20, n_doe: builtins.int = 0, doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, infill_strategy: InfillStrategy = InfillStrategy.LOG_EI, cstr_infill: builtins.bool = False, cstr_strategy: ConstraintStrategy = ConstraintStrategy.MC, qei_config: QEiConfig = ..., infill_optimizer: InfillOptimizer = InfillOptimizer.COBYLA, trego: typing.Optional[typing.Any] = None, coego_n_coop: builtins.int = 0, target: builtins.float = -1.7976931348623157e+308, failsafe_strategy: FailsafeStrategy = FailsafeStrategy.REJECTION, seed: typing.Optional[builtins.int] = None, outdir: typing.Optional[builtins.str] = None, warm_start: builtins.bool = False, hot_start: typing.Optional[typing.Any] = None, verbose: typing.Optional[typing.Any] = None) -> Egor: ...
+    def __new__(cls, xspecs: typing.Any, gp_config: GpConfig = ..., n_cstr: builtins.int = 0, cstr_tol: typing.Optional[typing.Sequence[builtins.float]] = None, cstr_specs: typing.Optional[typing.Sequence[CstrSpec]] = None, n_start: builtins.int = 20, n_doe: builtins.int = 0, doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, infill_strategy: InfillStrategy = InfillStrategy.LOG_EI, feasible_infill_strategy: FeasibleInfillStrategy = FeasibleInfillStrategy.NONE, cstr_infill: builtins.bool = False, cstr_strategy: ConstraintStrategy = ConstraintStrategy.MC, qei_config: QEiConfig = ..., infill_optimizer: InfillOptimizer = InfillOptimizer.COBYLA, trego: typing.Optional[typing.Any] = None, coego_n_coop: builtins.int = 0, target: builtins.float = -1.7976931348623157e+308, failsafe_strategy: FailsafeStrategy = FailsafeStrategy.REJECTION, seed: typing.Optional[builtins.int] = None, outdir: typing.Optional[builtins.str] = None, warm_start: builtins.bool = False, hot_start: typing.Optional[typing.Any] = None, verbose: typing.Optional[typing.Any] = None) -> Egor: ...
     def minimize(self, fun: typing.Any, fcstrs: typing.Sequence[typing.Any] = [], fcstr_specs: typing.Sequence[CstrSpec] = [], max_iters: builtins.int = 20, run_info: typing.Optional[typing.Any] = None, outdir: typing.Optional[builtins.str] = None, warm_start: builtins.bool = False, hot_start: typing.Optional[typing.Any] = None, seed: typing.Optional[builtins.int] = None, timeout: typing.Optional[builtins.float] = None, verbose: typing.Optional[typing.Any] = None) -> EgorOptim:
         r"""
         This function finds the minimum of a given function "fun"
@@ -282,14 +280,12 @@ class Egor:
                 Start by loading initial doe from <outdir> directory
         
             hot_start (bool, int >= 0 or None):
-                When True, hot_start behaves like hot_start=0 with no iteration extension.
                 When hot_start>=0 saves optimizer state at each iteration and starts from a previous checkpoint
-                if any for the given hot_start number of iterations beyond the max_iters nb of iterations.
+                for the given hot_start number of iterations beyond the max_iters nb of iterations.
                 In an unstable environment were there can be crashes it allows to restart the optimization
                 from the last iteration till stopping criterion is reached. Just use hot_start=0 in this case.
-                When specifying an extended nb of iterations (hot_start > 0) it can allow to continue till max_iters +
-                hot_start nb of iters is reached (provided the stopping criterion is max_iters)
-                Checkpoint information is stored in .checkpoint/egor.arg binary file.
+                When True, hot_start behaves like hot_start=0 with no iteration extension.
+                Checkpoint information is stored in .checkpoint or under outdir if outdir is specified.
         
             seed (int >= 0):
                 Random generator seed to allow computation reproducibility.
@@ -1247,24 +1243,6 @@ class ExitStatus(enum.Enum):
     """
 
 @typing.final
-class FeasibleInfillStrategy(enum.Enum):
-    r"""
-    Expected Feasible Improvement (EFI) strategy for hidden constraints.
-    """
-    NONE = ...
-    r"""
-    Do not use feasibility information.
-    """
-    EFI_P = ...
-    r"""
-    Expected feasible improvement weighted by full viability probability.
-    """
-    EFI_FE = ...
-    r"""
-    Feasibility-enhanced expected feasible improvement (more exploratory).
-    """
-
-@typing.final
 class FailsafeStrategy(enum.Enum):
     r"""
     FailsafeStrategy specifies the strategy to use for handling failures during infill optimization.
@@ -1283,6 +1261,25 @@ class FailsafeStrategy(enum.Enum):
     r"""
     The viability of the point is modeled with a surrogate, which allows the optimization
     to learn which regions of the search space are more likely to fail and avoid them in the future
+    """
+
+@typing.final
+class FeasibleInfillStrategy(enum.Enum):
+    r"""
+    Expected Feasible Improvement (EFI) is an acquisition function that takes into account the feasibility of the points in the optimization process.
+    It is defined as the product of the Expected Improvement (EI) weighted by the probability of viability
+    """
+    NONE = ...
+    r"""
+    Do not use feasibility information
+    """
+    EFI_P = ...
+    r"""
+    Use Expected Feasible Improvement with full probability of feasibility
+    """
+    EFI_FE = ...
+    r"""
+    Use Expected Feasible Improvement with 0.3 weighted probability of feasibility, which is more exploratory than EfiP
     """
 
 @typing.final

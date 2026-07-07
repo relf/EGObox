@@ -257,7 +257,7 @@ See also some breaking changes description in optimizer options in PR #253
 ## Version 0.15.0 - 02/01/2024
 
 * `gp`: Implement sparse gaussian process methods (cf. `SparseGaussianProcess`)
-* Python binding: `SparseGpMix`, see doc/tutorial
+* Python binding: `SparseGpMix`, see notebooks/tutorial
 * GP/SGP API
   * hyperparameter tuning : initial theta guess and bounds can be specified (`theta_init`, `theta_bounds`)
   * `n_start` controls the number of optimization multistart
@@ -365,7 +365,7 @@ by @relf in <https://github.com/relf/egobox/pull/105>
 * `ego`:
   * Refactor `Egor` using [`argmin 0.7.0` solver framework](http://argmin-rs.org) `EgorSolver` can be used with `argmin::Executor` and benefit from observers and checkpointing features (#67)
   * `Egor` use kriging setting by default (i.e. one cluster with constant mean and squared exponential correlation model)
-* Add [notebook on Manuau Loa CO2 example](https://github.com/relf/egobox/blob/master/doc/Gpx_MaunaLoaCO2.ipynb) to show `GpMix`/`Gpx` surrogate model usage (#62)
+* Add [notebook on Manuau Loa CO2 example](https://github.com/relf/egobox/blob/master/notebooks/Gpx_MaunaLoaCO2.ipynb) to show `GpMix`/`Gpx` surrogate model usage (#62)
 * Use xoshiro instead of isaac random generator (#63)
 * Upgrade `ndarray 0.15`, `linfa 0.6.1`, `PyO3 0.17` (#57, #64)
 

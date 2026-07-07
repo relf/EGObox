@@ -1,0 +1,115 @@
+name: website
+
+on:
+  pull_request:
+    branches: [ master ]
+    paths:
+      - .github/workflows/website.yml
+      - crates/ego/examples/**
+      - crates/gp/examples/**
+      - website/**
+      - notebooks/**
+      - python/egobox/examples/*.py
+      - python/egobox/tests/*.py
+  push:
+    branches: [ master ]
+    paths:
+      - .github/workflows/website.yml
+      - crates/ego/examples/**
+      - crates/gp/examples/**
+      - website/**
+      - notebooks/**
+      - python/egobox/examples/website_*.py
+      - python/egobox/tests/test_website_examples.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: website-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      UV_CACHE_DIR: /tmp/.uv-cache
+      RUST_BACKTRACE: 1
+      MPLBACKEND: Agg
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Set up uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Cache folder for uv
+        uses: actions/cache@v5
+        with:
+          path: /tmp/.uv-cache
+          key: uv-${{ runner.os }}-${{ hashFiles('python/uv.lock') }}
+          restore-keys: |
+            uv-${{ runner.os }}-${{ hashFiles('python/uv.lock') }}
+            uv-${{ runner.os }}
+
+      - name: Install the project
+        working-directory: python
+        run: uv sync --all-extras --dev --python 3.12
+
+      - name: Build the wrapper
+        uses: PyO3/maturin-action@v1
+        with:
+          working-directory: python
+          command: develop
+          args: --release
+
+      - name: Verify website examples
+        working-directory: python
+        run: uv run pytest egobox/tests/test_website_examples.py
+
+      - name: Install Zola
+        uses: taiki-e/install-action@v2
+        with:
+          tool: zola
+
+      - name: Build site
+        working-directory: website
+        run: zola build
+
+      - name: Configure Pages
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: website/public
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

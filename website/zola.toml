@@ -1,0 +1,16 @@
+base_url = "https://relf.github.io/egobox/"
+title = "EGObox"
+description = "Efficient Global Optimization toolbox for Rust and Python"
+
+default_language = "en"
+build_search_index = true
+
+[markdown]
+external_links_target_blank = true
+
+[markdown.highlighting]
+theme = "github-light"
+
+[extra]
+header = { title = "EGObox website" }
+author = "Rémi Lafage"

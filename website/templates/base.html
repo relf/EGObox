@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ config.title }}</title>
+    <meta name="description" content="{{ config.description }}">
+    <link rel="stylesheet" href="{{ get_url(path='css/main.css') }}">
+    <link rel="stylesheet" href="{{ get_url(path='css/copy-code.css') }}">
+</head>
+
+<body>
+    <header>
+        <div class="container">
+            <div class="site-brand">
+                <img src="{{ get_url(path='img/LOGO_EGOBOX_v4_100x100.png') }}" alt="EGObox logo" class="site-logo">
+                <h1>{{ config.title }}</h1>
+            </div>
+        </div>
+    </header>
+    <nav>
+        <div class="container">
+            <ul>
+                <li><a href="{{ config.base_url }}">Home</a></li>
+                <li><a href="{{ config.base_url }}/getting-started/">Getting Started</a></li>
+                <li><a href="{{ config.base_url }}/examples/">Examples</a></li>
+                <li><a href="{{ config.base_url }}/tutorials/">Tutorials</a></li>
+                <li><a href="{{ config.base_url }}/python-api/">Python API</a></li>
+                <li><a href="{{ config.base_url }}/reference/">Reference</a></li>
+            </ul>
+        </div>
+    </nav>
+    <main class="content">
+        <div class="container">
+            {% block content %} {% endblock content %}
+        </div>
+    </main>
+    <footer>
+        <div class="container">
+            <p>&copy; 2026 {{ config.extra.author }}. Distributed under MIT License.</p>
+        </div>
+    </footer>
+    <script src="{{ get_url(path='js/copy-code.js') }}"></script>
+</body>
+
+</html>
