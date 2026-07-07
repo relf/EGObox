@@ -1,4 +1,4 @@
-base_url = "https://relf.github.io/egobox/"
+base_url = "https://relf.github.io/EGObox/"
 title = "EGObox"
 description = "Efficient Global Optimization toolbox for Rust and Python"
 
