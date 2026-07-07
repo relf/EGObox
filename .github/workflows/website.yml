@@ -1,10 +1,10 @@
-name: docs
+name: website
 
 on:
   pull_request:
     branches: [ master ]
     paths:
-      - .github/workflows/docs.yml
+      - .github/workflows/website.yml
       - crates/ego/examples/**
       - crates/gp/examples/**
       - website/**
@@ -14,13 +14,13 @@ on:
   push:
     branches: [ master ]
     paths:
-      - .github/workflows/docs.yml
+      - .github/workflows/website.yml
       - crates/ego/examples/**
       - crates/gp/examples/**
       - website/**
       - notebooks/**
-      - python/egobox/examples/*.py
-      - python/egobox/tests/*.py
+      - python/egobox/examples/website_*.py
+      - python/egobox/tests/test_website_examples.py
   workflow_dispatch:
 
 permissions:
@@ -29,7 +29,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: docs-${{ github.ref }}
+  group: website-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
