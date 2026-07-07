@@ -8,6 +8,7 @@ title = "Reference"
 
 - [PyPI package](https://pypi.org/project/egobox/)
 - [Python package README](https://github.com/relf/egobox/blob/master/python/README.md)
+- [Website Python API tables](python-api)
 
 ## Rust crates
 

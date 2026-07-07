@@ -4,15 +4,18 @@ title = "EGObox"
 
 # EGObox
 
-EGObox is an Efficient Global Optimization toolbox with Rust crates for surrogate modeling and Bayesian optimization and Python bindings for the main user-facing workflows.
+Rust toolbox for Efficient Global Optimization method (arguably the most well-known bayesian optimization algorithm) which adresses the gradient-free optimization of expensive objective functions.
+
+
 
 * [Get started](getting-started)
 * [Browse examples](examples)
+* [Python API](python-api)
 
 ## What is here
 
 - Efficient global optimization with `Egor`
-- Gaussian-process and mixture surrogate models with `Gpx` and `GpMix`
+- Gaussian-process and mixture surrogate models with `Gpx`
 - Rust crates for DOE, GP, MOE, and EGO workflows
 - Notebook-based tutorials for Python and CLI usage
 
@@ -22,5 +25,5 @@ EGObox is an Efficient Global Optimization toolbox with Rust crates for surrogat
 | --- | --- | --- |
 | Python package | `pip install egobox` | Main end-user API for optimization and surrogate modeling |
 | Rust crates | `cargo add egobox-ego` and related crates | Lower-level building blocks for optimization workflows |
-| Tutorials | [Tutorials](tutorials.md) | Existing notebooks in the repository and Colab links |
-| Examples | [Examples](examples.md) | Website snippets sourced from tested repository files |
+| Tutorials | [Tutorials](tutorials) | Existing notebooks in the repository and Colab links |
+| Examples | [Examples](examples) | Website snippets sourced from tested repository files |
