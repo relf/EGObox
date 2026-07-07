@@ -147,7 +147,7 @@ let model = Model::load("model.json")?;
 - [crates/gpx/README.md](../crates/gpx/README.md): Gpx command usage and format options
 - [python/src/lib.rs](../python/src/lib.rs): PyO3 module definition
 - [python/src/egor.rs](../python/src/egor.rs): Python Egor class wrapping Rust
-- [doc/](../doc/): Jupyter notebooks with tutorials
+- [notebooks/](../notebooks/): Jupyter notebooks with tutorials
 
 ## Testing Notes
 

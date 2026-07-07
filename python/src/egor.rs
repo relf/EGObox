@@ -8,7 +8,7 @@
 //! pip install egobox
 //! ```
 //!
-//! See the [tutorial notebook](https://github.com/relf/egobox/doc/Egor_Tutorial.ipynb) for usage.
+//! See the [tutorial notebook](https://github.com/relf/egobox/notebooks/Egor_Tutorial.ipynb) for usage.
 //!
 
 use crate::domain::*;
