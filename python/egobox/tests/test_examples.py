@@ -2,9 +2,6 @@ import runpy
 import unittest
 from pathlib import Path
 
-import matplotlib.pyplot as plt
-import numpy as np
-
 
 EXAMPLES_DIR = Path(__file__).resolve().parents[1] / "examples"
 
