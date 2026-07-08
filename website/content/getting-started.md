@@ -7,13 +7,13 @@ title = "Getting Started"
 ## Using Pypi
 
 ```bash
-pip install egobox
+$ pip install egobox
 ```
 
 ## Using conda
 
 ```bash
-conda install -c conda-forge egobox
+$ conda install -c conda-forge egobox
 ```
 
 

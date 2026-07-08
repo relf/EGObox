@@ -4,7 +4,7 @@ title = "Examples"
 
 # Examples
 
-The Python snippets below are included directly from source files under `python/egobox/examples/`.
+The Python snippets below are included directly from source files under [`python/egobox/examples`](https://github.com/relf/EGObox/tree/master/python/egobox/examples/).
 Here you can just copy-paste the code to run it locally, or click on the links to open the source files in a new tab.
 
 ## Optimization with _Egor_
@@ -37,7 +37,7 @@ Best point (x*): [ 0.00415341 -0.00058284]
 Optimization f=[-5.50853583e+00  8.65985077e-04  3.83913510e-04] at [2.32948272 3.17905311]
 ```
 
-## Surrogate modeling with _Gpx_: 
+## Surrogate modeling with _Gpx_
 
 ### Simple surrogate model: [Kriging](https://github.com/relf/EGObox/blob/master/python/egobox/examples/kriging.py)
 
