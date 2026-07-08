@@ -13,6 +13,12 @@ Each recipe includes:
 - a suggested configuration
 - why it helps
 
+**Notes**
+
+- Start from the closest recipe, then tune one group of parameters at a time.
+- Keep random seeds fixed while comparing configurations.
+- For complete parameter definitions, see the [Python API](python-api).
+
 ## Recipe 1: Cheap Low-Dimensional Objective
 
 Use when:
@@ -180,7 +186,7 @@ optim = egx.Egor(
     n_cstr=n_cstr,
     cstr_infill=True,
     cstr_strategy=egx.ConstraintStrategy.UTB,
-    infill_strategy=egx.InfillStrategy.EI,
+    infill_strategy=egx.InfillStrategy.WB2,
     feasible_infill_strategy=egx.FeasibleInfillStrategy.EFI_FE,
 )
 res = optim.minimize(fun, max_iters=30, seed=42)
@@ -191,9 +197,10 @@ Why it helps:
 - UTB makes constraint handling more conservative under uncertainty
 - EFI_FE increases exploration of feasible regions
 
-## Notes
+### Note
 
-- EFI_FE is not implemented for default infill strategies (LOG_EI) hence 
+- EFI_FE is not implemented for default infill strategies (LOG_EI), so you
+  need to use WB2, EI or WB2S. 
 
 ## Recipe 8: Objective May Crash (Failsafe + Hot Start)
 
@@ -231,8 +238,5 @@ Alternatives:
 - `FailsafeStrategy.REJECTION`: drops failed points (simplest)
 - `FailsafeStrategy.IMPUTATION`: fills failed outputs with surrogate-based estimates
 
-## Notes
+### Notes
 
-- Start from the closest recipe, then tune one group of parameters at a time.
-- Keep random seeds fixed while comparing configurations.
-- For complete parameter definitions, see the [Python API](python-api).
