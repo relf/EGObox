@@ -7,6 +7,7 @@ title = "Reference"
 ## Python package
 
 - [PyPI package](https://pypi.org/project/egobox/)
+- [Cookbook recipes](cookbook)
 - [Python API tables](python-api)
 
 ## Rust crates

@@ -9,6 +9,7 @@ Rust toolbox for Efficient Global Optimization method (arguably the most well-kn
 * [Get started](getting-started)
 * [Browse examples](examples)
 * [Browse tutorials](tutorials)
+* [Cookbook](cookbook)
 * [Python API](python-api)
 
 ## What is here
