@@ -4,8 +4,7 @@ title = "Cookbook"
 
 # Cookbook
 
-This page contains practical Egor parameterization recipes.
-These recipes are equivalent in spirit to the EGObox agent tuning skills.
+This page contains practical Egor parameterization recipes. 
 
 Each recipe includes:
 

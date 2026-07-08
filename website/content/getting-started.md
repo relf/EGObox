@@ -4,24 +4,16 @@ title = "Getting Started"
 
 # Getting Started
 
-## Python
-
-### Install the package
+## Using Pypi
 
 ```bash
 pip install egobox
 ```
 
-## Rust
+## Using conda
 
-### Use the crates
-
-```toml
-[dependencies]
-egobox-doe = { version = "0.x.y" }
-egobox-gp = { version = "0.x.y" }
-egobox-moe = { version = "0.x.y" }
-egobox-ego = { version = "0.x.y" }
+```bash
+conda install -c conda-forge egobox
 ```
 
 
