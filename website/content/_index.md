@@ -1,5 +1,6 @@
 +++
 title = "EGObox"
+sort_by = "weight"
 +++
 
 # EGObox

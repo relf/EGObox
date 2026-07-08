@@ -5,11 +5,16 @@ description = "Efficient Global Optimization toolbox for Rust and Python"
 default_language = "en"
 build_search_index = true
 
+[search]
+index_format = "elasticlunr_json"
+
 [markdown]
 external_links_target_blank = true
+smart_punctuation = true
+insert_anchor_links = "right"
 
 [markdown.highlighting]
-theme = "github-light"
+theme = "catppuccin-mocha"
 
 [extra]
 header = { title = "EGObox website" }

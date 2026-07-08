@@ -1,5 +1,6 @@
 +++
 title = "Python API"
+weight = 50
 +++
 
 # Python API
@@ -41,8 +42,7 @@ Egor(
 
 | Name | Type | Default value | Description |
 | --- | --- | --- | --- |
-| `xspecs` | `[XSpec]` | required | Input variable specifications (`XSpec` list-like), one per dimension. The simplest form is [[lower1, upper1], [lower2, upper2], ...] which supposes a continuous range for each dimension. 
-Otherwise see [XSpec](#xspec) for more details. |
+| `xspecs` | `[XSpec]` | required | Input variable specifications (`XSpec` list-like), one per dimension. The simplest form is [[lower1, upper1], [lower2, upper2], ...] which supposes a continuous range for each dimension. Otherwise see [XSpec](#xspec) for more details. |
 | `gp_config` | `GpConfig` | `GpConfig()` | GP configuration used by the optimizer. |
 | `n_cstr` | `int` | `0` | Number of surrogate-modeled constraints returned by `fun`. |
 | `cstr_tol` | `Optional[Sequence[float]]` | `None` | Per-constraint feasibility tolerances. |
