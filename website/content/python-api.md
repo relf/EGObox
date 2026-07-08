@@ -61,42 +61,6 @@ Otherwise see [XSpec](#xspec) for more details. |
 | `target` | `float` | `-1.7976931348623157e+308` | Known optimum target used as stopping criterion. |
 | `failsafe_strategy` | `FailsafeStrategy` | `FailsafeStrategy.REJECTION` | Failure handling for NaN objective values. Possible values: `FailsafeStrategy.REJECTION`, `FailsafeStrategy.IMPUTATION`, `FailsafeStrategy.VIABILITY`. |
 
-## XSpec
-
-`xspecs` passed to `Egor(...)` or `Gpx.builder(...)` is a sequence of `XSpec`, one per input dimension (`len(xspecs) == nx`).
-
-Signature:
-
-```python
-XSpec(xtype: XType, xlimits: Sequence[float] = [], tags: Sequence[str] = [])
-```
-
-| Field | Type | Description |
-| --- | --- | --- |
-| `xtype` | `XType` | Variable kind. Possible values: `XType.FLOAT`, `XType.INT`, `XType.ORD`, `XType.ENUM`. |
-| `xlimits` | `Sequence[float]` | Domain encoding, interpreted from `xtype` (see table below). |
-| `tags` | `Sequence[str]` | Optional labels for enum categories (documentation labels only; optimization uses category indices). |
-
-`xlimits` meaning by `xtype`:
-
-| `XType` | `xlimits` format | Example |
-| --- | --- | --- |
-| `FLOAT` | `[lower: float, upper: float]` | `XSpec(XType.FLOAT, [0.0, 1.0])` |
-| `INT` | `[lower: int, upper: int]` | `XSpec(XType.INT, [1, 10])` |
-| `ORD` | ordered list of allowed values | `XSpec(XType.ORD, [0.1, 0.5, 1.0])` |
-| `ENUM` | either `[n_categories]` or explicit `tags=[...]` | `XSpec(XType.ENUM, [3])` or `XSpec(XType.ENUM, tags=["red", "green", "blue"])` |
-
-Full mixed-type example:
-
-```python
-xspecs = [
-    XSpec(XType.FLOAT, [0.0, 1.0]),
-    XSpec(XType.INT, [1, 8]),
-    XSpec(XType.ORD, [0.2, 0.5, 1.0]),
-    XSpec(XType.ENUM, tags=["small", "medium", "large"]),
-]
-```
-
 ### GpConfig() default values
 
 | Name | Type | Default value | Description |
@@ -219,4 +183,42 @@ def training_data(self) -> tuple[NDArray[float64], NDArray[float64]]
 def thetas(self) -> NDArray[float64]
 def variances(self) -> NDArray[float64]
 def likelihoods(self) -> NDArray[float64]
+```
+
+## XSpec
+
+`xspecs` passed to `Egor(...)` or `Gpx.builder(...)` is a sequence of `XSpec`, one per input dimension (`len(xspecs) == nx`).
+
+Note: When using continuous variables only, the simplest form is a list of `[lower, upper]` pairs, e.g. `[[0.0, 1.0], [1.0, 10.0], [-5.0, 5.0]]`. Otherwise, use `XSpec(...)` for more complex variable types.
+
+Signature:
+
+```python
+XSpec(xtype: XType, xlimits: Sequence[float] = [], tags: Sequence[str] = [])
+```
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `xtype` | `XType` | Variable kind. Possible values: `XType.FLOAT`, `XType.INT`, `XType.ORD`, `XType.ENUM`. |
+| `xlimits` | `Sequence[float]` | Domain encoding, interpreted from `xtype` (see table below). |
+| `tags` | `Sequence[str]` | Optional labels for enum categories (documentation labels only; optimization uses category indices). |
+
+`xlimits` meaning by `xtype`:
+
+| `XType` | `xlimits` format | Example |
+| --- | --- | --- |
+| `FLOAT` | `[lower: float, upper: float]` | `XSpec(XType.FLOAT, [0.0, 1.0])` |
+| `INT` | `[lower: int, upper: int]` | `XSpec(XType.INT, [1, 10])` |
+| `ORD` | ordered list of allowed values | `XSpec(XType.ORD, [0.1, 0.5, 1.0])` |
+| `ENUM` | either `[n_categories]` or explicit `tags=[...]` | `XSpec(XType.ENUM, [3])` or `XSpec(XType.ENUM, tags=["red", "green", "blue"])` |
+
+Full mixed-type example:
+
+```python
+xspecs = [
+    XSpec(XType.FLOAT, [0.0, 1.0]),
+    XSpec(XType.INT, [1, 8]),
+    XSpec(XType.ORD, [0.2, 0.5, 1.0]),
+    XSpec(XType.ENUM, tags=["small", "medium", "large"]),
+]
 ```
