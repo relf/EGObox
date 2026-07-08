@@ -11,25 +11,21 @@
 </head>
 
 <body>
-    <header>
-        <div class="container">
-            <div class="site-brand">
-                <img src="{{ get_url(path='img/LOGO_EGOBOX_v4_100x100.png') }}" alt="EGObox logo" class="site-logo">
-                <h1>{{ config.title }}</h1>
-            </div>
-        </div>
-    </header>
     <div class="page-layout">
         <nav class="sidebar" aria-label="Main navigation">
             <div class="container">
+                <div class="site-brand sidebar-brand">
+                    <img src="{{ get_url(path='img/LOGO_EGOBOX_v4_100x100.png') }}" alt="EGObox logo" class="site-logo">
+                    <h1>{{ config.title }}</h1>
+                </div>
                 <ul>
-                    <li><a href="{{ config.base_url }}">Home</a></li>
-                    <li><a href="{{ config.base_url }}/getting-started/">Getting Started</a></li>
-                    <li><a href="{{ config.base_url }}/examples/">Examples</a></li>
-                    <li><a href="{{ config.base_url }}/tutorials/">Tutorials</a></li>
-                    <li><a href="{{ config.base_url }}/cookbook/">Cookbook</a></li>
-                    <li><a href="{{ config.base_url }}/python-api/">Python API</a></li>
-                    <li><a href="{{ config.base_url }}/reference/">Reference</a></li>
+                    <li><a href="{{ config.base_url }}" class="main-nav-link">Home</a></li>
+                    <li><a href="{{ config.base_url }}/getting-started/" class="main-nav-link">Getting Started</a></li>
+                    <li><a href="{{ config.base_url }}/examples/" class="main-nav-link">Examples</a></li>
+                    <li><a href="{{ config.base_url }}/tutorials/" class="main-nav-link">Tutorials</a></li>
+                    <li><a href="{{ config.base_url }}/cookbook/" class="main-nav-link">Cookbook</a></li>
+                    <li><a href="{{ config.base_url }}/python-api/" class="main-nav-link">Python API</a></li>
+                    <li><a href="{{ config.base_url }}/reference/" class="main-nav-link">Reference</a></li>
                 </ul>
             </div>
         </nav>
@@ -45,6 +41,7 @@
         </div>
     </footer>
     <script src="{{ get_url(path='js/copy-code.js') }}"></script>
+    <script src="{{ get_url(path='js/nav-sections.js') }}"></script>
 </body>
 
 </html>

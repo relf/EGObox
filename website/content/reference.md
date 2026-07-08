@@ -19,7 +19,7 @@ title = "Reference"
 
 ## Repository entry points
 
-- [Root README](https://github.com/relf/EGObox/blob/master/README.md)
+- [Github repository](https://github.com/relf/EGObox)
 - [Notebook index](https://github.com/relf/EGObox/blob/master/notebooks/README.md)
 - [Python examples directory](https://github.com/relf/EGObox/tree/master/python/egobox/examples)
 - [Rust crate directory](https://github.com/relf/EGObox/tree/master/crates)
