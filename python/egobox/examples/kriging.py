@@ -1,5 +1,9 @@
+import matplotlib
 import numpy as np
 import matplotlib.pyplot as plt
+
+# Comment out the following line to display the plot in a window
+matplotlib.use("Agg")
 
 import egobox as egx
 
@@ -34,3 +38,4 @@ axs.legend(
 )
 
 plt.show()
+fig.savefig("kriging.png", dpi=150)

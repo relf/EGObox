@@ -19,7 +19,7 @@ on:
       - crates/gp/examples/**
       - website/**
       - notebooks/**
-      - python/egobox/examples/website_*.py
+      - python/egobox/examples/*.py
       - python/egobox/tests/test_website_examples.py
   workflow_dispatch:
 
