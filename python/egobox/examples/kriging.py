@@ -1,3 +1,5 @@
+import os
+
 import matplotlib
 import numpy as np
 import matplotlib.pyplot as plt
@@ -38,4 +40,6 @@ axs.legend(
 )
 
 plt.show()
-fig.savefig("kriging.png", dpi=150)
+
+os.makedirs("examples_out", exist_ok=True)
+fig.savefig("examples_out/kriging.png", dpi=150)

@@ -2,6 +2,8 @@
 # Egobox demo: Minimize Rastrigin with Egor
 # =====================================================
 
+import os
+
 import matplotlib
 import numpy as np
 import egobox as egx
@@ -81,4 +83,5 @@ plt.ylabel("x₂")
 plt.legend()
 plt.show()
 
-fig.savefig("rastrigin.png", dpi=150)
+os.makedirs("examples_out", exist_ok=True)
+fig.savefig("examples_out/rastrigin.png", dpi=150)
