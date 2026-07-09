@@ -202,7 +202,7 @@ Why it helps:
 - EFI_FE is not implemented for default infill strategies (LOG_EI), so you
   need to use WB2, EI or WB2S. 
 
-## Recipe 8: Objective May Crash (Failsafe + Hot Start)
+## Recipe 8: Objective May Crash
 
 Use when:
 
@@ -238,5 +238,45 @@ Alternatives:
 - `FailsafeStrategy.REJECTION`: drops failed points (simplest)
 - `FailsafeStrategy.IMPUTATION`: fills failed outputs with surrogate-based estimates
 
-### Notes
+## Recipe 9: Restart From an Existing DOE
+
+Use when:
+
+- you already have a DOE from a previous run
+- you want to continue optimization without starting from scratch
+
+Suggested setup:
+
+```python
+initial_doe = np.load("run01/egor_initial_doe.npy")
+
+optim = egx.Egor(
+    xspecs,
+    doe=initial_doe,
+)
+res = optim.minimize(fun, max_iters=40, seed=42)
+```
+
+If the DOE was saved in an output directory from a previous run, you can also
+let Egor reload it automatically:
+
+```python
+optim = egx.Egor(
+    xspecs
+)
+res = optim.minimize(
+    fun,
+    max_iters=40,
+    outdir="run01",
+    warm_start=True,
+    seed=42,
+)
+```
+
+Why it helps:
+
+- reuses already evaluated points instead of recomputing them
+- keeps the surrogate and search history aligned with prior work
+- makes long optimization runs easier to resume after interruptions
+
 
