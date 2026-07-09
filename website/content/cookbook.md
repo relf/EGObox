@@ -239,7 +239,7 @@ Alternatives:
 - `FailsafeStrategy.REJECTION`: drops failed points (simplest)
 - `FailsafeStrategy.IMPUTATION`: fills failed outputs with surrogate-based estimates
 
-## Recipe 9: Restart from an existing DOE
+## Recipe 9: Restart From an Existing DOE
 
 Use when:
 
@@ -280,4 +280,52 @@ Why it helps:
 - keeps the surrogate and search history aligned with prior work
 - makes long optimization runs easier to resume after interruptions
 
+## Recipe 10: Constraints Not of the Form ≤ 0
+
+Use when:
+
+- your constraint functions return values that need different feasibility interpretations
+- constraints are equality constraints (e.g., `g(x) = 0`)
+- constraints have lower bounds (e.g., `g(x) ≥ bound`)
+- constraints have interval bounds (e.g., `lower ≤ g(x) ≤ upper`)
+
+Suggested setup:
+
+```python
+import egobox as egx
+
+# Example: constraint must be >= 0 (instead of default <= 0)
+optim = egx.Egor(
+    xspecs,
+    cstr_specs=[egx.CstrSpec.geq(0.0)],  # g(x) >= 0
+)
+res = optim.minimize(fun, max_iters=40, seed=42)
+
+# Example: equality constraint g(x) = target
+optim = egx.Egor(
+    xspecs,
+    cstr_specs=[egx.CstrSpec.eq(target_value)],
+)
+res = optim.minimize(fun, max_iters=40, seed=42)
+
+# Example: constraint in interval [lower, upper]
+optim = egx.Egor(
+    xspecs,
+    cstr_specs=[egx.CstrSpec.btw(lower_bound, upper_bound)],
+)
+res = optim.minimize(fun, max_iters=40, seed=42)
+```
+
+Why it helps:
+
+- `cstr_specs` defines the semantics of each constraint beyond the default `≤ 0`
+- `CstrSpec.leq(bound)`: constraint `g(x) ≤ bound`
+- `CstrSpec.geq(bound)`: constraint `g(x) ≥ bound`
+- `CstrSpec.eq(value)`: equality constraint `g(x) = value`
+- `CstrSpec.btw(lower, upper)`: interval constraint `lower ≤ g(x) ≤ upper`
+
+Note:
+
+- The constraint function `fun` should return raw values; `cstr_specs` interprets feasibility
+- For equality constraints, consider using a small tolerance via `cstr_tol`
 
