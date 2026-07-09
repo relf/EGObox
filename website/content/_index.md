@@ -16,11 +16,11 @@ Rust toolbox for Efficient Global Optimization method (arguably the most well-kn
 
 This website focuses on Python interface and contains the following sections:
 
-* [Get started](getting-started)
-* [Examples](examples)
-* [Tutorials](tutorials)
-* [Cookbook](cookbook)
-* [Python API](python-api)
+* [Get started](getting-started): learn to install EGObox
+* [Examples](examples): discover usage of EGObox
+* [Tutorials](tutorials): interactive tutorials to learn how to use EGObox
+* [Cookbook](cookbook): find practical recipes for `Egor` optimizer common tasks
+* [Python API](python-api): reference for the Python interface
 
 ## Cite
 
