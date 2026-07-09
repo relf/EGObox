@@ -56,15 +56,13 @@ Suggested setup:
 optim = egx.Egor(
     xspecs,
     n_doe=13,
-    infill_strategy=egx.InfillStrategy.LOG_EI,
 )
 res = optim.minimize(fun, max_iters=20, seed=42)
 ```
 
 Why it helps:
 
-- smaller DOE reduces initial expensive calls
-- LOG_EI and feasible infill favor informative evaluations
+- smaller DOE reduces initial expensive calls (default xdim + 1)
 
 ## Recipe 3: High Dimension (d > 10)
 
@@ -80,7 +78,6 @@ gp_cfg = egx.GpConfig(kpls_dim=10)
 optim = egx.Egor(
     xspecs,
     gp_config=gp_cfg,
-    n_doe=0,
 )
 res = optim.minimize(fun, max_iters=40, seed=42)
 ```
@@ -163,15 +160,18 @@ optim = egx.Egor(
     xspecs,
     gp_config=gp_cfg,
     trego=True,
-    infill_strategy=egx.InfillStrategy.LOG_EI,
+    infill_strategy=egx.InfillStrategy.WB2,
+    infill_optimizer=egx.InfillOptimizer.SLSQP
 )
 res = optim.minimize(fun, max_iters=40, seed=42)
 ```
 
 Why it helps:
 
-- TREGO alternates global and local trust-region behavior
+- TREGO alternates global and local trust-region behavior improves convergence
 - Matern52 is often more robust on rougher landscapes
+- On bad infill optimization you can try to change the infill optimizer; try `SLSQP`
+- Default `LOG_EI` optimization on rough landscapes may be too difficult; try `WB2`, `WB2S` or even `EI` instead
 
 ## Recipe 7: Constraint-Heavy Problems
 
@@ -239,7 +239,7 @@ Alternatives:
 - `FailsafeStrategy.REJECTION`: drops failed points (simplest)
 - `FailsafeStrategy.IMPUTATION`: fills failed outputs with surrogate-based estimates
 
-## Recipe 9: Restart From an Existing DOE
+## Recipe 9: Restart From an existing DOE
 
 Use when:
 
