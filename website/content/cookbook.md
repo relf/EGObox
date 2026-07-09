@@ -329,3 +329,45 @@ Note:
 - The constraint function `fun` should return raw values; `cstr_specs` interprets feasibility
 - For equality constraints, consider using a small tolerance via `cstr_tol`
 
+## Recipe 11: Cheap Not Metamodelized Constraint
+
+Use when:
+
+- you have constraints that are cheap to evaluate
+- constraints depend only on input variables `x` (not on expensive simulations)
+- you want to avoid the overhead of surrogate modeling for these constraints
+
+Suggested setup:
+
+```python
+import egobox as egx
+
+# Example: constraint g(x) <= 0 that is cheap to evaluate
+def cheap_constraint(x):
+    # Cheap computation based only on x
+    return x[0] ** 2 + x[1] ** 2  # Circle constraint
+
+optim = egx.Egor(
+    xspecs,
+)
+res = optim.minimize(
+    fun,
+    fcstrs=[cheap_constraint],  # List of cheap constraint functions
+    fcstr_specs=[egx.CstrSpec.leq(1.0)],  # Constraint semantics
+    max_iters=40,
+    seed=42,
+)
+```
+
+Why it helps:
+
+- `fcstrs` (function constraints) are evaluated directly, not surrogate-modeled
+- Avoids the complexity of modeling cheap constraints with GPs
+- Reduces optimization overhead when constraints are inexpensive
+- `fcstr_specs` defines feasibility interpretation (same as `cstr_specs`)
+
+Note:
+
+- Use `fcstrs` for cheap constraints; use `cstr_specs` for expensive constraints that need surrogate modeling
+- The `fun` callable should return `(objective, *constraint_values)` when using surrogate constraints, but for `fcstrs`, constraints are passed separately
+- Multiple cheap constraints can be provided as a list to `fcstrs`
