@@ -239,7 +239,7 @@ Alternatives:
 - `FailsafeStrategy.REJECTION`: drops failed points (simplest)
 - `FailsafeStrategy.IMPUTATION`: fills failed outputs with surrogate-based estimates
 
-## Recipe 9: Restart From an existing DOE
+## Recipe 9: Restart from an existing DOE
 
 Use when:
 

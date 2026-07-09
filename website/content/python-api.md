@@ -11,7 +11,7 @@ This page summarizes the Python API signatures from `python/egobox/egobox.pyi` f
 - `Gpx.builder(...)`
 - `Gpx` instance and static methods
 
-Default values are copied from the stub. A default value of `...` means "library-defined default" in the generated stub.
+Default values are copied from the stub.
 
 ## Egor constructor
 
@@ -54,14 +54,14 @@ Egor(
 | `feasible_infill_strategy` | `FeasibleInfillStrategy` | `FeasibleInfillStrategy.NONE` | Feasibility-aware infill mode. Possible values: `FeasibleInfillStrategy.NONE`, `FeasibleInfillStrategy.EFI_P`, `FeasibleInfillStrategy.EFI_FE`. |
 | `cstr_infill` | `bool` | `False` | Enables constrained infill with probability-of-feasibility factor. Possible values: `True`, `False`. |
 | `cstr_strategy` | `ConstraintStrategy` | `ConstraintStrategy.MC` | Constraint handling strategy. Possible values: `ConstraintStrategy.MC`, `ConstraintStrategy.UTB`. |
-| `qei_config` | `QEiConfig` | `QEiConfig()` | Parallel/qEI batch configuration. |
+| `qei_config` | `QEiConfig` | `QEiConfig()` | Parallel/qEI batch configuration. See [QEiConfig](#qeiconfig) for details. |
 | `infill_optimizer` | `InfillOptimizer` | `InfillOptimizer.COBYLA` | Internal optimizer for infill criterion. Possible values: `InfillOptimizer.COBYLA`, `InfillOptimizer.SLSQP`. |
 | `trego` | `Optional[Any]` | `None` | TREGO toggle/config. Possible values: `None`, `False`, `True` (uses `TregoConfig()` defaults), `TregoConfig(...)`, or a dict with keys `n_gl_steps`, `d`, `alpha`, `beta`, `sigma0`. |
 | `coego_n_coop` | `int` | `0` | Number of cooperative groups for CoEGO (high-dimensional mode). |
 | `target` | `float` | `-1.7976931348623157e+308` | Known optimum target used as stopping criterion. |
 | `failsafe_strategy` | `FailsafeStrategy` | `FailsafeStrategy.REJECTION` | Failure handling for NaN objective values. Possible values: `FailsafeStrategy.REJECTION`, `FailsafeStrategy.IMPUTATION`, `FailsafeStrategy.VIABILITY`. |
 
-### GpConfig() default values
+### GpConfig
 
 | Name | Type | Default value | Description |
 | --- | --- | --- | --- |
@@ -75,7 +75,7 @@ Egor(
 | `n_start` | `int` | `10` | GP hyperparameter optimization multistart. |
 | `max_eval` | `int` | `50` | Max likelihood evaluations for hyperparameter optimization. |
 
-### QEiConfig() default values
+### QEiConfig
 
 | Name | Type | Default value | Description |
 | --- | --- | --- | --- |
@@ -83,7 +83,7 @@ Egor(
 | `strategy` | `QEiStrategy` | `QEiStrategy.KB` | qEI strategy. Possible values: `QEiStrategy.KB`, `QEiStrategy.KBLB`, `QEiStrategy.KBUB`, `QEiStrategy.CLMIN`. |
 | `optmod` | `int` | `1` | Re-optimize hyperparameters every point. |
 
-### TregoConfig() defaults when `trego=True`
+### TregoConfig
 
 When `trego=True` in `Egor(...)`, the Python binding activates TREGO with `TregoConfig()` defaults.
 
@@ -117,7 +117,7 @@ Egor.minimize(
 
 | Name | Type | Default value | Description |
 | --- | --- | --- | --- |
-| `fun` | `typing.Any` | required | Objective/constraint callable evaluated by the optimizer. |
+| `fun` | `typing.Any` | required | Objective/constraint callable evaluated by the optimizer. fun: callable with signature `fun(x: np.ndarray) -> np.ndarray` where `x` is a 2D array of shape `(n_points, n_variables)` and return value is a 2D array with shape `(n_points, 1 + n_constraints)` containing [obj, cstr1, cstr2, ...] evaluations. |
 | `fcstrs` | `Sequence[typing.Any]` | `[]` | Optional function constraints (cheap constraints, not surrogate-modeled). |
 | `fcstr_specs` | `Sequence[CstrSpec]` | `[]` | Optional semantics for `fcstrs` constraints. Possible values per item: `CstrSpec.leq(bound)`, `CstrSpec.geq(bound)`, `CstrSpec.eq(value)`, `CstrSpec.btw(lower, upper)`. |
 | `max_iters` | `int` | `20` | Iteration budget. |
