@@ -17,7 +17,8 @@ Each recipe includes:
 
 - Start from the closest recipe, then tune one group of parameters at a time.
 - Keep random seeds fixed while comparing configurations.
-- For complete parameter definitions, see the [Python API](python-api).
+- Regarding the required `xspecs` parameter (i.e. the input space) used by `Egor`: When using continuous variables only, the simplest form is a list of `[lower, upper]` pairs, e.g. `[[0.0, 1.0], [1.0, 10.0], [-5.0, 5.0]]`. Otherwise, see the [XSpecs in Python API](../python-api#xspecs) for more complex variable types.
+- For complete parameter definitions, see the [Python API](../python-api).
 
 ## Recipe 1: Cheap Low-Dimensional Objective
 
