@@ -484,7 +484,7 @@ where
     ) -> Vec<Box<dyn egobox_moe::MixtureGpSurrogate>> {
         info!(
             "Train surrogates with {} points...",
-            &state.surrogate.data.as_ref().unwrap().0.nrows()
+            state.surrogate.data.as_ref().unwrap().0.nrows()
         );
 
         let mapping = self

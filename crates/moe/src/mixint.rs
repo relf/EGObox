@@ -615,7 +615,7 @@ pub struct MixintGpMixture {
 impl std::fmt::Display for MixintGpMixture {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let prefix = if discrete(&self.xtypes) { "MixInt" } else { "" };
-        write!(f, "{}{}", prefix, &self.moe)
+        write!(f, "{}{}", prefix, self.moe)
     }
 }
 

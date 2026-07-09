@@ -455,7 +455,7 @@ impl std::fmt::Display for GpMixture {
             .map(|expert| expert.to_string())
             .reduce(|acc, s| acc + ", " + &s)
             .unwrap();
-        write!(f, "Mixture[{}]({})", &recomb, &experts)
+        write!(f, "Mixture[{}]({})", recomb, experts)
     }
 }
 

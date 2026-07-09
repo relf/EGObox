@@ -34,7 +34,7 @@ impl<F: Float> Display for Recombination<F> {
             Recombination::Smooth(Some(f)) => format!("Smooth({f})"),
             Recombination::Smooth(None) => "Smooth".to_string(),
         };
-        write!(f, "Mixture[{}]", &recomb)
+        write!(f, "Mixture[{}]", recomb)
     }
 }
 

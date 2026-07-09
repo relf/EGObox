@@ -57,7 +57,7 @@ impl std::fmt::Display for AffinedSurrogate {
         write!(
             f,
             "Affine({} * {} + {})",
-            self.scale, &self.inner, self.offset
+            self.scale, self.inner, self.offset
         )
     }
 }
