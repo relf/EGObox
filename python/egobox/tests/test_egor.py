@@ -470,6 +470,91 @@ class TestEgor(unittest.TestCase):
         )
         self.assertAlmostEqual(0.707, optim.result.y_opt[0], delta=1e-1)
 
+    def test_sphere_with_eq_fcstr(self):
+        """
+        Test optimization of sphere function with an equality constraint.
+
+        Objective: f(x) = x1² + x2² (minimized at origin)
+        Constraint: x1 + x2 = 1
+
+        Analytical solution: x* = (0.5, 0.5) with f(x*) = 0.5
+        """
+
+        def sphere_eq_constraint(x, grad=False):
+            """Equality constraint: x1 + x2 = 1"""
+            if grad:
+                raise NotImplementedError("Constraint gradient not available")
+            x = np.atleast_2d(x)
+            return (x[:, 0] + x[:, 1]).item()
+
+        egor = egx.Egor(
+            [[-2.0, 2.0], [-2.0, 2.0]],
+            n_doe=10,
+        )
+        fcstrs = [sphere_eq_constraint]
+        fcstr_specs = [egx.CstrSpec.eq(1.0)]
+
+        optim = egor.minimize(
+            sphere,
+            max_iters=10,
+            fcstrs=fcstrs,
+            fcstr_specs=fcstr_specs,
+            seed=42,
+            verbose=2,
+        )
+        print(f"Optimization f={optim.result.y_opt} at {optim.result.x_opt}")
+
+        # Verify the solution is close to analytical optimum (0.5, 0.5)
+        self.assertAlmostEqual(0.5, optim.result.y_opt[0], delta=0.1)
+        np.testing.assert_allclose([0.5, 0.5], optim.result.x_opt, atol=1e-3)
+        # Verify constraint is satisfied
+        constraint_value = optim.result.x_opt[0] + optim.result.x_opt[1]
+        self.assertAlmostEqual(1.0, constraint_value, delta=1e-3)
+
+    def test_sphere_with_eq_cstr(self):
+        """
+        Test optimization of sphere function with a metamodelized equality constraint.
+
+        Objective: f(x) = x1² + x2² (minimized at origin)
+        Constraint: x1 + x2 = 1 (metamodelized via cstr_specs)
+
+        Analytical solution: x* = (0.5, 0.5) with f(x*) = 0.5
+
+        This test uses the cstr_specs API where constraints are returned by the
+        objective function and metamodelized along with the objective.
+        """
+
+        def sphere_with_eq_cstr(point):
+            """
+            Returns [objective, constraint] where constraint should equal 1.
+            """
+            p = np.atleast_2d(point)
+            obj = np.sum(p**2, axis=1).reshape(-1, 1)
+            cstr = (p[:, 0] + p[:, 1]).reshape(-1, 1)
+            return np.hstack((obj, cstr))
+
+        egor = egx.Egor(
+            [[-2.0, 2.0], [-2.0, 2.0]],
+            n_doe=10,
+            cstr_specs=[egx.CstrSpec.eq(1.0)],
+        )
+
+        optim = egor.minimize(sphere_with_eq_cstr, max_iters=20, seed=42, verbose=2)
+        print(f"Optimization f={optim.result.y_opt} at {optim.result.x_opt}")
+
+        # Verify the solution is close to analytical optimum (0.5, 0.5)
+        self.assertAlmostEqual(0.5, optim.result.y_opt[0], delta=1e-3)
+        np.testing.assert_allclose([0.5, 0.5], optim.result.x_opt, atol=1e-3)
+        # Verify constraint is satisfied (constraint value should be close to 1.0)
+        # Check the actual constraint value computed from x coordinates
+        constraint_value_from_x = optim.result.x_opt[0] + optim.result.x_opt[1]
+        self.assertAlmostEqual(1.0, constraint_value_from_x, delta=1e-3)
+        # Also check that the constraint violation (y_opt[1] and y_opt[2]) is close to 0
+        constraint_violation = optim.result.y_opt[1]
+        self.assertAlmostEqual(0.0, constraint_violation, delta=1e-3)
+        constraint_violation = optim.result.y_opt[2]
+        self.assertAlmostEqual(0.0, constraint_violation, delta=1e-3)
+
     def test_constrained_branin_with_nans(self):
         def branin_constrained_with_nans(x):
             def branin_constraint_nans(xi):
