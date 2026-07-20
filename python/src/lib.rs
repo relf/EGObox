@@ -29,7 +29,7 @@ fn _run_gpx_cli(args: Vec<String>) -> i32 {
 
 #[doc(hidden)]
 #[pymodule]
-fn egobox(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _rust(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     // egobox version
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
 

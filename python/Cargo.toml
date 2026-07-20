@@ -11,7 +11,7 @@ readme = "README.md"
 publish = false
 
 [lib]
-name = "egobox"
+name = "_rust"
 crate-type = ["cdylib", "rlib"]
 doctest = false                 # do not doctest as doc uses Python style for Python API doc
 

@@ -1,1 +1,36 @@
-from .egobox import *  # noqa
+# Public API - re-export all symbols from the Rust extension
+# ruff: noqa: F405
+from ._rust import *  # noqa
+
+__all__ = [
+    "ConstraintStrategy",
+    "CorrelationSpec",
+    "CstrSpec",
+    "Egor",
+    "EgorOptim",
+    "ExitStatus",
+    "FailsafeStrategy",
+    "FeasibleInfillStrategy",
+    "GpConfig",
+    "GpMix",
+    "Gpx",
+    "InfillOptimizer",
+    "InfillStrategy",
+    "OptimResult",
+    "QEiConfig",
+    "QEiStrategy",
+    "Recombination",
+    "RegressionSpec",
+    "RunInfo",
+    "RunStatus",
+    "Sampling",
+    "SparseGpMix",
+    "SparseGpx",
+    "SparseMethod",
+    "TregoConfig",
+    "Verbose",
+    "XSpec",
+    "XType",
+    "lhs",
+    "sampling",
+]  # noqa

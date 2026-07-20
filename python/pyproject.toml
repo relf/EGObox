@@ -38,7 +38,8 @@ dev = [
 ]
 
 [tool.maturin]
-module-name = "egobox"
+python-source = "."
+module-name = "egobox._rust"
 features = ["pyo3/extension-module"]
 # Optional usage of BLAS backend 
 # cargo-extra-args = "--features linfa/intel-mkl-static"
