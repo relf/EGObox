@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 
-EXAMPLES_DIR = Path(__file__).resolve().parents[1] / "egobox" / "examples"
+EXAMPLES_DIR = Path(__file__).resolve().parents[1] / "examples"
 
 
 class TestExamples(unittest.TestCase):

@@ -4,6 +4,10 @@ import matplotlib
 import numpy as np
 import matplotlib.pyplot as plt
 
+import warnings
+
+warnings.filterwarnings("ignore", category=UserWarning)
+
 # Comment out the following line to display the plot in a window
 matplotlib.use("Agg")
 
