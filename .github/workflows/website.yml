@@ -80,7 +80,7 @@ jobs:
 
       - name: Verify website examples
         working-directory: python
-        run: uv run pytest egobox/tests/test_examples.py
+        run: uv run pytest tests/test_examples.py
 
       - name: Install Zola
         uses: taiki-e/install-action@v2
