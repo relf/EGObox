@@ -1,8 +1,8 @@
-from egobox import egobox as native
+import egobox as egx
 
 
 def test_gpx_help_exit_code_zero(capfd):
-    code = native._run_gpx_cli(["--help"])
+    code = egx._rust._run_gpx_cli(["--help"])
 
     assert code == 0
     out, err = capfd.readouterr()
