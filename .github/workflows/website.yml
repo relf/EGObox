@@ -19,8 +19,8 @@ on:
       - crates/gp/examples/**
       - website/**
       - notebooks/**
-      - python/egobox/examples/*.py
-      - python/egobox/tests/test_examples.py
+      - python/examples/*.py
+      - python/tests/test_examples.py
   workflow_dispatch:
 
 permissions:
