@@ -3,7 +3,7 @@ import os
 import matplotlib
 import numpy as np
 import matplotlib.pyplot as plt
-
+import egobox as egx
 import warnings
 
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -11,7 +11,6 @@ warnings.filterwarnings("ignore", category=UserWarning)
 # Comment out the following line to display the plot in a window
 matplotlib.use("Agg")
 
-import egobox as egx
 
 xt = np.array([[0.0, 1.0, 1.5, 2.0, 3.0, 4.0]]).T
 yt = np.array([[0.0, 1.0, 1.7, 1.5, 0.9, 1.0]]).T
