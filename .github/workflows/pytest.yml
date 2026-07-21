@@ -68,6 +68,6 @@ jobs:
       - name: Test Python
         working-directory: python
         run: |
-          uv run pytest
+          uv run pytest tests
         shell: bash
 

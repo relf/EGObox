@@ -71,7 +71,7 @@ plt.show()
 
 See also [this example written in Rust](crates/gp/examples/kriging.rs)
 
-See the [tutorial notebooks](https://github.com/relf/egobox/tree/master/notebooks/README.md) and [examples folder](https://github.com/relf/egobox/tree/d9db0248199558f23d966796737d7ffa8f5de589/python/egobox/examples) for more information on the usage of the optimizer and mixture of Gaussian processes surrogate model.
+See the [tutorial notebooks](https://github.com/relf/egobox/tree/master/notebooks/README.md) and [examples folder](https://github.com/relf/egobox/tree/master/python/examples) for more information on the usage of the optimizer and mixture of Gaussian processes surrogate model.
 
 ## The Rust libraries
 

@@ -9,8 +9,8 @@ on:
       - crates/gp/examples/**
       - website/**
       - notebooks/**
-      - python/egobox/examples/*.py
-      - python/egobox/tests/*.py
+      - python/examples/*.py
+      - python/tests/*.py
   push:
     branches: [ master ]
     paths:
@@ -19,8 +19,8 @@ on:
       - crates/gp/examples/**
       - website/**
       - notebooks/**
-      - python/egobox/examples/*.py
-      - python/egobox/tests/test_examples.py
+      - python/examples/*.py
+      - python/tests/test_examples.py
   workflow_dispatch:
 
 permissions:
@@ -80,7 +80,7 @@ jobs:
 
       - name: Verify website examples
         working-directory: python
-        run: uv run pytest egobox/tests/test_examples.py
+        run: uv run pytest tests/test_examples.py
 
       - name: Install Zola
         uses: taiki-e/install-action@v2
