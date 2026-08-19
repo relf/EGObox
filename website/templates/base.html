@@ -27,9 +27,12 @@
             <a class="header__title white" href="{{ docs_root.permalink }}">{{ config.title }}</a>
         </div>
         <div class="header__right">
-            <div class="header__search" data-search-root data-search-index-url="{{ get_url(path='search_index.en.json') }}" data-search-index-fallback="{{ get_url(path='search_index.json') }}">
+            <div class="header__search" data-search-root
+                data-search-index-url="{{ get_url(path='search_index.en.json') }}"
+                data-search-index-fallback="{{ get_url(path='search_index.json') }}">
                 <label class="header__search-label" for="site-search">Search</label>
-                <input id="site-search" class="header__search-input" type="search" placeholder="Search the website" autocomplete="off" spellcheck="false">
+                <input id="site-search" class="header__search-input" type="search" placeholder="Search the website"
+                    autocomplete="off" spellcheck="false">
                 <div class="header__search-results" data-search-results hidden></div>
             </div>
             <a class="header__github white" href="https://github.com/relf/EGObox" aria-label="GitHub repository">
@@ -62,7 +65,7 @@
                 </ul>
             </aside>
             <main
-                class="documentation__content docs-article{% if page and page.path is containing('python-api') %} python-api-page{% endif %}{% if page and page.path is containing('examples') %} examples-page{% endif %}">
+                class="documentation__content docs-article{% if page and 'python-api' in page.path %} python-api-page{% endif %}{% if page and 'examples' in page.path %} examples-page{% endif %}">
                 {% block content %} {% endblock content %}
             </main>
         </div>
