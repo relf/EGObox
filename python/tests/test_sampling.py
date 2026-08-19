@@ -1,6 +1,8 @@
-import numpy as np
-import egobox as egx
 import unittest
+
+import numpy as np
+
+import egobox as egx
 
 
 class TestSampling(unittest.TestCase):

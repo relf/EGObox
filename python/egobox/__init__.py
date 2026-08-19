@@ -1,1 +1,1 @@
-from .egobox import *  # noqa
+from .egobox import *

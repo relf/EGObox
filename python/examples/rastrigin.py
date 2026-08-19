@@ -5,9 +5,10 @@
 import os
 
 import matplotlib
-import numpy as np
-import egobox as egx
 import matplotlib.pyplot as plt
+import numpy as np
+
+import egobox as egx
 
 # Comment out the following line to display the plot in a window
 matplotlib.use("Agg")

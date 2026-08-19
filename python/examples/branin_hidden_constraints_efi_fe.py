@@ -24,12 +24,12 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 
-import egobox as egx
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
+import egobox as egx
 
 # Problem definition in scaled domain x in [0, 1]^2.
 BOUNDS = np.array([[0.0, 1.0], [0.0, 1.0]], dtype=float)

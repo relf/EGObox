@@ -1,8 +1,8 @@
 import os
 
 import matplotlib
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 
 # Comment out the following line to display the plot in a window
 matplotlib.use("Agg")

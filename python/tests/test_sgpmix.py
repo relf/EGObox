@@ -1,8 +1,10 @@
-import unittest
-import numpy as np
-import egobox as egx
 import logging
 import time
+import unittest
+
+import numpy as np
+
+import egobox as egx
 
 logging.basicConfig(level=logging.DEBUG)
 

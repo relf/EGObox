@@ -3,13 +3,15 @@
 # Visualize trust region evolution from saved states
 # =====================================================
 
-import os
 import json
-import numpy as np
-import egobox as egx
+import os
+
 import matplotlib.pyplot as plt
-from matplotlib.patches import Circle, Rectangle
+import numpy as np
 from matplotlib import animation
+from matplotlib.patches import Circle, Rectangle
+
+import egobox as egx
 
 
 # -----------------------------------------------------

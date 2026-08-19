@@ -1,8 +1,9 @@
-import numpy as np
-import egobox as egx
-
 # To display optimization information (none by default)
 import logging
+
+import numpy as np
+
+import egobox as egx
 
 logging.basicConfig(level=logging.INFO)
 
