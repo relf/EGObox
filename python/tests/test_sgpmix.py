@@ -55,7 +55,7 @@ class TestSgp(unittest.TestCase):
     def test_sgp_multi_outputs_exception(self):
         yt = np.hstack((self.yt, self.yt))
 
-        with self.assertRaises(BaseException):
+        with self.assertRaises(BaseException):  # noqa
             egx.SparseGpx.builder(nz=self.n_inducing, seed=0).fit(self.xt, yt)
 
     def test_1d_training_data(self):
