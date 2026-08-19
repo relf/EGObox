@@ -1,1 +1,1 @@
-from .egobox import *
+from .egobox import *  # noqa: F403, RUF100
