@@ -1,8 +1,10 @@
+import logging
 import os
 import unittest
+
 import numpy as np
+
 import egobox as egx
-import logging
 
 logging.basicConfig(level=logging.INFO)
 
@@ -125,7 +127,7 @@ class TestGpMix(unittest.TestCase):
         self.yt = np.array(
             [[0.0, 10.0], [1.0, -3.0], [1.5, 1.5], [0.9, 1.0], [1.0, 0.0]]
         )
-        with self.assertRaises(BaseException):
+        with self.assertRaises(BaseException):  # noqa
             egx.Gpx.builder().fit(self.xt, self.yt)
 
     def test_1d_training_data(self):

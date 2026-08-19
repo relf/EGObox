@@ -7,11 +7,12 @@ Chichester, UK: John Wiley & Sons.
 The Branin function is modified with a constraint x1*x2 >= 0.2
 """
 
-import numpy as np
-import matplotlib.pyplot as plt
-from egobox import Egor
-
 import logging
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+from egobox import Egor
 
 logging.basicConfig(level=logging.INFO)
 

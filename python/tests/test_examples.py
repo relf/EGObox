@@ -2,7 +2,6 @@ import runpy
 import unittest
 from pathlib import Path
 
-
 EXAMPLES_DIR = Path(__file__).resolve().parents[1] / "examples"
 
 

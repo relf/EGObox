@@ -9,13 +9,14 @@ This illustrates the management of hidden constraints by Egor
 See Section 5.5.1 Imputing Data for infeasible design
 """
 
-import os
-import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib import animation
-import egobox as egx
-
 import logging
+import os
+
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib import animation
+
+import egobox as egx
 
 logging.basicConfig(level=logging.INFO)
 

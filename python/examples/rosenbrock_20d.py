@@ -5,9 +5,11 @@
 
 import argparse
 import os
-import numpy as np
-import egobox as egx
+
 import matplotlib.pyplot as plt
+import numpy as np
+
+import egobox as egx
 
 
 # -----------------------------------------------------

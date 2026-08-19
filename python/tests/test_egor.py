@@ -1,10 +1,12 @@
-import os
-import unittest
-import numpy as np
-import egobox as egx
-import time
 import logging
+import os
 import tempfile
+import time
+import unittest
+
+import numpy as np
+
+import egobox as egx
 
 logging.basicConfig(level=logging.INFO)
 
@@ -591,7 +593,7 @@ class TestEgor(unittest.TestCase):
             print(self.nb_calls)
             if self.nb_calls > 1 and np.prod(x) < BRANIN_CSTR_CONST:
                 # Force a crash for points violating the constraint after the first call
-                error = 1 / 0  # noqa
+                error = 1 / 0
                 print(error)  # to use the variable and avoid "unused variable" warning
             else:
                 return branin(np.atleast_2d(x))

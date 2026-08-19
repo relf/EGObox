@@ -1,0 +1,7 @@
+{% component include_code(url, lang) %}
+
+{%- set file_content = load_data(url=url, format="plain") -%}
+
+{{ file_content | safe }}
+
+{% endcomponent include_code %}
