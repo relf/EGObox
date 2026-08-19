@@ -12,10 +12,12 @@ Here you can just copy-paste the code to run it locally, or click on the links t
 
 ### Unconstrained optimization: [Rastrigin](https://github.com/relf/EGObox/blob/master/python/examples/rastrigin.py)
 
+```python,copy
 {{ < include_code 
     url="https://raw.githubusercontent.com/relf/EGObox/master/python/examples/rastrigin.py" 
     lang="python" /> 
 }}
+```
 
 ```bash
 Using infill strategy: InfillStrategy.LOG_EI
@@ -29,10 +31,12 @@ Best point (x*): [ 0.00415341 -0.00058284]
 
 ### Constrained optimization: [G24](https://github.com/relf/EGObox/blob/master/python/examples/g24.py)
 
+```python,copy
 {{ < include_code 
     url="https://raw.githubusercontent.com/relf/EGObox/master/python/examples/g24.py" 
     lang="python" /> 
 }}
+```
 
 ```bash
 Optimization f=[-5.50853583e+00  8.65985077e-04  3.83913510e-04] at [2.32948272 3.17905311]
@@ -42,9 +46,11 @@ Optimization f=[-5.50853583e+00  8.65985077e-04  3.83913510e-04] at [2.32948272 
 
 ### Simple surrogate model: [Kriging](https://github.com/relf/EGObox/blob/master/python/examples/kriging.py)
 
+```python,copy
 {{ < include_code 
     url="https://raw.githubusercontent.com/relf/EGObox/master/python/examples/kriging.py" 
     lang="python" /> 
 }}
+```
 
 ![Gpx surrogate model](img/kriging.png) 
