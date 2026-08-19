@@ -2,8 +2,6 @@
 
 {%- set file_content = load_data(url=url, format="plain") -%}
 
-<div class="code-wrapper">
-    {{ file_content | safe }}
-</div>
+{{ file_content | safe }}
 
 {% endcomponent include_code %}
