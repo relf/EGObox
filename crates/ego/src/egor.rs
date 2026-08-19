@@ -1541,7 +1541,7 @@ mod tests {
             .expect("Egor should be configured")
             .run()
             .expect("Egor should minimize branin_with_nans");
-        // The optimizer stalls with default NaNs rejection policy
+        // The optimizer stalls with the explicit NaNs rejection policy
         // Only some good doe points are kept, no further point is added
         // as the optimizer wants to peek in the bad region
         assert!(N_DOE + MAX_ITERS >= res.x_doe.nrows());
@@ -1586,6 +1586,23 @@ mod tests {
         assert!(res.state.surrogate.x_fail.is_some());
     }
 
+    #[test]
+    #[serial]
+    fn test_egor_stops_on_objective_failure_by_default() {
+        let objective = |_x: &ArrayView2<f64>| -> std::result::Result<Array2<f64>, String> {
+            Err("simulated objective failure".to_string())
+        };
+
+        let result = EgorBuilder::optimize(objective)
+            .configure(|cfg| cfg.max_iters(0).seed(42))
+            .min_within(&array![[0.0, 1.0]])
+            .expect("Egor should be configured")
+            .run();
+
+        let error = result.expect_err("objective failure should stop optimization");
+        assert!(error.to_string().contains("simulated objective failure"));
+    }
+
     // sphere function which save nb of calls in temporary file
     // then read it to fail every 5 calls, to test periodic fails
     #[test]
@@ -1628,7 +1645,12 @@ mod tests {
 
         let max_iters = 12usize;
         let res = EgorBuilder::optimize(f)
-            .configure(|cfg| cfg.doe(&init_doe).max_iters(max_iters).seed(42))
+            .configure(|cfg| {
+                cfg.doe(&init_doe)
+                    .max_iters(max_iters)
+                    .failsafe_strategy(FailsafeStrategy::Rejection)
+                    .seed(42)
+            })
             .min_within(&xlimits)
             .expect("Egor configured")
             .run()

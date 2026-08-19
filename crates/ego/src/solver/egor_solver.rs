@@ -214,7 +214,7 @@ where
             if doe.ncols() == self.xlimits.nrows() {
                 // only x are specified
                 info!("Compute initial DOE on specified {} points", doe.nrows());
-                (self.eval_obj(problem, doe), doe.to_owned())
+                (self.eval_obj(problem, doe)?, doe.to_owned())
             } else {
                 // split doe in x and y
                 info!("Use specified DOE {} samples", doe.nrows());
@@ -232,7 +232,7 @@ where
             info!("Compute initial LHS with {n_doe} points");
             let sampling = Lhs::new(&self.xlimits).with_rng(rng.clone());
             let x = sampling.sample(n_doe);
-            (self.eval_obj(problem, &x), x)
+            (self.eval_obj(problem, &x)?, x)
         };
         // Apply constraint transformation if cstr_specs are set
         let y_data = if let Some(ref specs) = self.config.cstr_specs {
@@ -518,7 +518,7 @@ where
             &infill_data,
             max_dist,
             min_acceptance_distance,
-        );
+        )?;
         Ok((new_state, None))
     }
 }

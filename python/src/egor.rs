@@ -252,7 +252,7 @@ impl Egor {
         trego = None,
         coego_n_coop = 0,
         target = f64::MIN,
-        failsafe_strategy = FailsafeStrategy::Rejection,
+        failsafe_strategy = FailsafeStrategy::StopOnFailure,
         seed = None,
         outdir = None,
         warm_start = false,
@@ -781,6 +781,7 @@ impl Egor {
 
     fn failsafe_strategy(&self) -> egobox_ego::FailsafeStrategy {
         match self.failsafe_strategy {
+            FailsafeStrategy::StopOnFailure => egobox_ego::FailsafeStrategy::StopOnFailure,
             FailsafeStrategy::Rejection => egobox_ego::FailsafeStrategy::Rejection,
             FailsafeStrategy::Imputation => egobox_ego::FailsafeStrategy::Imputation,
             FailsafeStrategy::Viability => egobox_ego::FailsafeStrategy::Viability,

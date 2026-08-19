@@ -104,8 +104,10 @@ impl FeasibleInfillStrategy {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[non_exhaustive]
 pub enum FailsafeStrategy {
-    /// Failure point x is ignored
+    /// Stop optimization when the objective function evaluation fails
     #[default]
+    StopOnFailure,
+    /// Failure point x is ignored
     Rejection,
     /// Use objective surrogate prediction: y <- prediction(x) + variance(x)
     Imputation,

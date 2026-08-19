@@ -246,6 +246,8 @@ pub(crate) enum FeasibleInfillStrategy {
 #[pyclass(skip_from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 pub(crate) enum FailsafeStrategy {
+    /// Stop optimization when the objective function evaluation fails
+    StopOnFailure = 4,
     /// The point is ignored, the optimization continues but may fail to explore
     /// another region of the search space
     Rejection = 1,
@@ -268,11 +270,12 @@ impl<'a, 'py> FromPyObject<'a, 'py> for FailsafeStrategy {
             Ok(1) => Ok(Self::Rejection),
             Ok(2) => Ok(Self::Imputation),
             Ok(3) => Ok(Self::Viability),
+            Ok(4) => Ok(Self::StopOnFailure),
             Ok(v) => Err(PyValueError::new_err(format!(
-                "failsafe_strategy integer value must be in [1, 3], got {v}"
+                "failsafe_strategy integer value must be in [1, 4], got {v}"
             ))),
             Err(_) => Err(PyTypeError::new_err(
-                "failsafe_strategy must be a FailsafeStrategy enum or an integer in [1, 3]",
+                "failsafe_strategy must be a FailsafeStrategy enum or an integer in [1, 4]",
             )),
         }
     }

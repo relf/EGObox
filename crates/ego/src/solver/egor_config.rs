@@ -396,7 +396,7 @@ impl Default for ValidEgorConfig {
             cstr_infill: false,
             cstr_strategy: ConstraintStrategy::MeanConstraint,
             feasibility_infill: FeasibleInfillStrategy::None,
-            failsafe_strategy: FailsafeStrategy::Rejection,
+            failsafe_strategy: FailsafeStrategy::StopOnFailure,
             runtime_flags: RuntimeFlags::default(),
             iteration_strategy: Box::new(StandardEgoStrategy),
             activity_strategy: Box::new(FullActivity),

@@ -827,7 +827,7 @@ where
             }
         };
 
-        let y_actual = self.eval_obj(problem, &x_dat);
+        let y_actual = self.eval_obj(problem, &x_dat)?;
         // Apply constraint transformation if cstr_specs are set
         let y_actual = if let Some(ref specs) = self.config.cstr_specs {
             crate::types::transform_constraints(&y_actual, specs)
@@ -1057,7 +1057,9 @@ where
                                 y_pen_imputed,
                             );
                         }
-                        FailsafeStrategy::Rejection | FailsafeStrategy::Viability => (),
+                        FailsafeStrategy::StopOnFailure
+                        | FailsafeStrategy::Rejection
+                        | FailsafeStrategy::Viability => (),
                     }
                 };
 
