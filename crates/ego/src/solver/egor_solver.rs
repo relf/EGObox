@@ -142,6 +142,8 @@ pub const DOE_FILE: &str = "egor_doe.npy";
 
 /// Default tolerance value for constraints to be satisfied (ie cstr < tol)
 pub const DEFAULT_CSTR_TOL: f64 = 1e-4;
+/// Termination reason when the objective function returns an error.
+pub const OBJECTIVE_FUNCTION_ERROR: &str = "Objective function error";
 
 /// Implementation of `argmin::core::Solver` for Egor optimizer.
 /// Therefore this structure can be used with `argmin::core::Executor` and benefit
@@ -491,7 +493,7 @@ where
             )),
             Err(EgoError::ObjectiveFunctionError(_)) => Ok((
                 state.terminate_with(TerminationReason::SolverExit(
-                    "Objective Function failure".to_string(),
+                    OBJECTIVE_FUNCTION_ERROR.to_string(),
                 )),
                 None,
             )),
@@ -528,7 +530,7 @@ where
         ) {
             Ok(state) => state,
             Err(crate::EgoError::ObjectiveFunctionError(_)) => fallback_state.terminate_with(
-                TerminationReason::SolverExit("Objective Function failure".to_string()),
+                TerminationReason::SolverExit(OBJECTIVE_FUNCTION_ERROR.to_string()),
             ),
             Err(err) => return Err(err.into()),
         };

@@ -558,7 +558,7 @@ mod tests {
     use serial_test::serial;
     use std::time::Instant;
 
-    use crate::{CoegoStatus, DOE_FILE, DOE_INITIAL_FILE};
+    use crate::{CoegoStatus, DOE_FILE, DOE_INITIAL_FILE, OBJECTIVE_FUNCTION_ERROR};
     use egobox_moe::{CorrelationSpec, RegressionSpec};
 
     #[cfg(not(feature = "blas"))]
@@ -1632,7 +1632,7 @@ mod tests {
         assert_eq!(
             result.state.termination_status,
             TerminationStatus::Terminated(TerminationReason::SolverExit(
-                "Objective Function failure".to_string()
+                OBJECTIVE_FUNCTION_ERROR.to_string()
             ))
         );
     }

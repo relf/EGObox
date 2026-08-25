@@ -203,12 +203,12 @@ class Egor:
         failsafe_strategy (FailsafeStrategy enum):
             Strategy to handle objective computation failure at a given x point.
             A failure is detected when the objective function returns NaN value(s).
-            Can be either FailsafeStrategy.REJECTION, FailsafeStrategy.IMPUTATION, or FailsafeStrategy.VIABILITY
+            Can be either FailsafeStrategy.REJECTION, FailsafeStrategy.IMPUTATION, or FailsafeStrategy.VIABILITY.
             Rejection simply ignores the failed point whereas Imputation
             uses the objective surrogate prediction to fill the missing value.
             In the third case Viability, a surrogate is used to model the failure region
             which is used as a constraint and drive the optimization toward the viable region.
-
+    
         seed (int >= 0 or None):
             Deprecated: use seed argument in minimize() or suggest() instead.
     
@@ -294,6 +294,10 @@ class Egor:
                 Optional timeout in seconds. The optimization is stopped when the elapsed time
                 exceeds this duration. The actual runtime may slightly exceed the specified timeout
                 as the check is performed after each iteration.
+        
+            stop_on_error (bool):
+                If true, terminate optimization when the objective function returns an error.
+                Otherwise, the error is handled according to failsafe_strategy.
         
             verbose (int, Verbose enum, or None):
                 Logging verbosity level for the optimizer.
