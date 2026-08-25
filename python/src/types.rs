@@ -615,7 +615,7 @@ impl From<argmin::core::TerminationStatus> for ExitStatus {
                 TerminationReason::SolverExit(val) if val == OBJECTIVE_FUNCTION_ERROR => {
                     ExitStatus::ObjectiveFunctionError
                 }
-                TerminationReason::SolverExit(_) => ExitStatus::UnexpectedExit,
+                TerminationReason::SolverExit(_) => unreachable!("Unexpected solver exit reason"),
                 TerminationReason::Interrupt => ExitStatus::Interrupt,
             },
             TerminationStatus::NotTerminated => ExitStatus::UnexpectedExit,
