@@ -489,6 +489,12 @@ where
                 state.terminate_with(TerminationReason::SolverConverged),
                 None,
             )),
+            Err(EgoError::ObjectiveFunctionError(_)) => Ok((
+                state.terminate_with(TerminationReason::SolverExit(
+                    "Objective Function failure".to_string(),
+                )),
+                None,
+            )),
             Err(err) => Err(err.into()),
         }
     }
@@ -511,14 +517,21 @@ where
         let models = self.refresh_surrogates(&state);
         let mut local_state = state;
         let infill_data = self.refresh_infill_data(problem, &mut local_state, &models);
-        let new_state = self.trego_step(
+        let fallback_state = local_state.clone();
+        let new_state = match self.trego_step(
             problem,
             local_state,
             models,
             &infill_data,
             max_dist,
             min_acceptance_distance,
-        )?;
+        ) {
+            Ok(state) => state,
+            Err(crate::EgoError::ObjectiveFunctionError(_)) => fallback_state.terminate_with(
+                TerminationReason::SolverExit("Objective Function failure".to_string()),
+            ),
+            Err(err) => return Err(err.into()),
+        };
         Ok((new_state, None))
     }
 }

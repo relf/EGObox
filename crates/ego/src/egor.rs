@@ -1588,19 +1588,53 @@ mod tests {
 
     #[test]
     #[serial]
-    fn test_egor_stops_on_objective_failure_by_default() {
-        let objective = |_x: &ArrayView2<f64>| -> std::result::Result<Array2<f64>, String> {
-            Err("simulated objective failure".to_string())
+    fn test_egor_handles_objective_error_with_failsafe_by_default() {
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let objective_calls = calls.clone();
+        let objective = move |x: &ArrayView2<f64>| -> std::result::Result<Array2<f64>, String> {
+            if objective_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed) == 0 {
+                Ok(Array2::zeros((x.nrows(), 1)))
+            } else {
+                Err("simulated objective failure".to_string())
+            }
         };
 
         let result = EgorBuilder::optimize(objective)
-            .configure(|cfg| cfg.max_iters(0).seed(42))
+            .configure(|cfg| cfg.max_iters(1).seed(42))
             .min_within(&array![[0.0, 1.0]])
             .expect("Egor should be configured")
             .run();
 
-        let error = result.expect_err("objective failure should stop optimization");
-        assert!(error.to_string().contains("simulated objective failure"));
+        let result = result.expect("objective failure should use the failsafe by default");
+        assert!(result.state.surrogate.x_fail.is_some());
+    }
+
+    #[test]
+    #[serial]
+    fn test_egor_stops_on_objective_error_when_configured() {
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let objective_calls = calls.clone();
+        let objective = move |x: &ArrayView2<f64>| -> std::result::Result<Array2<f64>, String> {
+            if objective_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed) == 0 {
+                Ok(Array2::zeros((x.nrows(), 1)))
+            } else {
+                Err("simulated objective failure".to_string())
+            }
+        };
+
+        let result = EgorBuilder::optimize(objective)
+            .configure(|cfg| cfg.max_iters(1).stop_on_error(true).seed(42))
+            .min_within(&array![[0.0, 1.0]])
+            .expect("Egor should be configured")
+            .run()
+            .expect("objective failure should terminate optimization normally");
+
+        assert_eq!(
+            result.state.termination_status,
+            TerminationStatus::Terminated(TerminationReason::SolverExit(
+                "Objective Function failure".to_string()
+            ))
+        );
     }
 
     // sphere function which save nb of calls in temporary file

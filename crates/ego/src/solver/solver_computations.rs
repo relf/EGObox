@@ -610,8 +610,8 @@ where
             Ok(y) => Ok(y),
             Err(err) => {
                 warn!("Objective function evaluation failed at x = {x:?} with error: {err}");
-                if self.config.failsafe_strategy == FailsafeStrategy::StopOnFailure {
-                    Err(crate::EgoError::ArgminError(err))
+                if self.config.stop_on_error {
+                    Err(crate::EgoError::ObjectiveFunctionError(err.to_string()))
                 } else {
                     Ok(Array::from_shape_vec(
                         (x.nrows(), 1 + self.config.n_cstr),

@@ -1057,9 +1057,7 @@ where
                                 y_pen_imputed,
                             );
                         }
-                        FailsafeStrategy::StopOnFailure
-                        | FailsafeStrategy::Rejection
-                        | FailsafeStrategy::Viability => (),
+                        FailsafeStrategy::Rejection | FailsafeStrategy::Viability => (),
                     }
                 };
 
