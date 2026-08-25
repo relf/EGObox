@@ -612,7 +612,9 @@ impl From<argmin::core::TerminationStatus> for ExitStatus {
                 TerminationReason::TargetCostReached => ExitStatus::TargetCostReached,
                 TerminationReason::SolverConverged => ExitStatus::SolverConverged,
                 TerminationReason::Timeout => ExitStatus::Timeout,
-                TerminationReason::SolverExit(val) if val == OBJECTIVE_FUNCTION_ERROR => ExitStatus::ObjectiveFunctionError,
+                TerminationReason::SolverExit(val) if val == OBJECTIVE_FUNCTION_ERROR => {
+                    ExitStatus::ObjectiveFunctionError
+                }
                 TerminationReason::SolverExit(_) => ExitStatus::UnexpectedExit,
                 TerminationReason::Interrupt => ExitStatus::Interrupt,
             },
