@@ -632,5 +632,6 @@ class TestEgor(unittest.TestCase):
         self.assertEqual(optim.status.exit, egx.ExitStatus.OBJECTIVE_FUNCTION_ERROR)
         self.assertEqual(optim.status.total_iters, EXPECTED_CALLS_BEFORE_ERROR)
 
+
 if __name__ == "__main__":
     unittest.main(defaultTest=["TestEgor.test_fobj_crash"], exit=False)
