@@ -1,3 +1,4 @@
+use egobox_ego::OBJECTIVE_FUNCTION_ERROR;
 use numpy::{PyArray1, PyArray2};
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
@@ -598,6 +599,8 @@ pub(crate) enum ExitStatus {
     Timeout = 5,
     /// Solver unexpected exit. See logs for details.
     UnexpectedExit = 6,
+    /// Objective function returned an error. See logs for details.
+    ObjectiveFunctionError = 7,
 }
 
 impl From<argmin::core::TerminationStatus> for ExitStatus {
@@ -609,6 +612,7 @@ impl From<argmin::core::TerminationStatus> for ExitStatus {
                 TerminationReason::TargetCostReached => ExitStatus::TargetCostReached,
                 TerminationReason::SolverConverged => ExitStatus::SolverConverged,
                 TerminationReason::Timeout => ExitStatus::Timeout,
+                TerminationReason::SolverExit(val) if val == OBJECTIVE_FUNCTION_ERROR => ExitStatus::ObjectiveFunctionError,
                 TerminationReason::SolverExit(_) => ExitStatus::UnexpectedExit,
                 TerminationReason::Interrupt => ExitStatus::Interrupt,
             },

@@ -1245,6 +1245,10 @@ class ExitStatus(enum.Enum):
     r"""
     Solver unexpected exit. See logs for details.
     """
+    OBJECTIVE_FUNCTION_ERROR = ...
+    r"""
+    Objective function returned an error. See logs for details.
+    """
 
 @typing.final
 class FailsafeStrategy(enum.Enum):

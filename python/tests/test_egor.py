@@ -615,6 +615,22 @@ class TestEgor(unittest.TestCase):
         self.assertAlmostEqual(0.9677, optim.result.x_opt[0], delta=5e-2)
         self.assertAlmostEqual(0.2067, optim.result.x_opt[1], delta=6e-2)
 
+    def test_stop_on_error(self):
+        calls = 0
+        EXPECTED_CALLS_BEFORE_ERROR = 3
+
+        def fobj_error(x):
+            nonlocal calls
+            calls += 1
+            if calls > EXPECTED_CALLS_BEFORE_ERROR:
+                raise RuntimeError("simulated objective error")
+            return np.zeros((np.atleast_2d(x).shape[0], 1))
+
+        egor = egx.Egor([[0.0, 1.0]])
+        optim = egor.minimize(fobj_error, max_iters=10, seed=42, stop_on_error=True)
+
+        self.assertEqual(optim.status.exit, egx.ExitStatus.OBJECTIVE_FUNCTION_ERROR)
+        self.assertEqual(optim.status.total_iters, EXPECTED_CALLS_BEFORE_ERROR)
 
 if __name__ == "__main__":
     unittest.main(defaultTest=["TestEgor.test_fobj_crash"], exit=False)
