@@ -342,11 +342,13 @@ pub mod criteria;
 
 mod egor;
 mod errors;
+mod observers;
 mod solver;
 mod types;
 
 pub use crate::egor::*;
 pub use crate::errors::*;
+pub use crate::observers::*;
 pub use crate::solver::*;
 pub use crate::types::*;
 pub use crate::utils::{

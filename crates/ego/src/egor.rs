@@ -154,6 +154,7 @@ use crate::EgorConfig;
 use crate::EgorState;
 use crate::HotStartMode;
 use crate::errors::Result;
+use crate::observers::{EgorObserver, EgorObserverDispatcher};
 use crate::types::*;
 use crate::{CHECKPOINT_FILE, CheckpointingFrequency, HotStartCheckpoint};
 use crate::{EgorSolver, to_xtypes};
@@ -170,6 +171,7 @@ use serde::{Serialize, de::DeserializeOwned};
 
 use ndarray_npy::write_npy;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 /// Json filename for configuration
 pub const CONFIG_FILE: &str = "egor_config.json";
@@ -299,6 +301,7 @@ impl<O: ObjFn, C: CstrFn> EgorFactory<O, C> {
             },
             solver: EgorSolver::new(config.check()?),
             run_info: self.run_info,
+            observers: vec![],
         })
     }
 
@@ -321,6 +324,7 @@ impl<O: ObjFn, C: CstrFn> EgorFactory<O, C> {
             },
             solver: EgorSolver::new(config.check()?),
             run_info: self.run_info,
+            observers: vec![],
         })
     }
 }
@@ -336,6 +340,7 @@ pub struct Egor<
     fobj: ProblemFunc<O, C>,
     solver: EgorSolver<SB, C>,
     run_info: RunInfo,
+    observers: Vec<Arc<dyn EgorObserver>>,
 }
 
 impl<O: ObjFn, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> Egor<O, C, SB> {
@@ -375,8 +380,19 @@ impl<O: ObjFn, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> E
             exec
         };
 
+        let exec = if !self.observers.is_empty() {
+            exec.add_observer(
+                EgorObserverDispatcher {
+                    observers: self.observers.clone(),
+                },
+                ObserverMode::Always,
+            )
+        } else {
+            exec
+        };
+
         let result = if let Some(outdir) = self.solver.config.outdir.as_ref() {
-            let hist = OptimizationObserver::new(outdir.clone());
+            let hist = HistoryWriterObserver::new(outdir.clone());
             exec.add_observer(hist, ObserverMode::Always).run()?
         } else {
             exec.run()?
@@ -443,6 +459,12 @@ impl<O: ObjFn, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> E
         self.run_info = info;
         self
     }
+
+    /// Register an observer notified with the current best point after each iteration.
+    pub fn add_observer(mut self, observer: impl EgorObserver + 'static) -> Self {
+        self.observers.push(Arc::new(observer));
+        self
+    }
 }
 
 // The optimization observer collects best costs ans params
@@ -450,13 +472,13 @@ impl<O: ObjFn, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> E
 // saved as a numpy array for further analysis
 // Note: the observer is activated only when outdir is specified
 #[derive(Default)]
-struct OptimizationObserver {
+struct HistoryWriterObserver {
     pub dir: PathBuf,
     pub best_params: Option<Array2<f64>>,
     pub best_costs: Option<Array2<f64>>,
 }
 
-impl OptimizationObserver {
+impl HistoryWriterObserver {
     fn new(dir: String) -> Self {
         Self {
             dir: PathBuf::from(dir),
@@ -466,7 +488,7 @@ impl OptimizationObserver {
     }
 }
 
-impl Observe<EgorState<f64>> for OptimizationObserver {
+impl Observe<EgorState<f64>> for HistoryWriterObserver {
     fn observe_iter(&mut self, state: &EgorState<f64>, _kv: &KV) -> std::result::Result<(), Error> {
         if let Some((xdata, ydata, cdata)) = &state.surrogate.data {
             let doe = concatenate![Axis(1), xdata.view(), ydata.view(), cdata.view()];
@@ -1695,5 +1717,42 @@ mod tests {
 
         // Cleanup
         let _ = std::fs::remove_file(&counter_path);
+    }
+
+    struct RecordingObserver {
+        calls: std::sync::Arc<std::sync::Mutex<Vec<(u64, f64, f64)>>>,
+    }
+
+    impl EgorObserver for RecordingObserver {
+        fn on_iteration(&self, iter: u64, x_opt: ArrayView1<f64>, y_opt: ArrayView1<f64>) {
+            self.calls.lock().unwrap().push((iter, x_opt[0], y_opt[0]));
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_xsinx_add_observer() {
+        let calls = std::sync::Arc::new(std::sync::Mutex::new(vec![]));
+        let max_iters = 15;
+        let initial_doe = array![[0.], [7.], [25.]];
+        let res = EgorBuilder::optimize(xsinx)
+            .configure(|cfg| {
+                cfg.infill_strategy(InfillStrategy::EI)
+                    .max_iters(max_iters)
+                    .doe(&initial_doe)
+                    .seed(42)
+            })
+            .min_within(&array![[0.0, 25.0]])
+            .expect("Egor should be configured")
+            .add_observer(RecordingObserver {
+                calls: calls.clone(),
+            })
+            .run()
+            .expect("Egor should minimize xsinx");
+
+        let calls = calls.lock().unwrap();
+        assert_eq!(calls.len() as u64, res.state.get_iter());
+        let (_, _, last_y) = *calls.last().expect("at least one call recorded");
+        assert_abs_diff_eq!(last_y, res.y_opt[0], epsilon = 1e-9);
     }
 }
