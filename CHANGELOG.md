@@ -2,6 +2,31 @@
 
 ## Version 0.38.0 - unreleased
 
+## Version 0.37.7 - unreleased
+
+* Add the configuration of objective-error handling by @relf in https://github.com/relf/EGObox/pull/447
+* Add Expected Feasible Improvement variants by @relf in https://github.com/relf/EGObox/pull/442
+* Add a [companion website](https://relf.github.io/EGObox) by @relf in https://github.com/relf/EGObox/pull/443
+* Refactor Python packaging by @relf in https://github.com/relf/EGObox/pull/445
+* Format/Lint with ruff 0.16 by @relf in https://github.com/relf/EGObox/pull/446
+* [`gpx`] Use `;` as csv separator by @relf in https://github.com/relf/EGObox/pull/438
+* Add experimental agent skills and mcp server by @relf in https://github.com/relf/EGObox/pull/440
+
+## Version 0.37.6 - 10/06/2026
+
+* Upgrade to PyO3 0.28 by @relf in https://github.com/relf/EGObox/pull/431
+* Bundle `gpx` cli with `egobox` package by @relf in https://github.com/relf/EGObox/pull/432
+* Python API accepts simple types int/dict for enum/struct by @relf in https://github.com/relf/EGObox/pull/437
+
+## Version 0.37.5 - 01/06/2026
+
+* Add fonction constraint specs handling by @relf in https://github.com/relf/EGObox/pull/429
+* Refactor LogEI vs feasibility logic  by @relf in https://github.com/relf/EGObox/pull/430
+
+## Version 0.37.4 - 26/05/2026
+
+* Update dependencies: specially `cobyla 1.0.2` and `slsqp 1.0.1` 
+
 ## Version 0.37.3 - 28/04/2026
 
 * Fix Rust structures export for Python import by @relf in <https://github.com/relf/EGObox/pull/421>
