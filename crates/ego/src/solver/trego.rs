@@ -91,7 +91,7 @@ where
         infill_data: &InfillObjData<f64>,
         max_dist: f64,
         min_acceptance_distance: f64,
-    ) -> EgorState<f64> {
+    ) -> crate::errors::Result<EgorState<f64>> {
         let mut new_state = state.clone();
         let (mut x_data, mut y_data, mut c_data) = new_state.take_data().expect("DOE data");
 
@@ -190,7 +190,7 @@ where
             > min_acceptance_distance
             && is_update_ok(&x_data, &x_new.row(0))
         {
-            let y_new = self.eval_obj(problem, &x_new);
+            let y_new = self.eval_obj(problem, &x_new)?;
             // Apply constraint transformation if cstr_specs are set
             let y_new = if let Some(ref specs) = self.config.cstr_specs {
                 crate::types::transform_constraints(&y_new, specs)
@@ -263,7 +263,7 @@ where
         new_state = new_state.data((x_data, y_data, c_data)).rng(rng);
         new_state.surrogate.prev_best_index = new_state.surrogate.best_index;
         new_state.surrogate.best_index = Some(new_best_index);
-        new_state
+        Ok(new_state)
     }
 }
 

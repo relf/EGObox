@@ -597,7 +597,7 @@ where
         &self,
         pb: &mut Problem<O>,
         x: &Array2<f64>,
-    ) -> Array2<f64> {
+    ) -> Result<Array2<f64>> {
         let x = if self.config.discrete() {
             // We have to cast x to folded space as EgorSolver
             // works internally in the continuous space while
@@ -606,15 +606,21 @@ where
         } else {
             x.to_owned()
         };
-        pb.problem("cost_count", |problem| problem.cost(&x))
-            .unwrap_or_else(|err| {
+        match pb.problem("cost_count", |problem| problem.cost(&x)) {
+            Ok(y) => Ok(y),
+            Err(err) => {
                 warn!("Objective function evaluation failed at x = {x:?} with error: {err}");
-                Array::from_shape_vec(
-                    (x.nrows(), 1 + self.config.n_cstr),
-                    vec![f64::NAN; x.nrows() * (1 + self.config.n_cstr)],
-                )
-                .unwrap()
-            })
+                if self.config.stop_on_error {
+                    Err(crate::EgoError::ObjectiveFunctionError(err.to_string()))
+                } else {
+                    Ok(Array::from_shape_vec(
+                        (x.nrows(), 1 + self.config.n_cstr),
+                        vec![f64::NAN; x.nrows() * (1 + self.config.n_cstr)],
+                    )
+                    .unwrap())
+                }
+            }
+        }
     }
 
     /// Evaluate the constraints given as function at given x points

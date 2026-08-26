@@ -364,6 +364,8 @@ pub struct ValidEgorConfig {
     pub(crate) feasibility_infill: FeasibleInfillStrategy,
     /// Failure handling strategy
     pub(crate) failsafe_strategy: FailsafeStrategy,
+    /// Stop optimization when the objective function returns an error instead of applying the failsafe strategy
+    pub(crate) stop_on_error: bool,
     /// Runtime behavior flags (replaces environment variable checks)
     pub(crate) runtime_flags: RuntimeFlags,
     /// Strategy controlling iteration flow (Standard EGO vs TREGO)
@@ -397,6 +399,7 @@ impl Default for ValidEgorConfig {
             cstr_strategy: ConstraintStrategy::MeanConstraint,
             feasibility_infill: FeasibleInfillStrategy::None,
             failsafe_strategy: FailsafeStrategy::Rejection,
+            stop_on_error: false,
             runtime_flags: RuntimeFlags::default(),
             iteration_strategy: Box::new(StandardEgoStrategy),
             activity_strategy: Box::new(FullActivity),
@@ -710,6 +713,14 @@ impl EgorConfig {
     /// Sets the objective evaluation failure handling strategy
     pub fn failsafe_strategy(mut self, failsafe_strategy: FailsafeStrategy) -> Self {
         self.0.failsafe_strategy = failsafe_strategy;
+        self
+    }
+
+    /// Sets whether an objective function error terminates optimization.
+    ///
+    /// When false, objective function errors are handled according to [`FailsafeStrategy`].
+    pub fn stop_on_error(mut self, stop_on_error: bool) -> Self {
+        self.0.stop_on_error = stop_on_error;
         self
     }
 

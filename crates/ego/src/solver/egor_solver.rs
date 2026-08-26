@@ -142,6 +142,8 @@ pub const DOE_FILE: &str = "egor_doe.npy";
 
 /// Default tolerance value for constraints to be satisfied (ie cstr < tol)
 pub const DEFAULT_CSTR_TOL: f64 = 1e-4;
+/// Termination reason when the objective function returns an error.
+pub const OBJECTIVE_FUNCTION_ERROR: &str = "Objective function error";
 
 /// Implementation of `argmin::core::Solver` for Egor optimizer.
 /// Therefore this structure can be used with `argmin::core::Executor` and benefit
@@ -214,7 +216,7 @@ where
             if doe.ncols() == self.xlimits.nrows() {
                 // only x are specified
                 info!("Compute initial DOE on specified {} points", doe.nrows());
-                (self.eval_obj(problem, doe), doe.to_owned())
+                (self.eval_obj(problem, doe)?, doe.to_owned())
             } else {
                 // split doe in x and y
                 info!("Use specified DOE {} samples", doe.nrows());
@@ -232,7 +234,7 @@ where
             info!("Compute initial LHS with {n_doe} points");
             let sampling = Lhs::new(&self.xlimits).with_rng(rng.clone());
             let x = sampling.sample(n_doe);
-            (self.eval_obj(problem, &x), x)
+            (self.eval_obj(problem, &x)?, x)
         };
         // Apply constraint transformation if cstr_specs are set
         let y_data = if let Some(ref specs) = self.config.cstr_specs {
@@ -489,6 +491,12 @@ where
                 state.terminate_with(TerminationReason::SolverConverged),
                 None,
             )),
+            Err(EgoError::ObjectiveFunctionError(_)) => Ok((
+                state.terminate_with(TerminationReason::SolverExit(
+                    OBJECTIVE_FUNCTION_ERROR.to_string(),
+                )),
+                None,
+            )),
             Err(err) => Err(err.into()),
         }
     }
@@ -511,14 +519,21 @@ where
         let models = self.refresh_surrogates(&state);
         let mut local_state = state;
         let infill_data = self.refresh_infill_data(problem, &mut local_state, &models);
-        let new_state = self.trego_step(
+        let fallback_state = local_state.clone();
+        let new_state = match self.trego_step(
             problem,
             local_state,
             models,
             &infill_data,
             max_dist,
             min_acceptance_distance,
-        );
+        ) {
+            Ok(state) => state,
+            Err(crate::EgoError::ObjectiveFunctionError(_)) => fallback_state.terminate_with(
+                TerminationReason::SolverExit(OBJECTIVE_FUNCTION_ERROR.to_string()),
+            ),
+            Err(err) => return Err(err.into()),
+        };
         Ok((new_state, None))
     }
 }

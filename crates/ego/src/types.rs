@@ -100,7 +100,7 @@ impl FeasibleInfillStrategy {
     }
 }
 
-/// Strategy to handle objective computation failure at a given x point
+/// Strategy to handle objective computation failures represented by invalid output values.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[non_exhaustive]
 pub enum FailsafeStrategy {
@@ -357,7 +357,7 @@ impl ObjFnResponse for Array2<f64> {
 
 impl<E: std::fmt::Display> ObjFnResponse for std::result::Result<Array2<f64>, E> {
     fn into_obj_result(self) -> Result<Array2<f64>> {
-        self.map_err(|e| EgoError::UserFnError(e.to_string()))
+        self.map_err(|e| EgoError::ObjectiveFunctionError(e.to_string()))
     }
 }
 
@@ -368,7 +368,8 @@ impl<E: std::fmt::Display> ObjFnResponse for std::result::Result<Array2<f64>, E>
 ///
 /// The function can return either `Array2<f64>` directly (infallible evaluation)
 /// or `Result<Array2<f64>, E>` (fallible evaluation) where `E` implements `Display`.
-/// On error, the optimizer handles the failure according to the configured [`FailsafeStrategy`].
+/// Invalid output values are handled according to [`FailsafeStrategy`]. Errors returned by the
+/// objective are handled according to the `stop_on_error` configuration.
 pub trait ObjFn: Clone {
     /// Evaluate the objective function at the given points.
     fn eval(&self, x: &ArrayView2<f64>) -> crate::errors::Result<Array2<f64>>;

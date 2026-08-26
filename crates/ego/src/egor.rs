@@ -558,7 +558,7 @@ mod tests {
     use serial_test::serial;
     use std::time::Instant;
 
-    use crate::{CoegoStatus, DOE_FILE, DOE_INITIAL_FILE};
+    use crate::{CoegoStatus, DOE_FILE, DOE_INITIAL_FILE, OBJECTIVE_FUNCTION_ERROR};
     use egobox_moe::{CorrelationSpec, RegressionSpec};
 
     #[cfg(not(feature = "blas"))]
@@ -1541,7 +1541,7 @@ mod tests {
             .expect("Egor should be configured")
             .run()
             .expect("Egor should minimize branin_with_nans");
-        // The optimizer stalls with default NaNs rejection policy
+        // The optimizer stalls with the explicit NaNs rejection policy
         // Only some good doe points are kept, no further point is added
         // as the optimizer wants to peek in the bad region
         assert!(N_DOE + MAX_ITERS >= res.x_doe.nrows());
@@ -1586,6 +1586,57 @@ mod tests {
         assert!(res.state.surrogate.x_fail.is_some());
     }
 
+    #[test]
+    #[serial]
+    fn test_egor_handles_objective_error_with_failsafe_by_default() {
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let objective_calls = calls.clone();
+        let objective = move |x: &ArrayView2<f64>| -> std::result::Result<Array2<f64>, String> {
+            if objective_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed) == 0 {
+                Ok(Array2::zeros((x.nrows(), 1)))
+            } else {
+                Err("simulated objective failure".to_string())
+            }
+        };
+
+        let result = EgorBuilder::optimize(objective)
+            .configure(|cfg| cfg.max_iters(1).seed(42))
+            .min_within(&array![[0.0, 1.0]])
+            .expect("Egor should be configured")
+            .run();
+
+        let result = result.expect("objective failure should use the failsafe by default");
+        assert!(result.state.surrogate.x_fail.is_some());
+    }
+
+    #[test]
+    #[serial]
+    fn test_egor_stops_on_objective_error_when_configured() {
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let objective_calls = calls.clone();
+        let objective = move |x: &ArrayView2<f64>| -> std::result::Result<Array2<f64>, String> {
+            if objective_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed) == 0 {
+                Ok(Array2::zeros((x.nrows(), 1)))
+            } else {
+                Err("simulated objective failure".to_string())
+            }
+        };
+
+        let result = EgorBuilder::optimize(objective)
+            .configure(|cfg| cfg.max_iters(1).stop_on_error(true).seed(42))
+            .min_within(&array![[0.0, 1.0]])
+            .expect("Egor should be configured")
+            .run()
+            .expect("objective failure should terminate optimization normally");
+
+        assert_eq!(
+            result.state.termination_status,
+            TerminationStatus::Terminated(TerminationReason::SolverExit(
+                OBJECTIVE_FUNCTION_ERROR.to_string()
+            ))
+        );
+    }
+
     // sphere function which save nb of calls in temporary file
     // then read it to fail every 5 calls, to test periodic fails
     #[test]
@@ -1628,7 +1679,12 @@ mod tests {
 
         let max_iters = 12usize;
         let res = EgorBuilder::optimize(f)
-            .configure(|cfg| cfg.doe(&init_doe).max_iters(max_iters).seed(42))
+            .configure(|cfg| {
+                cfg.doe(&init_doe)
+                    .max_iters(max_iters)
+                    .failsafe_strategy(FailsafeStrategy::Rejection)
+                    .seed(42)
+            })
             .min_within(&xlimits)
             .expect("Egor configured")
             .run()
