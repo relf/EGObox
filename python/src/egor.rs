@@ -20,7 +20,7 @@ use crate::trego_config::{TregoConfig, TregoConfigSpec};
 use crate::types::*;
 
 use egobox_ego::{
-    CoegoStatus, EgorObserver, InfillObjData, EgorObservableState as CoreEgorObservableState,
+    CoegoStatus, EgorObservableState as CoreEgorObservableState, EgorObserver, InfillObjData,
     Result, find_best_result_index,
 };
 use egobox_gp::ThetaTuning;
