@@ -19,7 +19,10 @@ use crate::qei_config::*;
 use crate::trego_config::{TregoConfig, TregoConfigSpec};
 use crate::types::*;
 
-use egobox_ego::{CoegoStatus, InfillObjData, Result, find_best_result_index};
+use egobox_ego::{
+    CoegoStatus, EgorObserver, InfillObjData, EgorObservableState as CoreEgorObservableState,
+    Result, find_best_result_index,
+};
 use egobox_gp::ThetaTuning;
 use egobox_moe::NbClusters;
 use ndarray::{Array1, Array2, ArrayView2, Axis, array, concatenate};
@@ -51,6 +54,38 @@ fn parse_trego_config(py: Python, value: Py<PyAny>) -> PyResult<TregoConfigSpec>
     }
 
     Ok(TregoConfigSpec::Custom(cfg))
+}
+
+/// Relays argmin iterations to a Python callback `(state: EgorObservableState) -> None`.
+struct PyEgorObserver {
+    callback: Py<PyAny>,
+}
+
+impl EgorObserver for PyEgorObserver {
+    fn on_iteration(&self, state: &CoreEgorObservableState) {
+        Python::attach(|py| {
+            let x_opt = state.x_opt.to_owned().into_pyarray(py).to_owned();
+            let y_opt = state.y_opt.to_owned().into_pyarray(py).to_owned();
+            let py_state = Bound::new(
+                py,
+                EgorObservableState {
+                    iter: state.iter,
+                    x_opt: x_opt.into(),
+                    y_opt: y_opt.into(),
+                },
+            );
+            let py_state = match py_state {
+                Ok(py_state) => py_state,
+                Err(e) => {
+                    log::error!("Failed to build Egor observer state: {:?}", e);
+                    return;
+                }
+            };
+            if let Err(e) = self.callback.bind(py).call1((py_state,)) {
+                log::error!("Error in Egor observer callback: {:?}", e);
+            }
+        });
+    }
 }
 
 fn parse_run_info(py: Python, value: Py<PyAny>) -> PyResult<RunInfo> {
@@ -410,6 +445,10 @@ impl Egor {
     ///         When cstr_tol is explicitly provided, ensure its size covers all internal
     ///         constraints: surrogate constraints + expanded function constraints.
     ///
+    ///     observers:
+    ///         list of callables `(state: EgorObservableState) -> None` notified after each
+    ///         iteration; `state` exposes `iter`, `x_opt` and `y_opt` (objective + constraints).
+    ///
     ///     max_iters:
     ///         the iteration budget, number of fun calls is "n_doe + q_batch * max_iters".
     ///
@@ -459,7 +498,7 @@ impl Egor {
     ///         x_opt (array[1, nx]): x value where fun is at its minimum subject to constraints
     ///         y_opt (array[1, nx]): fun(x_opt)
     ///
-    #[pyo3(signature = (fun, fcstrs=vec![], fcstr_specs=vec![], max_iters = 20, run_info = None, outdir = None, warm_start = false, hot_start = None, seed = None, timeout = None, verbose = None, stop_on_error = false))]
+    #[pyo3(signature = (fun, fcstrs=vec![], fcstr_specs=vec![], observers=vec![], max_iters = 20, run_info = None, outdir = None, warm_start = false, hot_start = None, seed = None, timeout = None, verbose = None, stop_on_error = false))]
     #[allow(clippy::too_many_arguments)]
     fn minimize(
         &self,
@@ -467,6 +506,7 @@ impl Egor {
         fun: Py<PyAny>,
         fcstrs: Vec<Py<PyAny>>,
         fcstr_specs: Vec<CstrSpec>,
+        observers: Vec<Py<PyAny>>,
         max_iters: usize,
         run_info: Option<Py<PyAny>>,
         outdir: Option<String>,
@@ -561,6 +601,10 @@ impl Egor {
             })
             .min_within_mixint_space(&self.xtypes)
             .expect("Egor configured");
+
+        let mixintegor = observers.into_iter().fold(mixintegor, |m, callback| {
+            m.add_observer(PyEgorObserver { callback })
+        });
 
         let py_run_info = if let Some(ri) = run_info {
             parse_run_info(py, ri)?

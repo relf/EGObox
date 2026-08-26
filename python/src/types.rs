@@ -670,6 +670,22 @@ pub(crate) struct OptimResult {
     pub(crate) y_doe: Py<PyArray2<f64>>,
 }
 
+/// Snapshot of the optimizer state passed to an Egor `observers` callback after each iteration.
+#[gen_stub_pyclass]
+#[pyclass(skip_from_py_object)]
+#[derive(Debug)]
+pub(crate) struct EgorObservableState {
+    /// Current iteration number
+    #[pyo3(get)]
+    pub(crate) iter: u64,
+    /// Best point found so far
+    #[pyo3(get)]
+    pub(crate) x_opt: Py<PyArray1<f64>>,
+    /// Cost (objective + constraints) at x_opt
+    #[pyo3(get)]
+    pub(crate) y_opt: Py<PyArray1<f64>>,
+}
+
 /// Egor optimization output
 ///
 #[gen_stub_pyclass]

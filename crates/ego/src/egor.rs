@@ -580,6 +580,7 @@ mod tests {
     use serial_test::serial;
     use std::time::Instant;
 
+    use crate::observers::EgorObservableState;
     use crate::{CoegoStatus, DOE_FILE, DOE_INITIAL_FILE, OBJECTIVE_FUNCTION_ERROR};
     use egobox_moe::{CorrelationSpec, RegressionSpec};
 
@@ -1724,8 +1725,11 @@ mod tests {
     }
 
     impl EgorObserver for RecordingObserver {
-        fn on_iteration(&self, iter: u64, x_opt: ArrayView1<f64>, y_opt: ArrayView1<f64>) {
-            self.calls.lock().unwrap().push((iter, x_opt[0], y_opt[0]));
+        fn on_iteration(&self, state: &EgorObservableState) {
+            self.calls
+                .lock()
+                .unwrap()
+                .push((state.iter, state.x_opt[0], state.y_opt[0]));
         }
     }
 

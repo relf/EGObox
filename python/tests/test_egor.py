@@ -169,6 +169,23 @@ class TestEgor(unittest.TestCase):
         self.assertAlmostEqual(-15.125, optim.result.y_opt[0], delta=1e-3)
         self.assertAlmostEqual(18.935, optim.result.x_opt[0], delta=5e-2)
 
+    def test_xsinx_with_observer(self):
+        calls = []
+
+        def observer(state):
+            calls.append((state.iter, state.x_opt.copy(), state.y_opt.copy()))
+
+        egor = egx.Egor([[0.0, 25.0]])
+        max_iters = 20
+        optim = egor.minimize(
+            xsinx, observers=[observer], max_iters=max_iters, seed=42
+        )
+        self.assertEqual(optim.status.total_iters, len(calls))
+        last_iter, _, last_y_opt = calls[-1]
+        # iter is 0-indexed as reported by the underlying solver state
+        self.assertEqual(optim.status.total_iters - 1, last_iter)
+        np.testing.assert_allclose(optim.result.y_opt, last_y_opt)
+
     def test_xsinx_with_reclustering(self):
         egor = egx.Egor([[0.0, 25.0]], gp_config=egx.GpConfig(n_clusters=0))
         optim = egor.minimize(xsinx, max_iters=20, seed=42)

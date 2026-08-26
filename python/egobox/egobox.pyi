@@ -20,6 +20,7 @@ __all__ = [
     "Gpx",
     "InfillOptimizer",
     "InfillStrategy",
+    "ObservableEgorState",
     "OptimResult",
     "QEiConfig",
     "QEiStrategy",
@@ -229,7 +230,7 @@ class Egor:
         Egor object which can be used to optimize a function using the minimize method.
     """
     def __new__(cls, xspecs: typing.Any, gp_config: GpConfig = ..., n_cstr: builtins.int = 0, cstr_tol: typing.Optional[typing.Sequence[builtins.float]] = None, cstr_specs: typing.Optional[typing.Sequence[CstrSpec]] = None, n_start: builtins.int = 20, n_doe: builtins.int = 0, doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, infill_strategy: InfillStrategy = InfillStrategy.LOG_EI, feasible_infill_strategy: FeasibleInfillStrategy = FeasibleInfillStrategy.NONE, cstr_infill: builtins.bool = False, cstr_strategy: ConstraintStrategy = ConstraintStrategy.MC, qei_config: QEiConfig = ..., infill_optimizer: InfillOptimizer = InfillOptimizer.COBYLA, trego: typing.Optional[typing.Any] = None, coego_n_coop: builtins.int = 0, target: builtins.float = -1.7976931348623157e+308, failsafe_strategy: FailsafeStrategy = FailsafeStrategy.REJECTION, seed: typing.Optional[builtins.int] = None, outdir: typing.Optional[builtins.str] = None, warm_start: builtins.bool = False, hot_start: typing.Optional[typing.Any] = None, verbose: typing.Optional[typing.Any] = None) -> Egor: ...
-    def minimize(self, fun: typing.Any, fcstrs: typing.Sequence[typing.Any] = [], fcstr_specs: typing.Sequence[CstrSpec] = [], max_iters: builtins.int = 20, run_info: typing.Optional[typing.Any] = None, outdir: typing.Optional[builtins.str] = None, warm_start: builtins.bool = False, hot_start: typing.Optional[typing.Any] = None, seed: typing.Optional[builtins.int] = None, timeout: typing.Optional[builtins.float] = None, verbose: typing.Optional[typing.Any] = None, stop_on_error: builtins.bool = False) -> EgorOptim:
+    def minimize(self, fun: typing.Any, fcstrs: typing.Sequence[typing.Any] = [], fcstr_specs: typing.Sequence[CstrSpec] = [], observers: typing.Sequence[typing.Any] = [], max_iters: builtins.int = 20, run_info: typing.Optional[typing.Any] = None, outdir: typing.Optional[builtins.str] = None, warm_start: builtins.bool = False, hot_start: typing.Optional[typing.Any] = None, seed: typing.Optional[builtins.int] = None, timeout: typing.Optional[builtins.float] = None, verbose: typing.Optional[typing.Any] = None, stop_on_error: builtins.bool = False) -> EgorOptim:
         r"""
         This function finds the minimum of a given function "fun"
         
@@ -263,6 +264,10 @@ class Egor:
                 Note: CstrSpec.eq and CstrSpec.btw expand to two internal constraints each.
                 When cstr_tol is explicitly provided, ensure its size covers all internal
                 constraints: surrogate constraints + expanded function constraints.
+        
+            observers:
+                list of callables `(state: ObservableEgorState) -> None` notified after each
+                iteration; `state` exposes `iter`, `x_opt` and `y_opt` (objective + constraints).
         
             max_iters:
                 the iteration budget, number of fun calls is "n_doe + q_batch * max_iters".
@@ -762,6 +767,27 @@ class Gpx:
         
         # Returns
             likelihood as an array[n_clusters]
+        """
+
+@typing.final
+class ObservableEgorState:
+    r"""
+    Snapshot of the optimizer state passed to an Egor `observers` callback after each iteration.
+    """
+    @property
+    def iter(self) -> builtins.int:
+        r"""
+        Current iteration number
+        """
+    @property
+    def x_opt(self) -> numpy.typing.NDArray[numpy.float64]:
+        r"""
+        Best point found so far
+        """
+    @property
+    def y_opt(self) -> numpy.typing.NDArray[numpy.float64]:
+        r"""
+        Cost (objective + constraints) at x_opt
         """
 
 @typing.final
