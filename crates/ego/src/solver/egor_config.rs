@@ -550,6 +550,7 @@ impl EgorConfig {
             InfillStrategy::LogEI => Box::new(LOG_EI),
             InfillStrategy::WB2 => Box::new(WB2),
             InfillStrategy::WB2S => Box::new(WB2S),
+            InfillStrategy::TS => Box::new(ThompsonSampling::new()),
         };
         self
     }
@@ -815,11 +816,14 @@ impl EgorConfig {
             );
         }
 
-        // Feasible infill strategy not implemented for LogEI, so warn if selected
-        if config.feasibility_infill.is_enabled() && config.infill_criterion.name() == "LogEI" {
+        // Feasible infill strategy not implemented for LogEI or TS, so warn if selected
+        if config.feasibility_infill.is_enabled()
+            && matches!(config.infill_criterion.name(), "LogEI" | "TS")
+        {
             return Err(crate::EgoError::InvalidConfigError(format!(
-                "Feasible infill strategy {:?} is not implemented for LogEI criterion. Consider using EI, WB2 or WB2S instead.",
-                config.feasibility_infill
+                "Feasible infill strategy {:?} is not implemented for {} criterion. Consider using EI, WB2 or WB2S instead.",
+                config.feasibility_infill,
+                config.infill_criterion.name()
             )));
         }
 

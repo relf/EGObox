@@ -161,7 +161,14 @@ class Egor:
     
         infill_strategy (InfillStrategy enum):
             Infill criteria to decide best next promising point.
-            Can be either InfillStrategy.LOG_EI, InfillStrategy.EI, InfillStrategy.WB2, InfillStrategy.WB2S
+            Can be either InfillStrategy.LOG_EI, InfillStrategy.EI, InfillStrategy.WB2, InfillStrategy.WB2S,
+            or InfillStrategy.TS.
+            InfillStrategy.TS (Thompson Sampling) draws one standard normal deviate z per iteration and
+            minimizes the reparameterized posterior sample mu(x) + z * sigma(x); it is a pointwise
+            approximation of Thompson Sampling rather than an exact posterior-path sample, and it is not
+            yet tied to the `seed` argument, so TS runs are not reproducible from `seed` alone. Note also
+            that `feasible_infill_strategy` is not implemented for InfillStrategy.TS (same limitation as
+            InfillStrategy.LOG_EI).
     
         feasible_infill_strategy (FeasibleInfillStrategy enum):
             Strategy to handle feasibility information in the infill criterion.
@@ -1328,6 +1335,12 @@ class InfillStrategy(enum.Enum):
     r"""
     Logarithm of Expected Improvement
     see Ament et al. (2020) "Logarithmic Expected Improvement for Robust and Noisy Bayesian Optimization"
+    """
+    TS = ...
+    r"""
+    Thompson Sampling (reparameterized approximation): at each iteration a
+    standard normal deviate z is drawn and the surrogate posterior sample
+    mu(x) + z * sigma(x) is minimized in place of the true objective.
     """
 
 @typing.final

@@ -123,7 +123,9 @@
 //! ```
 //!
 //! * If the default infill strategy (WB2, Watson and Barnes 2nd criterion),
-//!   you can switch for either EI (Expected Improvement) or WB2S (scaled version of WB2).
+//!   you can switch for either EI (Expected Improvement), WB2S (scaled version of WB2)
+//!   or TS (a reparameterized approximation of Thompson Sampling, see
+//!   [`criteria::ThompsonSampling`] for details on the approximation used).
 //!   See \[[Priem2019](#Priem2019)\]
 //!
 //! ```no_run

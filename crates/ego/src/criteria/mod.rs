@@ -1,8 +1,10 @@
 //! Available infill criteria to be used by Egor solver
 mod ei;
+mod ts;
 mod wb2;
 
 pub use ei::{EI, ExpectedImprovement, LOG_EI, LogExpectedImprovement};
+pub use ts::ThompsonSampling;
 pub use wb2::{WB2, WB2Criterion, WB2S};
 
 use dyn_clonable::*;
