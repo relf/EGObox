@@ -2,6 +2,8 @@
 
 ## Version 0.38.0 - unreleased
 
+* Add `InfillStrategy::TS`, a reparameterized-approximation Thompson Sampling infill criterion
+
 ## Version 0.37.7 - unreleased
 
 * Add the configuration of objective-error handling by @relf in https://github.com/relf/EGObox/pull/447

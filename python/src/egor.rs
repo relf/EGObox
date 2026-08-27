@@ -135,7 +135,14 @@ fn parse_run_info(py: Python, value: Py<PyAny>) -> PyResult<RunInfo> {
 ///
 ///     infill_strategy (InfillStrategy enum):
 ///         Infill criteria to decide best next promising point.
-///         Can be either InfillStrategy.LOG_EI, InfillStrategy.EI, InfillStrategy.WB2, InfillStrategy.WB2S
+///         Can be either InfillStrategy.LOG_EI, InfillStrategy.EI, InfillStrategy.WB2, InfillStrategy.WB2S,
+///         or InfillStrategy.TS.
+///         InfillStrategy.TS (Thompson Sampling) draws one standard normal deviate z per iteration and
+///         minimizes the reparameterized posterior sample mu(x) + z * sigma(x); it is a pointwise
+///         approximation of Thompson Sampling rather than an exact posterior-path sample, and it is not
+///         yet tied to the `seed` argument, so TS runs are not reproducible from `seed` alone. Note also
+///         that `feasible_infill_strategy` is not implemented for InfillStrategy.TS (same limitation as
+///         InfillStrategy.LOG_EI).
 ///
 ///     feasible_infill_strategy (FeasibleInfillStrategy enum):
 ///         Strategy to handle feasibility information in the infill criterion.
@@ -752,6 +759,7 @@ impl Egor {
             InfillStrategy::Wb2 => egobox_ego::InfillStrategy::WB2,
             InfillStrategy::Wb2s => egobox_ego::InfillStrategy::WB2S,
             InfillStrategy::LogEi => egobox_ego::InfillStrategy::LogEI,
+            InfillStrategy::Ts => egobox_ego::InfillStrategy::TS,
         }
     }
 

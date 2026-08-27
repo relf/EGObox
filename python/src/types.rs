@@ -96,6 +96,10 @@ pub(crate) enum InfillStrategy {
     /// Logarithm of Expected Improvement
     /// see Ament et al. (2020) "Logarithmic Expected Improvement for Robust and Noisy Bayesian Optimization"
     LogEi = 4,
+    /// Thompson Sampling (reparameterized approximation): at each iteration a
+    /// standard normal deviate z is drawn and the surrogate posterior sample
+    /// mu(x) + z * sigma(x) is minimized in place of the true objective.
+    Ts = 5,
 }
 
 impl<'a, 'py> FromPyObject<'a, 'py> for InfillStrategy {
@@ -110,11 +114,12 @@ impl<'a, 'py> FromPyObject<'a, 'py> for InfillStrategy {
             Ok(2) => Ok(Self::Wb2),
             Ok(3) => Ok(Self::Wb2s),
             Ok(4) => Ok(Self::LogEi),
+            Ok(5) => Ok(Self::Ts),
             Ok(v) => Err(PyValueError::new_err(format!(
-                "infill_strategy integer value must be in [1, 4], got {v}"
+                "infill_strategy integer value must be in [1, 5], got {v}"
             ))),
             Err(_) => Err(PyTypeError::new_err(
-                "infill_strategy must be an InfillStrategy enum or an integer in [1, 4]",
+                "infill_strategy must be an InfillStrategy enum or an integer in [1, 5]",
             )),
         }
     }

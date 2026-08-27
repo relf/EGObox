@@ -36,6 +36,9 @@ pub enum InfillStrategy {
     WB2,
     /// Scaled WB2
     WB2S,
+    /// Thompson Sampling (reparameterized approximation, see
+    /// [`crate::criteria::ThompsonSampling`] for details)
+    TS,
 }
 
 /// Constraint criterion used to select next promising point
