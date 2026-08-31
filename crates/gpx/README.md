@@ -7,7 +7,7 @@ CSV files for `fit` and `predict` may include an optional header row.
 ## Installation
 
 ```bash
-cargo install gpx
+cargo install --git https://github.com/EGObox/egobox.git gpx
 ```
 
 ## Usage
