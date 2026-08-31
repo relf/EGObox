@@ -600,7 +600,7 @@ checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 
 [[package]]
 name = "egobox"
-version = "0.37.6"
+version = "0.37.7"
 dependencies = [
  "argmin",
  "argmin_testfunctions",
@@ -609,9 +609,9 @@ dependencies = [
  "egobox-doe",
  "egobox-ego",
  "egobox-gp",
+ "egobox-gpx",
  "egobox-moe",
  "env_logger",
- "gpx",
  "linfa",
  "log",
  "ndarray",
@@ -714,6 +714,23 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.20",
  "typetag",
+]
+
+[[package]]
+name = "egobox-gpx"
+version = "0.5.0"
+dependencies = [
+ "anyhow",
+ "bincode",
+ "clap",
+ "csv",
+ "egobox-ego",
+ "egobox-moe",
+ "linfa",
+ "ndarray",
+ "ndarray-npy",
+ "rayon",
+ "serde_json",
 ]
 
 [[package]]
@@ -893,23 +910,6 @@ dependencies = [
  "libc",
  "r-efi",
  "wasip2",
-]
-
-[[package]]
-name = "gpx"
-version = "0.5.0"
-dependencies = [
- "anyhow",
- "bincode",
- "clap",
- "csv",
- "egobox-ego",
- "egobox-moe",
- "linfa",
- "ndarray",
- "ndarray-npy",
- "rayon",
- "serde_json",
 ]
 
 [[package]]

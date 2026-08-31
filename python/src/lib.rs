@@ -24,7 +24,7 @@ use pyo3_stub_gen::define_stub_info_gatherer;
 #[pyfunction]
 fn _run_gpx_cli(args: Vec<String>) -> i32 {
     let argv: Vec<String> = std::iter::once("gpx".to_string()).chain(args).collect();
-    gpx::run_from_iter_with_exit_code(argv)
+    egobox_gpx::run_from_iter_with_exit_code(argv)
 }
 
 #[doc(hidden)]

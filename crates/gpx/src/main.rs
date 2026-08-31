@@ -3,5 +3,5 @@
 use anyhow::Result;
 
 fn main() -> Result<()> {
-    gpx::run()
+    egobox_gpx::run()
 }
