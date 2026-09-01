@@ -1124,7 +1124,13 @@ where
 
                 let mut candidates =
                     Vec::with_capacity(self.config.infill_criterion.candidate_count());
-                for _ in 0..self.config.infill_criterion.candidate_count() {
+                let candidate_count = self.config.infill_criterion.candidate_count();
+                let max_candidate_attempts = 3 * candidate_count;
+                let mut candidate_attempts = 0;
+                while candidates.len() < candidate_count
+                    && candidate_attempts < max_candidate_attempts
+                {
+                    candidate_attempts += 1;
                     let mut x_dat = x_dat.to_owned();
                     let mut y_dat = y_dat.to_owned();
                     let mut c_dat = c_dat.to_owned();
@@ -1233,6 +1239,12 @@ where
                         multistarter,
                         (xbest.clone(), ybest.clone(), cbest.clone()),
                     );
+                    if !crate::utils::is_update_ok(x_data, &xk)
+                        || !crate::utils::is_update_ok(&x_dat, &xk)
+                    {
+                        info!("Discard TS candidate too close to an existing point: {xk}");
+                        continue;
+                    }
                     let candidate_score = if self.config.cstr_infill {
                         self.eval_infill_obj_with_cstrs(
                             xk.as_slice().unwrap(),

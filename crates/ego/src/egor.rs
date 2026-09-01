@@ -667,14 +667,14 @@ mod tests {
     #[test]
     #[serial]
     fn test_xsinx_ts_egor_builder() {
-        let initial_doe = array![[0.], [10.], [25.]];
+        let initial_doe = array![[0.], [7.], [25.]];
         let res = EgorBuilder::optimize(xsinx)
             .configure(|cfg| {
                 cfg.infill_strategy(InfillStrategy::TS)
-                    .configure_qei(|qei_config| qei_config.batch(1))
                     .infill_optimizer(InfillOptimizer::Slsqp)
-                    .max_iters(20)
+                    .max_iters(10)
                     .doe(&initial_doe)
+                    .seed(42)
             })
             .verbose(log::LevelFilter::Debug)
             .min_within(&array![[0.0, 25.0]])

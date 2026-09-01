@@ -65,7 +65,7 @@ pub struct ThompsonSampling {
 }
 
 impl ThompsonSampling {
-    const DEFAULT_CANDIDATE_COUNT: usize = 20;
+    const DEFAULT_CANDIDATE_COUNT: usize = 10;
 
     /// Creates a new Thompson Sampling infill criterion with a
     /// freshly (entropy-)seeded random generator.
