@@ -1239,8 +1239,9 @@ where
                         multistarter,
                         (xbest.clone(), ybest.clone(), cbest.clone()),
                     );
-                    if !crate::utils::is_update_ok(x_data, &xk)
-                        || !crate::utils::is_update_ok(&x_dat, &xk)
+                    if candidate_count > 1
+                        && (!crate::utils::is_update_ok(x_data, &xk)
+                            || !crate::utils::is_update_ok(&x_dat, &xk))
                     {
                         info!("Discard TS candidate too close to an existing point: {xk}");
                         continue;
