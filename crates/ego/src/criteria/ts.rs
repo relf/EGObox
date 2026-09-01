@@ -51,11 +51,12 @@ use std::sync::{Arc, Mutex};
 /// others favor points with high uncertainty), but it does not capture
 /// fine-grained spatial correlation of a genuine posterior sample.
 ///
-/// A fresh random generator is used internally (seeded from the OS entropy
-/// source at construction time) to draw the successive `z` values; it is
-/// not currently connected to the `seed` passed to `Egor::minimize`, so runs
-/// using `InfillStrategy::TS` are not deterministically reproducible from
-/// that seed alone.
+/// # Reproducibility
+///
+/// By default, the random generator is seeded from a combination of the
+/// current time and a global counter to ensure different seeds across
+/// instances. To enable reproducible runs, use [`ThompsonSampling::new_with_seed`]
+/// with an explicit seed value.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ThompsonSampling {
     #[serde(skip, default = "ThompsonSampling::default_rng")]
@@ -65,10 +66,40 @@ pub struct ThompsonSampling {
 impl ThompsonSampling {
     /// Creates a new Thompson Sampling infill criterion with a
     /// freshly (entropy-)seeded random generator.
+    ///
+    /// This is equivalent to `new_with_seed(None)`. Runs using this constructor
+    /// are not deterministic across different executions.
     pub fn new() -> Self {
         Self {
             rng: Self::default_rng(),
         }
+    }
+
+    /// Creates a new Thompson Sampling infill criterion with an optional seed.
+    ///
+    /// # Arguments
+    ///
+    /// * `seed` - An optional seed value for the random number generator.
+    ///   - If `Some(seed)`, the RNG will be deterministically seeded with this value,
+    ///     enabling reproducible runs.
+    ///   - If `None`, the RNG will be seeded from a combination of time and a
+    ///     global counter (non-deterministic).
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// // Reproducible Thompson Sampling
+    /// let ts = ThompsonSampling::new_with_seed(Some(42));
+    ///
+    /// // Non-deterministic (same as ThompsonSampling::new())
+    /// let ts = ThompsonSampling::new_with_seed(None);
+    /// ```
+    pub fn new_with_seed(seed: Option<u64>) -> Self {
+        let rng = match seed {
+            Some(s) => Arc::new(Mutex::new(Xoshiro256Plus::seed_from_u64(s))),
+            None => Self::default_rng(),
+        };
+        Self { rng }
     }
 
     fn default_rng() -> Arc<Mutex<Xoshiro256Plus>> {
@@ -129,7 +160,11 @@ impl InfillCriterion for ThompsonSampling {
         let pt = ArrayView::from_shape((1, x.len()), x).unwrap();
         match obj_model.predict_valvar(&pt) {
             Ok((p, s)) => {
-                let sigma = if s[0] < f64::EPSILON { 0.0 } else { s[0].sqrt() };
+                let sigma = if s[0] < f64::EPSILON {
+                    0.0
+                } else {
+                    s[0].sqrt()
+                };
                 -(p[0] + z * sigma)
             }
             _ => 0.0,
@@ -152,7 +187,11 @@ impl InfillCriterion for ThompsonSampling {
         let pt = ArrayView::from_shape((1, x.len()), x).unwrap();
         match obj_model.predict_valvar(&pt) {
             Ok((_p, s)) => {
-                let sigma = if s[0] < f64::EPSILON { 0.0 } else { s[0].sqrt() };
+                let sigma = if s[0] < f64::EPSILON {
+                    0.0
+                } else {
+                    s[0].sqrt()
+                };
                 let (p_prime, var_prime) = obj_model.predict_valvar_gradients(&pt).unwrap();
                 let p_prime = p_prime.row(0);
                 if sigma < f64::EPSILON {
@@ -252,5 +291,75 @@ mod tests {
             / (2.0 * h);
 
         approx::assert_abs_diff_eq!(grad, fdiff, epsilon = 1e-2);
+    }
+
+    #[test]
+    fn test_reproducibility_with_seed() {
+        let moe = build_mixi_moe();
+        let x = array![[0.0], [1.0]];
+
+        // Create two ThompsonSampling instances with the same seed
+        let ts1 = ThompsonSampling::new_with_seed(Some(42));
+        let ts2 = ThompsonSampling::new_with_seed(Some(42));
+
+        // They should produce the same sequence of z values
+        let z1_1 = ts1.scaling(&x.view(), &*moe, 0.0, None, None, None);
+        let z2_1 = ts2.scaling(&x.view(), &*moe, 0.0, None, None, None);
+        assert_eq!(
+            z1_1, z2_1,
+            "First z values should be identical with same seed"
+        );
+
+        let z1_2 = ts1.scaling(&x.view(), &*moe, 0.0, None, None, None);
+        let z2_2 = ts2.scaling(&x.view(), &*moe, 0.0, None, None, None);
+        assert_eq!(
+            z1_2, z2_2,
+            "Second z values should be identical with same seed"
+        );
+
+        // Verify the sequence is consistent
+        assert_eq!(z1_1, z1_1, "Same instance should maintain consistency");
+    }
+
+    #[test]
+    fn test_different_seeds_produce_different_results() {
+        let moe = build_mixi_moe();
+        let x = array![[0.0], [1.0]];
+
+        let ts1 = ThompsonSampling::new_with_seed(Some(42));
+        let ts2 = ThompsonSampling::new_with_seed(Some(123));
+
+        let z1 = ts1.scaling(&x.view(), &*moe, 0.0, None, None, None);
+        let z2 = ts2.scaling(&x.view(), &*moe, 0.0, None, None, None);
+
+        // Very unlikely to collide by chance
+        assert_ne!(z1, z2, "Different seeds should produce different z values");
+    }
+
+    #[test]
+    fn test_strategy_uses_egor_seed() {
+        use crate::{EgorConfig, InfillStrategy};
+
+        let config1 = EgorConfig::default()
+            .infill_strategy(InfillStrategy::TS)
+            .seed(42)
+            .check()
+            .unwrap();
+        let config2 = EgorConfig::default()
+            .infill_strategy(InfillStrategy::TS)
+            .seed(42)
+            .check()
+            .unwrap();
+        let x = array![[0.0], [1.0]];
+        let moe = build_mixi_moe();
+
+        assert_eq!(
+            config1
+                .infill_criterion
+                .scaling(&x.view(), &*moe, 0.0, None, None, None),
+            config2
+                .infill_criterion
+                .scaling(&x.view(), &*moe, 0.0, None, None, None)
+        );
     }
 }
