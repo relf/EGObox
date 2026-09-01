@@ -26,10 +26,9 @@ use std::sync::{Arc, Mutex};
 /// This implementation therefore uses the standard *reparameterized*
 /// approximation to Thompson Sampling (see e.g. the "one-sample"
 /// reparameterization used in randomized-UCB/TS variants of Bayesian
-/// optimization): at the beginning of every `Egor` outer iteration, a single
-/// standard normal deviate `z ~ N(0, 1)` is drawn. The infill criterion for
-/// that whole iteration is then the pointwise reparameterized posterior
-/// sample
+/// optimization): for each candidate at every `Egor` outer iteration, a
+/// standard normal deviate `z ~ N(0, 1)` is drawn. The candidate infill
+/// criterion is then the pointwise reparameterized posterior sample
 ///
 /// ```text
 /// ts(x) = mu(x) + z * sigma(x)
@@ -43,7 +42,7 @@ use std::sync::{Arc, Mutex};
 /// (SLSQP) or gradient-free (Cobyla) infill optimizers exactly like the
 /// other criteria.
 ///
-/// Because `z` is shared across the whole domain rather than being
+/// Each `z` is shared across its candidate's whole domain rather than being
 /// spatially correlated the way an exact GP sample path would be, this is
 /// an approximation: it reproduces the explore/exploit trade-off and the
 /// iteration-to-iteration stochasticity that make Thompson Sampling
@@ -61,9 +60,13 @@ use std::sync::{Arc, Mutex};
 pub struct ThompsonSampling {
     #[serde(skip, default = "ThompsonSampling::default_rng")]
     rng: Arc<Mutex<Xoshiro256Plus>>,
+    #[serde(default = "ThompsonSampling::default_candidate_count")]
+    candidate_count: usize,
 }
 
 impl ThompsonSampling {
+    const DEFAULT_CANDIDATE_COUNT: usize = 20;
+
     /// Creates a new Thompson Sampling infill criterion with a
     /// freshly (entropy-)seeded random generator.
     ///
@@ -72,6 +75,7 @@ impl ThompsonSampling {
     pub fn new() -> Self {
         Self {
             rng: Self::default_rng(),
+            candidate_count: Self::default_candidate_count(),
         }
     }
 
@@ -99,7 +103,20 @@ impl ThompsonSampling {
             Some(s) => Arc::new(Mutex::new(Xoshiro256Plus::seed_from_u64(s))),
             None => Self::default_rng(),
         };
-        Self { rng }
+        Self {
+            rng,
+            candidate_count: Self::default_candidate_count(),
+        }
+    }
+
+    /// Sets the number of independently sampled candidates considered per iteration.
+    pub fn with_candidate_count(mut self, candidate_count: usize) -> Self {
+        self.candidate_count = candidate_count.max(1);
+        self
+    }
+
+    fn default_candidate_count() -> usize {
+        Self::DEFAULT_CANDIDATE_COUNT
     }
 
     fn default_rng() -> Arc<Mutex<Xoshiro256Plus>> {
@@ -130,14 +147,18 @@ impl InfillCriterion for ThompsonSampling {
     }
 
     /// Thompson Sampling relies on a fresh random draw at the start of
-    /// every outer iteration, so it is implemented as a (stochastic)
-    /// dynamic scaling factor: [`ThompsonSampling::scaling`] draws
-    /// `z ~ N(0, 1)` once per iteration and this `z` is subsequently passed
+    /// every candidate, so it is implemented as a (stochastic) dynamic
+    /// scaling factor: [`ThompsonSampling::scaling`] draws `z ~ N(0, 1)`
+    /// once per candidate and this `z` is subsequently passed
     /// back into [`ThompsonSampling::value`]/[`ThompsonSampling::grad`] as
     /// the `scale` argument for every candidate point evaluated during that
     /// iteration's infill optimization.
     fn uses_dynamic_scaling(&self) -> bool {
         true
+    }
+
+    fn candidate_count(&self) -> usize {
+        self.candidate_count
     }
 
     /// Compute the reparameterized Thompson Sampling infill criterion at
@@ -206,8 +227,8 @@ impl InfillCriterion for ThompsonSampling {
     }
 
     /// Draws the standard normal deviate `z` used as the shared
-    /// reparameterization coefficient for the whole current outer
-    /// iteration. Called once per iteration (see
+    /// reparameterization coefficient for one candidate. Called once per
+    /// candidate (see
     /// [`ThompsonSampling::uses_dynamic_scaling`]), independently of the
     /// candidate points `x` it is given.
     fn scaling(
@@ -251,6 +272,23 @@ mod tests {
     fn test_uses_dynamic_scaling() {
         let ts = ThompsonSampling::new();
         assert!(ts.uses_dynamic_scaling());
+    }
+
+    #[test]
+    fn test_candidate_count() {
+        assert_eq!(ThompsonSampling::new().candidate_count(), 5);
+        assert_eq!(
+            ThompsonSampling::new()
+                .with_candidate_count(3)
+                .candidate_count(),
+            3
+        );
+        assert_eq!(
+            ThompsonSampling::new()
+                .with_candidate_count(0)
+                .candidate_count(),
+            1
+        );
     }
 
     #[test]

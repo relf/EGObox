@@ -157,7 +157,7 @@ where
             cstr_models,
             &transformed_fcstrs,
             &cstr_tols,
-            viability_model,
+            viability_model.as_deref(),
             self.config.feasibility_infill.alpha(),
             infill_data,
             &state.coego.activity,

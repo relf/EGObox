@@ -30,7 +30,7 @@ pub(crate) struct InfillOptProblem<'a, CstrFn> {
     pub cstr_models: &'a [Box<dyn MixtureGpSurrogate>],
     pub cstr_funcs: &'a [CstrFn],
     pub cstr_tols: &'a Array1<f64>,
-    pub viability_model: Option<Box<dyn MixtureGpSurrogate>>,
+    pub viability_model: Option<&'a dyn MixtureGpSurrogate>,
     pub alpha: Option<f64>,
     pub infill_data: &'a InfillObjData<f64>,
     pub actives: &'a Array2<usize>,
@@ -43,7 +43,7 @@ impl<'a, CstrFn> InfillOptProblem<'a, CstrFn> {
         cstr_models: &'a [Box<dyn MixtureGpSurrogate>],
         cstr_funcs: &'a [CstrFn],
         cstr_tols: &'a Array1<f64>,
-        viability_model: Option<Box<dyn MixtureGpSurrogate>>,
+        viability_model: Option<&'a dyn MixtureGpSurrogate>,
         alpha: Option<f64>,
         infill_data: &'a InfillObjData<f64>,
         actives: &'a Array2<usize>,
@@ -119,9 +119,8 @@ where
                         return f64::INFINITY;
                     }
 
-                    let viability_model = viability_model
-                        .as_deref()
-                        .filter(|_| self.config.feasibility_infill.is_enabled());
+                    let viability_model =
+                        viability_model.filter(|_| self.config.feasibility_infill.is_enabled());
 
                     if let Some(grad) = gradient {
                         let g_infill_obj = if self.config.cstr_infill {

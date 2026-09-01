@@ -39,6 +39,11 @@ pub trait InfillCriterion: Clone + Sync {
         false
     }
 
+    /// Number of independently optimized candidates to generate per surrogate.
+    fn candidate_count(&self) -> usize {
+        1
+    }
+
     /// Criterion value at given point x with regards to given
     /// surrogate of the objective function, the current found min,
     /// an optional viability model, an optional alpha parameter,

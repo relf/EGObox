@@ -676,7 +676,7 @@ mod tests {
                     .max_iters(20)
                     .doe(&initial_doe)
             })
-            .verbose(log::LevelFilter::Info)
+            .verbose(log::LevelFilter::Debug)
             .min_within(&array![[0.0, 25.0]])
             .expect("Egor should be configured")
             .run()
