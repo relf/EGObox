@@ -277,7 +277,7 @@ mod tests {
 
     #[test]
     fn test_candidate_count() {
-        assert_eq!(ThompsonSampling::new().candidate_count(), 5);
+        assert_eq!(ThompsonSampling::new().candidate_count(), 10);
         assert_eq!(
             ThompsonSampling::new()
                 .with_candidate_count(3)
