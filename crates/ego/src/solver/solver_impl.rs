@@ -1245,32 +1245,7 @@ where
                         info!("Discard TS candidate too close to an existing point: {xk}");
                         continue;
                     }
-                    let candidate_score = if self.config.cstr_infill {
-                        self.eval_infill_obj_with_cstrs(
-                            xk.as_slice().unwrap(),
-                            obj_model.as_ref(),
-                            cstr_models,
-                            cstr_tol,
-                            fmin,
-                            viability_model.as_deref(),
-                            self.config.feasibility_infill.alpha(),
-                            1.0,
-                            infill_inner_scale,
-                            feasibility,
-                            *sigma_weight,
-                        )
-                    } else {
-                        self.eval_infill_obj(
-                            xk.as_slice().unwrap(),
-                            obj_model.as_ref(),
-                            fmin,
-                            viability_model.as_deref(),
-                            self.config.feasibility_infill.alpha(),
-                            1.0,
-                            infill_inner_scale,
-                            *sigma_weight,
-                        )
-                    };
+                    let candidate_score = infill_obj * scale_infill_obj;
                     debug!("+++++++  xk = {xk}, yk = {infill_obj}, score = {candidate_score}");
 
                     match self.compute_virtual_point(&xk, y_data, obj_model.as_ref(), cstr_models) {
