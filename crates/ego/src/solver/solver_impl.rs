@@ -1122,142 +1122,203 @@ where
                     })
                     .collect::<Vec<_>>();
 
-                let (scale_infill_obj, scale_cstr, scale_fcstr, scale_wb2) = self.compute_scaling(
-                    &sampling,
-                    obj_model.as_ref(),
-                    cstr_models,
-                    cstr_tol,
-                    &transformed_fcstrs,
-                    fmin,
-                    *sigma_weight,
-                );
-                let scale_pov_cstr = Array1::ones((1,)); // PoV cstr is normalized 
-                let all_scale_cstr = concatenate![Axis(0), scale_cstr, scale_fcstr, scale_pov_cstr];
+                let mut candidates =
+                    Vec::with_capacity(self.config.infill_criterion.candidate_count());
+                for _ in 0..self.config.infill_criterion.candidate_count() {
+                    let mut x_dat = x_dat.to_owned();
+                    let mut y_dat = y_dat.to_owned();
+                    let mut c_dat = c_dat.to_owned();
+                    let mut y_penalized = y_penalized.to_owned();
+                    let (scale_infill_obj, scale_cstr, scale_fcstr, scale_wb2) = self
+                        .compute_scaling(
+                            &sampling,
+                            obj_model.as_ref(),
+                            cstr_models,
+                            cstr_tol,
+                            &transformed_fcstrs,
+                            fmin,
+                            *sigma_weight,
+                        );
+                    let scale_pov_cstr = Array1::ones((1,)); // PoV cstr is normalized 
+                    let all_scale_cstr =
+                        concatenate![Axis(0), scale_cstr, scale_fcstr, scale_pov_cstr];
 
-                // fmin and xbest are kept the same for all q points
-                // Would it be best to update them with regard to predicted virtual points?
-                // Keep it simple: For the moment we keep them fixed to the current best observed point
-                let mut infill_data = InfillObjData {
-                    fmin,
-                    xbest: xbest.to_vec(),
-                    scale_infill_obj,
-                    scale_cstr: Some(all_scale_cstr.to_owned()),
-                    scale_wb2,
-                    feasibility,
-                    sigma_weight: *sigma_weight,
-                };
+                    // fmin and xbest are kept the same for all q points
+                    // Would it be best to update them with regard to predicted virtual points?
+                    // Keep it simple: For the moment we keep them fixed to the current best observed point
+                    let mut infill_data = InfillObjData {
+                        fmin,
+                        xbest: xbest.to_vec(),
+                        scale_infill_obj,
+                        scale_cstr: Some(all_scale_cstr.to_owned()),
+                        scale_wb2,
+                        feasibility,
+                        sigma_weight: *sigma_weight,
+                    };
 
-                let cstr_funcs = transformed_fcstrs
-                    .iter()
-                    .enumerate()
-                    .map(|(i, cstr)| {
-                        let scale_fc = scale_fcstr[i];
-                        move |x: &[f64],
-                              gradient: Option<&mut [f64]>,
-                              params: &mut InfillObjData<f64>|
-                              -> f64 {
-                            let x = if self.config.discrete() {
-                                let xary =
-                                    Array2::from_shape_vec((1, x.len()), x.to_vec()).unwrap();
-                                // We have to cast x to folded space as EgorSolver
-                                // works internally in the continuous space while
-                                // the constraint function expects discrete variable in folded space
-                                to_discrete_space(&self.config.xtypes, &xary)
-                                    .row(0)
-                                    .into_owned();
-                                &xary.into_iter().collect::<Vec<_>>()
-                            } else {
-                                x
-                            };
-                            if let Some(g) = gradient {
-                                let v = cstr(x, Some(g), params) / scale_fc;
-                                g.iter_mut().for_each(|gi| *gi /= scale_fc);
-                                v
-                            } else {
-                                cstr(x, None, params) / scale_fc
+                    let cstr_funcs = transformed_fcstrs
+                        .iter()
+                        .enumerate()
+                        .map(|(i, cstr)| {
+                            let scale_fc = scale_fcstr[i];
+                            move |x: &[f64],
+                                  gradient: Option<&mut [f64]>,
+                                  params: &mut InfillObjData<f64>|
+                                  -> f64 {
+                                let x = if self.config.discrete() {
+                                    let xary =
+                                        Array2::from_shape_vec((1, x.len()), x.to_vec()).unwrap();
+                                    // We have to cast x to folded space as EgorSolver
+                                    // works internally in the continuous space while
+                                    // the constraint function expects discrete variable in folded space
+                                    to_discrete_space(&self.config.xtypes, &xary)
+                                        .row(0)
+                                        .into_owned();
+                                    &xary.into_iter().collect::<Vec<_>>()
+                                } else {
+                                    x
+                                };
+                                if let Some(g) = gradient {
+                                    let v = cstr(x, Some(g), params) / scale_fc;
+                                    g.iter_mut().for_each(|gi| *gi /= scale_fc);
+                                    v
+                                } else {
+                                    cstr(x, None, params) / scale_fc
+                                }
                             }
-                        }
-                    })
-                    .collect::<Vec<_>>();
+                        })
+                        .collect::<Vec<_>>();
 
-                // Make viability surrogate
-                let viability_model = if (self.config.failsafe_strategy
-                    == FailsafeStrategy::Viability
-                    || self.config.feasibility_infill.is_enabled())
-                    && let Some(points) = x_fail_points
-                    && points.nrows() > 0
-                {
-                    info!(
-                        "Build viability surrogate with {} safe and {} failed points...",
-                        x_data.nrows(),
-                        points.nrows()
+                    // Make viability surrogate
+                    let viability_model = if (self.config.failsafe_strategy
+                        == FailsafeStrategy::Viability
+                        || self.config.feasibility_infill.is_enabled())
+                        && let Some(points) = x_fail_points
+                        && points.nrows() > 0
+                    {
+                        info!(
+                            "Build viability surrogate with {} safe and {} failed points...",
+                            x_data.nrows(),
+                            points.nrows()
+                        );
+                        x_fail_points
+                            .map(|xfail_points| self.make_viability_surrogate(&xt, xfail_points))
+                    } else {
+                        None
+                    };
+
+                    let sub_rng = Xoshiro256Plus::seed_from_u64(rng.r#gen());
+                    // let multistarter = GlobalMultiStarter::new(&self.xlimits, sub_rng);
+                    let xsamples = x_data.to_owned();
+                    let multistarter = MiddlePickerMultiStarter::new(
+                        &self.xlimits,
+                        &xsamples,
+                        sub_rng,
+                        self.config.runtime_flags.disable_middlepicker_multistarter,
                     );
-                    x_fail_points
-                        .map(|xfail_points| self.make_viability_surrogate(&xt, xfail_points))
-                } else {
-                    None
-                };
 
-                let sub_rng = Xoshiro256Plus::seed_from_u64(rng.r#gen());
-                // let multistarter = GlobalMultiStarter::new(&self.xlimits, sub_rng);
-                let xsamples = x_data.to_owned();
-                let multistarter = MiddlePickerMultiStarter::new(
-                    &self.xlimits,
-                    &xsamples,
-                    sub_rng,
-                    self.config.runtime_flags.disable_middlepicker_multistarter,
-                );
+                    let infill_optpb = InfillOptProblem::new(
+                        obj_model.as_ref(),
+                        cstr_models,
+                        &cstr_funcs,
+                        cstr_tol,
+                        viability_model.as_deref(),
+                        self.config.feasibility_infill.alpha(),
+                        &infill_data,
+                        actives,
+                    );
 
-                let infill_optpb = InfillOptProblem::new(
-                    obj_model.as_ref(),
-                    cstr_models,
-                    &cstr_funcs,
-                    cstr_tol,
-                    viability_model,
-                    self.config.feasibility_infill.alpha(),
-                    &infill_data,
-                    actives,
-                );
+                    let (infill_obj, xk) = self.optimize_infill_criterion(
+                        infill_optpb,
+                        multistarter,
+                        (xbest.clone(), ybest.clone(), cbest.clone()),
+                    );
+                    let candidate_score = if self.config.cstr_infill {
+                        self.eval_infill_obj_with_cstrs(
+                            xk.as_slice().unwrap(),
+                            obj_model.as_ref(),
+                            cstr_models,
+                            cstr_tol,
+                            fmin,
+                            viability_model.as_deref(),
+                            self.config.feasibility_infill.alpha(),
+                            1.0,
+                            scale_wb2,
+                            feasibility,
+                            *sigma_weight,
+                        )
+                    } else {
+                        self.eval_infill_obj(
+                            xk.as_slice().unwrap(),
+                            obj_model.as_ref(),
+                            fmin,
+                            viability_model.as_deref(),
+                            self.config.feasibility_infill.alpha(),
+                            1.0,
+                            scale_wb2,
+                            *sigma_weight,
+                        )
+                    };
+                    debug!("+++++++  xk = {xk}");
 
-                let (infill_obj, xk) = self.optimize_infill_criterion(
-                    infill_optpb,
-                    multistarter,
-                    (xbest, ybest, cbest),
-                );
-                debug!("+++++++  xk = {xk}");
+                    match self.compute_virtual_point(&xk, y_data, obj_model.as_ref(), cstr_models) {
+                        Ok(yk) => {
+                            let yk =
+                                Array2::from_shape_vec((1, 1 + self.config.n_internal_cstr()), yk)
+                                    .unwrap();
+                            y_dat = concatenate![Axis(0), y_dat, yk];
 
-                match self.compute_virtual_point(&xk, y_data, obj_model.as_ref(), cstr_models) {
-                    Ok(yk) => {
-                        let yk = Array2::from_shape_vec((1, 1 + self.config.n_internal_cstr()), yk)
-                            .unwrap();
-                        y_dat = concatenate![Axis(0), y_dat, yk];
+                            let yk_pen =
+                                self.compute_penalized_point(&xk, obj_model.as_ref(), cstr_models);
+                            let yk_pen = yk_pen.insert_axis(Axis(0));
+                            y_penalized = concatenate![Axis(0), y_penalized, yk_pen];
 
-                        let yk_pen =
-                            self.compute_penalized_point(&xk, obj_model.as_ref(), cstr_models);
-                        let yk_pen = yk_pen.insert_axis(Axis(0));
-                        y_penalized = concatenate![Axis(0), y_penalized, yk_pen];
+                            let ck = cstr_funcs
+                                .iter()
+                                .map(|cstr| cstr(&xk.to_vec(), None, &mut infill_data))
+                                .collect::<Vec<_>>();
+                            c_dat = concatenate![
+                                Axis(0),
+                                c_dat,
+                                Array2::from_shape_vec((1, cstr_funcs.len()), ck).unwrap()
+                            ];
 
-                        let ck = cstr_funcs
-                            .iter()
-                            .map(|cstr| cstr(&xk.to_vec(), None, &mut infill_data))
-                            .collect::<Vec<_>>();
-                        c_dat = concatenate![
-                            Axis(0),
-                            c_dat,
-                            Array2::from_shape_vec((1, cstr_funcs.len()), ck).unwrap()
-                        ];
+                            x_dat = concatenate![Axis(0), x_dat, xk.clone().insert_axis(Axis(0))];
 
-                        x_dat = concatenate![Axis(0), x_dat, xk.clone().insert_axis(Axis(0))];
-
-                        // infill objective was minimized while infill criterion itself
-                        // is expected to be maximized hence the negative sign here
-                        infill_val = -infill_obj;
+                            // infill objective was minimized while infill criterion itself
+                            // is expected to be maximized hence the negative sign here
+                            infill_val = -infill_obj;
+                            candidates.push((
+                                candidate_score,
+                                x_dat,
+                                y_dat,
+                                c_dat,
+                                y_penalized,
+                                infill_val,
+                            ));
+                        }
+                        Err(err) => {
+                            // Error while predict at best point: ignore
+                            info!("Error while getting virtual point: {err}");
+                        }
                     }
-                    Err(err) => {
-                        // Error while predict at best point: ignore
-                        info!("Error while getting virtual point: {err}");
-                        break;
-                    }
+                }
+                if let Some((
+                    _,
+                    selected_x,
+                    selected_y,
+                    selected_c,
+                    selected_y_penalized,
+                    selected_infill,
+                )) = candidates
+                    .into_iter()
+                    .min_by(|left, right| left.0.total_cmp(&right.0))
+                {
+                    x_dat = selected_x;
+                    y_dat = selected_y;
+                    c_dat = selected_c;
+                    y_penalized = selected_y_penalized;
+                    infill_val = selected_infill;
                 }
             }
             portfolio.push((x_dat.to_owned(), y_dat, c_dat, y_penalized, infill_val));
