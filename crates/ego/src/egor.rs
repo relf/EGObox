@@ -674,7 +674,7 @@ mod tests {
                     .infill_optimizer(InfillOptimizer::Slsqp)
                     .max_iters(10)
                     .doe(&initial_doe)
-                    .seed(42)
+                    .seed(41)
             })
             .verbose(log::LevelFilter::Debug)
             .min_within(&array![[0.0, 25.0]])

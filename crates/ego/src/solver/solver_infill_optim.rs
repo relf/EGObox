@@ -104,7 +104,7 @@ where
                 |x: &[f64], gradient: Option<&mut [f64]>, params: &mut InfillObjData<f64>| -> f64 {
                     let InfillObjData {
                         scale_infill_obj,
-                        scale_wb2,
+                        infill_inner_scale,
                         xbest: xcoop,
                         fmin,
                         feasibility,
@@ -134,7 +134,7 @@ where
                                 viability_model,
                                 alpha,
                                 *scale_infill_obj,
-                                *scale_wb2,
+                                *infill_inner_scale,
                                 *feasibility,
                                 *sigma_weight,
                             )
@@ -146,7 +146,7 @@ where
                                 viability_model,
                                 alpha,
                                 *scale_infill_obj,
-                                *scale_wb2,
+                                *infill_inner_scale,
                             )
                         };
                         let g_infill_obj = g_infill_obj
@@ -168,7 +168,7 @@ where
                             viability_model,
                             alpha,
                             *scale_infill_obj,
-                            *scale_wb2,
+                            *infill_inner_scale,
                             *feasibility,
                             *sigma_weight,
                         )
@@ -180,7 +180,7 @@ where
                             viability_model,
                             alpha,
                             *scale_infill_obj,
-                            *scale_wb2,
+                            *infill_inner_scale,
                             *sigma_weight,
                         )
                     }

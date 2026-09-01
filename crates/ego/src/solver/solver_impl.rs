@@ -451,7 +451,7 @@ where
             self.config.n_internal_cstr(),
             DEFAULT_CSTR_TOL,
         ));
-        let (scale_infill_obj, scale_cstr, scale_fcstr, scale_wb2) = self.compute_scaling(
+        let (scale_infill_obj, scale_cstr, scale_fcstr, infill_inner_scale) = self.compute_scaling(
             &sampling,
             obj_model.as_ref(),
             cstr_models,
@@ -470,7 +470,7 @@ where
             xbest,
             scale_infill_obj,
             scale_cstr: Some(all_scale_cstr.to_owned()),
-            scale_wb2,
+            infill_inner_scale,
             feasibility: state.feasibility,
             sigma_weight: 1., // FIXME: TREGO does not use sigma weighting portfolio
         }
@@ -1135,7 +1135,7 @@ where
                     let mut y_dat = y_dat.to_owned();
                     let mut c_dat = c_dat.to_owned();
                     let mut y_penalized = y_penalized.to_owned();
-                    let (scale_infill_obj, scale_cstr, scale_fcstr, scale_wb2) = self
+                    let (scale_infill_obj, scale_cstr, scale_fcstr, infill_inner_scale) = self
                         .compute_scaling(
                             &sampling,
                             obj_model.as_ref(),
@@ -1157,7 +1157,7 @@ where
                         xbest: xbest.to_vec(),
                         scale_infill_obj,
                         scale_cstr: Some(all_scale_cstr.to_owned()),
-                        scale_wb2,
+                        infill_inner_scale,
                         feasibility,
                         sigma_weight: *sigma_weight,
                     };
@@ -1255,7 +1255,7 @@ where
                             viability_model.as_deref(),
                             self.config.feasibility_infill.alpha(),
                             1.0,
-                            scale_wb2,
+                            infill_inner_scale,
                             feasibility,
                             *sigma_weight,
                         )
@@ -1267,11 +1267,11 @@ where
                             viability_model.as_deref(),
                             self.config.feasibility_infill.alpha(),
                             1.0,
-                            scale_wb2,
+                            infill_inner_scale,
                             *sigma_weight,
                         )
                     };
-                    debug!("+++++++  xk = {xk}");
+                    debug!("+++++++  xk = {xk}, yk = {infill_obj}, score = {candidate_score}");
 
                     match self.compute_virtual_point(&xk, y_data, obj_model.as_ref(), cstr_models) {
                         Ok(yk) => {

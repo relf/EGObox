@@ -186,6 +186,7 @@ impl InfillCriterion for ThompsonSampling {
                 } else {
                     s[0].sqrt()
                 };
+                // infill criterion is negated so that higher is better (like the other criteria)
                 -(p[0] + z * sigma)
             }
             _ => 0.0,

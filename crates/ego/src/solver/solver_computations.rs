@@ -178,8 +178,8 @@ where
         debug!("Use {npts} points to evaluate scalings");
         let scaling_points = sampling.sample(npts);
 
-        let scale_ic = if self.config.infill_criterion.uses_dynamic_scaling() {
-            let scale_ic = self.config.infill_criterion.scaling(
+        let infill_inner_scale = if self.config.infill_criterion.uses_dynamic_scaling() {
+            let ic_scale = self.config.infill_criterion.scaling(
                 &scaling_points.view(),
                 obj_model,
                 fmin,
@@ -188,10 +188,10 @@ where
                 Some(sigma_weight),
             );
             info!(
-                "{} scaling factor = {scale_ic}",
+                "{} scaling factor = {ic_scale}",
                 self.config.infill_criterion.name()
             );
-            scale_ic
+            ic_scale
         } else {
             1.
         };
@@ -202,7 +202,7 @@ where
             cstr_models,
             cstr_tols,
             fmin,
-            scale_ic,
+            infill_inner_scale,
             sigma_weight,
         );
         info!(
@@ -229,7 +229,12 @@ where
             info!("Fonctional constraints scaling is updated to {scale_fcstr}");
             scale_fcstr
         };
-        (scale_infill_obj, scale_cstr, scale_fcstr, scale_ic)
+        (
+            scale_infill_obj,
+            scale_cstr,
+            scale_fcstr,
+            infill_inner_scale,
+        )
     }
 
     /// Mean prediction of a constraint surrogate model scaled by scale_cstr
