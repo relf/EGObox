@@ -550,7 +550,7 @@ impl EgorConfig {
             InfillStrategy::LogEI => Box::new(LOG_EI),
             InfillStrategy::WB2 => Box::new(WB2),
             InfillStrategy::WB2S => Box::new(WB2S),
-            InfillStrategy::TS => Box::new(ThompsonSampling::new()),
+            InfillStrategy::TS => Box::new(ThompsonSampling::new_with_seed(self.0.seed)),
         };
         self
     }
@@ -606,6 +606,9 @@ impl EgorConfig {
     /// reproducible runs.
     pub fn seed(mut self, seed: u64) -> Self {
         self.0.seed = Some(seed);
+        if self.0.infill_criterion.name() == "TS" {
+            self.0.infill_criterion = Box::new(ThompsonSampling::new_with_seed(Some(seed)));
+        }
         self
     }
 
