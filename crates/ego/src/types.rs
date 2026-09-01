@@ -501,9 +501,9 @@ pub struct InfillObjData<F: Float> {
     pub scale_infill_obj: F,
     /// Scaling of constraints (aka value which once scaled is equal to one)
     pub scale_cstr: Option<Array1<F>>,
-    /// Scaling of WB2 criterion (aka value which once scaled is equal to one)
+    /// Inner infill criteria scaling factor (used by WB2S or TS)    
     #[serde(default = "F::one")]
-    pub scale_wb2: F,
+    pub infill_inner_scale: F,
     /// Whether a feasible point is found so far (all constraints within tolerances)
     pub feasibility: bool,
     /// Sigma weighting portfolio
@@ -518,7 +518,7 @@ impl<F: Float> Default for InfillObjData<F> {
             xbest: vec![],
             scale_infill_obj: F::one(),
             scale_cstr: None,
-            scale_wb2: F::one(),
+            infill_inner_scale: F::one(),
             feasibility: false,
             sigma_weight: F::one(),
         }
@@ -539,7 +539,7 @@ impl<F: Float> std::fmt::Debug for InfillObjData<F> {
                     .map(|sc| sc.to_vec())
                     .unwrap_or_default(),
             )
-            .field("scale_wb2", &self.scale_wb2)
+            .field("infill_inner_scale", &self.infill_inner_scale)
             .field("feasibility", &self.feasibility)
             .field("sigma_weight", &self.sigma_weight)
             .finish()
