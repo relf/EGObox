@@ -44,6 +44,7 @@ class TestApiImports(unittest.TestCase):
             "EgorOptim": EgorOptim,
             "ExitStatus": ExitStatus,
             "FailsafeStrategy": FailsafeStrategy,
+            "FeasibleInfillStrategy": egx.FeasibleInfillStrategy,
             "GpConfig": GpConfig,
             "GpMix": GpMix,
             "Gpx": Gpx,

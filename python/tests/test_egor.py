@@ -632,6 +632,13 @@ class TestEgor(unittest.TestCase):
         self.assertEqual(optim.status.exit, egx.ExitStatus.OBJECTIVE_FUNCTION_ERROR)
         self.assertEqual(optim.status.total_iters, EXPECTED_CALLS_BEFORE_ERROR)
 
+    def test_feasible_infill_strategy_as_int(self):
+        xlimits = [[0.0, 3.0], [0.0, 4.0]]
+        _egor = egx.Egor(
+            xlimits,
+            feasible_infill_strategy=1,
+        )
+
 
 if __name__ == "__main__":
     unittest.main(defaultTest=["TestEgor.test_fobj_crash"], exit=False)

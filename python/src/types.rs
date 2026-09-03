@@ -231,7 +231,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for InfillOptimizer {
 /// Expected Feasible Improvement (EFI) is an acquisition function that takes into account the feasibility of the points in the optimization process.
 /// It is defined as the product of the Expected Improvement (EI) weighted by the probability of viability
 #[gen_stub_pyclass_enum]
-#[pyclass(from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
+#[pyclass(skip_from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 pub(crate) enum FeasibleInfillStrategy {
     /// Do not use feasibility information
@@ -240,6 +240,27 @@ pub(crate) enum FeasibleInfillStrategy {
     EfiP = 2,
     /// Use Expected Feasible Improvement with 0.3 weighted probability of feasibility, which is more exploratory than EfiP
     EfiFe = 3,
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for FeasibleInfillStrategy {
+    type Error = PyErr;
+
+    fn extract(obj: pyo3::Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if let Ok(value) = obj.extract::<PyRef<'py, Self>>() {
+            return Ok(*value);
+        }
+        match obj.extract::<u8>() {
+            Ok(1) => Ok(Self::None),
+            Ok(2) => Ok(Self::EfiP),
+            Ok(3) => Ok(Self::EfiFe),
+            Ok(v) => Err(PyValueError::new_err(format!(
+                "feasible_infill_strategy integer value must be in [1, 3], got {v}"
+            ))),
+            Err(_) => Err(PyTypeError::new_err(
+                "feasible_infill_strategy must be a FeasibleInfillStrategy enum or an integer in [1, 3]",
+            )),
+        }
+    }
 }
 
 /// FailsafeStrategy specifies the strategy to use for handling failures during infill optimization.
