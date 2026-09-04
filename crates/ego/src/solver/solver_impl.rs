@@ -815,7 +815,10 @@ where
             if rejected_count == x_dat.nrows() {
                 new_state.doe.no_point_added_retries -= 1;
                 if new_state.doe.no_point_added_retries == 0 {
-                    info!("Max number of retries ({}) without adding point", 3);
+                    info!(
+                        "Max number of retries ({}) without adding point",
+                        MAX_POINT_ADDITION_RETRY
+                    );
                     info!("Consider solver has converged");
                     return Err(EgoError::NoMorePointToAddError(Box::new(new_state)));
                 }
