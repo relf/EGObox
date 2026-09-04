@@ -1043,9 +1043,23 @@ mod tests {
         -2.0 * x[0].powf(4.0) + 8.0 * x[0].powf(3.0) - 8.0 * x[0].powf(2.0) + x[1] - 2.0
     }
 
+    fn grad_g24_c1(x: &ArrayBase<impl Data<Elem = f64>, Ix1>) -> Array1<f64> {
+        array![
+            -8.0 * x[0].powf(3.0) + 24.0 * x[0].powf(2.0) - 16.0 * x[0],
+            1.0
+        ]
+    }
+
     fn g24_c2(x: &ArrayBase<impl Data<Elem = f64>, Ix1>) -> f64 {
         -4.0 * x[0].powf(4.0) + 32.0 * x[0].powf(3.0) - 88.0 * x[0].powf(2.0) + 96.0 * x[0] + x[1]
             - 36.0
+    }
+
+    fn grad_g24_c2(x: &ArrayBase<impl Data<Elem = f64>, Ix1>) -> Array1<f64> {
+        array![
+            -16.0 * x[0].powf(3.0) + 96.0 * x[0].powf(2.0) - 176.0 * x[0] + 96.0,
+            1.0
+        ]
     }
 
     fn f_g24(x: &ArrayView2<f64>) -> Array2<f64> {
@@ -1054,6 +1068,16 @@ mod tests {
             .and(x.rows())
             .for_each(|mut yi, xi| {
                 yi.assign(&array![g24(&xi), g24_c1(&xi), g24_c2(&xi)]);
+            });
+        y
+    }
+
+    fn f_g24_geq(x: &ArrayView2<f64>) -> Array2<f64> {
+        let mut y = Array2::zeros((x.nrows(), 3));
+        Zip::from(y.rows_mut())
+            .and(x.rows())
+            .for_each(|mut yi, xi| {
+                yi.assign(&array![g24(&xi), -g24_c1(&xi), -g24_c2(&xi)]);
             });
         y
     }
@@ -1093,6 +1117,40 @@ mod tests {
         println!("G24 optim result = {res:?}");
         let expected = array![2.3295, 3.1785];
         assert_abs_diff_eq!(expected, res.x_opt, epsilon = 3e-2);
+    }
+
+    #[test]
+    #[serial]
+    fn test_egor_g24_metamodelized_geq_constraints() {
+        let xlimits = array![[0., 3.], [0., 4.]];
+        let doe = Lhs::new(&xlimits)
+            .with_rng(Xoshiro256Plus::seed_from_u64(0))
+            .sample(3);
+        let res = EgorBuilder::optimize(f_g24_geq)
+            .configure(|config| {
+                config
+                    .infill_strategy(InfillStrategy::WB2)
+                    .cstr_specs(vec![CstrSpec::Geq(0.0), CstrSpec::Geq(0.0)])
+                    .doe(&doe)
+                    .max_iters(20)
+                    .infill_optimizer(InfillOptimizer::Cobyla)
+                    .cstr_tol(array![2e-3, 1e-3])
+                    .seed(42)
+            })
+            .min_within(&xlimits)
+            .expect("Egor configured")
+            .run()
+            .expect("Minimize failure");
+
+        let expected = array![2.3295, 3.1785];
+        assert_abs_diff_eq!(expected, res.x_opt, epsilon = 3e-2);
+
+        let expected_initial_y = f_g24(&doe.view());
+        assert_abs_diff_eq!(
+            expected_initial_y,
+            res.y_doe.slice(s![..doe.nrows(), ..]),
+            epsilon = 1e-12
+        );
     }
 
     #[test]
@@ -1156,16 +1214,18 @@ mod tests {
             .with_rng(Xoshiro256Plus::seed_from_u64(42))
             .sample(3);
         let c1 = |x: &[f64], g: Option<&mut [f64]>, _u: &mut InfillObjData<f64>| {
-            if g.is_some() {
-                panic!("c1: gradient not implemented") // ie panic with InfillOptimizer::Slsqp
+            let x = ArrayView1::from(x);
+            if let Some(g) = g {
+                g.copy_from_slice(grad_g24_c1(&x).as_slice().unwrap());
             }
-            g24_c1(&Array1::from_vec(x.to_vec()))
+            g24_c1(&x)
         };
         let c2 = |x: &[f64], g: Option<&mut [f64]>, _u: &mut InfillObjData<f64>| {
-            if g.is_some() {
-                panic!("c2:  gradient not implemented")
+            let x = ArrayView1::from(x);
+            if let Some(g) = g {
+                g.copy_from_slice(grad_g24_c2(&x).as_slice().unwrap());
             }
-            g24_c2(&Array1::from_vec(x.to_vec()))
+            g24_c2(&x)
         };
         let res = EgorBuilder::optimize(f_g24_bare)
             .subject_to(vec![c1, c2])
@@ -1193,16 +1253,18 @@ mod tests {
             .with_rng(Xoshiro256Plus::seed_from_u64(42))
             .sample(3);
         let c1 = |x: &[f64], g: Option<&mut [f64]>, _u: &mut InfillObjData<f64>| {
-            if g.is_some() {
-                panic!("c1: gradient not implemented")
+            let x = ArrayView1::from(x);
+            if let Some(g) = g {
+                g.copy_from_slice(grad_g24_c1(&x).as_slice().unwrap());
             }
-            g24_c1(&Array1::from_vec(x.to_vec()))
+            g24_c1(&x)
         };
         let c2 = |x: &[f64], g: Option<&mut [f64]>, _u: &mut InfillObjData<f64>| {
-            if g.is_some() {
-                panic!("c2: gradient not implemented")
+            let x = ArrayView1::from(x);
+            if let Some(g) = g {
+                g.copy_from_slice(grad_g24_c2(&x).as_slice().unwrap());
             }
-            g24_c2(&Array1::from_vec(x.to_vec()))
+            g24_c2(&x)
         };
         let res = EgorBuilder::optimize(f_g24_bare)
             .subject_to_with_specs(vec![c1, c2], vec![CstrSpec::Leq(0.0), CstrSpec::Leq(0.0)])
@@ -1210,13 +1272,52 @@ mod tests {
                 config
                     .doe(&doe)
                     .max_iters(50)
-                    .infill_optimizer(InfillOptimizer::Cobyla)
+                    .infill_optimizer(InfillOptimizer::Slsqp)
                     .seed(42)
             })
             .min_within(&xlimits)
             .expect("Egor configured")
             .run()
             .expect("Minimize failure");
+        let expected = array![2.3295, 3.1785];
+        assert_abs_diff_eq!(expected, res.x_opt, epsilon = 1e-1);
+    }
+
+    #[test]
+    #[serial]
+    fn test_egor_g24_with_domain_constraints_geq_specs() {
+        let xlimits = array![[0., 3.], [0., 4.]];
+        let doe = Lhs::new(&xlimits)
+            .with_rng(Xoshiro256Plus::seed_from_u64(42))
+            .sample(15);
+        let c1 = |x: &[f64], g: Option<&mut [f64]>, _u: &mut InfillObjData<f64>| {
+            let x = ArrayView1::from(x);
+            if let Some(g) = g {
+                g.copy_from_slice(grad_g24_c1(&x).mapv(|v| -v).as_slice().unwrap());
+            }
+            -g24_c1(&x)
+        };
+        let c2 = |x: &[f64], g: Option<&mut [f64]>, _u: &mut InfillObjData<f64>| {
+            let x = ArrayView1::from(x);
+            if let Some(g) = g {
+                g.copy_from_slice(grad_g24_c2(&x).mapv(|v| -v).as_slice().unwrap());
+            }
+            -g24_c2(&x)
+        };
+        let res = EgorBuilder::optimize(f_g24_bare)
+            .subject_to_with_specs(vec![c1, c2], vec![CstrSpec::Geq(0.0), CstrSpec::Geq(0.0)])
+            .configure(|config| {
+                config
+                    .doe(&doe)
+                    .max_iters(50)
+                    .infill_optimizer(InfillOptimizer::Slsqp)
+                    .seed(42)
+            })
+            .verbose(log::LevelFilter::Info)
+            .min_within(&xlimits)
+            .expect("Egor configured")
+            .run()
+            .expect("Egor should minimize xsinx");
         let expected = array![2.3295, 3.1785];
         assert_abs_diff_eq!(expected, res.x_opt, epsilon = 1e-1);
     }
