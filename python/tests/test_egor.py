@@ -282,9 +282,10 @@ class TestEgor(unittest.TestCase):
         x_expected = optim.result.x_opt
         y_expected = optim.result.y_opt
 
-        # When warm starting with no iteration, the result should be 
-        # the same as the previous run
-        optim = egor.minimize(g24_geq, max_iters=0, seed=42, outdir="./test_dir", warm_start=True)
+        # When warm starting with no iteration, the result should be the same as the previous run
+        optim = egor.minimize(
+            g24_geq, max_iters=0, seed=42, outdir="./test_dir", warm_start=True
+        )
         np.testing.assert_allclose(optim.result.x_opt, x_expected)
         np.testing.assert_allclose(optim.result.y_opt, y_expected)
 
