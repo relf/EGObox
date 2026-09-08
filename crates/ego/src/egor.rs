@@ -1155,6 +1155,47 @@ mod tests {
 
     #[test]
     #[serial]
+    fn test_egor_warm_start_metamodelized_geq_constraints() {
+        let outdir = "target/test_warmstart_geq_constraints";
+        let _ = std::fs::remove_dir_all(outdir);
+        let xlimits = array![[0., 3.], [0., 4.]];
+
+        let first = EgorBuilder::optimize(f_g24_geq)
+            .configure(|config| {
+                config
+                    .cstr_specs(vec![CstrSpec::Geq(0.0), CstrSpec::Geq(0.0)])
+                    .n_doe(15)
+                    .max_iters(1)
+                    .outdir(outdir)
+                    .seed(42)
+            })
+            .min_within(&xlimits)
+            .expect("Egor configured")
+            .run()
+            .expect("Initial minimization");
+
+        let restarted = EgorBuilder::optimize(f_g24_geq)
+            .configure(|config| {
+                config
+                    .cstr_specs(vec![CstrSpec::Geq(0.0), CstrSpec::Geq(0.0)])
+                    .n_doe(15)
+                    .max_iters(0)
+                    .outdir(outdir)
+                    .warm_start(true)
+                    .seed(42)
+            })
+            .min_within(&xlimits)
+            .expect("Egor configured")
+            .run()
+            .expect("Warm-start minimization");
+
+        assert_abs_diff_eq!(first.x_opt, restarted.x_opt, epsilon = 1e-12);
+        assert_abs_diff_eq!(first.y_opt, restarted.y_opt, epsilon = 1e-12);
+        let _ = std::fs::remove_dir_all(outdir);
+    }
+
+    #[test]
+    #[serial]
     #[ignore = "fail on CI on windows-2025, work on windows locally"]
     fn test_egor_g24_basic_egor_builder_slsqp() {
         let xlimits = array![[0., 3.], [0., 4.]];

@@ -90,6 +90,11 @@ def g24(point):
     return res
 
 
+def g24_geq(point):
+    p = np.atleast_2d(point)
+    return np.array([G24(p), -G24_c1(p), -G24_c2(p)]).T
+
+
 def g24_bare(point):
     p = np.atleast_2d(point)
     res = np.array([G24(p)]).T
@@ -262,6 +267,32 @@ class TestEgor(unittest.TestCase):
         self.assertAlmostEqual(3.1785, optim.result.x_opt[1], delta=1e-2)
         self.assertGreaterEqual(n_doe + max_iters, optim.result.x_doe.shape[0])
         self.assertEqual(1 + n_cstr, optim.result.y_doe.shape[1])
+
+    def test_reinit(self):
+        n_doe = 15
+        egor = egx.Egor(
+            [[0.0, 3.0], [0.0, 4.0]],
+            cstr_specs=[egx.CstrSpec.geq(0.0), egx.CstrSpec.geq(0.0)],
+            cstr_tol=np.array([1e-3, 1e-3]),
+            n_doe=n_doe,
+            cstr_strategy=egx.ConstraintStrategy.UTB,
+        )
+        optim = egor.minimize(g24_geq, max_iters=1, seed=42, outdir="./test_dir")
+
+        x_expected = optim.result.x_opt
+        y_expected = optim.result.y_opt
+
+        # When warm starting with no iteration, the result should be 
+        # the same as the previous run
+        optim = egor.minimize(g24_geq, max_iters=0, seed=42, outdir="./test_dir", warm_start=True)
+        np.testing.assert_allclose(optim.result.x_opt, x_expected)
+        np.testing.assert_allclose(optim.result.y_opt, y_expected)
+
+        # delete test_dir
+        if os.path.exists("./test_dir"):
+            import shutil
+
+            shutil.rmtree("./test_dir")
 
     def test_g24_kpls(self):
         egor = egx.Egor(
