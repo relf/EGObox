@@ -192,7 +192,7 @@ where
             Xoshiro256Plus::from_entropy()
         };
 
-        let hstart_doe: Option<Array2<f64>> = if self.config.warm_start
+        let warm_start_doe: Option<Array2<f64>> = if self.config.warm_start
             && let Some(path) = self.config.outdir.as_ref()
         {
             let filepath = std::path::Path::new(&path).join(DOE_FILE);
@@ -210,7 +210,7 @@ where
             None
         };
 
-        let doe = hstart_doe.as_ref().or(self.config.doe.as_ref());
+        let doe = warm_start_doe.as_ref().or(self.config.doe.as_ref());
 
         let (y_data, x_data) = if let Some(doe) = doe {
             if doe.ncols() == self.xlimits.nrows() {
@@ -236,8 +236,11 @@ where
             let x = sampling.sample(n_doe);
             (self.eval_obj(problem, &x)?, x)
         };
-        // Apply constraint transformation if cstr_specs are set
-        let y_data = if let Some(ref specs) = self.config.cstr_specs {
+        // Warm-start DOE constraint columns are already in canonical form.
+        // otherwise transform constraints to canonical form (ie. cstr < 0)
+        let y_data = if !warm_start_doe.is_some()
+            && let Some(ref specs) = self.config.cstr_specs
+        {
             crate::types::transform_constraints(&y_data, specs)
         } else {
             y_data
