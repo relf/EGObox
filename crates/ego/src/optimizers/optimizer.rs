@@ -14,9 +14,11 @@
 //!
 //! - [`Algorithm::Slsqp`] - Sequential Least Squares Programming (gradient-based)
 //! - [`Algorithm::Cobyla`] - Constrained Optimization BY Linear Approximations (derivative-free)
+//! - [`Algorithm::Ipopt`] - Interior Point OPTimizer (gradient-based, requires the `pounce` feature)
 //!
-//! When the `nlopt` feature is enabled, these use the NLopt library.
-//! Otherwise, pure-Rust implementations from `slsqp` and `cobyla` crates are used.
+//! When the `nlopt` feature is enabled, [`Algorithm::Slsqp`] and [`Algorithm::Cobyla`] use the
+//! NLopt library. Otherwise, pure-Rust implementations from the `slsqp` and `cobyla` crates are
+//! used.
 //!
 //! ## Usage
 //!
@@ -45,6 +47,9 @@ impl<T, U> OptFn<U> for T where T: nlopt::ObjFn<U> + Sync {}
 pub enum Algorithm {
     Cobyla,
     Slsqp,
+    /// Interior-point method, delegated to the `pounce` crate.
+    /// Only usable when the `pounce` feature is enabled.
+    Ipopt,
 }
 
 pub const INFILL_MAX_EVAL_DEFAULT: usize = 2000;
@@ -105,6 +110,94 @@ impl<'a> Optimizer<'a> {
         self
     }
 
+    fn pounce_minimize(&self, cstr_tol: &Array1<f64>) -> (f64, Array1<f64>) {
+        use pounce_rs::builder::Nlp;
+
+        let m = self.cons.len();
+
+        let lo: Vec<f64> = self.bounds.column(0).to_vec();
+        let hi: Vec<f64> = self.bounds.column(1).to_vec();
+        let x0: Vec<f64> = self
+            .xinit
+            .clone()
+            .expect("xinit is required to run the pounce/IPOPT infill optimizer")
+            .to_vec();
+        debug_assert_eq!(x0.len(), self.bounds.nrows());
+
+        // Same feasibility convention already used elsewhere in this file:
+        // a constraint function `c` is feasible at x when `c(x) <= tol/scale`.
+        // Ipopt/pounce express constraints as bounds `g_l <= g(x) <= g_u`, so
+        // this maps directly onto `g(x) = c(x)`, `g_u = tol/scale`, `g_l = -inf`
+        // -- no sign flip needed (unlike the Cobyla/Slsqp branches below, whose
+        // underlying crates use their own, different constraint conventions).
+        const IPOPT_INF: f64 = 2.0e19;
+        let g_hi: Vec<f64> = (0..m)
+            .map(|i| {
+                let scale_cstr = self
+                    .user_data
+                    .scale_cstr
+                    .as_ref()
+                    .expect("constraint scaling")[i];
+                cstr_tol[i] / scale_cstr
+            })
+            .collect();
+        let g_lo = vec![-IPOPT_INF; m];
+
+        // SAFETY: `pounce::builder::Nlp::new` requires `Problem: 'static`
+        // because it drives the solve through an internal
+        // `Rc<RefCell<dyn TNLP + 'static>>` adapter. `self.fun` / `self.cons`
+        // only need to live for the duration of this function call: `solve()`
+        // below runs the interior-point iterations to completion (or failure)
+        // synchronously and returns a `Solution` that owns its data, so no
+        // reference derived from `fun`/`cons` is read after `solve()` returns,
+        // and nothing here spawns a thread or otherwise lets the adapter
+        // outlive this stack frame. Extending the borrow's lifetime marker to
+        // `'static` is therefore sound in this single call, even though the
+        // real borrow is only valid for `'a`.
+        let fun: &'static (dyn OptFn<InfillObjData<f64>> + Sync) =
+            unsafe { std::mem::transmute(self.fun) };
+        let cons: &'static [&'static (dyn OptFn<InfillObjData<f64>> + Sync)] =
+            unsafe { std::mem::transmute(self.cons.as_slice()) };
+
+        let problem = PounceInfillProblem {
+            fun,
+            cons,
+            user_data: std::cell::RefCell::new(self.user_data.clone()),
+        };
+
+        let max_iter = i32::try_from(self.max_eval).unwrap_or(i32::MAX);
+        // ftol_abs/ftol_rel (Cobyla/Slsqp objective-change stopping criteria)
+        // do not map 1:1 onto Ipopt's KKT-error-based `tol`; use the tighter
+        // of the two as a best-effort floor, falling back to Ipopt's own
+        // default when neither was set.
+        let tol = match (self.ftol_rel, self.ftol_abs) {
+            (None, None) => 1e-8,
+            (a, b) => a
+                .into_iter()
+                .chain(b)
+                .fold(f64::INFINITY, f64::min)
+                .max(1e-12),
+        };
+
+        let mut builder = Nlp::new(problem)
+            .var_bounds(&lo, &hi)
+            .x0(&x0)
+            .option_str("hessian_approximation", "limited-memory")
+            .option_int("print_level", 0)
+            .option_str("sb", "yes")
+            .option_num("tol", tol)
+            .option_int("max_iter", max_iter);
+        if m > 0 {
+            builder = builder.constraint_bounds(&g_lo, &g_hi);
+        }
+
+        match builder.try_solve() {
+            Ok(sol) if sol.success => (sol.objective, arr1(&sol.x)),
+            Ok(sol) if !sol.x.is_empty() => (f64::INFINITY, arr1(&sol.x)),
+            _ => (f64::INFINITY, arr1(&x0)),
+        }
+    }
+
     #[cfg(feature = "nlopt")]
     fn nlopt_minimize(&self, algo: nlopt::Algorithm, cstr_tol: Array1<f64>) -> (f64, Array1<f64>) {
         use nlopt::*;
@@ -157,6 +250,7 @@ impl<'a> Optimizer<'a> {
             .clone()
             .unwrap_or(Array1::zeros(self.cons.len()));
         match self.algo {
+            Algorithm::Ipopt => self.pounce_minimize(&cstr_tol),
             Algorithm::Cobyla => {
                 #[cfg(feature = "nlopt")]
                 {
@@ -250,5 +344,56 @@ impl<'a> Optimizer<'a> {
                 }
             }
         }
+    }
+}
+
+/// Adapts the closure-based `fun`/`cons` used by [`Optimizer`] to the
+/// [`pounce::builder::Problem`] trait expected by `pounce`'s [`pounce::builder::Nlp`]
+/// builder, so [`Algorithm::Ipopt`] can reuse exactly the same objective and
+/// constraint closures as the Cobyla/Slsqp branches above.
+///
+/// `user_data` is read-only from the point of view of a single `Nlp::solve()`
+/// call (each per-call evaluation works off its own clone, exactly as the
+/// Cobyla/Slsqp branches already do via `self.user_data.clone()`); it is
+/// wrapped in a `RefCell` purely so `objective`/`gradient`/`constraints`/
+/// `jacobian` can be implemented with the `&self` receiver `pounce::builder::Problem`
+/// requires.
+struct PounceInfillProblem<'a> {
+    fun: &'a (dyn OptFn<InfillObjData<f64>> + Sync),
+    cons: &'a [&'a (dyn OptFn<InfillObjData<f64>> + Sync)],
+    user_data: std::cell::RefCell<InfillObjData<f64>>,
+}
+
+impl<'a> pounce_rs::builder::Problem for PounceInfillProblem<'a> {
+    fn objective(&self, x: &[f64]) -> f64 {
+        let mut u = self.user_data.borrow().clone();
+        (self.fun)(x, None, &mut u)
+    }
+
+    fn n_constraints(&self) -> usize {
+        self.cons.len()
+    }
+
+    fn constraints(&self, x: &[f64], out: &mut [f64]) {
+        for (i, c) in self.cons.iter().enumerate() {
+            let mut u = self.user_data.borrow().clone();
+            out[i] = (*c)(x, None, &mut u);
+        }
+    }
+
+    fn gradient(&self, x: &[f64], grad: &mut [f64]) -> bool {
+        let mut u = self.user_data.borrow().clone();
+        (self.fun)(x, Some(grad), &mut u);
+        true
+    }
+
+    fn jacobian(&self, x: &[f64], jac: &mut [f64]) -> bool {
+        let n = x.len();
+        for (i, c) in self.cons.iter().enumerate() {
+            let mut u = self.user_data.borrow().clone();
+            let row = &mut jac[i * n..(i + 1) * n];
+            (*c)(x, Some(row), &mut u);
+        }
+        true
     }
 }

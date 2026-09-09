@@ -151,7 +151,7 @@ fn parse_run_info(py: Python, value: Py<PyAny>) -> PyResult<RunInfo> {
 ///
 ///     infill_optimizer (InfillOptimizer enum):
 ///         Internal optimizer used to optimize infill criteria.
-///         Can be either InfillOptimizer.COBYLA or InfillOptimizer.SLSQP
+///         Can be InfillOptimizer.COBYLA, InfillOptimizer.SLSQP, or InfillOptimizer.IPOPT
 ///
 ///     qei_config (QEiConfig):
 ///         Configuration for parallel (qEI) evaluation also known as batch or multipoint evaluation.
@@ -783,6 +783,8 @@ impl Egor {
         match self.infill_optimizer {
             InfillOptimizer::Cobyla => egobox_ego::InfillOptimizer::Cobyla,
             InfillOptimizer::Slsqp => egobox_ego::InfillOptimizer::Slsqp,
+
+            InfillOptimizer::Ipopt => egobox_ego::InfillOptimizer::Ipopt,
         }
     }
 

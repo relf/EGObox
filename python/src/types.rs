@@ -206,6 +206,8 @@ pub(crate) enum InfillOptimizer {
     Cobyla = 1,
     /// Gradient based optimization algorithm that uses a quasi-Newton method to optimize the acquisition function
     Slsqp = 2,
+    /// Gradient based interior-point method (IPOPT, via the pure-Rust `pounce` crate).
+    Ipopt = 3,
 }
 
 impl<'a, 'py> FromPyObject<'a, 'py> for InfillOptimizer {
@@ -218,11 +220,13 @@ impl<'a, 'py> FromPyObject<'a, 'py> for InfillOptimizer {
         match obj.extract::<u8>() {
             Ok(1) => Ok(Self::Cobyla),
             Ok(2) => Ok(Self::Slsqp),
+
+            Ok(3) => Ok(Self::Ipopt),
             Ok(v) => Err(PyValueError::new_err(format!(
-                "infill_optimizer integer value must be in [1, 2], got {v}"
+                "infill_optimizer integer value must be in [1, 2, 3], got {v}"
             ))),
             Err(_) => Err(PyTypeError::new_err(
-                "infill_optimizer must be an InfillOptimizer enum or an integer in [1, 2]",
+                "infill_optimizer must be an InfillOptimizer enum or an integer in [1, 2, 3]",
             )),
         }
     }

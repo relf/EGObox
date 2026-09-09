@@ -14,10 +14,8 @@
 //!
 //! - **SLSQP** - Sequential Least Squares Programming (gradient-based, faster for differentiable criteria)
 //! - **COBYLA** - Constrained Optimization BY Linear Approximations (derivative-free, more robust)
-//!
-//! ## Feature Flags
-//!
-//! - `nlopt`: Use NLopt library (default). Falls back to pure-Rust implementations otherwise.
+//! - **IPOPT** - Interior Point OPTimizer (gradient-based), via the pure-Rust `pounce` crate
+//!   (<https://github.com/jkitchin/pounce>). Requires the `pounce` feature.
 
 mod optimizer;
 

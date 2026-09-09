@@ -54,6 +54,9 @@ pub enum InfillOptimizer {
     Slsqp,
     /// Cobyla optimizer (gradient free)
     Cobyla,
+    /// IPOPT optimizer (gradient based, interior point method), delegated to the
+    /// pure-Rust `pounce` crate (<https://github.com/jkitchin/pounce>).
+    Ipopt,
 }
 
 /// Strategy to choose several points at each iteration

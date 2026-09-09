@@ -1,4 +1,5 @@
 # To display optimization information (none by default)
+import argparse
 import logging
 
 import numpy as np
@@ -8,6 +9,21 @@ import egobox as egx
 logging.basicConfig(level=logging.INFO)
 
 xspecs_g24 = [[0.0, 3.0], [0.0, 4.0]]
+
+
+def parse_args():
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description="G24 constrained optimization example with function constraints"
+    )
+    parser.add_argument(
+        "--infill-opt",
+        type=str,
+        default="COBYLA",
+        choices=["COBYLA", "SLSQP"],
+        help="Infill optimizer to use (default: COBYLA)",
+    )
+    return parser.parse_args()
 
 
 # Objective
@@ -59,14 +75,33 @@ def g24(point):
 # Fonction constraints
 fcstrs = [G24_c1, G24_c2]
 
-# Configure the optimizer. See help(egor) for options
-egor = egx.Egor(
-    xspecs_g24,
-    n_doe=10,
-    cstr_tol=[1e-3] * len(fcstrs),  # Tolerance for function constraints
-    infill_strategy=egx.InfillStrategy.WB2,
-    target=-5.50,  # known reference objective value
-)
 
-optim = egor.minimize(g24, max_iters=30, fcstrs=fcstrs)
-print(f"Optimization f={optim.result.y_opt} at {optim.result.x_opt}")
+def main():
+    args = parse_args()
+
+    # Map string argument to InfillOptimizer enum
+    infill_optimizer_map = {
+        "COBYLA": egx.InfillOptimizer.COBYLA,
+        "SLSQP": egx.InfillOptimizer.SLSQP,
+    }
+    infill_optimizer = infill_optimizer_map[args.infill_opt]
+
+    # Configure the optimizer. See help(egor) for options
+    egor = egx.Egor(
+        xspecs_g24,
+        n_doe=10,
+        cstr_tol=[1e-3] * len(fcstrs),  # Tolerance for function constraints
+        infill_strategy=egx.InfillStrategy.WB2,
+        infill_optimizer=infill_optimizer,
+        target=-5.50,  # known reference objective value
+    )
+
+    optim = egor.minimize(g24, max_iters=30, fcstrs=fcstrs)
+    print(
+        f"Optimization f={optim.result.y_opt} at {optim.result.x_opt} "
+        f"(using {args.infill_opt} infill optimizer)"
+    )
+
+
+if __name__ == "__main__":
+    main()
