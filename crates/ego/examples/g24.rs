@@ -1,3 +1,4 @@
+use clap::Parser;
 use egobox_doe::{Lhs, SamplingMethod};
 use egobox_ego::{EgorBuilder, InfillOptimizer};
 use ndarray::{Array2, ArrayBase, ArrayView2, Data, Ix1, Zip, array};
@@ -28,9 +29,29 @@ fn f_g24(x: &ArrayView2<f64>) -> Array2<f64> {
     y
 }
 
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    #[arg(long, default_value = "cobyla")]
+    infill_opt: String,
+}
+
 fn main() {
+    let args = Args::parse();
+    
+    // Map string argument to InfillOptimizer enum
+    let infill_optimizer = match args.infill_opt.as_str() {
+        "cobyla" => InfillOptimizer::Cobyla,
+        "slsqp" => InfillOptimizer::Slsqp,
+        "ipopt" => InfillOptimizer::Ipopt,
+        _ => {
+            eprintln!("Unknown infill optimizer: {}. Using COBYLA.", args.infill_opt);
+            InfillOptimizer::Cobyla
+        }
+    };
+
     let xlimits = array![[0., 3.], [0., 4.]];
-    let doe = Lhs::new(&xlimits).sample(3);
+    let doe = Lhs::new(&xlimits).sample(5);
 
     let res = EgorBuilder::optimize(f_g24)
         .configure(|config| {
@@ -38,12 +59,15 @@ fn main() {
                 .n_cstr(2)
                 .doe(&doe)
                 .max_iters(100)
-                .infill_optimizer(InfillOptimizer::Cobyla)
+                .infill_optimizer(infill_optimizer)
                 .seed(42)
         })
         .min_within(&xlimits)
         .expect("Egor configured")
         .run()
         .expect("Minimize failure");
-    println!("G24 optim result = {}", res.y_opt);
+    println!(
+        "G24 optim result = {} (using {} infill optimizer)",
+        res.y_opt, args.infill_opt
+    );
 }

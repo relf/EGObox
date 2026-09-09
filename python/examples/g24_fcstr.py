@@ -20,7 +20,7 @@ def parse_args():
         "--infill-opt",
         type=str,
         default="COBYLA",
-        choices=["COBYLA", "SLSQP"],
+        choices=["COBYLA", "SLSQP", "IPOPT"],
         help="Infill optimizer to use (default: COBYLA)",
     )
     return parser.parse_args()
@@ -83,6 +83,7 @@ def main():
     infill_optimizer_map = {
         "COBYLA": egx.InfillOptimizer.COBYLA,
         "SLSQP": egx.InfillOptimizer.SLSQP,
+        "IPOPT": egx.InfillOptimizer.IPOPT,
     }
     infill_optimizer = infill_optimizer_map[args.infill_opt]
 
