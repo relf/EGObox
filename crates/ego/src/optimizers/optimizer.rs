@@ -165,7 +165,8 @@ impl<'a> Optimizer<'a> {
             user_data: std::cell::RefCell::new(self.user_data.clone()),
         };
 
-        let max_iter = i32::try_from(self.max_eval).unwrap_or(i32::MAX);
+        // Divide max_eval by 10 to get a more reasonable number of iterations for Ipopt
+        let max_iter = i32::try_from(self.max_eval / 10).unwrap_or(i32::MAX);
         // ftol_abs/ftol_rel (Cobyla/Slsqp objective-change stopping criteria)
         // do not map 1:1 onto Ipopt's KKT-error-based `tol`; use the tighter
         // of the two as a best-effort floor, falling back to Ipopt's own
