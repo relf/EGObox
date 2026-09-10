@@ -38,13 +38,13 @@ trains one surrogate model per output column.
 `gpx fit` auto-detects model output format from output file extension:
 - `.json` -> `json`
 - otherwise -> `binary`
-`gpx qa` and `gpx spec` use all surrogates by default; use `-m/--model-index`
+`gpx qa` and `gpx spec` use all surrogates by default; use `-i/--model-index`
 to target a single surrogate.
 `gpx predict` takes input as a required positional argument.
-`gpx predict` uses `surrogate_model.gpx` by default; use `--model` to change it.
+`gpx predict` uses `surrogate_model.gpx` by default; use `-m/--model` to change it.
 By default `gpx predict` uses all surrogate models from the model file and writes
 one output file containing inputs followed by predicted outputs (training-like layout).
-Use `-m/--model-index` to predict a single output model.
+Use `-i/--model-index` to predict a single output model.
 `gpx predict` auto-detects input format from input file extension:
 - `.npy` -> `npy`
 - otherwise -> `csv`
@@ -54,7 +54,7 @@ Use `-m/--model-index` to predict a single output model.
 - otherwise -> `csv`
 `gpx py` generates a Python helper script from an existing model file.
 Defaults:
-- model: `surrogate_model.gpx` (`--model`)
+- model: `surrogate_model.gpx` (`-m/--model`)
 - output script: `gpx.py` (`-o/--output`)
 The generated script embeds the model bytes and provides:
 - `predict(x, with_variance=False, model_index=None)`

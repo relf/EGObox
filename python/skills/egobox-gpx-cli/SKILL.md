@@ -115,15 +115,15 @@ gpx fit data.csv --n-clusters 3 --recombination smooth -o model_moe.gpx
 ## `gpx spec` — Inspect a Model
 
 ```
-gpx spec [--model FILE] [-m INDEX]
+gpx spec [-m FILE] [-i INDEX]
 ```
 
 Shows: surrogate type, input/output dimensions, supported I/O formats, expected array shapes, training data summary.
 
 ```bash
 gpx spec                              # inspect surrogate_model.gpx
-gpx spec --model my_model.gpx
-gpx spec --model model.gpx -m 0      # single surrogate in a multi-output file
+gpx spec -m my_model.gpx
+gpx spec -m model.gpx -i 0           # single surrogate in a multi-output file
 ```
 
 **Model file sources** — `gpx` can read models saved by:
@@ -136,7 +136,7 @@ gpx spec --model model.gpx -m 0      # single surrogate in a multi-output file
 ## `gpx qa` — Quality Assessment
 
 ```
-gpx qa [--model FILE] [-m INDEX] [-k KFOLD]
+gpx qa [-m FILE] [-i INDEX] [-k KFOLD]
 ```
 
 Reports three metrics (computed on training data via leave-one-out by default, or k-fold):
@@ -151,9 +151,9 @@ Also prints an alpha/empirical coverage table (the α-PI plot).
 
 ```bash
 gpx qa                          # LOO cross-validation on surrogate_model.gpx
-gpx qa --model model.gpx
-gpx qa --model model.gpx -k 5  # 5-fold cross-validation (better for larger datasets)
-gpx qa --model model.gpx -m 0  # assess only surrogate 0 of a multi-output model
+gpx qa -m model.gpx
+gpx qa -m model.gpx -k 5       # 5-fold cross-validation (better for larger datasets)
+gpx qa -m model.gpx -i 0       # assess only surrogate 0 of a multi-output model
 ```
 
 ---
@@ -187,16 +187,16 @@ gpx predict [OPTIONS] <INPUT>
 
 ```bash
 # Predict from CSV, output CSV
-gpx predict xtest.csv --model model.gpx -o predictions.csv
+gpx predict xtest.csv -m model.gpx -o predictions.csv
 
 # Include predictive variance
-gpx predict xtest.csv --model model.gpx --with-variance -o predictions.csv
+gpx predict xtest.csv -m model.gpx --with-variance -o predictions.csv
 
 # NumPy in, NumPy out
-gpx predict xtest.npy --model model.gpx -o predictions.npy
+gpx predict xtest.npy -m model.gpx -o predictions.npy
 
 # Single output from a 2-output model
-gpx predict xtest.csv --model model2.gpx -m 1 -o pred_y2.csv
+gpx predict xtest.csv -m model2.gpx -i 1 -o pred_y2.csv
 ```
 
 ---
@@ -290,8 +290,8 @@ gpx py --model surrogate.gpx -o surrogate.py
 
 ```bash
 gpx fit data.csv [-o model.gpx] [--outputs N] [--kpls-dim N] [--correlation-spec matern52]
-gpx spec [--model model.gpx] [-m INDEX]
-gpx qa [--model model.gpx] [-k KFOLD] [-m INDEX]
-gpx predict xtest.csv [--model model.gpx] [-o out.csv] [--with-variance] [-m INDEX]
-gpx py [--model model.gpx] [-o script.py]
+gpx spec [-m model.gpx] [-i INDEX]
+gpx qa [-m model.gpx] [-k KFOLD] [-i INDEX]
+gpx predict xtest.csv [-m model.gpx] [-o out.csv] [--with-variance] [-i INDEX]
+gpx py [-m model.gpx] [-o script.py]
 ```
