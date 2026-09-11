@@ -33,15 +33,10 @@ use rand_xoshiro::Xoshiro256Plus;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// DEPRECATED: to be removed in future versions
-/// (was 3 before but retry strategy is not useful anymore)
-/// Value is kept for backward compatibility and set to 1.
-/// Kept also to validate there is no point keeping this mechanism (!)
-///
 /// Max number of retry when adding a new point. Point addition may fail
 /// if new point is too close to a previous point in the growing doe used
 /// to train surrogate models modeling objective and constraints functions.
-pub(crate) const MAX_POINT_ADDITION_RETRY: i32 = 1;
+pub(crate) const MAX_POINT_ADDITION_RETRY: i32 = 3;
 
 // =============================================================================
 // Sub-state structs for better organization (SRP - Single Responsibility Principle)
