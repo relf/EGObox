@@ -1,8 +1,8 @@
 //! # EgorState - Optimizer State Implementation
 //!
 //! This module implements the [`EgorState`] struct which tracks all state information
-//! during EGO optimization. It implements the `argmin::State` trait for integration
-//! with the argmin optimization framework.
+//! during EGO optimization. It implements the `basin::core::state::State` (and
+//! `CountsMirror`) traits for integration with the basin optimization framework.
 //!
 //! ## State Organization
 //!
@@ -25,7 +25,13 @@ use crate::{
 };
 use egobox_moe::Clustering;
 
-use argmin::core::{ArgminFloat, Problem, State, TerminationReason, TerminationStatus};
+use basin::core::problem::EvalCounts;
+use basin::core::state::{CountsMirror, State};
+use basin::core::termination::TerminationReason;
+/// Compatibility alias: basin has no wrapping `NotTerminated`/`Terminated(reason)`
+/// enum like argmin did. We represent "not yet terminated" as `None` and mirror
+/// the shape of the old API via `Option<TerminationReason>` directly.
+pub type TerminationStatus = Option<TerminationReason>;
 use linfa::Float;
 use ndarray::{Array1, Array2};
 use ndarray_rand::rand::SeedableRng;
@@ -159,7 +165,7 @@ pub struct CoegoState {
 ///
 /// This struct is passed from one iteration of an algorithm to the next.
 /// It is organized into logical sub-states for better maintainability:
-/// - Core iteration state (param, cost, iter, etc.) - required by argmin `State` trait
+/// - Core iteration state (param, cost, iter, etc.) - previously required by argmin `State` trait
 /// - [`DoeState`]: Design of Experiments management
 /// - [`SurrogateState`]: GP surrogate model state
 /// - [`TregoState`]: TREGO algorithm variant state
@@ -167,7 +173,7 @@ pub struct CoegoState {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EgorState<F: Float> {
     // -------------------------------------------------------------------------
-    // Core iteration state (required by argmin State trait)
+    // Core iteration state
     // -------------------------------------------------------------------------
     /// Current parameter vector
     pub param: Option<Array1<F>>,
@@ -199,12 +205,28 @@ pub struct EgorState<F: Float> {
     pub last_best_iter: u64,
     /// Maximum number of iterations
     pub max_iters: u64,
-    /// Evaluation counts
+    /// Evaluation counts (kept for backward-compatible introspection)
     pub counts: HashMap<String, u64>,
+    /// Cumulative cost-function evaluations, mirrored from basin's `EvalCounts`
+    /// via [`CountsMirror`]. Required by basin's `State::cost_evals`.
+    pub cost_evals: u64,
+    /// Cost evaluations at the moment the current best was found. Required by
+    /// basin's `State::best_cost_evals`.
+    pub best_cost_evals: u64,
     /// Time required so far
     pub time: Option<web_time::Duration>,
-    /// Optimization status
+    /// Optimization status: `None` while running, `Some(reason)` once terminated.
     pub termination_status: TerminationStatus,
+    /// Free-form message accompanying termination (e.g. an objective-function
+    /// error description). basin's `TerminationReason` is a fixed, payload-free
+    /// enum, unlike argmin's old `SolverExit(String)` variant, so the message
+    /// travels alongside it here instead.
+    pub termination_message: Option<String>,
+    /// Fallback returned by reference from `State::param`/`best_param` before
+    /// any point has been set. basin's `State` trait returns `&Param` (not
+    /// `Option<&Param>`), so this backs the "not set yet" case. Always empty;
+    /// serialized like any other field to avoid requiring `F: Default`.
+    empty_param: Array1<F>,
 
     // -------------------------------------------------------------------------
     // DOE state - Design of Experiments management
@@ -249,24 +271,26 @@ where
     /// # Example
     ///
     /// ```
-    /// # use argmin::core::State;
     /// # use egobox_ego::EgorState;
     /// # use ndarray::array;
     /// # let state: EgorState<f64> = EgorState::new();
     /// # let param_old = array![1.0f64, 2.0f64];
-    /// # let state = state.param(param_old);
+    /// # let state = state.with_param(param_old);
     /// # assert!(state.prev_param.is_none());
     /// # assert_eq!(state.param.as_ref().unwrap()[0].to_ne_bytes(), 1.0f64.to_ne_bytes());
     /// # assert_eq!(state.param.as_ref().unwrap()[1].to_ne_bytes(), 2.0f64.to_ne_bytes());
     /// # let param = array![0.0f64, 3.0f64];
-    /// let state = state.param(param);
+    /// let state = state.with_param(param);
     /// # assert_eq!(state.prev_param.as_ref().unwrap()[0].to_ne_bytes(), 1.0f64.to_ne_bytes());
     /// # assert_eq!(state.prev_param.as_ref().unwrap()[1].to_ne_bytes(), 2.0f64.to_ne_bytes());
     /// # assert_eq!(state.param.as_ref().unwrap()[0].to_ne_bytes(), 0.0f64.to_ne_bytes());
     /// # assert_eq!(state.param.as_ref().unwrap()[1].to_ne_bytes(), 3.0f64.to_ne_bytes());
     /// ```
+    /// Note: renamed from `param()` (the old argmin-era name) to `with_param()`
+    /// because basin's `State::param()` trait method now owns that name as a
+    /// non-consuming getter.
     #[must_use]
-    pub fn param(mut self, param: Array1<F>) -> Self {
+    pub fn with_param(mut self, param: Array1<F>) -> Self {
         std::mem::swap(&mut self.prev_param, &mut self.param);
         self.param = Some(param);
         self
@@ -281,7 +305,6 @@ where
     ///
     /// ```
     /// # use egobox_ego::EgorState;
-    /// # use argmin::core::{State, ArgminFloat};
     /// # let state: EgorState<f64> = EgorState::new();
     /// # assert_eq!(state.target_cost.to_ne_bytes(), f64::NEG_INFINITY.to_ne_bytes());
     /// let state = state.target_cost(0.0);
@@ -299,7 +322,6 @@ where
     ///
     /// ```
     /// # use egobox_ego::EgorState;
-    /// # use argmin::core::{State, ArgminFloat};
     /// # let state: EgorState<f64> = EgorState::new();
     /// # assert_eq!(state.max_iters, u64::MAX);
     /// let state = state.max_iters(1000);
@@ -318,20 +340,21 @@ where
     ///
     /// ```
     /// # use ndarray::array;
-    /// # use argmin::core::State;
     /// # use egobox_ego::EgorState;
     /// # let state: EgorState<f64> = EgorState::new();
     /// # let cost_old = 1.0f64;
-    /// # let state = state.cost(array![cost_old]);
+    /// # let state = state.with_cost(array![cost_old]);
     /// # assert!(state.prev_cost.is_none());
     /// # assert_eq!(state.cost.as_ref().unwrap()[0].to_ne_bytes(), 1.0f64.to_ne_bytes());
     /// # let cost = 0.0f64;
-    /// let state = state.cost(array![cost]);
+    /// let state = state.with_cost(array![cost]);
     /// # assert_eq!(state.prev_cost.as_ref().unwrap()[0].to_ne_bytes(), 1.0f64.to_ne_bytes());
     /// # assert_eq!(state.cost.as_ref().unwrap()[0].to_ne_bytes(), 0.0f64.to_ne_bytes());
     /// ```
+    /// Note: renamed from `cost()` to `with_cost()`, same reason as
+    /// [`with_param`](Self::with_param).
     #[must_use]
-    pub fn cost(mut self, cost: Array1<F>) -> Self {
+    pub fn with_cost(mut self, cost: Array1<F>) -> Self {
         std::mem::swap(&mut self.prev_cost, &mut self.cost);
         self.cost = Some(cost);
         self
@@ -483,7 +506,6 @@ where
     /// ```
     /// # use ndarray::array;
     /// # use egobox_ego::EgorState;
-    /// # use argmin::core::{State, ArgminFloat};
     /// # let mut state: EgorState<f64> = EgorState::new();
     /// # state.cost = Some(array![12.0, 0.1]);
     /// let cost = state.get_full_cost();
@@ -501,7 +523,6 @@ where
     /// ```
     /// # use ndarray::array;
     /// # use egobox_ego::EgorState;
-    /// # use argmin::core::{State, ArgminFloat};
     /// # let mut state: EgorState<f64> = EgorState::new();
     /// # state.best_cost = Some(array![12.0, 0.1]);
     /// let cost = state.get_full_best_cost();
@@ -515,7 +536,7 @@ where
 
 impl<F> EgorState<F>
 where
-    F: Float + ArgminFloat,
+    F: Float,
 {
     /// Allow hot start feature by extending current max_iters
     pub fn extend_max_iters(&mut self, ext_iters: u64) {
@@ -523,16 +544,15 @@ where
     }
 }
 
-impl<F> State for EgorState<F>
+impl<F> EgorState<F>
 where
-    F: Float + ArgminFloat,
+    F: Float,
 {
-    /// Type of parameter vector
-    type Param = Array1<F>;
-    /// Floating point precision
-    type Float = F;
-
-    /// Create new `EgorState` instance
+    /// Create new `EgorState` instance.
+    ///
+    /// Note: this used to be the `State::new()` trait method under argmin.
+    /// basin's `State` trait has no such constructor requirement, so this is
+    /// now a plain inherent constructor.
     ///
     /// # Example
     ///
@@ -540,7 +560,6 @@ where
     /// # extern crate web_time;
     /// # use web_time;
     /// # use std::collections::HashMap;
-    /// # use argmin::core::{State, TerminationStatus};
     /// use egobox_ego::EgorState;
     /// let state: EgorState<f64> = EgorState::new();
     ///
@@ -558,9 +577,9 @@ where
     /// # assert_eq!(state.max_iters, u64::MAX);
     /// # assert_eq!(state.counts, HashMap::new());
     /// # assert_eq!(state.time.unwrap(), web_time::Duration::new(0, 0));
-    /// # assert_eq!(state.termination_status, TerminationStatus::NotTerminated);
+    /// # assert_eq!(state.termination_status, None);
     /// ```
-    fn new() -> Self {
+    pub fn new() -> Self {
         EgorState {
             param: None,
             prev_param: None,
@@ -578,8 +597,12 @@ where
             last_best_iter: 0,
             max_iters: u64::MAX,
             counts: HashMap::new(),
+            cost_evals: 0,
+            best_cost_evals: 0,
             time: Some(web_time::Duration::new(0, 0)),
-            termination_status: TerminationStatus::NotTerminated,
+            termination_status: None,
+            termination_message: None,
+            empty_param: Array1::from(vec![]),
 
             doe: DoeState::default(),
             surrogate: SurrogateState::default(),
@@ -592,13 +615,17 @@ where
         }
     }
 
-    /// Checks if the current parameter vector is better than the previous best parameter value. If
-    /// a new best parameter vector was found, the state is updated accordingly.
+    /// Checks if the current parameter vector is better than the previous best parameter
+    /// value. If a new best parameter vector was found, the state is updated accordingly.
+    ///
+    /// Note: this used to be `State::update()` under argmin; basin's equivalent
+    /// executor-called hook is `State::update_best()` (see the `State` impl below),
+    /// which simply forwards to this inherent method so existing callers/tests using
+    /// `.update()` keep working.
     ///
     /// # Example
     ///
     /// ```
-    /// # use argmin::core::{State, ArgminFloat};
     /// # use ndarray::array;
     /// # use egobox_ego::EgorState;
     ///
@@ -620,7 +647,7 @@ where
     /// assert_eq!(state.best_cost.as_ref().unwrap()[0], 0.5);
     /// assert!(state.is_best());
     /// ```
-    fn update(&mut self) {
+    pub fn update(&mut self) {
         if let Some((x_data, y_data, c_data)) = self.surrogate.data.as_ref() {
             let best_index = self
                 .surrogate
@@ -644,329 +671,218 @@ where
             } else {
                 // best point in doe => self.last_best_iter remains 0
             }
+            self.best_cost_evals = self.cost_evals;
         }
     }
 
-    /// Returns a reference to the current parameter vector
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use ndarray::array;
-    /// # use egobox_ego::EgorState;
-    /// # use argmin::core::{State, ArgminFloat};
-    /// # let mut state: EgorState<f64> = EgorState::new();
-    /// # assert!(state.param.is_none());
-    /// # state.param = Some(array![1.0, 2.0]);
-    /// # assert_eq!(state.param.as_ref().unwrap()[0].to_ne_bytes(), 1.0f64.to_ne_bytes());
-    /// # assert_eq!(state.param.as_ref().unwrap()[1].to_ne_bytes(), 2.0f64.to_ne_bytes());
-    /// let param = state.get_param();  // Option<&P>
-    /// # assert_eq!(param.as_ref().unwrap()[0].to_ne_bytes(), 1.0f64.to_ne_bytes());
-    /// # assert_eq!(param.as_ref().unwrap()[1].to_ne_bytes(), 2.0f64.to_ne_bytes());
-    /// ```
-    fn get_param(&self) -> Option<&Array1<F>> {
+    /// Returns a reference to the current parameter vector, as `Option` (the old
+    /// argmin-era API). basin's own `State::param()` (see below) always returns a
+    /// `&Array1<F>` (empty before the first point is set); this keeps the old,
+    /// `Option`-returning accessor available under its old name for callers that
+    /// still want it.
+    pub fn get_param(&self) -> Option<&Array1<F>> {
         self.param.as_ref()
     }
 
-    /// Returns a reference to the current best parameter vector
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use ndarray::array;
-    /// # use egobox_ego::EgorState;
-    /// # use argmin::core::{State, ArgminFloat};
-    ///
-    /// # let mut state: EgorState<f64> = EgorState::new();
-    ///
-    /// # assert!(state.best_param.is_none());
-    /// # state.best_param = Some(array![1.0, 2.0]);
-    /// # assert_eq!(state.best_param.as_ref().unwrap()[0].to_ne_bytes(), 1.0f64.to_ne_bytes());
-    /// # assert_eq!(state.best_param.as_ref().unwrap()[1].to_ne_bytes(), 2.0f64.to_ne_bytes());
-    /// let best_param = state.get_best_param();  // Option<&P>
-    /// # assert_eq!(best_param.as_ref().unwrap()[0].to_ne_bytes(), 1.0f64.to_ne_bytes());
-    /// # assert_eq!(best_param.as_ref().unwrap()[1].to_ne_bytes(), 2.0f64.to_ne_bytes());
-    /// ```
-    fn get_best_param(&self) -> Option<&Array1<F>> {
+    /// Returns a reference to the current best parameter vector, as `Option`.
+    /// See [`get_param`](Self::get_param) for why this stays `Option`-returning.
+    pub fn get_best_param(&self) -> Option<&Array1<F>> {
         self.best_param.as_ref()
     }
 
-    /// Sets the termination status to [`Terminated`](`TerminationStatus::Terminated`) with the given reason
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use argmin::core::{State, ArgminFloat, TerminationReason, TerminationStatus};
-    /// # use egobox_ego::EgorState;
-    /// # let mut state: EgorState<f64> = EgorState::new();
-    /// # assert_eq!(state.termination_status, TerminationStatus::NotTerminated);
-    /// let state = state.terminate_with(TerminationReason::MaxItersReached);
-    /// # assert_eq!(state.termination_status, TerminationStatus::Terminated(TerminationReason::MaxItersReached));
-    /// ```
-    fn terminate_with(mut self, reason: TerminationReason) -> Self {
-        self.termination_status = TerminationStatus::Terminated(reason);
+    /// Sets the termination status to `Some(reason)`.
+    #[must_use]
+    pub fn terminate_with(mut self, reason: TerminationReason) -> Self {
+        self.termination_status = Some(reason);
+        self
+    }
+
+    /// Sets the termination status to `Some(reason)` with an accompanying free-form
+    /// message. basin's `TerminationReason` has no payload-carrying variant (unlike
+    /// argmin's old `SolverExit(String)`), so the message travels alongside it here.
+    #[must_use]
+    pub fn terminate_with_message(mut self, reason: TerminationReason, message: String) -> Self {
+        self.termination_status = Some(reason);
+        self.termination_message = Some(message);
         self
     }
 
     /// Sets the time required so far.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # extern crate web_time;
-    /// # use web_time;
-    /// # use egobox_ego::EgorState;
-    /// # use argmin::core::{State, ArgminFloat, TerminationReason};
-    /// # let mut state: EgorState<f64> = EgorState::new();
-    /// let state = state.time(Some(web_time::Duration::new(0, 12)));
-    /// # assert_eq!(state.time.unwrap(), web_time::Duration::new(0, 12));
-    /// ```
-    fn time(&mut self, time: Option<web_time::Duration>) -> &mut Self {
+    pub fn time(&mut self, time: Option<web_time::Duration>) -> &mut Self {
         self.time = time;
         self
     }
 
-    /// Returns current cost function value.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use ndarray::array;
-    /// # use egobox_ego::EgorState;
-    /// # use argmin::core::{State, ArgminFloat};
-    /// # let mut state: EgorState<f64> = EgorState::new();
-    /// # state.cost = Some(array![12.0]);
-    /// let cost = state.get_cost();
-    /// # assert_eq!(cost.to_ne_bytes(), 12.0f64.to_ne_bytes());
-    /// ```
-    fn get_cost(&self) -> Self::Float {
+    /// Returns current cost function value (old argmin-era name).
+    pub fn get_cost(&self) -> F {
         match self.cost.as_ref() {
-            Some(c) => *(c.get(0).unwrap_or(&Self::Float::infinity())),
-            None => Self::Float::infinity(),
+            Some(c) => *(c.get(0).unwrap_or(&F::infinity())),
+            None => F::infinity(),
         }
     }
 
-    /// Returns current best cost function value.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use ndarray::array;
-    /// # use egobox_ego::EgorState;
-    /// # use argmin::core::{State, ArgminFloat};
-    /// # let mut state: EgorState<f64> = EgorState::new();
-    /// # state.best_cost = Some(array![12.0]);
-    /// let best_cost = state.get_best_cost();
-    /// # assert_eq!(best_cost.to_ne_bytes(), 12.0f64.to_ne_bytes());
-    /// ```
-    fn get_best_cost(&self) -> Self::Float {
+    /// Returns current best cost function value (old argmin-era name).
+    pub fn get_best_cost(&self) -> F {
         match self.best_cost.as_ref() {
-            Some(c) => *(c.get(0).unwrap_or(&Self::Float::infinity())),
-            None => Self::Float::infinity(),
+            Some(c) => *(c.get(0).unwrap_or(&F::infinity())),
+            None => F::infinity(),
         }
     }
 
     /// Returns target cost function value.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use ndarray::array;
-    /// # use egobox_ego::EgorState;
-    /// # use argmin::core::{State, ArgminFloat};
-    /// # let mut state: EgorState<f64> = EgorState::new();
-    /// # state.target_cost = 12.0;
-    /// let target_cost = state.get_target_cost();
-    /// # assert_eq!(target_cost.to_ne_bytes(), 12.0f64.to_ne_bytes());
-    /// ```
-    fn get_target_cost(&self) -> Self::Float {
+    pub fn get_target_cost(&self) -> F {
         self.target_cost
     }
 
-    /// Returns current number of iterations.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use egobox_ego::EgorState;
-    /// # use argmin::core::{State, ArgminFloat};
-    /// # let mut state: EgorState<f64> = EgorState::new();
-    /// # state.iter = 12;
-    /// let iter = state.get_iter();
-    /// # assert_eq!(iter, 12);
-    /// ```
-    fn get_iter(&self) -> u64 {
+    /// Returns current number of iterations (old argmin-era name).
+    pub fn get_iter(&self) -> u64 {
         self.iter
     }
 
     /// Returns iteration number of last best parameter vector.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use egobox_ego::EgorState;
-    /// # use argmin::core::{State, ArgminFloat};
-    /// # let mut state: EgorState<f64> = EgorState::new();
-    /// # state.last_best_iter = 12;
-    /// let last_best_iter = state.get_last_best_iter();
-    /// # assert_eq!(last_best_iter, 12);
-    /// ```
-    fn get_last_best_iter(&self) -> u64 {
+    pub fn get_last_best_iter(&self) -> u64 {
         self.last_best_iter
     }
 
     /// Returns the maximum number of iterations.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use egobox_ego::EgorState;
-    /// # use argmin::core::{State, ArgminFloat};
-    /// # let mut state: EgorState<f64> = EgorState::new();
-    /// # state.max_iters = 12;
-    /// let max_iters = state.get_max_iters();
-    /// # assert_eq!(max_iters, 12);
-    /// ```
-    fn get_max_iters(&self) -> u64 {
+    pub fn get_max_iters(&self) -> u64 {
         self.max_iters
     }
 
     /// Returns the termination status.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use argmin::core::{State, ArgminFloat, TerminationStatus};
-    /// # use egobox_ego::EgorState;
-    /// # let mut state: EgorState<f64> = EgorState::new();
-    /// let termination_status = state.get_termination_status();
-    /// # assert_eq!(*termination_status, TerminationStatus::NotTerminated);
-    /// ```
-    fn get_termination_status(&self) -> &TerminationStatus {
+    pub fn get_termination_status(&self) -> &TerminationStatus {
         &self.termination_status
     }
 
     /// Returns the termination reason if terminated, otherwise None.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use argmin::core::{State, ArgminFloat, TerminationReason};
-    /// # use egobox_ego::EgorState;
-    /// # let mut state: EgorState<f64> = EgorState::new();
-    /// let termination_reason = state.get_termination_reason();
-    /// # assert_eq!(termination_reason, None);
-    /// ```
-    fn get_termination_reason(&self) -> Option<&TerminationReason> {
-        match &self.termination_status {
-            TerminationStatus::Terminated(reason) => Some(reason),
-            TerminationStatus::NotTerminated => None,
-        }
+    pub fn get_termination_reason(&self) -> Option<&TerminationReason> {
+        self.termination_status.as_ref()
+    }
+
+    /// Returns the free-form message accompanying termination, if any.
+    pub fn get_termination_message(&self) -> Option<&str> {
+        self.termination_message.as_deref()
     }
 
     /// Returns the time elapsed since the start of the optimization.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # extern crate web_time;
-    /// # use web_time;
-    /// # use egobox_ego::EgorState;
-    /// # use argmin::core::{State, ArgminFloat};
-    /// # let mut state: EgorState<f64> = EgorState::new();
-    /// let time = state.get_time();
-    /// # assert_eq!(time.unwrap(), web_time::Duration::new(0, 0));
-    /// ```
-    fn get_time(&self) -> Option<web_time::Duration> {
+    pub fn get_time(&self) -> Option<web_time::Duration> {
         self.time
     }
 
-    /// Increments the number of iterations by one
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use egobox_ego::EgorState;
-    /// # use argmin::core::{State, ArgminFloat};
-    /// # let mut state: EgorState<f64> = EgorState::new();
-    /// # assert_eq!(state.iter, 0);
-    /// state.increment_iter();
-    /// # assert_eq!(state.iter, 1);
-    /// ```
-    fn increment_iter(&mut self) {
-        self.iter += 1;
-    }
-
     /// Set all function evaluation counts to the evaluation counts of another `Problem`.
-    ///
-    /// ```
-    /// # use std::collections::HashMap;
-    /// # use egobox_ego::EgorState;
-    /// # use argmin::core::{Problem, State, ArgminFloat};
-    /// # let mut state: EgorState<f64> = EgorState::new();
-    /// # assert_eq!(state.counts, HashMap::new());
-    /// # state.counts.insert("test2".to_string(), 10u64);
-    /// #
-    /// # #[derive(Eq, PartialEq, Debug)]
-    /// # struct UserDefinedProblem {};
-    /// #
-    /// # let mut problem = Problem::new(UserDefinedProblem {});
-    /// # problem.counts.insert("test1", 10u64);
-    /// # problem.counts.insert("test2", 2);
-    /// state.func_counts(&problem);
-    /// # let mut hm = HashMap::new();
-    /// # hm.insert("test1".to_string(), 10u64);
-    /// # hm.insert("test2".to_string(), 2u64);
-    /// # assert_eq!(state.counts, hm);
-    /// ```
-    fn func_counts<O>(&mut self, problem: &Problem<O>) {
-        for (k, &v) in problem.counts.iter() {
-            let count = self.counts.entry(k.to_string()).or_insert(0);
-            *count = v
-        }
+    /// basin's `Problem<O>::counts()` returns a structured `EvalCounts` rather than
+    /// argmin's raw `HashMap`, so this mirrors just the cost-evaluation counter
+    /// (the only one EgorSolver's `CostFunction`-only problems ever populate).
+    pub fn func_counts<O>(&mut self, problem: &basin::core::problem::Problem<O>) {
+        let evals = problem.counts().cost_evals;
+        self.cost_evals = evals;
+        self.counts.insert("cost_count".to_string(), evals);
     }
 
     /// Returns function evaluation counts
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use std::collections::HashMap;
-    /// # use egobox_ego::EgorState;
-    /// # use argmin::core::{State, ArgminFloat};
-    /// # let mut state: EgorState<f64> = EgorState::new();
-    /// # assert_eq!(state.counts, HashMap::new());
-    /// # state.counts.insert("test2".to_string(), 10u64);
-    /// let counts = state.get_func_counts();
-    /// # let mut hm = HashMap::new();
-    /// # hm.insert("test2".to_string(), 10u64);
-    /// # assert_eq!(*counts, hm);
-    /// ```
-    fn get_func_counts(&self) -> &HashMap<String, u64> {
+    pub fn get_func_counts(&self) -> &HashMap<String, u64> {
         &self.counts
     }
 
     /// Returns whether the current parameter vector is also the best parameter vector found so
     /// far.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use egobox_ego::EgorState;
-    /// # use argmin::core::{State, ArgminFloat};
-    /// # let mut state: EgorState<f64> = EgorState::new();
-    /// # state.last_best_iter = 13;
-    /// # state.iter = 12;
-    /// let is_best = state.is_best();
-    /// # assert!(is_best);
-    /// # state.last_best_iter = 12;
-    /// # state.iter = 21;
-    /// # let is_best = state.is_best();
-    /// # assert!(!is_best);
-    /// ```
-    fn is_best(&self) -> bool {
+    pub fn is_best(&self) -> bool {
         // FIXME: last best iter is 1-based index while iter is 0-based
         // This is done because last iter number is displayed in
         self.last_best_iter == self.iter + 1
+    }
+}
+
+impl<F> Default for EgorState<F>
+where
+    F: Float,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// basin's minimal `State` contract: what the `Executor` and generic termination
+/// criteria need to read from a solver's iterate. See the module docs above for
+/// the mapping from the old argmin-era API (`get_param`, `get_cost`, `update()`,
+/// ...) to this trait's method names.
+impl<F> State for EgorState<F>
+where
+    F: Float,
+{
+    type Param = Array1<F>;
+    type Float = F;
+
+    fn iter(&self) -> u64 {
+        self.iter
+    }
+
+    fn increment_iter(&mut self) {
+        self.iter += 1;
+    }
+
+    fn cost_evals(&self) -> u64 {
+        self.cost_evals
+    }
+
+    fn param(&self) -> &Array1<F> {
+        self.param.as_ref().unwrap_or(&self.empty_param)
+    }
+
+    fn cost(&self) -> F {
+        self.get_cost()
+    }
+
+    fn best_param(&self) -> &Array1<F> {
+        self.best_param.as_ref().unwrap_or(&self.empty_param)
+    }
+
+    fn best_cost(&self) -> F {
+        self.get_best_cost()
+    }
+
+    fn best_iter(&self) -> u64 {
+        self.last_best_iter
+    }
+
+    fn best_cost_evals(&self) -> u64 {
+        self.best_cost_evals
+    }
+
+    /// Refreshes the best-so-far slots. EgorSolver's notion of "best" is
+    /// model-specific (driven by `surrogate.data`/`find_best_result_index`,
+    /// not a plain numeric comparison against `cost()`), so this forwards to
+    /// the existing custom [`update`](EgorState::update) logic rather than the
+    /// generic "strictly improves on best_cost" comparison basin's docs
+    /// describe for simple states.
+    fn update_best(&mut self) {
+        self.update();
+    }
+
+    /// Resets the best-so-far slots to their pre-init defaults. Called by a
+    /// fresh top-level `Executor` run; deliberately *not* called by
+    /// `Executor::resume_from_checkpoint`, so hot-started runs keep their best
+    /// history exactly as before.
+    fn reset_best(&mut self) {
+        self.best_param = None;
+        self.prev_best_param = None;
+        self.best_cost = None;
+        self.prev_best_cost = None;
+        self.last_best_iter = 0;
+        self.best_cost_evals = 0;
+    }
+}
+
+/// Mirrors basin's per-run `EvalCounts` delta onto `EgorState`'s own counters.
+/// EgorSolver's problems only ever implement `CostFunction` (no gradient/
+/// residual/Jacobian/Hessian), so only `cost_evals` is meaningful here.
+impl<F> CountsMirror for EgorState<F>
+where
+    F: Float,
+{
+    fn mirror(&mut self, delta: &EvalCounts) {
+        self.cost_evals = delta.cost_evals;
+        self.counts
+            .insert("cost_count".to_string(), delta.cost_evals);
     }
 }

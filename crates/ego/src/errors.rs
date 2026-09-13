@@ -20,6 +20,9 @@ pub enum EgoError {
     /// When an invalid value is encountered
     #[error("Value error: {0}")]
     InvalidValue(String),
+    /// Internal invariant violated (was `argmin::ErrorKind::PotentialBug` under argmin)
+    #[error("Internal error (potential bug): {0}")]
+    SolverBug(String),
     /// When Moe error occurs
     #[error("MOE error")]
     MoeError(#[from] egobox_moe::MoeError),
@@ -35,9 +38,6 @@ pub enum EgoError {
     /// When a `linfa` error occurs
     #[error(transparent)]
     LinfaError(#[from] linfa::error::Error),
-    /// When an Argmin framework is raised
-    #[error(transparent)]
-    ArgminError(#[from] argmin::core::Error),
     /// When global EGO step cannot add any point
     #[error("EGO exit (no more point)")]
     NoMorePointToAddError(Box<EgorState<f64>>),

@@ -1,18 +1,19 @@
-//! Egor implementation as a [argmin::core::Solver] to be used to benefit from
-//! features coming with the argmin framework such as checkpointing or observers.
+//! Egor implementation as a [basin::core::solver::Solver] to be used to benefit from
+//! features coming with the basin framework such as checkpointing or observers.
 //!
 //! Note: Depending on your need you can either use the `EgorSolver` or the provided
-//! `EgorBuilder` which allows to build an `Egor` struct which wraps the `argmin::Executor`
+//! `EgorBuilder` which allows to build an `Egor` struct which wraps the `basin::core::executor::Executor`
 //! running an `EgorSolver` on `ObjFun`. See [`crate::EgorBuilder`]
 //!
 //! ```no_run
 //! use ndarray::{array, Array2, ArrayView1, ArrayView2, Zip};
 //! use egobox_doe::{Lhs, SamplingMethod};
-//! use egobox_ego::{EgorBuilder, EgorConfig, InfillStrategy, InfillOptimizer, ProblemFunc, EgorSolver, to_xtypes};
+//! use egobox_ego::{EgorBuilder, EgorConfig, EgorState, InfillStrategy, InfillOptimizer, ProblemFunc, EgorSolver, to_xtypes};
 //! use egobox_moe::GpMixtureParams;
 //! use rand_xoshiro::Xoshiro256Plus;
 //! use ndarray_rand::rand::SeedableRng;
-//! use argmin::core::Executor;
+//! use basin::core::executor::Executor;
+//! use basin::core::state::State;
 //!
 //! use argmin_testfunctions::rosenbrock;
 //!
@@ -32,8 +33,8 @@
 //!                .check()
 //!                .expect("optimizer configuration validated");
 //! let solver: EgorSolver<GpMixtureParams<f64>> = EgorSolver::new(config);
-//! let res = Executor::new(fobj, solver)
-//!             .configure(|state| state.max_iters(20))
+//! let res = Executor::new(fobj, solver, EgorState::default())
+//!             .max_iter(20)
 //!             .run()
 //!             .unwrap();
 //! println!("Rosenbrock min result = {:?}", res.state);
@@ -50,11 +51,12 @@
 //! ```no_run
 //! use ndarray::{array, Array2, ArrayView1, ArrayView2, Zip};
 //! use egobox_doe::{Lhs, SamplingMethod};
-//! use egobox_ego::{EgorBuilder, EgorConfig, InfillStrategy, InfillOptimizer, ProblemFunc, EgorSolver, to_xtypes};
+//! use egobox_ego::{EgorBuilder, EgorConfig, EgorState, InfillStrategy, InfillOptimizer, ProblemFunc, EgorSolver, to_xtypes};
 //! use egobox_moe::GpMixtureParams;
 //! use rand_xoshiro::Xoshiro256Plus;
 //! use ndarray_rand::rand::SeedableRng;
-//! use argmin::core::Executor;
+//! use basin::core::executor::Executor;
+//! use basin::core::state::State;
 //!
 //! // Function G24: 1 global optimum y_opt = -5.5080 at x_opt =(2.3295, 3.1785)
 //! fn g24(x: &ArrayView1<f64>) -> f64 {
@@ -83,7 +85,7 @@
 //!     y
 //! }
 //!
-//! let xlimits = array![[0., 3.], [0., 4.]];
+//! let xlimits = array![[0., 3.], [0., 4.]];;
 //! let doe = Lhs::new(&xlimits).sample(10);
 //! let xtypes = to_xtypes(&xlimits);
 //!
@@ -103,8 +105,8 @@
 //! let solver: EgorSolver<GpMixtureParams<f64>> =
 //!   EgorSolver::new(config);
 //!
-//! let res = Executor::new(fobj, solver)
-//!             .configure(|state| state.max_iters(40))
+//! let res = Executor::new(fobj, solver, EgorState::default())
+//!             .max_iter(40)
 //!             .run()
 //!             .expect("g24 minimized");
 //! println!("G24 min result = {:?}", res.state);
@@ -125,9 +127,9 @@ use log::{debug, info};
 use ndarray::{Array1, Array2, ArrayBase, Axis, Data, Ix2, Zip, concatenate, s};
 use ndarray_npy::{read_npy, write_npy};
 
-use argmin::core::{
-    CostFunction, KV, Problem, Solver, State, TerminationReason, TerminationStatus,
-};
+use basin::core::problem::{CostFunction, Problem};
+use basin::core::solver::Solver;
+use basin::core::termination::TerminationReason;
 
 use ndarray_rand::rand::SeedableRng;
 use rand_xoshiro::Xoshiro256Plus;
@@ -174,18 +176,20 @@ pub fn to_xtypes(xlimits: &ArrayBase<impl Data<Elem = f64>, Ix2>) -> Vec<XType> 
 impl<O, SB, C> Solver<O, EgorState<f64>> for EgorSolver<SB, C>
 where
     O: CostFunction<Param = Array2<f64>, Output = Array2<f64>> + Constraints<C>,
+    O::Error: std::fmt::Display,
     C: CstrFn,
     SB: SurrogateBuilder + Serialize + DeserializeOwned,
 {
-    fn name(&self) -> &str {
-        "Egor"
-    }
+    /// Hard-abort error type. Mirrors the problem's own error type, per
+    /// basin's `Solver::Error` contract (was implicitly `argmin::core::Error`
+    /// under argmin).
+    type Error = EgoError;
 
     fn init(
         &mut self,
         problem: &mut Problem<O>,
         state: EgorState<f64>,
-    ) -> std::result::Result<(EgorState<f64>, Option<KV>), argmin::core::Error> {
+    ) -> std::result::Result<EgorState<f64>, EgoError> {
         let mut rng = if let Some(seed) = self.config.seed {
             Xoshiro256Plus::seed_from_u64(seed)
         } else {
@@ -295,8 +299,7 @@ where
                     "cstr_tol length ({}) is larger than total internal constraint count ({})",
                     cstr_tol.len(),
                     n_total_cstr
-                ))
-                .into());
+                )));
             }
             if cstr_tol.len() < n_total_cstr {
                 let mut tol = cstr_tol.to_vec();
@@ -379,14 +382,14 @@ where
             x_data.row(best_index)
         );
 
-        Ok((initial_state, None))
+        Ok(initial_state)
     }
 
     fn next_iter(
         &mut self,
         problem: &mut Problem<O>,
         state: EgorState<f64>,
-    ) -> std::result::Result<(EgorState<f64>, Option<KV>), argmin::core::Error> {
+    ) -> std::result::Result<(EgorState<f64>, Option<TerminationReason>), EgoError> {
         debug!(
             "********* Start iteration {}/{}",
             state.get_iter() + 1,
@@ -464,14 +467,14 @@ where
         Ok(res)
     }
 
-    fn terminate(&mut self, state: &EgorState<f64>) -> TerminationStatus {
+    fn terminate(&self, state: &EgorState<f64>) -> Option<TerminationReason> {
         debug!(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> end iteration");
         debug!("Current Cost {:?}", state.get_cost());
         debug!("Best cost {:?}", state.get_best_cost());
         debug!("Best index {:?}", state.surrogate.best_index);
         debug!("Data {:?}", state.surrogate.data.as_ref().unwrap());
 
-        TerminationStatus::NotTerminated
+        None
     }
 }
 
@@ -480,26 +483,28 @@ where
     SB: SurrogateBuilder + Serialize + DeserializeOwned,
 {
     /// Iteration of EGO algorithm
-    fn ego_iteration<
-        O: CostFunction<Param = Array2<f64>, Output = Array2<f64>> + Constraints<C>,
-    >(
+    fn ego_iteration<O: CostFunction<Param = Array2<f64>, Output = Array2<f64>> + Constraints<C>>(
         &mut self,
         problem: &mut Problem<O>,
         state: EgorState<f64>,
-    ) -> std::result::Result<(EgorState<f64>, Option<KV>), argmin::core::Error> {
+    ) -> std::result::Result<(EgorState<f64>, Option<TerminationReason>), EgoError>
+    where
+        O::Error: std::fmt::Display,
+    {
         match self.ego_step(problem, state.clone()) {
             Ok(new_state) => Ok((new_state, None)),
             Err(EgoError::NoMorePointToAddError(state)) => Ok((
                 state.terminate_with(TerminationReason::SolverConverged),
-                None,
+                Some(TerminationReason::SolverConverged),
             )),
-            Err(EgoError::ObjectiveFunctionError(_)) => Ok((
-                state.terminate_with(TerminationReason::SolverExit(
-                    OBJECTIVE_FUNCTION_ERROR.to_string(),
-                )),
-                None,
+            Err(EgoError::ObjectiveFunctionError(msg)) => Ok((
+                state.terminate_with_message(
+                    TerminationReason::SolverFailed,
+                    format!("{OBJECTIVE_FUNCTION_ERROR}: {msg}"),
+                ),
+                Some(TerminationReason::SolverFailed),
             )),
-            Err(err) => Err(err.into()),
+            Err(err) => Err(err),
         }
     }
 
@@ -516,13 +521,16 @@ where
         state: EgorState<f64>,
         max_dist: f64,
         min_acceptance_distance: f64,
-    ) -> std::result::Result<(EgorState<f64>, Option<KV>), argmin::core::Error> {
+    ) -> std::result::Result<(EgorState<f64>, Option<TerminationReason>), EgoError>
+    where
+        O::Error: std::fmt::Display,
+    {
         // Local step
         let models = self.refresh_surrogates(&state);
         let mut local_state = state;
         let infill_data = self.refresh_infill_data(problem, &mut local_state, &models);
         let fallback_state = local_state.clone();
-        let new_state = match self.trego_step(
+        let (new_state, reason) = match self.trego_step(
             problem,
             local_state,
             models,
@@ -530,12 +538,16 @@ where
             max_dist,
             min_acceptance_distance,
         ) {
-            Ok(state) => state,
-            Err(crate::EgoError::ObjectiveFunctionError(_)) => fallback_state.terminate_with(
-                TerminationReason::SolverExit(OBJECTIVE_FUNCTION_ERROR.to_string()),
+            Ok(state) => (state, None),
+            Err(crate::EgoError::ObjectiveFunctionError(msg)) => (
+                fallback_state.terminate_with_message(
+                    TerminationReason::SolverFailed,
+                    format!("{OBJECTIVE_FUNCTION_ERROR}: {msg}"),
+                ),
+                Some(TerminationReason::SolverFailed),
             ),
-            Err(err) => return Err(err.into()),
+            Err(err) => return Err(err),
         };
-        Ok((new_state, None))
+        Ok((new_state, reason))
     }
 }

@@ -1,14 +1,19 @@
-use argmin::core::Error;
-pub use argmin::core::checkpointing::{Checkpoint, CheckpointingFrequency};
+use basin::core::checkpoint::{ExactCheckpoint, ExactCheckpointWriter, read_exact_checkpoint};
+use basin::core::observer::ObserverMode;
 use log::info;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use std::io::Write;
 use std::path::PathBuf;
 
 use crate::EgorState;
 
-/// Checkpoint file using argmin checkpointing
-pub const CHECKPOINT_FILE: &str = "egor_checkpoint.json";
+/// Checkpoint file using basin's solver-aware exact-checkpoint format.
+pub const CHECKPOINT_FILE: &str = "egor_checkpoint.bin";
+
+/// basin doesn't have argmin's `CheckpointingFrequency` enum; its `ObserverMode`
+/// plays the same role (it gates checkpoint/observer firing after completed
+/// iterations; every sink also always saves once on a clean stop). Re-exported
+/// under the old name so downstream code/imports don't need to change.
+pub type CheckpointingFrequency = ObserverMode;
 
 /// An enum to specify hot start mode
 #[derive(Clone, Eq, PartialEq, Debug, Hash, Default, Serialize, Deserialize)]
@@ -37,8 +42,16 @@ impl std::convert::From<Option<u64>> for HotStartMode {
     }
 }
 
-/// Handles saving a checkpoint to disk as a binary file.
-#[derive(Clone, Eq, PartialEq, Debug, Hash)]
+/// Handles saving/loading a solver-aware checkpoint to/from disk.
+///
+/// Under argmin, this type implemented `argmin::core::checkpointing::Checkpoint`
+/// itself, hand-writing `(solver, state)` as JSON via `serde_json`. basin ships an
+/// equivalent, more robust mechanism natively
+/// ([`ExactCheckpointWriter`]/[`read_exact_checkpoint`], attached to the
+/// `Executor` via `.checkpoint_with(...)` and read back for
+/// `Executor::resume_from_checkpoint(...)`), so this type is now a thin wrapper
+/// configuring that mechanism rather than an implementation of a trait itself.
+#[derive(Clone, Eq, PartialEq, Debug)]
 pub struct HotStartCheckpoint {
     /// Extended iteration number
     pub mode: HotStartMode,
@@ -46,7 +59,7 @@ pub struct HotStartCheckpoint {
     pub frequency: CheckpointingFrequency,
     /// Directory where the checkpoints are saved to
     pub directory: PathBuf,
-    /// Name of the checkpoint files
+    /// Name of the checkpoint file
     pub filename: PathBuf,
 }
 
@@ -55,7 +68,7 @@ impl Default for HotStartCheckpoint {
     fn default() -> HotStartCheckpoint {
         HotStartCheckpoint {
             mode: HotStartMode::default(),
-            frequency: CheckpointingFrequency::default(),
+            frequency: ObserverMode::Always,
             directory: PathBuf::from(".checkpoints"),
             filename: PathBuf::from("egor.arg"),
         }
@@ -77,51 +90,42 @@ impl HotStartCheckpoint {
             filename: PathBuf::from(name.as_ref()),
         }
     }
-}
 
-impl<S> Checkpoint<S, EgorState<f64>> for HotStartCheckpoint
-where
-    S: Serialize + DeserializeOwned,
-{
-    /// Writes checkpoint to disk.
-    ///
-    /// If the directory does not exist already, it will be created. It uses `bincode` to serialize
-    /// the data.
-    /// It will return an error if creating the directory or file or serialization failed.
-    fn save(&self, solver: &S, state: &EgorState<f64>) -> Result<(), Error> {
-        if !self.directory.exists() {
-            std::fs::create_dir_all(&self.directory)?
-        }
-        let fname = self.directory.join(&self.filename);
-        let mut file = std::fs::File::create(fname).unwrap();
-
-        // let bytes = bincode::serde::encode_to_vec((solver, state), bincode::config::standard())?;
-        let bytes = serde_json::to_vec(&(solver, state))?;
-
-        file.write_all(&bytes)?;
-        Ok(())
+    /// Full path to the checkpoint file.
+    pub fn path(&self) -> PathBuf {
+        self.directory.join(&self.filename)
     }
 
-    /// Load a checkpoint from disk.
+    /// Build the basin `ExactCheckpointWriter` for this configuration,
+    /// creating the checkpoint directory if needed.
+    pub fn writer(&self) -> std::io::Result<ExactCheckpointWriter> {
+        if !self.directory.exists() {
+            std::fs::create_dir_all(&self.directory)?;
+        }
+        Ok(ExactCheckpointWriter::new(self.path()))
+    }
+
+    /// Load a checkpoint from disk, if present, applying `HotStartMode::ExtendedIters`
+    /// (bumping `max_iters`) on the loaded state, matching the old argmin-era
+    /// `Checkpoint::load` behavior. The returned [`ExactCheckpoint`] is meant to be
+    /// fed directly to `Executor::resume_from_checkpoint`, which is the only way
+    /// to get basin's "skip init, restore eval counters, preserve best history"
+    /// resume behavior (those hooks are private `Executor` fields, not
+    /// independently reconstructible via `Executor::new`).
     ///
-    ///
-    /// If there is no checkpoint on disk, it will return `Ok(None)`.
-    /// Returns an error if opening the file or deserialization failed.
-    fn load(&self) -> Result<Option<(S, EgorState<f64>)>, Error> {
-        let path = &self.directory.join(&self.filename);
+    /// Returns `Ok(None)` when no checkpoint exists on disk yet.
+    pub fn load<So>(&self) -> std::io::Result<Option<ExactCheckpoint<So, EgorState<f64>>>>
+    where
+        So: DeserializeOwned,
+    {
+        let path = self.path();
         if !path.exists() {
-            info!("No checkpoint found at {:?}", path);
+            info!("No checkpoint found at {path:?}");
             return Ok(None);
         }
-        info!("Checkpoint found at {:?}, loading...", path);
-        let data = std::fs::read(path)?;
-
-        // let (solver, mut state): (S, EgorState<f64>) =
-        //     bincode::serde::borrow_decode_from_slice(&data, bincode::config::standard())
-        //         .map(|(res, _)| res)?;
-
-        let (solver, mut state): (S, EgorState<f64>) = serde_json::from_slice(&data)?;
-
+        info!("Checkpoint found at {path:?}, loading...");
+        let checkpoint = read_exact_checkpoint::<So, EgorState<f64>>(&path)?;
+        let (solver, mut state, counts) = checkpoint.into_parts();
         if let HotStartMode::ExtendedIters(n_iters) = self.mode {
             info!(
                 "Extending max iters by {} from {}",
@@ -129,13 +133,6 @@ where
             );
             state.extend_max_iters(n_iters);
         }
-        Ok(Some((solver, state)))
-    }
-
-    /// Returns the how often a checkpoint is to be saved.
-    ///
-    /// Used internally by [`save_cond`](`argmin::core::checkpointing::Checkpoint::save_cond`).
-    fn frequency(&self) -> CheckpointingFrequency {
-        self.frequency
+        Ok(Some(ExactCheckpoint::from_parts(solver, state, counts)))
     }
 }

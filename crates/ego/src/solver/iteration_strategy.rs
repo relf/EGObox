@@ -39,7 +39,6 @@ use std::fmt::Debug;
 
 use super::egor_state::EgorState;
 use super::trego::{Phase, next_phase};
-use argmin::core::State;
 
 /// Describes the mode of the current iteration as determined by the
 /// [`IterationStrategy`].

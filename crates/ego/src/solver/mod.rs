@@ -1,7 +1,7 @@
 //! # Solver Module - EGO Optimizer Implementation
 //!
 //! This module contains the core implementation of the Efficient Global Optimization (EGO)
-//! algorithm using the argmin optimization framework.
+//! algorithm using the basin optimization framework.
 //!
 //! ## Architecture Overview
 //!
@@ -9,8 +9,8 @@
 //!
 //! ### Public API
 //!
-//! - [`EgorSolver`] - Main optimizer implementing `argmin::Solver` trait
-//! - [`EgorState`] - Optimizer state implementing `argmin::State` trait  
+//! - [`EgorSolver`] - Main optimizer implementing `basin::Solver` trait
+//! - [`EgorState`] - Optimizer state implementing `basin::State` trait  
 //! - [`EgorConfig`] / [`ValidEgorConfig`] - Configuration builders and validated config
 //! - [`EgorService`] - Ask-and-tell interface for external control
 //!
@@ -85,7 +85,7 @@
 //! use argmin::core::{Executor, observers::ObserverMode};
 //!
 //! let solver = EgorSolver::new(config);
-//! let result = Executor::new(problem, solver)
+//! let result = Executor::new(problem, solver, EgorState::default())
 //!     .configure(|state| state.max_iters(50))
 //!     .add_observer(MyObserver, ObserverMode::Always)
 //!     .run()?;

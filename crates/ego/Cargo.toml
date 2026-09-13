@@ -43,7 +43,7 @@ slsqp = { version = "1.0.1" }
 nlopt = { version = "0.8", optional = true }
 
 rand_xoshiro = { version = "0.6", features = ["serde1"] }
-argmin = { version = "0.11.0", features = ["serde1", "ctrlc"] }
+basin = { version = "1", features = ["serde"] }
 bincode.workspace = true
 web-time = "1.1.0"
 libm = "0.2.6"
@@ -64,7 +64,7 @@ dyn-clonable = { version = "0.9" }
 [dev-dependencies]
 criterion.workspace = true
 approx.workspace = true
-argmin_testfunctions.workspace = true
+argmin_testfunctions.workspace = true # test-only: analytic benchmark functions, no argmin core dependency
 serial_test = "3.1.0"
 paste = "1.0"
 

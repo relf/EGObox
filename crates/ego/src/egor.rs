@@ -159,13 +159,14 @@ use crate::{CHECKPOINT_FILE, CheckpointingFrequency, HotStartCheckpoint};
 use crate::{EgorSolver, to_xtypes};
 use egobox_moe::{MixintGpMixtureParams, to_discrete_space};
 
-use argmin::core::observers::ObserverMode;
+use basin::core::observer::ObserverMode;
 
 use egobox_moe::GpMixtureParams;
 use log::info;
 use ndarray::{Array2, ArrayBase, Axis, Data, Ix2, concatenate};
 
-use argmin::core::{Error, Executor, KV, State, observers::Observe};
+use basin::core::executor::Executor;
+use basin::core::observer::Observe;
 use serde::{Serialize, de::DeserializeOwned};
 
 use ndarray_npy::write_npy;
@@ -325,8 +326,8 @@ impl<O: ObjFn, C: CstrFn> EgorFactory<O, C> {
     }
 }
 
-/// Egor optimizer structure used to parameterize the underlying `argmin::Solver`
-/// and trigger the optimization using `argmin::Executor`.
+/// Egor optimizer structure used to parameterize the underlying `basin::Solver`
+/// and trigger the optimization using `basin::Executor`.
 #[derive(Clone)]
 pub struct Egor<
     O: ObjFn,
@@ -350,56 +351,83 @@ impl<O: ObjFn, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> E
             std::fs::write(filepath, json).expect("Unable to write file");
         }
 
-        let exec = Executor::new(self.fobj.clone(), self.solver.clone()).timer(true);
-
-        let exec = if let Some(timeout) = self.solver.config.timeout {
-            exec.timeout(std::time::Duration::from_secs_f64(timeout))
-        } else {
-            exec
-        };
-
-        let exec = if self.solver.config.hot_start != HotStartMode::Disabled {
+        let hot_start_checkpoint = if self.solver.config.hot_start != HotStartMode::Disabled {
             let chkpt_dir = if let Some(outdir) = self.solver.config.outdir.as_ref() {
                 outdir
             } else {
                 ".checkpoints"
             };
-            let checkpoint = HotStartCheckpoint::new(
+            Some(HotStartCheckpoint::new(
                 chkpt_dir,
                 CHECKPOINT_FILE,
                 CheckpointingFrequency::Always,
                 self.solver.config.hot_start.clone(),
-            );
-            exec.checkpointing(checkpoint)
+            ))
+        } else {
+            None
+        };
+
+        // Try to resume from an on-disk checkpoint first (this is what makes
+        // `HotStartMode::Enabled`/`ExtendedIters` actually continue a previous
+        // run rather than just start over): `Executor::resume_from_checkpoint`
+        // restores the solver+state+eval-counters and skips `Solver::init`,
+        // which a plain `Executor::new` cannot replicate (those hooks are
+        // private `Executor` fields).
+        let loaded_checkpoint = if let Some(c) = hot_start_checkpoint.as_ref() {
+            c.load::<EgorSolver<SB, C>>()?
+        } else {
+            None
+        };
+
+        let exec = if let Some(checkpoint) = loaded_checkpoint {
+            let max_iters = checkpoint.state().max_iters;
+            Executor::resume_from_checkpoint(self.fobj.clone(), checkpoint).max_iter(max_iters)
+        } else {
+            Executor::new(self.fobj.clone(), self.solver.clone(), EgorState::default())
+                .max_iter(self.solver.config.max_iters as u64)
+        };
+
+        let exec = if let Some(timeout) = self.solver.config.timeout {
+            exec.max_time(std::time::Duration::from_secs_f64(timeout))
+        } else {
+            exec
+        };
+
+        let exec = if let Some(checkpoint) = hot_start_checkpoint.as_ref() {
+            exec.checkpoint_with(checkpoint.writer()?, CheckpointingFrequency::Always)
         } else {
             exec
         };
 
         let result = if let Some(outdir) = self.solver.config.outdir.as_ref() {
             let hist = OptimizationObserver::new(outdir.clone());
-            exec.add_observer(hist, ObserverMode::Always).run()?
+            exec.observe_with(hist, ObserverMode::Always).run()?
         } else {
             exec.run()?
         };
 
-        info!("{result}");
-        let (x_data, y_data, c_data) = result.state().clone().take_data().unwrap();
+        info!(
+            "Optimization stopped: {:?} after {} iterations",
+            result.reason,
+            result.iter()
+        );
+        let mut result_state = result.state;
+        let (x_data, y_data, c_data) = result_state.take_data().unwrap();
 
         let res = if !self.solver.config.discrete() {
             info!("Data: \n{}", concatenate![Axis(1), x_data, y_data, c_data]);
             OptimResult {
-                x_opt: result.state.get_best_param().unwrap().to_owned(),
-                y_opt: result.state.get_full_best_cost().unwrap().to_owned(),
+                x_opt: result_state.get_best_param().unwrap().to_owned(),
+                y_opt: result_state.get_full_best_cost().unwrap().to_owned(),
                 x_doe: x_data,
                 y_doe: y_data,
-                state: result.state,
+                state: result_state,
             }
         } else {
             let x_data = to_discrete_space(&xtypes, &x_data.view());
             info!("Data: \n{}", concatenate![Axis(1), x_data, y_data, c_data]);
 
-            let x_opt = result
-                .state
+            let x_opt = result_state
                 .get_best_param()
                 .unwrap()
                 .to_owned()
@@ -407,10 +435,10 @@ impl<O: ObjFn, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> E
             let x_opt = to_discrete_space(&xtypes, &x_opt.view());
             OptimResult {
                 x_opt: x_opt.row(0).to_owned(),
-                y_opt: result.state.get_full_best_cost().unwrap().to_owned(),
+                y_opt: result_state.get_full_best_cost().unwrap().to_owned(),
                 x_doe: x_data,
                 y_doe: y_data,
-                state: result.state,
+                state: result_state,
             }
         };
 
@@ -467,11 +495,14 @@ impl OptimizationObserver {
 }
 
 impl Observe<EgorState<f64>> for OptimizationObserver {
-    fn observe_iter(&mut self, state: &EgorState<f64>, _kv: &KV) -> std::result::Result<(), Error> {
+    fn observe_iter(&mut self, state: &EgorState<f64>) {
         if let Some((xdata, ydata, cdata)) = &state.surrogate.data {
             let doe = concatenate![Axis(1), xdata.view(), ydata.view(), cdata.view()];
-            if !self.dir.exists() {
-                std::fs::create_dir_all(&self.dir)?
+            if !self.dir.exists()
+                && let Err(e) = std::fs::create_dir_all(&self.dir)
+            {
+                log::warn!("Failed to create observer directory {:?}: {}", self.dir, e);
+                return;
             }
 
             let filepath = self.dir.join(crate::DOE_FILE);
@@ -534,7 +565,6 @@ impl Observe<EgorState<f64>> for OptimizationObserver {
                 }
             }
         }
-        Ok(())
     }
 }
 
@@ -545,8 +575,8 @@ pub type EgorBuilder<O> = EgorFactory<O, Cstr>;
 mod tests {
     use super::*;
     use approx::assert_abs_diff_eq;
-    use argmin::core::{TerminationReason, TerminationStatus};
     use argmin_testfunctions::rosenbrock;
+    use basin::core::termination::TerminationReason;
     use egobox_doe::{Lhs, SamplingMethod};
     use egobox_moe::{NbClusters, as_continuous_limits};
     use ndarray::{Array1, Array2, ArrayView1, ArrayView2, Ix1, Zip, array, s};
@@ -1701,9 +1731,7 @@ mod tests {
             .run()
             .expect("Egor should minimize branin_with_nans");
         assert_abs_diff_eq!(x_expected.row(0), res.x_opt, epsilon = 7e-2);
-        if res.state.termination_status
-            == TerminationStatus::Terminated(TerminationReason::SolverConverged)
-        {
+        if res.state.termination_status == Some(TerminationReason::SolverConverged) {
             // May have less points than max iters if converged
             assert!(N_DOE + MAX_ITERS >= res.x_doe.nrows());
         } else {
@@ -1773,9 +1801,15 @@ mod tests {
 
         assert_eq!(
             result.state.termination_status,
-            TerminationStatus::Terminated(TerminationReason::SolverExit(
-                OBJECTIVE_FUNCTION_ERROR.to_string()
-            ))
+            Some(TerminationReason::SolverFailed)
+        );
+        assert!(
+            result
+                .state
+                .termination_message
+                .as_deref()
+                .unwrap_or_default()
+                .contains(OBJECTIVE_FUNCTION_ERROR)
         );
     }
 

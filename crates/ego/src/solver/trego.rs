@@ -8,7 +8,7 @@ use crate::solver::solver_infill_optim::InfillOptProblem;
 use crate::types::Constraints;
 use crate::utils::{find_best_result_index_from, is_feasible, is_update_ok, update_data};
 
-use argmin::core::{CostFunction, Problem};
+use basin::core::problem::{CostFunction, Problem};
 
 use egobox_doe::Lhs;
 use egobox_doe::SamplingMethod;
@@ -81,9 +81,7 @@ where
     C: CstrFn,
 {
     /// Local step where infill criterion is optimized within trust region
-    pub fn trego_step<
-        O: CostFunction<Param = Array2<f64>, Output = Array2<f64>> + Constraints<C>,
-    >(
+    pub fn trego_step<O: CostFunction<Param = Array2<f64>, Output = Array2<f64>> + Constraints<C>>(
         &mut self,
         problem: &mut Problem<O>,
         state: EgorState<f64>,
@@ -91,7 +89,10 @@ where
         infill_data: &InfillObjData<f64>,
         max_dist: f64,
         min_acceptance_distance: f64,
-    ) -> crate::errors::Result<EgorState<f64>> {
+    ) -> crate::errors::Result<EgorState<f64>>
+    where
+        O::Error: std::fmt::Display,
+    {
         let mut new_state = state.clone();
         let (mut x_data, mut y_data, mut c_data) = new_state.take_data().expect("DOE data");
 
@@ -104,7 +105,7 @@ where
         let xbest = x_data.row(best_index).to_owned();
         let cbest = c_data.row(best_index).to_owned();
 
-        let pb = problem.take_problem().unwrap();
+        let pb = problem.inner();
         let fcstrs = pb.constraints();
         let fcstr_specs = pb.constraint_specs();
         let fcstr_mapping = crate::types::function_cstr_affine_mapping(fcstrs.len(), fcstr_specs)
@@ -169,8 +170,6 @@ where
             (xbest.to_owned(), ybest, cbest),
         );
 
-        problem.problem = Some(pb);
-
         let mut new_state = new_state.infill_value(-infill_obj);
         info!(
             "{} criterion {} max found = {}",
@@ -226,8 +225,8 @@ where
             );
 
             new_state = new_state
-                .param(x_new.row(0).to_owned())
-                .cost(y_new.row(0).to_owned());
+                .with_param(x_new.row(0).to_owned())
+                .with_cost(y_new.row(0).to_owned());
             (add_count, x_fail_points)
         } else {
             (0, None)

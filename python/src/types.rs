@@ -1,4 +1,3 @@
-use egobox_ego::OBJECTIVE_FUNCTION_ERROR;
 use numpy::{PyArray1, PyArray2};
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
@@ -624,22 +623,24 @@ pub(crate) enum ExitStatus {
     ObjectiveFunctionError = 7,
 }
 
-impl From<argmin::core::TerminationStatus> for ExitStatus {
-    fn from(value: argmin::core::TerminationStatus) -> Self {
-        use argmin::core::{TerminationReason, TerminationStatus};
+impl From<Option<basin::core::termination::TerminationReason>> for ExitStatus {
+    fn from(value: Option<basin::core::termination::TerminationReason>) -> Self {
+        use basin::core::termination::TerminationReason;
         match value {
-            TerminationStatus::Terminated(reason) => match reason {
-                TerminationReason::MaxItersReached => ExitStatus::MaxItersReached,
-                TerminationReason::TargetCostReached => ExitStatus::TargetCostReached,
+            Some(reason) => match reason {
+                TerminationReason::MaxIter => ExitStatus::MaxItersReached,
+                TerminationReason::MaxCostEvals => ExitStatus::MaxItersReached,
+                TerminationReason::TargetCost => ExitStatus::TargetCostReached,
                 TerminationReason::SolverConverged => ExitStatus::SolverConverged,
-                TerminationReason::Timeout => ExitStatus::Timeout,
-                TerminationReason::SolverExit(val) if val == OBJECTIVE_FUNCTION_ERROR => {
-                    ExitStatus::ObjectiveFunctionError
+                TerminationReason::SolverFailed => ExitStatus::ObjectiveFunctionError,
+                TerminationReason::MaxTime => ExitStatus::Timeout,
+                TerminationReason::Cancelled | TerminationReason::UserRequested => {
+                    ExitStatus::Interrupt
                 }
-                TerminationReason::SolverExit(_) => unreachable!("Unexpected solver exit reason"),
-                TerminationReason::Interrupt => ExitStatus::Interrupt,
+                // Map other termination reasons to UnexpectedExit as fallback
+                _ => ExitStatus::UnexpectedExit,
             },
-            TerminationStatus::NotTerminated => ExitStatus::UnexpectedExit,
+            None => ExitStatus::UnexpectedExit,
         }
     }
 }
