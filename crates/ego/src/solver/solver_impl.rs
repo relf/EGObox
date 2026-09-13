@@ -398,7 +398,9 @@ where
     }
 
     /// Refresh infill data used to optimize infill criterion
-    pub fn refresh_infill_data<O: CostFunction<Param = Array2<f64>, Output = Array2<f64>> + Constraints<C>>(
+    pub fn refresh_infill_data<
+        O: CostFunction<Param = Array2<f64>, Output = Array2<f64>> + Constraints<C>,
+    >(
         &self,
         problem: &mut Problem<O>,
         state: &mut EgorState<f64>,
