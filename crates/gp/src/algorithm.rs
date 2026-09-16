@@ -16,7 +16,7 @@ use log::warn;
 use ndarray_linalg::{cholesky::*, eigh::*, qr::*, svd::*, triangular::*};
 
 use linfa_pls::PlsRegression;
-use ndarray::{Array, Array1, Array2, ArrayBase, Axis, Data, Ix1, Ix2, Zip};
+use ndarray::{Array, Array1, Array2, ArrayBase, Axis, Data, Ix1, Ix2, Zip, s};
 
 use ndarray_rand::RandomExt;
 use ndarray_rand::rand_distr::Normal;
@@ -442,6 +442,281 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GaussianProc
     /// Retrieve input and output dimensions
     pub fn dims(&self) -> (usize, usize) {
         (self.xt_norm.ncols(), self.yt_norm.ncols())
+    }
+
+    /// Update the model with `m` new training observations `(x_new, y_new)`
+    /// without a full refit: theta and the input/output normalization are kept
+    /// fixed, and the correlation matrix's Cholesky factor is updated with an
+    /// exact block (rank-`m`) update instead of being recomputed from scratch.
+    /// Returns a new `GaussianProcess`; `self` is left untouched.
+    #[cfg(not(feature = "blas"))]
+    pub fn update(
+        &self,
+        x_new: &ArrayBase<impl Data<Elem = F>, Ix2>,
+        y_new: &ArrayBase<impl Data<Elem = F>, Ix1>,
+    ) -> Result<Self> {
+        let m = x_new.nrows();
+        if m == 0 {
+            return Ok(self.clone());
+        }
+        let n = self.xt_norm.data.nrows();
+
+        // Normalize new points using the EXISTING (frozen) mean/std.
+        let xnew_norm = (x_new - &self.xt_norm.mean) / &self.xt_norm.std;
+        let ynew_norm =
+            (&y_new.to_owned().insert_axis(Axis(1)) - &self.yt_norm.mean) / &self.yt_norm.std;
+
+        // R21 (m, n): correlation between new points and existing training points.
+        let r21 = self._compute_correlation(&xnew_norm);
+
+        // R22 (m, m): correlation among the new points themselves (+ nugget),
+        // built the same way `reduced_likelihood` builds R for a fresh fit.
+        let new_distances = DiffMatrix::new(&xnew_norm);
+        let rnew =
+            self.params
+                .corr
+                .rval_from_distances(&new_distances.d, &self.theta, &self.w_star);
+        let mut r22: Array2<F> = Array2::<F>::eye(m).mapv(|v| v + v * self.params.nugget());
+        for (i, ij) in new_distances.d_indices.outer_iter().enumerate() {
+            r22[[ij[0], ij[1]]] = rnew[[i, 0]];
+            r22[[ij[1], ij[0]]] = rnew[[i, 0]];
+        }
+
+        let l11 = &self.inner_params.r_chol; // (n, n) lower triangular, reused as-is
+
+        // L21 (m, n): solve L11 @ L21^T = R21^T
+        let l21_t = l11.solve_triangular(&r21.t().to_owned(), UPLO::Lower)?; // (n, m)
+        let l21 = l21_t.t().to_owned(); // (m, n)
+
+        // Schur complement and its Cholesky factor L22 (m, m)
+        let schur = r22 - l21.dot(&l21_t);
+        let l22 = schur.cholesky()?;
+
+        // Assemble the augmented Cholesky factor L (n+m, n+m)
+        let mut l = Array2::<F>::zeros((n + m, n + m));
+        l.slice_mut(s![..n, ..n]).assign(l11);
+        l.slice_mut(s![n.., ..n]).assign(&l21);
+        l.slice_mut(s![n.., n..]).assign(&l22);
+
+        // Extend F (mean-basis matrix) and its whitened counterpart ft = L^-1 F.
+        // ft_top is UNCHANGED (still L11^-1 @ F_old) -- only the bottom m rows
+        // need a new (small) triangular solve against L22.
+        let fnew = self.params.mean.coefs(&xnew_norm); // (m, p)
+        let ft_top = &self.inner_params.ft; // (n, p)
+        let ft_bottom = l22.solve_triangular(&(&fnew - &l21.dot(ft_top)), UPLO::Lower)?;
+        let mut ft = Array2::<F>::zeros((n + m, ft_top.ncols()));
+        ft.slice_mut(s![..n, ..]).assign(ft_top);
+        ft.slice_mut(s![n.., ..]).assign(&ft_bottom);
+
+        // Extend the whitened targets yt = L^-1 y. yt_top is an O(n^2) solve
+        // against the frozen L11 (NOT a refactorization); yt_bottom is a small
+        // solve against L22.
+        let yt_top = l11.solve_triangular(&self.yt_norm.data, UPLO::Lower)?; // (n, 1)
+        let yt_bottom = l22.solve_triangular(&(&ynew_norm - &l21.dot(&yt_top)), UPLO::Lower)?;
+        let mut yt = Array2::<F>::zeros((n + m, 1));
+        yt.slice_mut(s![..n, ..]).assign(&yt_top);
+        yt.slice_mut(s![n.., ..]).assign(&yt_bottom);
+
+        // Re-run the cheap (p is small) GLS step on the augmented system.
+        let (ft_qr_q, ft_qr_r) = ft.qr().unwrap().into_decomp();
+        let beta = ft_qr_r
+            .clone()
+            .solve_triangular_into(ft_qr_q.t().dot(&yt), UPLO::Upper)?;
+        let rho = &yt - &ft.dot(&beta);
+        let rho_sqr = rho.mapv(|v| v * v).sum_axis(Axis(0));
+        let gamma = l.t().solve_triangular_into(rho, UPLO::Upper)?;
+
+        let n_obs = F::cast(n + m);
+        let logdet = l.diag().mapv(|v: F| v.log10()).sum() * F::cast(2.) / n_obs;
+        let sigma2_n = rho_sqr[0] / n_obs;
+        let likelihood = -n_obs * (sigma2_n.log10() + logdet);
+
+        // Append the new points to the stored (normalized and raw) datasets.
+        let mut xt_data = Array2::<F>::zeros((n + m, self.xt_norm.data.ncols()));
+        xt_data.slice_mut(s![..n, ..]).assign(&self.xt_norm.data);
+        xt_data.slice_mut(s![n.., ..]).assign(&xnew_norm);
+
+        let mut yt_data = Array2::<F>::zeros((n + m, 1));
+        yt_data.slice_mut(s![..n, ..]).assign(&self.yt_norm.data);
+        yt_data.slice_mut(s![n.., ..]).assign(&ynew_norm);
+
+        let mut x_train = Array2::<F>::zeros((n + m, x_new.ncols()));
+        x_train.slice_mut(s![..n, ..]).assign(&self.training_data.0);
+        x_train.slice_mut(s![n.., ..]).assign(x_new);
+
+        let mut y_train = Array1::<F>::zeros(n + m);
+        y_train.slice_mut(s![..n]).assign(&self.training_data.1);
+        y_train.slice_mut(s![n..]).assign(y_new);
+
+        Ok(GaussianProcess {
+            theta: self.theta.clone(),
+            likelihood,
+            inner_params: GpInnerParams {
+                sigma2: sigma2_n * self.yt_norm.std[0] * self.yt_norm.std[0],
+                beta,
+                gamma,
+                r_chol: l,
+                ft,
+                ft_qr_r,
+            },
+            w_star: self.w_star.clone(),
+            xt_norm: NormalizedData {
+                data: xt_data,
+                mean: self.xt_norm.mean.clone(),
+                std: self.xt_norm.std.clone(),
+            },
+            yt_norm: NormalizedData {
+                data: yt_data,
+                mean: self.yt_norm.mean.clone(),
+                std: self.yt_norm.std.clone(),
+            },
+            training_data: (x_train, y_train),
+            params: self.params.clone(),
+        })
+    }
+
+    /// See non-blas version above for the full explanation. Same algorithm,
+    /// using the ndarray-linalg / LAPACK triangular-solve & Cholesky API.
+    #[cfg(feature = "blas")]
+    pub fn update(
+        &self,
+        x_new: &ArrayBase<impl Data<Elem = F>, Ix2>,
+        y_new: &ArrayBase<impl Data<Elem = F>, Ix1>,
+    ) -> Result<Self> {
+        let m = x_new.nrows();
+        if m == 0 {
+            return Ok(self.clone());
+        }
+        let n = self.xt_norm.data.nrows();
+
+        let xnew_norm = (x_new - &self.xt_norm.mean) / &self.xt_norm.std;
+        let ynew_norm =
+            (&y_new.to_owned().insert_axis(Axis(1)) - &self.yt_norm.mean) / &self.yt_norm.std;
+
+        let r21 = self._compute_correlation(&xnew_norm); // (m, n)
+
+        let new_distances = DiffMatrix::new(&xnew_norm);
+        let rnew =
+            self.params
+                .corr
+                .rval_from_distances(&new_distances.d, &self.theta, &self.w_star);
+        let mut r22: Array2<F> = Array2::<F>::eye(m).mapv(|v| v + v * self.params.nugget());
+        for (i, ij) in new_distances.d_indices.outer_iter().enumerate() {
+            r22[[ij[0], ij[1]]] = rnew[[i, 0]];
+            r22[[ij[1], ij[0]]] = rnew[[i, 0]];
+        }
+
+        let l11 = self.inner_params.r_chol.to_owned().with_lapack(); // (n, n)
+        let r21_t = r21.t().to_owned().with_lapack();
+        let l21_t = l11
+            .solve_triangular(UPLO::Lower, Diag::NonUnit, &r21_t)
+            .unwrap(); // (n, m)
+        let l21 = l21_t.t().to_owned(); // (m, m)... (m, n) in lapack space
+
+        let l21_owned = l21.without_lapack();
+        let l21_t_owned = l21_t.without_lapack();
+        let schur = r22 - l21_owned.dot(&l21_t_owned);
+        let l22 = schur.with_lapack().cholesky(UPLO::Lower)?;
+
+        let mut l = Array2::<F>::zeros((n + m, n + m));
+        l.slice_mut(s![..n, ..n])
+            .assign(&l11.to_owned().without_lapack());
+        l.slice_mut(s![n.., ..n]).assign(&l21_owned);
+        l.slice_mut(s![n.., n..])
+            .assign(&l22.to_owned().without_lapack());
+
+        let fnew = self.params.mean.coefs(&xnew_norm);
+        let ft_top = &self.inner_params.ft;
+        let rhs_f = (&fnew - &l21_owned.dot(ft_top)).with_lapack();
+        let ft_bottom = l22
+            .solve_triangular(UPLO::Lower, Diag::NonUnit, &rhs_f)
+            .unwrap()
+            .without_lapack();
+        let mut ft = Array2::<F>::zeros((n + m, ft_top.ncols()));
+        ft.slice_mut(s![..n, ..]).assign(ft_top);
+        ft.slice_mut(s![n.., ..]).assign(&ft_bottom);
+
+        let yt_top = l11
+            .solve_triangular(
+                UPLO::Lower,
+                Diag::NonUnit,
+                &self.yt_norm.data.to_owned().with_lapack(),
+            )
+            .unwrap()
+            .without_lapack();
+        let rhs_y = (&ynew_norm - &l21_owned.dot(&yt_top)).with_lapack();
+        let yt_bottom = l22
+            .solve_triangular(UPLO::Lower, Diag::NonUnit, &rhs_y)
+            .unwrap()
+            .without_lapack();
+        let mut yt = Array2::<F>::zeros((n + m, 1));
+        yt.slice_mut(s![..n, ..]).assign(&yt_top);
+        yt.slice_mut(s![n.., ..]).assign(&yt_bottom);
+
+        let (ft_qr_q, ft_qr_r) = ft.to_owned().with_lapack().qr().unwrap();
+        let beta = ft_qr_r
+            .solve_triangular_into(
+                UPLO::Upper,
+                Diag::NonUnit,
+                ft_qr_q.t().dot(&yt.to_owned().with_lapack()),
+            )
+            .unwrap();
+        let rho = &yt.to_owned().with_lapack() - &ft.to_owned().with_lapack().dot(&beta);
+        let rho_sqr = rho.mapv(|v| v * v).sum_axis(Axis(0)).without_lapack();
+        let gamma = l
+            .to_owned()
+            .with_lapack()
+            .t()
+            .solve_triangular_into(UPLO::Upper, Diag::NonUnit, rho)
+            .unwrap()
+            .without_lapack();
+
+        let n_obs = F::cast(n + m);
+        let logdet = l.diag().mapv(|v: F| v.log10()).sum() * F::cast(2.) / n_obs;
+        let sigma2_n = rho_sqr[0] / n_obs;
+        let likelihood = -n_obs * (sigma2_n.log10() + logdet);
+
+        let mut xt_data = Array2::<F>::zeros((n + m, self.xt_norm.data.ncols()));
+        xt_data.slice_mut(s![..n, ..]).assign(&self.xt_norm.data);
+        xt_data.slice_mut(s![n.., ..]).assign(&xnew_norm);
+
+        let mut yt_data = Array2::<F>::zeros((n + m, 1));
+        yt_data.slice_mut(s![..n, ..]).assign(&self.yt_norm.data);
+        yt_data.slice_mut(s![n.., ..]).assign(&ynew_norm);
+
+        let mut x_train = Array2::<F>::zeros((n + m, x_new.ncols()));
+        x_train.slice_mut(s![..n, ..]).assign(&self.training_data.0);
+        x_train.slice_mut(s![n.., ..]).assign(x_new);
+
+        let mut y_train = Array1::<F>::zeros(n + m);
+        y_train.slice_mut(s![..n]).assign(&self.training_data.1);
+        y_train.slice_mut(s![n..]).assign(y_new);
+
+        Ok(GaussianProcess {
+            theta: self.theta.clone(),
+            likelihood,
+            inner_params: GpInnerParams {
+                sigma2: sigma2_n * self.yt_norm.std[0] * self.yt_norm.std[0],
+                beta: beta.without_lapack(),
+                gamma,
+                r_chol: l,
+                ft,
+                ft_qr_r: ft_qr_r.without_lapack(),
+            },
+            w_star: self.w_star.clone(),
+            xt_norm: NormalizedData {
+                data: xt_data,
+                mean: self.xt_norm.mean.clone(),
+                std: self.xt_norm.std.clone(),
+            },
+            yt_norm: NormalizedData {
+                data: yt_data,
+                mean: self.yt_norm.mean.clone(),
+                std: self.yt_norm.std.clone(),
+            },
+            training_data: (x_train, y_train),
+            params: self.params.clone(),
+        })
     }
 
     /// Predict derivatives of the output prediction
