@@ -96,7 +96,9 @@ pub trait GpParameterized {
 /// A trait for a GP surrogate with update support.
 #[cfg_attr(feature = "serializable", typetag::serde(tag = "type_fullgp"))]
 #[dyn_clonable::clonable]
-pub trait FullGpSurrogate: Clone + Sync + Send + GpParameterized + GpSurrogate + GpSurrogateExt {
+pub trait FullGpSurrogate:
+    Clone + Sync + Send + GpParameterized + GpSurrogate + GpSurrogateExt
+{
     /// Update the GP with new data points efficiently.
     fn update(
         &self,

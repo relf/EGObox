@@ -712,13 +712,16 @@ impl MixintGpMixture {
     ) -> Result<MixintGpMixture> {
         // Update the underlying moe (consume self.moe)
         let updated_moe = self.moe.update(x_new, y_new)?;
-        
+
         // Rebuild MixintGpMixture with updated moe, moving fields
         Ok(MixintGpMixture {
-            params: self.params,  // Moved
+            params: self.params, // Moved
             moe: updated_moe,
-            xtypes: self.xtypes,  // Moved
-            training_data: (self.training_data.0.to_owned(), self.training_data.1.to_owned()),
+            xtypes: self.xtypes, // Moved
+            training_data: (
+                self.training_data.0.to_owned(),
+                self.training_data.1.to_owned(),
+            ),
             work_in_folded_space: self.work_in_folded_space,
         })
     }
@@ -827,7 +830,7 @@ impl MixtureGpSurrogate for MixintGpMixture {
     fn experts(&self) -> &Vec<Box<dyn FullGpSurrogate>> {
         self.moe.experts()
     }
-    
+
     /// Update the mixint mixture with new data points
     fn update(
         &self,
@@ -835,7 +838,11 @@ impl MixtureGpSurrogate for MixintGpMixture {
         y_new: &ndarray::ArrayView1<f64>,
     ) -> crate::errors::Result<Box<dyn MixtureGpSurrogate>> {
         // Clone self to call the consuming update method
-        Ok(Box::new(MixintGpMixture::update(self.clone(), x_new, y_new)?))
+        Ok(Box::new(MixintGpMixture::update(
+            self.clone(),
+            x_new,
+            y_new,
+        )?))
     }
 }
 
