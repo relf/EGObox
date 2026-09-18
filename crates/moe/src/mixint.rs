@@ -598,6 +598,7 @@ impl From<MixintGpMixtureValidParams> for MixintGpMixtureParams {
 
 /// The Moe model that takes into account XType specifications
 #[cfg_attr(feature = "serializable", derive(Serialize, Deserialize))]
+#[derive(Clone)]
 pub struct MixintGpMixture {
     /// the decorated Moe
     moe: GpMixture,
@@ -696,25 +697,27 @@ impl MixintGpMixture {
     ///
     /// Delegates to the underlying GpMixture update method.
     ///
-    /// # Parameters
-    ///     x_new: New input data points as a (n_new, nx) matrix
-    ///     y_new: New output data values as a (n_new,) vector
+    /// # Arguments
+    ///
+    /// * `x_new` - New input data points as a (n_new, nx) matrix
+    /// * `y_new` - New output data values as a (n_new,) vector
     ///
     /// # Returns
-    ///     A new `MixintGpMixture` instance updated with the new data
+    ///
+    /// A new `MixintGpMixture` instance updated with the new data
     pub fn update(
-        &self,
+        self,
         x_new: &ArrayBase<impl Data<Elem = f64>, Ix2>,
         y_new: &ArrayBase<impl Data<Elem = f64>, Ix1>,
     ) -> Result<MixintGpMixture> {
-        // Update the underlying moe
+        // Update the underlying moe (consume self.moe)
         let updated_moe = self.moe.update(x_new, y_new)?;
         
-        // Rebuild MixintGpMixture with updated moe
+        // Rebuild MixintGpMixture with updated moe, moving fields
         Ok(MixintGpMixture {
-            params: self.params.clone(),
+            params: self.params,  // Moved
             moe: updated_moe,
-            xtypes: self.xtypes.clone(),
+            xtypes: self.xtypes,  // Moved
             training_data: (self.training_data.0.to_owned(), self.training_data.1.to_owned()),
             work_in_folded_space: self.work_in_folded_space,
         })
@@ -831,7 +834,8 @@ impl MixtureGpSurrogate for MixintGpMixture {
         x_new: &ndarray::ArrayView2<f64>,
         y_new: &ndarray::ArrayView1<f64>,
     ) -> crate::errors::Result<Box<dyn MixtureGpSurrogate>> {
-        Ok(Box::new(self.update(x_new, y_new)?))
+        // Clone self to call the consuming update method
+        Ok(Box::new(MixintGpMixture::update(self.clone(), x_new, y_new)?))
     }
 }
 
