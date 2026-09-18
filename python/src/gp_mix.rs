@@ -518,12 +518,7 @@ impl Gpx {
     ///     >>> gpx = egx.Gpx.builder().fit(np.array([[0.0], [1.0]]), np.array([0.0, 1.0]))
     ///     >>> gpx_updated = gpx.update(np.array([[2.0]]), np.array([1.5]))
     ///
-    fn update<'py>(
-        &self,
-        py: Python<'py>,
-        x_new: PyReadonlyArray2<f64>,
-        y_new: PyReadonlyArray1<f64>,
-    ) -> Gpx {
+    fn update(&self, x_new: PyReadonlyArray2<f64>, y_new: PyReadonlyArray1<f64>) -> Gpx {
         let x_arr = x_new.as_array();
         let y_arr = y_new.as_array();
 
