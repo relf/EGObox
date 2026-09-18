@@ -663,7 +663,7 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GaussianProc
             )
             .unwrap();
         let rho = &yt.to_owned().with_lapack() - &ft.to_owned().with_lapack().dot(&beta);
-        let rho_sqr = rho.mapv(|v| v * v).sum_axis(Axis(0)).without_lapack();
+        let rho_sqr = rho.mapv(|v| v * v).sum_axis(Axis(0));
         let gamma = l
             .to_owned()
             .with_lapack()
@@ -674,7 +674,7 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GaussianProc
 
         let n_obs = F::cast(n + m);
         let logdet = l.diag().mapv(|v: F| v.log10()).sum() * F::cast(2.) / n_obs;
-        let sigma2_n = rho_sqr[0] / n_obs;
+        let sigma2_n = F::cast(rho_sqr[0]) / n_obs;
         let likelihood = -n_obs * (sigma2_n.log10() + logdet);
 
         let mut xt_data = Array2::<F>::zeros((n + m, self.xt_norm.data.ncols()));
