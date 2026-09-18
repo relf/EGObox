@@ -743,6 +743,7 @@ dependencies = [
  "bitflags 2.13.1",
  "criterion",
  "csv",
+ "dyn-clonable",
  "egobox-doe",
  "egobox-gp",
  "env_logger",

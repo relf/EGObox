@@ -692,6 +692,34 @@ impl MixintGpMixture {
         MixintGpMixtureParams::new(xtypes, &GpMixtureParams::new())
     }
 
+    /// Update the mixint mixture of experts with new data points.
+    ///
+    /// Delegates to the underlying GpMixture update method.
+    ///
+    /// # Parameters
+    ///     x_new: New input data points as a (n_new, nx) matrix
+    ///     y_new: New output data values as a (n_new,) vector
+    ///
+    /// # Returns
+    ///     A new `MixintGpMixture` instance updated with the new data
+    pub fn update(
+        &self,
+        x_new: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+        y_new: &ArrayBase<impl Data<Elem = f64>, Ix1>,
+    ) -> Result<MixintGpMixture> {
+        // Update the underlying moe
+        let updated_moe = self.moe.update(x_new, y_new)?;
+        
+        // Rebuild MixintGpMixture with updated moe
+        Ok(MixintGpMixture {
+            params: self.params.clone(),
+            moe: updated_moe,
+            xtypes: self.xtypes.clone(),
+            training_data: (self.training_data.0.to_owned(), self.training_data.1.to_owned()),
+            work_in_folded_space: self.work_in_folded_space,
+        })
+    }
+
     /// Load MixintGpMixture from given file.
     #[cfg(feature = "persistent")]
     pub fn load(path: &str, format: GpFileFormat) -> Result<Box<MixintGpMixture>> {
@@ -795,6 +823,15 @@ impl GpQualityAssurance for MixintGpMixture {
 impl MixtureGpSurrogate for MixintGpMixture {
     fn experts(&self) -> &Vec<Box<dyn FullGpSurrogate>> {
         self.moe.experts()
+    }
+    
+    /// Update the mixint mixture with new data points
+    fn update(
+        &self,
+        x_new: &ndarray::ArrayView2<f64>,
+        y_new: &ndarray::ArrayView1<f64>,
+    ) -> crate::errors::Result<Box<dyn MixtureGpSurrogate>> {
+        Ok(Box::new(self.update(x_new, y_new)?))
     }
 }
 

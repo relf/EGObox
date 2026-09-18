@@ -23,7 +23,9 @@ use linfa::{Dataset, traits::Fit};
 use log::error;
 use ndarray::{Array1, Array2, Axis, Ix1, Ix2, Zip, array};
 use ndarray_rand::rand::SeedableRng;
-use numpy::{IntoPyArray, PyArray1, PyArray2, PyReadonlyArray2, PyReadonlyArrayDyn};
+use numpy::{
+    IntoPyArray, PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2, PyReadonlyArrayDyn,
+};
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 use rand_xoshiro::Xoshiro256Plus;
@@ -496,6 +498,38 @@ impl Gpx {
     ///
     fn dims(&self) -> (usize, usize) {
         self.0.dims()
+    }
+
+    /// Update the mixture of experts with new data points.
+    ///
+    /// For single-expert mixtures, uses efficient GP update with Cholesky rank-1 updates.
+    /// For multi-expert mixtures, assigns new points to clusters and refits experts with fixed theta.
+    ///
+    /// # Parameters
+    ///     x_new (array[n_new, nx]): New input data points
+    ///     y_new (array[n_new,]): New output data values
+    ///
+    /// # Returns
+    ///     A new Gpx instance updated with the new data
+    ///
+    /// # Example
+    ///     >>> import egobox as egx
+    ///     >>> import numpy as np
+    ///     >>> gpx = egx.Gpx.builder().fit(np.array([[0.0], [1.0]]), np.array([0.0, 1.0]))
+    ///     >>> gpx_updated = gpx.update(np.array([[2.0]]), np.array([1.5]))
+    ///
+    fn update<'py>(
+        &self,
+        py: Python<'py>,
+        x_new: PyReadonlyArray2<f64>,
+        y_new: PyReadonlyArray1<f64>,
+    ) -> Gpx {
+        let x_arr = x_new.as_array();
+        let y_arr = y_new.as_array();
+
+        let updated_moe = self.0.update(&x_arr, &y_arr).expect("GP update failed");
+
+        Gpx(updated_moe)
     }
 
     /// Get the nt training data points used to fit the surrogate

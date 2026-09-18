@@ -213,6 +213,13 @@ pub trait MixtureGpSurrogate:
 {
     /// Get model experts
     fn experts(&self) -> &Vec<Box<dyn FullGpSurrogate>>;
+
+    /// Update the mixture with new data points
+    fn update(
+        &self,
+        x_new: &ndarray::ArrayView2<f64>,
+        y_new: &ndarray::ArrayView1<f64>,
+    ) -> crate::errors::Result<Box<dyn MixtureGpSurrogate>>;
 }
 
 #[derive(Default, Debug)]

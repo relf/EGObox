@@ -184,6 +184,21 @@ impl MixtureGpSurrogate for AffinedSurrogate {
     fn experts(&self) -> &Vec<Box<dyn FullGpSurrogate>> {
         self.inner.experts()
     }
+
+    /// Update the affined mixture with new data points
+    fn update(
+        &self,
+        x_new: &ndarray::ArrayView2<f64>,
+        y_new: &ndarray::ArrayView1<f64>,
+    ) -> crate::errors::Result<Box<dyn MixtureGpSurrogate>> {
+        // For affine surrogates, delegate to the inner surrogate
+        let updated_inner = self.inner.update(x_new, y_new)?;
+        Ok(Box::new(AffinedSurrogate::new(
+            updated_inner,
+            self.scale,
+            self.offset,
+        )))
+    }
 }
 
 /// Clone a surrogate via serialization round-trip.

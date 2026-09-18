@@ -93,9 +93,17 @@ pub trait GpParameterized {
     fn likelihood(&self) -> f64;
 }
 
-/// A trait for a GP surrogate.
+/// A trait for a GP surrogate with update support.
 #[cfg_attr(feature = "serializable", typetag::serde(tag = "type_fullgp"))]
-pub trait FullGpSurrogate: GpParameterized + GpSurrogate + GpSurrogateExt {}
+#[dyn_clonable::clonable]
+pub trait FullGpSurrogate: Clone + Sync + Send + GpParameterized + GpSurrogate + GpSurrogateExt {
+    /// Update the GP with new data points efficiently.
+    fn update(
+        &self,
+        x_new: &ndarray::ArrayView2<f64>,
+        y_new: &ndarray::ArrayView2<f64>,
+    ) -> crate::errors::Result<Box<dyn FullGpSurrogate>>;
+}
 
 /// A trait for a Sparse GP surrogate.
 #[cfg_attr(feature = "serializable", typetag::serde(tag = "type_sgp"))]
@@ -230,7 +238,17 @@ macro_rules! declare_surrogate {
             }
 
             #[cfg_attr(feature = "serializable", typetag::serde)]
-            impl FullGpSurrogate for [<Gp $regr $corr Surrogate>] {}
+            impl FullGpSurrogate for [<Gp $regr $corr Surrogate>] {
+                fn update(
+                    &self,
+                    x_new: &ArrayView2<f64>,
+                    y_new: &ArrayView2<f64>,
+                ) -> Result<Box<dyn FullGpSurrogate>> {
+                    // Use the efficient GP update method
+                    let updated_gp = self.0.clone().update(x_new, &y_new.remove_axis(Axis(1)))?;
+                    Ok(Box::new([<Gp $regr $corr Surrogate>](updated_gp)))
+                }
+            }
 
             impl std::fmt::Display for [<Gp $regr $corr Surrogate>] {
                 fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -396,7 +414,19 @@ macro_rules! declare_sgp_surrogate {
             }
 
             #[cfg_attr(feature = "serializable", typetag::serde)]
-            impl FullGpSurrogate for [<Sgp $corr Surrogate>] {}
+            impl FullGpSurrogate for [<Sgp $corr Surrogate>] {
+                fn update(
+                    &self,
+                    _x_new: &ArrayView2<f64>,
+                    _y_new: &ArrayView2<f64>,
+                ) -> Result<Box<dyn FullGpSurrogate>> {
+                    // Sparse GP does not support efficient incremental updates.
+                    // For now, return an error indicating this limitation.
+                    Err(crate::MoeError::GpError(egobox_gp::GpError::InvalidValueError(
+                        "Sparse GP update not supported - requires full retraining".to_string()
+                    )))
+                }
+            }
 
             #[cfg_attr(feature = "serializable", typetag::serde)]
             impl SgpSurrogate for [<Sgp $corr Surrogate>] {}

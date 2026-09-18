@@ -605,6 +605,15 @@ impl MixtureGpSurrogate for GpMixture {
     fn experts(&self) -> &Vec<Box<dyn FullGpSurrogate>> {
         &self.experts
     }
+
+    /// Update the mixture with new data points
+    fn update(
+        &self,
+        x_new: &ndarray::ArrayView2<f64>,
+        y_new: &ndarray::ArrayView1<f64>,
+    ) -> crate::errors::Result<Box<dyn MixtureGpSurrogate>> {
+        Ok(Box::new(self.update(x_new, y_new)?))
+    }
 }
 
 impl GpMixture {
@@ -1087,6 +1096,141 @@ impl GpMixture {
     //     }
     //     error / self.ytrain.std(1.)
     // }
+
+    /// Update the mixture of experts with new data points.
+    ///
+    /// # Strategy based on number of clusters:
+    /// - **Single expert (n_clusters == 1)**: Uses the efficient GP update method
+    ///   with Cholesky rank-1 updates for fast incremental learning.
+    /// - **Multiple experts (n_clusters > 1)**: Assigns new points to clusters based on
+    ///   current Gaussian mixture, then refits each expert with its assigned points
+    ///   using fixed theta (current theta as initialization) to preserve model structure.
+    ///
+    /// # Parameters
+    ///     x_new: New input data points as a (n_new, nx) matrix
+    ///     y_new: New output data values as a (n_new,) vector
+    ///
+    /// # Returns
+    ///     A new `GpMixture` instance updated with the new data
+    ///
+    /// # Notes
+    ///     - For single expert: truly incremental, fast update
+    ///     - For multiple experts: preserves cluster assignments and theta initialization
+    ///     - The number of clusters remains unchanged
+    pub fn update(
+        &self,
+        x_new: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+        y_new: &ArrayBase<impl Data<Elem = f64>, Ix1>,
+    ) -> Result<GpMixture> {
+        let n_clusters = self.n_clusters();
+
+        if n_clusters == 1 {
+            // Single expert: use efficient GP update (consume self)
+            info!(
+                "Updating single-expert mixture with {} new points",
+                x_new.nrows()
+            );
+            // Extract training data BEFORE moving experts (clone to avoid borrow issues)
+            let (xt_old, yt_old) = <GpMixture as GpMetrics<_, _, _>>::training_data(&self).clone();
+            
+            let expert = &self.experts[0];
+            let y_new_col = y_new.to_owned().insert_axis(Axis(1));
+            let updated_expert = expert.update(&x_new.view(), &y_new_col.view())?;
+            let xt_combined =
+                concatenate(Axis(0), &[xt_old.view(), x_new.view()]).map_err(|e| {
+                    MoeError::GpError(egobox_gp::GpError::InvalidValueError(e.to_string()))
+                })?;
+            let yt_combined =
+                concatenate(Axis(0), &[yt_old.view(), y_new.view()]).map_err(|e| {
+                    MoeError::GpError(egobox_gp::GpError::InvalidValueError(e.to_string()))
+                })?;
+
+            // Rebuild mixture with updated expert
+            let mut moe = self.params.clone().train(&xt_combined, &yt_combined)?;
+            moe.experts = vec![updated_expert];
+            Ok(moe)
+        } else {
+            // Multiple experts: assign new points to clusters and update each expert
+            info!(
+                "Updating multi-expert mixture ({} clusters) with {} new points",
+                n_clusters,
+                x_new.nrows()
+            );
+
+            // Assign NEW points to clusters using current Gaussian mixture
+            let new_resp = self.gmx.predict_probas(x_new);
+
+            // Collect new data for each cluster
+            let mut new_cluster_x = vec![Vec::new(); n_clusters];
+            let mut new_cluster_y = vec![Vec::new(); n_clusters];
+
+            for i in 0..x_new.nrows() {
+                let resp = new_resp.row(i);
+                let cluster_idx = resp.argmax().unwrap_or(0);
+                new_cluster_x[cluster_idx].extend(x_new.row(i).iter().cloned());
+                new_cluster_y[cluster_idx].push(y_new[i]);
+            }
+
+            // Update each expert with its newly assigned points
+            let mut updated_experts: Vec<Box<dyn FullGpSurrogate>> = Vec::with_capacity(n_clusters);
+            for cluster_idx in 0..n_clusters {
+                if new_cluster_x[cluster_idx].is_empty() {
+                    // No new data for this cluster, keep the old expert
+                    let expert = self.experts[cluster_idx].clone();
+                    updated_experts.push(expert);
+                    info!(
+                        "  Cluster {}: no new points, keeping old expert",
+                        cluster_idx
+                    );
+                } else {
+                    let n_points = new_cluster_y[cluster_idx].len();
+                    let x_new_cluster: Array2<f64> = Array2::from_shape_vec(
+                        (n_points, x_new.ncols()),
+                        new_cluster_x[cluster_idx].clone(),
+                    )
+                    .map_err(|e| {
+                        MoeError::GpError(egobox_gp::GpError::InvalidValueError(e.to_string()))
+                    })?;
+                    let y_new_cluster: Array1<f64> =
+                        Array1::from_vec(new_cluster_y[cluster_idx].clone());
+
+                    // Use efficient GP update for this expert
+                    info!(
+                        "  Cluster {}: updating expert with {} new points",
+                        cluster_idx, n_points
+                    );
+                    let updated_expert = self.experts[cluster_idx].update(
+                        &x_new_cluster.view(),
+                        &y_new_cluster.insert_axis(Axis(1)).view(),
+                    )?;
+                    updated_experts.push(updated_expert);
+                }
+            }
+
+            // Combine training data
+            let (xt_old, yt_old) = <GpMixture as GpMetrics<_, _, _>>::training_data(self);
+            let xt_combined =
+                concatenate(Axis(0), &[xt_old.view(), x_new.view()]).map_err(|e| {
+                    MoeError::GpError(egobox_gp::GpError::InvalidValueError(e.to_string()))
+                })?;
+            let yt_combined =
+                concatenate(Axis(0), &[yt_old.view(), y_new.view()]).map_err(|e| {
+                    MoeError::GpError(egobox_gp::GpError::InvalidValueError(e.to_string()))
+                })?;
+
+            // Create new GpMixture with updated data but keep the same GMM structure
+            // Clone the existing GMM and experts, then replace with updated ones
+            let moe = GpMixture {
+                recombination: self.recombination.clone(),
+                experts: updated_experts,
+                gmx: self.gmx.clone(),  // Keep the same Gaussian mixture model
+                gp_type: self.gp_type.clone(),
+                training_data: (xt_combined.to_owned(), yt_combined.to_owned()),
+                params: self.params.clone(),
+            };
+            Ok(moe)
+        }
+    }
 
     /// Load Moe from the given file.
     #[cfg(feature = "persistent")]

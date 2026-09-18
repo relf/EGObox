@@ -48,6 +48,7 @@ statrs.workspace = true
 
 paste = "1.0"
 bitflags = { version = "2.4.1", features = ["serde"] }
+dyn-clonable = "0.9"
 log.workspace = true
 env_logger.workspace = true
 thiserror.workspace = true
