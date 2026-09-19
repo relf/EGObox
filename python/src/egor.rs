@@ -638,29 +638,6 @@ impl Egor {
             y_doe,
         }
     }
-
-    /// This function loads surrogate models from a file and returns them as a list of Gpx objects.
-    /// The file is expected to be a binary file containing a serialized vector of boxed
-    /// surrogate models (Vec<Box<dyn MixtureGpSurrogate>>) generated during optimization execution
-    #[pyo3(signature = (file))]
-    fn load_gp_models(&self, file: String) -> Vec<Gpx> {
-        let msg = format!(
-            "Failed to load GP models from file {}. Make sure the file exists and is a valid GP models file.",
-            file
-        );
-        let gp_models = egobox_ego::load_gp_models(file.clone()).expect(&msg);
-        gp_models
-            .into_iter()
-            .map(|model| {
-                // Serialize to JSON and deserialize as MixintGpMixture
-                // This works because the models saved by Egor are MixintGpMixture instances
-                let json = serde_json::to_string(&*model).expect("Model serialization");
-                let mixint_model: MixintGpMixture =
-                    serde_json::from_str(&json).expect("Model deserialization");
-                Gpx::from_moe(mixint_model)
-            })
-            .collect()
-    }
 }
 
 impl Egor {
