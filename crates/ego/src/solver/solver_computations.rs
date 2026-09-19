@@ -365,9 +365,14 @@ where
         scale_ic: f64,
         sigma_weight: f64,
     ) -> f64 {
+        // Log acquisition values already express relative improvements. Dividing
+        // by a remote negative tail can erase their gradients and make absolute
+        // objective tolerances stop the inner optimizer at its starting point.
+        if uses_log_feasibility(self.config.infill_criterion.composition()) {
+            return 1.0;
+        }
         let mut crit_vals = Array1::zeros(x.nrows());
         let (mut nan_count, mut inf_count) = (0, 0);
-        let uses_log_feasibility = uses_log_feasibility(self.config.infill_criterion.composition());
 
         // Filter out points that are NaN or Inf in the infill criterion evaluation
         Zip::from(&mut crit_vals).and(x.rows()).for_each(|c, x| {
@@ -393,11 +398,7 @@ where
         });
         if self.config.cstr_infill {
             Zip::from(&mut crit_vals).and(x.rows()).for_each(|c, x| {
-                if uses_log_feasibility {
-                    *c -= logpofs(&x.to_vec(), cstr_models, &cstr_tols.to_vec());
-                } else {
-                    *c *= pofs(&x.to_vec(), cstr_models, &cstr_tols.to_vec());
-                }
+                *c *= pofs(&x.to_vec(), cstr_models, &cstr_tols.to_vec());
             });
         }
 

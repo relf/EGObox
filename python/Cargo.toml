@@ -16,6 +16,7 @@ doctest = false                 # do not doctest as doc uses Python style for Py
 
 [features]
 default = []
+basin = ["egobox-ego/basin", "egobox-gp/basin", "egobox-moe/basin", "egobox-gpx/basin"]
 
 nlopt = ["egobox-ego/nlopt", "egobox-gp/nlopt"]
 serializable-gp = ["egobox-gp/serializable"]

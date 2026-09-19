@@ -11,6 +11,8 @@ pub(crate) struct CobylaParams {
     pub rhobeg: f64,
     pub ftol_rel: f64,
     pub maxeval: usize,
+    #[cfg(feature = "basin")]
+    pub bounded_evaluations: bool,
 }
 
 impl Default for CobylaParams {
@@ -19,6 +21,8 @@ impl Default for CobylaParams {
             rhobeg: 0.5,
             ftol_rel: 1e-4,
             maxeval: 200,
+            #[cfg(feature = "basin")]
+            bounded_evaluations: false,
         }
     }
 }
@@ -71,7 +75,7 @@ pub(crate) fn prepare_multistart<F: Float>(
 }
 
 /// Optimize gp hyper parameters given an initial guess and bounds with NLOPT::Cobyla
-#[cfg(feature = "nlopt")]
+#[cfg(all(feature = "nlopt", not(feature = "basin")))]
 pub(crate) fn optimize_params<ObjF, F>(
     objfn: ObjF,
     param0: &Array1<F>,
@@ -119,7 +123,7 @@ where
 }
 
 /// Optimize gp hyper parameters given an initial guess and bounds with cobyla
-#[cfg(not(feature = "nlopt"))]
+#[cfg(not(any(feature = "nlopt", feature = "basin")))]
 pub(crate) fn optimize_params<ObjF, F>(
     objfn: ObjF,
     param0: &Array1<F>,
@@ -172,4 +176,40 @@ where
 #[inline(always)]
 fn into_f64<F: Float>(v: &F) -> f64 {
     unsafe { *(v as *const F as *const f64) }
+}
+
+/// Optimize log10 GP hyperparameters using Basin's bounded COBYLA adapter.
+#[cfg(feature = "basin")]
+pub(crate) fn optimize_params<ObjF, F>(
+    objfn: ObjF,
+    param0: &Array1<F>,
+    bounds: &[(F, F)],
+    cobyla: CobylaParams,
+) -> (f64, Array1<f64>)
+where
+    ObjF: Fn(&[f64], Option<&mut [f64]>, &mut ()) -> f64,
+    F: Float,
+{
+    use crate::basin_optimizer::{Algorithm, Settings, minimize};
+    let xinit: Vec<_> = param0.iter().map(into_f64).collect();
+    let bounds: Vec<_> = bounds
+        .iter()
+        .map(|(lo, hi)| (into_f64(lo), into_f64(hi)))
+        .collect();
+    let (value, params) = minimize(
+        Algorithm::Cobyla,
+        &|x, g| objfn(x, g, &mut ()),
+        &|_, _, _| unreachable!("GP fitting has no nonlinear constraints"),
+        Settings {
+            xinit: &xinit,
+            bounds: &bounds,
+            n_constraints: 0,
+            max_evals: cobyla.maxeval,
+            ftol_abs: 0.,
+            ftol_rel: cobyla.ftol_rel,
+            initial_radius: cobyla.rhobeg,
+            bounded_evaluations: cobyla.bounded_evaluations,
+        },
+    );
+    (value, arr1(&params))
 }

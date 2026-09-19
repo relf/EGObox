@@ -106,6 +106,7 @@ The table below presents the various features available depending on the subcrat
 | persistent   |      |      | ✔️    | ✔️(*) |
 | blas         |      | ✔️    | ✔️    | ✔️    |
 | nlopt        |      | ✔️    |      | ✔️    |
+| basin        |      | ✔️    | ✔️    | ✔️    |
 
 (*) for persistent mixture of gaussian processes with discrete variable available in `ego`
 
@@ -124,6 +125,19 @@ When selected, the usage of BLAS/LAPACK backend is possible, see [below](#blasla
 #### nlopt
 
 When selected, the [nlopt crate](https://github.com/adwhit/rust-nlopt) is used to provide optimizer implementations (ie Cobyla, Slsqp)
+
+#### basin
+
+The optional `basin` feature selects [Basin](https://basin.rs) for EGO execution,
+COBYLA and SLSQP acquisition optimization, and COBYLA GP hyperparameter fitting.
+It is also available on `egobox-gpx` and the Python package. Basin takes precedence
+when both `basin` and `nlopt` are enabled. Builds without `basin` retain their
+existing backends.
+
+The Rust builders, result types, and Python API stay the same. Argmin remains a
+dependency for compatibility with the public Rust interfaces. See
+[Basin integration](doc/basin.md) for build commands, checkpoint behavior, and
+reproducible comparisons.
 
 ### Examples
 

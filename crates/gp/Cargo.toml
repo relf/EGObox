@@ -14,12 +14,14 @@ categories = ["algorithms", "mathematics", "science"]
 [features]
 
 default = []
+basin = ["dep:basin"]
 
 serializable = ["serde", "typetag", "linfa/serde", "rand_xoshiro/serde1"]
 persistent = ["serializable", "serde_json"]
 blas = ["ndarray-linalg", "linfa/ndarray-linalg", "linfa-pls/blas"]
 
 [dependencies]
+basin = { workspace = true, optional = true }
 egobox-doe = { version = "0.35.1", path = "../doe" }
 
 linfa.workspace = true

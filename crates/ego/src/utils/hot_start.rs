@@ -8,7 +8,11 @@ use std::path::PathBuf;
 use crate::EgorState;
 
 /// Checkpoint file using argmin checkpointing
+#[cfg(not(feature = "basin"))]
 pub const CHECKPOINT_FILE: &str = "egor_checkpoint.json";
+/// Solver-aware checkpoint used by the Basin executor.
+#[cfg(feature = "basin")]
+pub const CHECKPOINT_FILE: &str = "egor_checkpoint.bin";
 
 /// An enum to specify hot start mode
 #[derive(Clone, Eq, PartialEq, Debug, Hash, Default, Serialize, Deserialize)]

@@ -11,6 +11,9 @@ description = "GP surrogate executable for quality assessment, I/O specification
 keywords = ["machine-learning", "bayesian", "optimization"]
 categories = ["algorithms", "mathematics", "science"]
 
+[features]
+basin = ["egobox-ego/basin", "egobox-moe/basin"]
+
 [dependencies]
 egobox-ego = { version = "0.40", path = "../ego" }
 egobox-moe = { version = "0.35", path = "../moe" }

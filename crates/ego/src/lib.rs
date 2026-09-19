@@ -340,6 +340,8 @@
 
 pub mod criteria;
 
+#[cfg(feature = "basin")]
+mod basin_executor;
 mod egor;
 mod errors;
 mod solver;

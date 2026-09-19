@@ -23,7 +23,7 @@ impl Serialize for OtherParams {
     where
         S: serde::Serializer,
     {
-        // Always serialize as an empty object
+        // Keep the recorder's JSON schema even though there are no parameters.
         let empty = serde_json::Map::new();
         empty.serialize(serializer)
     }
@@ -34,8 +34,9 @@ impl<'de> Deserialize<'de> for OtherParams {
     where
         D: serde::Deserializer<'de>,
     {
-        // Deserialize into a serde_json::Value and ignore the content
-        let _ = serde_json::Value::deserialize(deserializer)?;
+        // Bincode needs an explicit map type to read the empty map we serialize.
+        let _ =
+            std::collections::BTreeMap::<String, serde::de::IgnoredAny>::deserialize(deserializer)?;
         Ok(OtherParams)
     }
 }
@@ -190,4 +191,20 @@ pub(crate) fn load_run<P: AsRef<Path>>(path: P) -> Result<EgorRunData> {
 
     // Return the `User`.
     Ok(run_data)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn other_params_preserves_json_format() {
+        assert_eq!(serde_json::to_string(&OtherParams).unwrap(), "{}");
+        let params: OtherParams = serde_json::from_str("{}").unwrap();
+        assert_eq!(serde_json::to_string(&params).unwrap(), "{}");
+
+        let params: OtherParams =
+            serde_json::from_str(r#"{"extra": [1, {"nested": true}, null]}"#).unwrap();
+        assert_eq!(serde_json::to_string(&params).unwrap(), "{}");
+    }
 }

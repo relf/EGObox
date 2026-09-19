@@ -239,7 +239,10 @@ class TestEgor(unittest.TestCase):
             )
 
             self.assertTrue(
-                os.path.exists(os.path.join(outdir, "egor_checkpoint.json"))
+                any(
+                    os.path.exists(os.path.join(outdir, filename))
+                    for filename in ("egor_checkpoint.json", "egor_checkpoint.bin")
+                )
             )
             self.assertEqual(first.result.x_doe.shape[0], second.result.x_doe.shape[0])
 
@@ -404,8 +407,15 @@ class TestEgor(unittest.TestCase):
         self.assertAlmostEqual(-5.5080, optim.result.y_opt[0], delta=1e-2)
         self.assertAlmostEqual(2.3295, optim.result.x_opt[0], delta=1e-2)
         self.assertAlmostEqual(3.1785, optim.result.x_opt[1], delta=1e-2)
-        self.assertEqual((n_doe + max_iters, 2), optim.result.x_doe.shape)
-        self.assertEqual((n_doe + max_iters, 1), optim.result.y_doe.shape)
+        expected_points = n_doe + optim.status.total_iters
+        if optim.status.exit == egx.ExitStatus.SOLVER_CONVERGED:
+            # Convergence consumes an iteration without adding another point.
+            expected_points -= 1
+        else:
+            self.assertEqual(optim.status.exit, egx.ExitStatus.MAX_ITERS_REACHED)
+        self.assertLessEqual(optim.status.total_iters, max_iters)
+        self.assertEqual((expected_points, 2), optim.result.x_doe.shape)
+        self.assertEqual((expected_points, 1), optim.result.y_doe.shape)
 
     def test_g24_with_fcstrs_and_specs(self):
         n_doe = 5

@@ -12,11 +12,12 @@ env:
 jobs:
 
   test:
-    name: testing-${{ matrix.toolchain }}-${{ matrix.os }}
+    name: testing-${{ matrix.toolchain }}-${{ matrix.os }}-${{ matrix.backend }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        backend: [default, basin]
         toolchain:
           - stable
         os: 
@@ -26,6 +27,10 @@ jobs:
         include:
           - toolchain: 1.88.0  # test MSRV
             os: ubuntu-latest
+            backend: default
+          - toolchain: 1.88.0
+            os: ubuntu-latest
+            backend: basin
 
     steps:
       - name: Checkout sources
@@ -50,14 +55,17 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --all --release
+          args: --all --release ${{ matrix.backend == 'basin' && '--features basin' || '' }}
 
   test-features:
-    name: testing-features-${{ matrix.toolchain }}-${{ matrix.os }}
+    name: testing-features-${{ matrix.toolchain }}-${{ matrix.os }}-${{ matrix.features }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        features:
+          - persistent-moe,nlopt,blas,linfa/intel-mkl-static
+          - persistent-moe,nlopt,basin
         toolchain:
           - stable
         os: 
@@ -86,6 +94,6 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --all --release --features persistent-moe,nlopt,blas,linfa/intel-mkl-static
+          args: --all --release --features ${{ matrix.features }}
 
 
