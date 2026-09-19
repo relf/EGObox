@@ -13,7 +13,6 @@
 
 use crate::domain::*;
 use crate::gp_config::*;
-use crate::gp_mix::Gpx;
 use crate::logging::init_logger;
 use crate::qei_config::*;
 use crate::trego_config::{TregoConfig, TregoConfigSpec};
@@ -21,7 +20,7 @@ use crate::types::*;
 
 use egobox_ego::{CoegoStatus, InfillObjData, Result, find_best_result_index};
 use egobox_gp::ThetaTuning;
-use egobox_moe::{MixintGpMixture, NbClusters};
+use egobox_moe::NbClusters;
 use ndarray::{Array1, Array2, ArrayView2, Axis, array, concatenate};
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyArrayMethods, PyReadonlyArray2, ToPyArray};
 use pyo3::exceptions::{PyTypeError, PyValueError};

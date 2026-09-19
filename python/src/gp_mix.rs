@@ -16,9 +16,11 @@ use crate::types::*;
 use crate::{domain::parse, gp_config::GpConfig};
 
 use egobox_ego::{EGO_GP_OPTIM_MAX_EVAL, EGO_GP_OPTIM_N_START};
+use egobox_moe::{
+    Clustered, GpMetrics, MixintGpMixture, MixtureGpSurrogate, NbClusters, ThetaTuning,
+};
 #[allow(unused_imports)] // Avoid linting problem
 use egobox_moe::{GpMixture, GpSurrogate, GpSurrogateExt};
-use egobox_moe::{Clustered, GpMetrics, MixintGpMixture, MixtureGpSurrogate, NbClusters, ThetaTuning};
 use linfa::{Dataset, traits::Fit};
 use log::error;
 use ndarray::{Array1, Array2, Axis, Ix1, Ix2, Zip, array};
@@ -296,13 +298,6 @@ impl GpMix {
 #[pyclass(skip_from_py_object)]
 pub(crate) struct Gpx(MixintGpMixture);
 
-impl Gpx {
-    /// Create a Gpx from a MixintGpMixture (internal use)
-    pub(crate) fn from_moe(moe: MixintGpMixture) -> Self {
-        Gpx(moe)
-    }
-}
-
 #[gen_stub_pymethods]
 #[pymethods]
 impl Gpx {
@@ -525,9 +520,13 @@ impl Gpx {
         let x_arr = x_new.as_array();
         let y_arr = y_new.as_array();
 
-        let updated_moe = self.0.clone().update(&x_arr, &y_arr).expect("GP update failed");
+        let updated_moe = self
+            .0
+            .clone()
+            .update(&x_arr, &y_arr)
+            .expect("GP update failed");
 
-        Gpx::from_moe(updated_moe)
+        Gpx(updated_moe)
     }
 
     /// Get the nt training data points used to fit the surrogate
