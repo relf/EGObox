@@ -21,7 +21,7 @@ use crate::types::*;
 
 use egobox_ego::{CoegoStatus, InfillObjData, Result, find_best_result_index};
 use egobox_gp::ThetaTuning;
-use egobox_moe::NbClusters;
+use egobox_moe::{MixintGpMixture, NbClusters};
 use ndarray::{Array1, Array2, ArrayView2, Axis, array, concatenate};
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyArrayMethods, PyReadonlyArray2, ToPyArray};
 use pyo3::exceptions::{PyTypeError, PyValueError};
@@ -649,7 +649,17 @@ impl Egor {
             file
         );
         let gp_models = egobox_ego::load_gp_models(file.clone()).expect(&msg);
-        gp_models.into_iter().map(Gpx::from).collect()
+        gp_models
+            .into_iter()
+            .map(|model| {
+                // Serialize to JSON and deserialize as MixintGpMixture
+                // This works because the models saved by Egor are MixintGpMixture instances
+                let json = serde_json::to_string(&*model).expect("Model serialization");
+                let mixint_model: MixintGpMixture =
+                    serde_json::from_str(&json).expect("Model deserialization");
+                Gpx::from_moe(mixint_model)
+            })
+            .collect()
     }
 }
 

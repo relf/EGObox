@@ -18,7 +18,7 @@ use crate::{domain::parse, gp_config::GpConfig};
 use egobox_ego::{EGO_GP_OPTIM_MAX_EVAL, EGO_GP_OPTIM_N_START};
 #[allow(unused_imports)] // Avoid linting problem
 use egobox_moe::{GpMixture, GpSurrogate, GpSurrogateExt};
-use egobox_moe::{MixintGpMixture, MixtureGpSurrogate, NbClusters, ThetaTuning};
+use egobox_moe::{Clustered, GpMetrics, MixintGpMixture, MixtureGpSurrogate, NbClusters, ThetaTuning};
 use linfa::{Dataset, traits::Fit};
 use log::error;
 use ndarray::{Array1, Array2, Axis, Ix1, Ix2, Zip, array};
@@ -261,33 +261,29 @@ impl GpMix {
             let regr = RegressionSpec(self.gp_config.regr_spec);
             let corr = CorrelationSpec(self.gp_config.corr_spec);
             if let Some(xtypes) = self.xtypes.as_ref() {
-                Box::new(
-                    MixintGpMixture::params(xtypes)
-                        .n_clusters(n_clusters)
-                        .recombination(recomb)
-                        .regression_spec(egobox_moe::RegressionSpec::from_bits(regr.0).unwrap())
-                        .correlation_spec(egobox_moe::CorrelationSpec::from_bits(corr.0).unwrap())
-                        .theta_tunings(&theta_tunings)
-                        .kpls_dim(self.gp_config.kpls_dim)
-                        .n_start(n_start)
-                        .with_rng(rng)
-                        .fit(&dataset)
-                        .expect("MoE model training"),
-                ) as Box<dyn MixtureGpSurrogate>
+                MixintGpMixture::params(xtypes)
+                    .n_clusters(n_clusters)
+                    .recombination(recomb)
+                    .regression_spec(egobox_moe::RegressionSpec::from_bits(regr.0).unwrap())
+                    .correlation_spec(egobox_moe::CorrelationSpec::from_bits(corr.0).unwrap())
+                    .theta_tunings(&theta_tunings)
+                    .kpls_dim(self.gp_config.kpls_dim)
+                    .n_start(n_start)
+                    .with_rng(rng)
+                    .fit(&dataset)
+                    .expect("MoE model training")
             } else {
-                Box::new(
-                    GpMixture::params()
-                        .n_clusters(n_clusters)
-                        .recombination(recomb)
-                        .regression_spec(egobox_moe::RegressionSpec::from_bits(regr.0).unwrap())
-                        .correlation_spec(egobox_moe::CorrelationSpec::from_bits(corr.0).unwrap())
-                        .theta_tunings(&theta_tunings)
-                        .kpls_dim(self.gp_config.kpls_dim)
-                        .n_start(n_start)
-                        .with_rng(rng)
-                        .fit(&dataset)
-                        .expect("MoE model training"),
-                ) as Box<dyn MixtureGpSurrogate>
+                MixintGpMixture::params_continuous()
+                    .n_clusters(n_clusters)
+                    .recombination(recomb)
+                    .regression_spec(egobox_moe::RegressionSpec::from_bits(regr.0).unwrap())
+                    .correlation_spec(egobox_moe::CorrelationSpec::from_bits(corr.0).unwrap())
+                    .theta_tunings(&theta_tunings)
+                    .kpls_dim(self.gp_config.kpls_dim)
+                    .n_start(n_start)
+                    .with_rng(rng)
+                    .fit(&dataset)
+                    .expect("MoE model training")
             }
         });
 
@@ -298,7 +294,14 @@ impl GpMix {
 /// A trained Gaussian processes mixture
 #[gen_stub_pyclass]
 #[pyclass(skip_from_py_object)]
-pub(crate) struct Gpx(Box<dyn MixtureGpSurrogate>);
+pub(crate) struct Gpx(MixintGpMixture);
+
+impl Gpx {
+    /// Create a Gpx from a MixintGpMixture (internal use)
+    pub(crate) fn from_moe(moe: MixintGpMixture) -> Self {
+        Gpx(moe)
+    }
+}
 
 #[gen_stub_pymethods]
 #[pymethods]
@@ -394,7 +397,7 @@ impl Gpx {
             "json" => egobox_moe::GpFileFormat::Json,
             _ => egobox_moe::GpFileFormat::Binary,
         };
-        Gpx(GpMixture::load(&filename, format).unwrap())
+        Gpx(*MixintGpMixture::load(&filename, format).unwrap())
     }
 
     /// Predict output values at nsamples points.
@@ -522,9 +525,9 @@ impl Gpx {
         let x_arr = x_new.as_array();
         let y_arr = y_new.as_array();
 
-        let updated_moe = self.0.update(&x_arr, &y_arr).expect("GP update failed");
+        let updated_moe = self.0.clone().update(&x_arr, &y_arr).expect("GP update failed");
 
-        Gpx(updated_moe)
+        Gpx::from_moe(updated_moe)
     }
 
     /// Get the nt training data points used to fit the surrogate
@@ -589,8 +592,8 @@ impl Gpx {
     }
 }
 
-impl From<Box<dyn MixtureGpSurrogate>> for Gpx {
-    fn from(moe: Box<dyn MixtureGpSurrogate>) -> Self {
+impl From<MixintGpMixture> for Gpx {
+    fn from(moe: MixintGpMixture) -> Self {
         Gpx(moe)
     }
 }
