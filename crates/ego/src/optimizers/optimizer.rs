@@ -15,8 +15,8 @@
 //! - [`Algorithm::Slsqp`] - Sequential Least Squares Programming (gradient-based)
 //! - [`Algorithm::Cobyla`] - Constrained Optimization BY Linear Approximations (derivative-free)
 //!
-//! When the `nlopt` feature is enabled, these use the NLopt library.
-//! Otherwise, pure-Rust implementations from `slsqp` and `cobyla` crates are used.
+//! The `basin` feature selects Basin's pure Rust implementations. Otherwise,
+//! `nlopt` selects NLopt, with the `slsqp` and `cobyla` crates as the default.
 //!
 //! ## Usage
 //!
@@ -33,7 +33,7 @@ pub(crate) trait OptFn<U>: UserFn<U> + Sync {}
 #[cfg(not(feature = "nlopt"))]
 impl<T, U> OptFn<U> for T where T: UserFn<U> + Sync {}
 
-#[cfg(not(feature = "nlopt"))]
+#[cfg(not(any(feature = "nlopt", feature = "basin")))]
 use cobyla::RhoBeg;
 
 #[cfg(feature = "nlopt")]
@@ -105,7 +105,7 @@ impl<'a> Optimizer<'a> {
         self
     }
 
-    #[cfg(feature = "nlopt")]
+    #[cfg(all(feature = "nlopt", not(feature = "basin")))]
     fn nlopt_minimize(&self, algo: nlopt::Algorithm, cstr_tol: Array1<f64>) -> (f64, Array1<f64>) {
         use nlopt::*;
         let mut optimizer = Nlopt::new(
@@ -151,6 +151,47 @@ impl<'a> Optimizer<'a> {
         }
     }
 
+    #[cfg(feature = "basin")]
+    pub fn minimize(&self) -> (f64, Array1<f64>) {
+        use egobox_gp::basin_optimizer::{Algorithm as BasinAlgorithm, Settings, minimize};
+        use std::cell::RefCell;
+        let user_data = RefCell::new(self.user_data.clone());
+        let bounds: Vec<_> = self.bounds.outer_iter().map(|r| (r[0], r[1])).collect();
+        let xinit = self.xinit.as_ref().expect("initial point").to_vec();
+        let cstr_tol = self
+            .cstr_tol
+            .clone()
+            .unwrap_or(Array1::zeros(self.cons.len()));
+        let objective =
+            |x: &[f64], g: Option<&mut [f64]>| (self.fun)(x, g, &mut user_data.borrow_mut());
+        let constraint = |i: usize, x: &[f64], g: Option<&mut [f64]>| {
+            let mut data = user_data.borrow_mut();
+            let scale = data.scale_cstr.as_ref().expect("constraint scaling")[i];
+            (self.cons[i])(x, g, &mut data) - cstr_tol[i] / scale
+        };
+        let algorithm = match self.algo {
+            Algorithm::Cobyla => BasinAlgorithm::Cobyla,
+            Algorithm::Slsqp => BasinAlgorithm::Slsqp,
+        };
+        let (value, point) = minimize(
+            algorithm,
+            &objective,
+            &constraint,
+            Settings {
+                xinit: &xinit,
+                bounds: &bounds,
+                n_constraints: self.cons.len(),
+                max_evals: self.max_eval,
+                ftol_abs: self.ftol_abs.unwrap_or(0.),
+                ftol_rel: self.ftol_rel.unwrap_or(0.),
+                initial_radius: 0.5,
+                bounded_evaluations: true,
+            },
+        );
+        (value, arr1(&point))
+    }
+
+    #[cfg(not(feature = "basin"))]
     pub fn minimize(&self) -> (f64, Array1<f64>) {
         let cstr_tol = self
             .cstr_tol
@@ -249,6 +290,51 @@ impl<'a> Optimizer<'a> {
                     }
                 }
             }
+        }
+    }
+}
+
+#[cfg(all(test, feature = "basin"))]
+mod tests {
+    use super::*;
+    use ndarray::array;
+
+    #[test]
+    fn scaled_constraint_tolerance_keeps_its_physical_meaning() {
+        let _ = env_logger::try_init();
+        let data = InfillObjData {
+            scale_cstr: Some(array![10.]),
+            ..Default::default()
+        };
+        let objective = |x: &[f64], g: Option<&mut [f64]>, _: &mut InfillObjData<f64>| {
+            if let Some(g) = g {
+                g[0] = -1.;
+            }
+            -x[0]
+        };
+        let constraint = |x: &[f64], g: Option<&mut [f64]>, data: &mut InfillObjData<f64>| {
+            let scale = data.scale_cstr.as_ref().unwrap()[0];
+            if let Some(g) = g {
+                g[0] = 1. / scale;
+            }
+            (x[0] - 1.) / scale
+        };
+        for algorithm in [Algorithm::Cobyla, Algorithm::Slsqp] {
+            let mut optimizer = Optimizer::new(
+                algorithm,
+                &objective,
+                &[&constraint],
+                &data,
+                &array![[0., 2.]],
+            );
+            optimizer.cstr_tol = Some(array![0.2]);
+            let (value, point) = optimizer
+                .xinit(&array![0.].view())
+                .ftol_abs(1e-10)
+                .ftol_rel(1e-10)
+                .minimize();
+            assert!((point[0] - 1.2).abs() < 1e-5, "{algorithm:?}: {point}");
+            assert!((value + 1.2).abs() < 1e-5);
         }
     }
 }

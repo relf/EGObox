@@ -305,6 +305,22 @@ mod test {
     }
 
     #[test]
+    fn test_empirical_coverage_includes_interval_boundaries() {
+        let targets = array![[0.], [1.], [2.], [3.]];
+        let lower = array![0., 1., 4.];
+        let upper = array![3., 2., 5.];
+        let shape = (targets.nrows(), lower.len());
+
+        let coverage = empirical_coverage(
+            targets.broadcast(shape).unwrap(),
+            lower.broadcast(shape).unwrap(),
+            upper.broadcast(shape).unwrap(),
+        );
+
+        assert_eq!(coverage, array![1., 0.5, 0.]);
+    }
+
+    #[test]
     fn test_iae_alpha() {
         let xlimits = array![[-5., 10.], [0., 15.]];
         let nt = 50;
@@ -314,12 +330,16 @@ mod test {
         let yt = iooss_function(&xt);
 
         let moe = GpMixtureParams::default()
+            // Keep the calibration fixture independent of hyperparameter search.
+            .theta_tunings(&[ThetaTuning::Fixed(array![0.07, 0.24])])
             .fit(&Dataset::new(xt, yt))
             .expect("GP fit error");
 
         let iae = moe.iae_alpha_score(None);
         println!("IAE = {:.6}", iae);
-        assert_abs_diff_eq!(iae, 0.3, epsilon = 1e-1);
+        // Coverage changes discretely when numerical differences in GP fits
+        // move predictions across interval boundaries.
+        assert_abs_diff_eq!(iae, 0.361507, epsilon = 1e-2);
     }
 
     fn rescaled_branin(x: &Array2<f64>) -> Array1<f64> {

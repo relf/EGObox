@@ -13,11 +13,14 @@ categories = ["algorithms", "mathematics", "science"]
 
 [features]
 default = ["persistent"]
+basin = ["dep:basin", "dep:ctrlc", "egobox-gp/basin", "egobox-moe/basin"]
 
 persistent = ["egobox-moe/persistent"]
 blas = ["ndarray-linalg", "linfa/ndarray-linalg", "linfa-pls/blas"]
 
 [dependencies]
+basin = { workspace = true, optional = true, features = ["serde"] }
+ctrlc = { workspace = true, optional = true }
 egobox-doe = { version = "0.35.1", path = "../doe", features = [
     "serializable",
 ] }

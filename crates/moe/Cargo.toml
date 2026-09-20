@@ -18,6 +18,7 @@ categories = ["algorithms", "mathematics", "science"]
 
 [features]
 default = []
+basin = ["egobox-gp/basin"]
 
 persistent = ["serializable", "serde_json", "bincode"]
 serializable = [
