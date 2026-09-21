@@ -726,6 +726,9 @@ where
                 PotentialBug,
                 "EgorSolver: No theta inits!"
             ))?;
+        #[cfg(feature = "persistent")]
+        let mut models = std::mem::take(&mut new_state.surrogate.models);
+        #[cfg(not(feature = "persistent"))]
         let mut models: Vec<Box<dyn MixtureGpSurrogate>> = Vec::new();
 
         let mut rng = new_state
@@ -898,6 +901,10 @@ where
                 &c_data.row(best_index),
                 &new_state.doe.cstr_tol,
             );
+        #[cfg(feature = "persistent")]
+        {
+            new_state.surrogate.models = models;
+        }
         Ok(new_state)
     }
 
