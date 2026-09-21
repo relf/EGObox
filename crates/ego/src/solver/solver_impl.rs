@@ -92,12 +92,14 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
         let best_index = find_best_result_index(y_data, &c_data, &cstr_tol);
         let feasibility = is_feasible(&y_data.row(best_index), &c_data.row(best_index), &cstr_tol);
 
+        let mut models: Vec<Box<dyn MixtureGpSurrogate>> = Vec::new();
         let (x_dat, _, _, _, _) = self.select_next_points(
             true,
             0,
             false, // done anyway
             &mut clusterings,
             &mut theta_tunings,
+            &mut models,
             &activity,
             x_data,
             y_data,
@@ -724,6 +726,7 @@ where
                 PotentialBug,
                 "EgorSolver: No theta inits!"
             ))?;
+        let mut models: Vec<Box<dyn MixtureGpSurrogate>> = Vec::new();
 
         let mut rng = new_state
             .take_rng()
@@ -749,6 +752,7 @@ where
                 recluster,
                 &mut clusterings,
                 &mut theta_inits,
+                &mut models,
                 &state.coego.activity,
                 &x_data,
                 &y_data,
@@ -909,6 +913,7 @@ where
         recluster: bool,
         clusterings: &mut [Option<Clustering>],
         theta_inits: &mut [Option<Array2<f64>>],
+        models: &mut Vec<Box<dyn MixtureGpSurrogate>>,
         activity: &Array2<usize>,
         x_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
         y_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
@@ -978,51 +983,21 @@ where
                 .into();
 
                 info!(
-                    "Train surrogates with {} points... clustering={:?} optimize_theta={:?}",
+                    "Update surrogates with {} points... clustering={:?} optimize_theta={:?}",
                     xt.nrows(),
                     do_clustering,
                     optimize_theta
                 );
 
-                let mapping = self
-                    .config
-                    .cstr_specs
-                    .as_ref()
-                    .map(|s| internal_cstr_mapping(s));
-
-                #[cfg(feature = "persistent")]
-                let (models, inits) = if let Some(ref mapping) = mapping {
-                    self.train_with_mapping(
-                        mapping,
-                        &xt,
-                        &yt,
-                        do_clustering,
-                        optimize_theta,
-                        clusterings,
-                        theta_inits,
-                        actives,
-                    )
-                } else {
-                    self.train_all_columns(
-                        &xt,
-                        &yt,
-                        do_clustering,
-                        optimize_theta,
-                        clusterings,
-                        theta_inits,
-                        actives,
-                    )
-                };
-
-                #[cfg(not(feature = "persistent"))]
-                let (models, inits) = self.train_all_columns(
-                    &xt,
-                    &yt,
-                    do_clustering,
-                    optimize_theta,
+                let inits = self.update_models(
                     clusterings,
                     theta_inits,
+                    models,
+                    &xt,
+                    &yt,
                     actives,
+                    do_clustering,
+                    optimize_theta,
                 );
 
                 // Handle failsafe imputation on the first iteration
@@ -1048,7 +1023,7 @@ where
                                 .for_each(|mut y_row, xfail| {
                                     let y_pred = self.compute_penalized_point(
                                         &xfail,
-                                        models[0].as_ref(),
+                                        &*models[0],
                                         &models[1..],
                                     );
                                     y_row.assign(&y_pred);
@@ -1076,7 +1051,7 @@ where
                         EGOR_GP_FILENAME
                     };
                     let filepath = std::path::Path::new(outdir).join(filename);
-                    match gp_recorder::save_gp_models(&filepath, &models) {
+                    match gp_recorder::save_gp_models(&filepath, models) {
                         Ok(_) => log::info!("GP models saved to {:?}", filepath),
                         Err(err) => log::info!("Cannot save GP models: {:?}", err),
                     };
@@ -1084,7 +1059,9 @@ where
 
                 (0..=self.config.n_internal_cstr()).for_each(|k| {
                     clusterings[k] = Some(models[k].to_clustering());
-                    theta_inits[k] = Some(inits[k].to_owned());
+                    if let Some(init) = inits.get(k).and_then(|i| i.as_ref()) {
+                        theta_inits[k] = Some(init.to_owned());
+                    }
                 });
 
                 let (obj_model, cstr_models) = models.split_first().unwrap();
@@ -1278,5 +1255,150 @@ where
         };
 
         (x_dat, y_dat, c_dat, y_penalized, infill_value)
+    }
+
+    /// Update the surrogate models with new data.
+    /// When clustering is fixed and theta optimization is disabled, attempts
+    /// an incremental update of existing models before falling back to full retraining.
+    #[allow(clippy::too_many_arguments)]
+    fn update_models(
+        &self,
+        clusterings: &mut [Option<Clustering>],
+        theta_inits: &mut [Option<Array2<f64>>],
+        models: &mut Vec<Box<dyn MixtureGpSurrogate>>,
+        xt: &Array2<f64>,
+        yt: &Array2<f64>,
+        actives: &Array2<usize>,
+        do_clustering: DataClustering,
+        optimize_theta: ThetaOptimization,
+    ) -> Vec<Option<Array2<f64>>> {
+        if do_clustering == DataClustering::Regenerate
+            || optimize_theta == ThetaOptimization::Enabled
+        {
+            // Slow path: retrain from scratch
+            let mapping = self
+                .config
+                .cstr_specs
+                .as_ref()
+                .map(|s| internal_cstr_mapping(s));
+
+            #[cfg(feature = "persistent")]
+            let (models_new, inits) = if let Some(ref mapping) = mapping {
+                self.train_with_mapping(
+                    mapping,
+                    xt,
+                    yt,
+                    do_clustering,
+                    optimize_theta,
+                    clusterings,
+                    theta_inits,
+                    actives,
+                )
+            } else {
+                self.train_all_columns(
+                    xt,
+                    yt,
+                    do_clustering,
+                    optimize_theta,
+                    clusterings,
+                    theta_inits,
+                    actives,
+                )
+            };
+
+            #[cfg(not(feature = "persistent"))]
+            let (models_new, inits) = self.train_all_columns(
+                xt,
+                yt,
+                do_clustering,
+                optimize_theta,
+                clusterings,
+                theta_inits,
+                actives,
+            );
+
+            *models = models_new;
+            inits.into_iter().map(Some).collect()
+        } else {
+            // Fast path: incremental update
+            if !models.is_empty() {
+                let mut update_failed = false;
+                let old_models: Vec<Box<dyn MixtureGpSurrogate>> = std::mem::take(models);
+                let mut results = Vec::with_capacity(old_models.len());
+                for (k, model) in old_models.into_iter().enumerate() {
+                    let (xt_model, _yt_model) = model.training_data();
+                    let n_old = xt_model.nrows();
+                    let n_new = xt.nrows();
+                    if n_new > n_old {
+                        let x_new = xt.slice(s![n_old..n_new, ..]);
+                        let y_new = yt.slice(s![n_old..n_new, k]);
+                        match model.update(&x_new.view(), &y_new.view()) {
+                            Ok(updated) => {
+                                results.push(updated);
+                            }
+                            Err(err) => {
+                                info!(
+                                    "Incremental update failed for model {k}: {err}, retraining..."
+                                );
+                                update_failed = true;
+                                results.push(model);
+                                break;
+                            }
+                        }
+                    } else {
+                        results.push(model);
+                    }
+                }
+                if !update_failed {
+                    *models = results;
+                    return vec![None; models.len()];
+                }
+            }
+
+            // Fall through to slow path: retrain from scratch
+            let mapping = self
+                .config
+                .cstr_specs
+                .as_ref()
+                .map(|s| internal_cstr_mapping(s));
+
+            #[cfg(feature = "persistent")]
+            let (models_new, inits) = if let Some(ref mapping) = mapping {
+                self.train_with_mapping(
+                    mapping,
+                    xt,
+                    yt,
+                    do_clustering,
+                    optimize_theta,
+                    clusterings,
+                    theta_inits,
+                    actives,
+                )
+            } else {
+                self.train_all_columns(
+                    xt,
+                    yt,
+                    do_clustering,
+                    optimize_theta,
+                    clusterings,
+                    theta_inits,
+                    actives,
+                )
+            };
+
+            #[cfg(not(feature = "persistent"))]
+            let (models_new, inits) = self.train_all_columns(
+                xt,
+                yt,
+                do_clustering,
+                optimize_theta,
+                clusterings,
+                theta_inits,
+                actives,
+            );
+
+            *models = models_new;
+            inits.into_iter().map(Some).collect()
+        }
     }
 }
