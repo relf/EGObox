@@ -201,12 +201,13 @@ impl MixtureGpSurrogate for AffinedSurrogate {
     }
 }
 
-/// Clone a surrogate via serialization round-trip.
-///
-/// This produces an independent owned copy suitable for wrapping
-/// in [`AffinedSurrogate`].
-#[cfg(feature = "persistent")]
-pub fn clone_surrogate(surrogate: &dyn MixtureGpSurrogate) -> Box<dyn MixtureGpSurrogate> {
-    let json = serde_json::to_string(surrogate).expect("surrogate serialization");
-    serde_json::from_str(&json).expect("surrogate deserialization")
+impl Clone for AffinedSurrogate {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            scale: self.scale,
+            offset: self.offset,
+            training_data: self.training_data.clone(),
+        }
+    }
 }

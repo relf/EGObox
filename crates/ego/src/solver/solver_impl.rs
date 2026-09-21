@@ -20,7 +20,7 @@ use egobox_gp::ThetaTuning;
 use env_logger::{Builder, Env};
 
 #[cfg(feature = "persistent")]
-use egobox_moe::{AffinedSurrogate, clone_surrogate};
+use egobox_moe::AffinedSurrogate;
 use egobox_moe::{Clustering, CorrelationSpec, MixtureGpSurrogate, NbClusters, RegressionSpec};
 use log::{debug, info};
 use ndarray::{Array1, Array2, ArrayBase, Axis, Data, Ix1, Ix2, Zip, concatenate, s};
@@ -588,7 +588,7 @@ where
                 offset,
             } = kind
             {
-                let cloned = clone_surrogate(models[*source].as_ref().unwrap().as_ref());
+                let cloned = models[*source].as_ref().unwrap().clone();
                 models[k] = Some(Box::new(AffinedSurrogate::new(cloned, *scale, *offset)));
             }
         }
@@ -691,7 +691,7 @@ where
             } = kind
             {
                 let source_model = models[*source].as_ref().unwrap();
-                let cloned = clone_surrogate(source_model.as_ref());
+                let cloned = source_model.clone();
                 models[k] = Some(Box::new(AffinedSurrogate::new(cloned, *scale, *offset)));
                 inits[k] = inits[*source].clone();
             }
