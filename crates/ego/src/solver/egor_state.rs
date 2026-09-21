@@ -33,9 +33,6 @@ use rand_xoshiro::Xoshiro256Plus;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[cfg(feature = "persistent")]
-use egobox_moe::clone_surrogate;
-
 /// Max number of retry when adding a new point. Point addition may fail
 /// if new point is too close to a previous point in the growing doe used
 /// to train surrogate models modeling objective and constraints functions.
@@ -134,11 +131,7 @@ impl<F: Float> Clone for SurrogateState<F> {
             infill_data: self.infill_data.clone(),
             infill_value: self.infill_value,
             #[cfg(feature = "persistent")]
-            models: self
-                .models
-                .iter()
-                .map(|m| clone_surrogate(m.as_ref()))
-                .collect(),
+            models: self.models.iter().map(|m| m.clone()).collect(),
         }
     }
 }
