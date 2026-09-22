@@ -116,6 +116,18 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
     }
 }
 
+/// Below `MIN_POINTS_DIM_FACTOR * dim` training points, the surrogate is
+/// considered data-starved: theta hyperparameters are always (re)optimized
+/// from scratch instead of reused/incrementally updated.
+const MIN_POINTS_DIM_FACTOR: usize = 10;
+
+/// z-score threshold on the newly added point(s) prediction error
+/// `(y_new - y_pred).abs() / var_pred.sqrt()`, above which the incremental
+/// "fast path" model update is abandoned in favor of a full retraining with
+/// theta optimization: a large z-score means the current hyperparameters no
+/// longer explain the data well.
+const ZSCORE_THETA_OPTIM_THRESHOLD: f64 = 2.5;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum DataClustering {
     /// Clustering is not updated given values are used as is
@@ -982,12 +994,34 @@ where
                 log::debug!("activity: {activity:?}");
                 let actives = activity;
 
-                let do_clustering = ((init && i == 0) || recluster).into();
-                let optimize_theta = ((iter as usize * self.config.qei_config.batch + i)
-                    .is_multiple_of(self.config.qei_config.optmod)
-                    && j == 0
-                    && !self.config.gp.theta_tuning.is_fixed())
-                .into();
+                let do_clustering: DataClustering = ((init && i == 0) || recluster).into();
+
+                // The fast (incremental) path is the default strategy: theta is
+                // fully (re)optimized:
+                // * while the surrogate is still data-starved (few points wrt input dim)
+                // * whenever the clustering itself is (re)computed
+                // * periodically, every `optmod` points, but only for q-batch (>1)
+                //   optimization: within a batch, points i>0 are pseudo-observations
+                //   (infill-strategy virtual points), for which the z-score check
+                //   below is not meaningful, so the legacy periodic override is kept
+                //   as a fallback in that case
+                // Otherwise the fast path is attempted, itself able to escalate to a
+                // full theta-optimized retraining should the incoming point(s) turn
+                // out to be a poor surprise for the current surrogate, i.e. its
+                // z-score exceeds `ZSCORE_THETA_OPTIM_THRESHOLD` (see
+                // `update_models`'s z-score check).
+                let dim = self.config.gp.kpls_dim.unwrap_or(xt.ncols());
+                let nb_points = xt.nrows();
+                let periodic_optim = self.config.qei_config.batch > 1
+                    && self.config.qei_config.optmod > 1
+                    && (iter as usize * self.config.qei_config.batch + i)
+                        .is_multiple_of(self.config.qei_config.optmod);
+                let optimize_theta: ThetaOptimization = (j == 0
+                    && !self.config.gp.theta_tuning.is_fixed()
+                    && (do_clustering == DataClustering::Regenerate
+                        || nb_points < MIN_POINTS_DIM_FACTOR * dim
+                        || periodic_optim))
+                    .into();
 
                 info!(
                     "Update surrogates with {} points... clustering={:?} optimize_theta={:?}",
@@ -1264,9 +1298,124 @@ where
         (x_dat, y_dat, c_dat, y_penalized, infill_value)
     }
 
+    /// Retrain surrogates from scratch (the "slow path"), whatever clustering/theta
+    /// optimization settings are given, and store the resulting models/inits.
+    #[allow(clippy::too_many_arguments)]
+    fn retrain_from_scratch(
+        &self,
+        clusterings: &[Option<Clustering>],
+        theta_inits: &[Option<Array2<f64>>],
+        models: &mut Vec<Box<dyn MixtureGpSurrogate>>,
+        xt: &Array2<f64>,
+        yt: &Array2<f64>,
+        actives: &Array2<usize>,
+        do_clustering: DataClustering,
+        optimize_theta: ThetaOptimization,
+    ) -> Vec<Option<Array2<f64>>> {
+        let mapping = self
+            .config
+            .cstr_specs
+            .as_ref()
+            .map(|s| internal_cstr_mapping(s));
+
+        #[cfg(feature = "persistent")]
+        let (models_new, inits) = if let Some(ref mapping) = mapping {
+            self.train_with_mapping(
+                mapping,
+                xt,
+                yt,
+                do_clustering,
+                optimize_theta,
+                clusterings,
+                theta_inits,
+                actives,
+            )
+        } else {
+            self.train_all_columns(
+                xt,
+                yt,
+                do_clustering,
+                optimize_theta,
+                clusterings,
+                theta_inits,
+                actives,
+            )
+        };
+
+        #[cfg(not(feature = "persistent"))]
+        let (models_new, inits) = self.train_all_columns(
+            xt,
+            yt,
+            do_clustering,
+            optimize_theta,
+            clusterings,
+            theta_inits,
+            actives,
+        );
+
+        *models = models_new;
+        inits.into_iter().map(Some).collect()
+    }
+
+    /// Check whether the point(s) about to be added trigger the z-score guard:
+    /// for each output `k`, compare the new `y` value(s) to the current model
+    /// prediction `y_pred +- sqrt(var_pred)`. A z-score
+    /// `(y_new - y_pred).abs() / var_pred.sqrt()` greater than
+    /// `ZSCORE_THETA_OPTIM_THRESHOLD` means the new point is a poor surprise
+    /// for the current surrogate, so its hyperparameters can no longer be
+    /// trusted as-is.
+    fn zscore_exceeds_threshold(
+        &self,
+        models: &[Box<dyn MixtureGpSurrogate>],
+        xt: &Array2<f64>,
+        yt: &Array2<f64>,
+    ) -> bool {
+        for (k, model) in models.iter().enumerate() {
+            let (xt_model, _yt_model) = model.training_data();
+            let n_old = xt_model.nrows();
+            let n_new = xt.nrows();
+            if n_new <= n_old {
+                continue;
+            }
+            let x_new = xt.slice(s![n_old..n_new, ..]);
+            let y_new = yt.slice(s![n_old..n_new, k]);
+
+            let (y_pred, var_pred) = match model.predict_valvar(&x_new.view()) {
+                Ok(pv) => pv,
+                Err(err) => {
+                    info!("z-score check: prediction failed for model {k}: {err}, skipping");
+                    continue;
+                }
+            };
+
+            for i in 0..y_new.len() {
+                let std_pred = var_pred[i].max(0.0).sqrt();
+                let err = (y_new[i] - y_pred[i]).abs();
+                let zscore = if std_pred > f64::EPSILON {
+                    err / std_pred
+                } else if err > f64::EPSILON {
+                    f64::INFINITY
+                } else {
+                    0.0
+                };
+                if zscore > ZSCORE_THETA_OPTIM_THRESHOLD {
+                    info!(
+                        "New point z-score={zscore:.3} > {ZSCORE_THETA_OPTIM_THRESHOLD} for model {k}: triggering theta optimization"
+                    );
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     /// Update the surrogate models with new data.
     /// When clustering is fixed and theta optimization is disabled, attempts
     /// an incremental update of existing models before falling back to full retraining.
+    /// Before performing this incremental "fast path" update, the new point(s) z-score
+    /// is checked against the current models: a large z-score (see
+    /// `ZSCORE_THETA_OPTIM_THRESHOLD`) means the surrogate hyperparameters are no
+    /// longer trustworthy, so a full theta-optimized retraining is triggered instead.
     #[allow(clippy::too_many_arguments)]
     fn update_models(
         &self,
@@ -1283,129 +1432,80 @@ where
             || optimize_theta == ThetaOptimization::Enabled
         {
             // Slow path: retrain from scratch
-            let mapping = self
-                .config
-                .cstr_specs
-                .as_ref()
-                .map(|s| internal_cstr_mapping(s));
-
-            #[cfg(feature = "persistent")]
-            let (models_new, inits) = if let Some(ref mapping) = mapping {
-                self.train_with_mapping(
-                    mapping,
-                    xt,
-                    yt,
-                    do_clustering,
-                    optimize_theta,
-                    clusterings,
-                    theta_inits,
-                    actives,
-                )
-            } else {
-                self.train_all_columns(
-                    xt,
-                    yt,
-                    do_clustering,
-                    optimize_theta,
-                    clusterings,
-                    theta_inits,
-                    actives,
-                )
-            };
-
-            #[cfg(not(feature = "persistent"))]
-            let (models_new, inits) = self.train_all_columns(
-                xt,
-                yt,
-                do_clustering,
-                optimize_theta,
+            return self.retrain_from_scratch(
                 clusterings,
                 theta_inits,
+                models,
+                xt,
+                yt,
                 actives,
+                do_clustering,
+                optimize_theta,
             );
+        }
 
-            *models = models_new;
-            inits.into_iter().map(Some).collect()
-        } else {
-            // Fast path: incremental update
-            if !models.is_empty() {
-                let mut update_failed = false;
-                let old_models: Vec<Box<dyn MixtureGpSurrogate>> = std::mem::take(models);
-                let mut results = Vec::with_capacity(old_models.len());
-                for (k, model) in old_models.into_iter().enumerate() {
-                    let (xt_model, _yt_model) = model.training_data();
-                    let n_old = xt_model.nrows();
-                    let n_new = xt.nrows();
-                    if n_new > n_old {
-                        let x_new = xt.slice(s![n_old..n_new, ..]);
-                        let y_new = yt.slice(s![n_old..n_new, k]);
-                        match model.update(&x_new.view(), &y_new.view()) {
-                            Ok(updated) => {
-                                results.push(updated);
-                            }
-                            Err(err) => {
-                                info!(
-                                    "Incremental update failed for model {k}: {err}, retraining..."
-                                );
-                                update_failed = true;
-                                results.push(model);
-                                break;
-                            }
-                        }
-                    } else {
-                        results.push(model);
-                    }
-                }
-                if !update_failed {
-                    *models = results;
-                    return vec![None; models.len()];
-                }
+        // Fast path candidate: incremental update.
+        if !models.is_empty() {
+            // Check the incoming point(s) against the current surrogate before
+            // committing to the cheap incremental update: a large z-score means
+            // the fast path is no longer trustworthy, so escalate to a full
+            // theta-optimized retraining instead of adding the point as-is.
+            if self.zscore_exceeds_threshold(models, xt, yt) {
+                return self.retrain_from_scratch(
+                    clusterings,
+                    theta_inits,
+                    models,
+                    xt,
+                    yt,
+                    actives,
+                    do_clustering,
+                    ThetaOptimization::Enabled,
+                );
             }
 
-            // Fall through to slow path: retrain from scratch
-            let mapping = self
-                .config
-                .cstr_specs
-                .as_ref()
-                .map(|s| internal_cstr_mapping(s));
-
-            #[cfg(feature = "persistent")]
-            let (models_new, inits) = if let Some(ref mapping) = mapping {
-                self.train_with_mapping(
-                    mapping,
-                    xt,
-                    yt,
-                    do_clustering,
-                    optimize_theta,
-                    clusterings,
-                    theta_inits,
-                    actives,
-                )
-            } else {
-                self.train_all_columns(
-                    xt,
-                    yt,
-                    do_clustering,
-                    optimize_theta,
-                    clusterings,
-                    theta_inits,
-                    actives,
-                )
-            };
-
-            #[cfg(not(feature = "persistent"))]
-            let (models_new, inits) = self.train_all_columns(
-                xt,
-                yt,
-                do_clustering,
-                optimize_theta,
-                clusterings,
-                theta_inits,
-                actives,
-            );
-
-            *models = models_new;
-            inits.into_iter().map(Some).collect()
+            let mut update_failed = false;
+            let old_models: Vec<Box<dyn MixtureGpSurrogate>> = std::mem::take(models);
+            let mut results = Vec::with_capacity(old_models.len());
+            for (k, model) in old_models.into_iter().enumerate() {
+                let (xt_model, _yt_model) = model.training_data();
+                let n_old = xt_model.nrows();
+                let n_new = xt.nrows();
+                if n_new > n_old {
+                    let x_new = xt.slice(s![n_old..n_new, ..]);
+                    let y_new = yt.slice(s![n_old..n_new, k]);
+                    match model.update(&x_new.view(), &y_new.view()) {
+                        Ok(updated) => {
+                            results.push(updated);
+                        }
+                        Err(err) => {
+                            info!(
+                                "Incremental update failed for model {k}: {err}, retraining..."
+                            );
+                            update_failed = true;
+                            results.push(model);
+                            break;
+                        }
+                    }
+                } else {
+                    results.push(model);
+                }
+            }
+            if !update_failed {
+                *models = results;
+                return vec![None; models.len()];
+            }
         }
+
+        // Fall through to slow path: retrain from scratch
+        self.retrain_from_scratch(
+            clusterings,
+            theta_inits,
+            models,
+            xt,
+            yt,
+            actives,
+            do_clustering,
+            optimize_theta,
+        )
     }
 }

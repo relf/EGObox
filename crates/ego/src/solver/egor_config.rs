@@ -187,8 +187,11 @@ pub struct QEiConfig {
     pub(crate) batch: usize,
     /// Multipoint strategy used to get several points to be evaluated at each iteration
     pub(crate) strategy: QEiStrategy,
-    /// Interval between two hyperparameters optimizations (as iteration number modulo)
-    /// hyperparameters are optimized or re-used from an iteration to another when getting q points
+    /// Interval between two hyperparameters optimizations (as iteration number modulo).
+    /// Only used as a periodic override when using the q-points parallel (batch > 1)
+    /// strategy: within a batch, pseudo-observations make the z-score check unreliable,
+    /// so hyperparameters are otherwise (re)optimized every `optmod` points. Has no
+    /// effect when `batch == 1`, where the z-score-driven strategy is used instead.
     pub(crate) optmod: usize,
 }
 
@@ -215,7 +218,10 @@ impl QEiConfig {
         self
     }
 
-    /// Sets the number of iteration interval between two hyperparameter optimization
+    /// Sets the number of iteration interval between two hyperparameter optimization.
+    /// Only takes effect when the q-points parallel (batch > 1) strategy is used
+    /// (see `batch`); otherwise theta (re)optimization is driven automatically by
+    /// the data-starved/reclustering/z-score triggers.
     pub fn optmod(mut self, optmod: usize) -> Self {
         self.optmod = optmod;
         self
