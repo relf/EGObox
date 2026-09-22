@@ -99,6 +99,7 @@ pub struct SurrogateState<F: Float> {
     pub infill_value: F,
     /// Trained surrogate models for objective and constraints (persisted across EGO iterations)
     #[cfg(feature = "persistent")]
+    #[serde(default)]
     pub models: Vec<Box<dyn MixtureGpSurrogate>>,
 }
 

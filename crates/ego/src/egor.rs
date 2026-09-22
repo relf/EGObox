@@ -533,14 +533,30 @@ impl Observe<EgorState<f64>> for OptimizationObserver {
             {
                 let state_filename = format!("egor_state_{:04}.json", state.iter);
                 let state_filepath = std::path::Path::new(&self.dir).join(state_filename);
-                if let Ok(json) = serde_json::to_string_pretty(state) {
-                    if let Err(e) = std::fs::write(&state_filepath, json) {
-                        log::warn!("Failed to save EgorState to {:?}: {}", state_filepath, e);
-                    } else {
-                        log::debug!(">>> Saved EgorState to {:?}", state_filepath);
+                // Do not embed the surrogate GP models in the per-iteration state
+                // dump: they are by far the largest part of the state (GP training
+                // data and Cholesky factorizations) and are saved separately as GP
+                // files by the run recorder. Hot start checkpoints still serialize
+                // them for exact continuation.
+                let json = serde_json::to_value(state)
+                    .map(|mut value| {
+                        if let Some(surrogate) = value.get_mut("surrogate") {
+                            if let Some(map) = surrogate.as_object_mut() {
+                                map.remove("models");
+                            }
+                        }
+                        value
+                    })
+                    .and_then(|value| serde_json::to_string_pretty(&value));
+                match json {
+                    Ok(json) => {
+                        if let Err(e) = std::fs::write(&state_filepath, json) {
+                            log::warn!("Failed to save EgorState to {:?}: {}", state_filepath, e);
+                        } else {
+                            log::debug!(">>> Saved EgorState to {:?}", state_filepath);
+                        }
                     }
-                } else {
-                    log::warn!("Failed to serialize EgorState");
+                    Err(_) => log::warn!("Failed to serialize EgorState"),
                 }
             }
         }
@@ -1428,6 +1444,100 @@ mod tests {
         println!("G24 optim result = {res:?}");
         let expected = array![2.3295, 3.1785];
         assert_abs_diff_eq!(expected, res.x_opt, epsilon = 2e-2);
+    }
+
+    #[test]
+    #[serial]
+    #[cfg(feature = "persistent")]
+    fn test_egor_qei_models_trained_on_evaluated_data() {
+        use egobox_moe::GpQualityAssurance;
+
+        // qEI run long enough for the incremental model update (fast path) to
+        // be used (once nb_points >= 10 * dim = 20 points): the persisted models
+        // must be trained on evaluated points only, not on the virtual points
+        // (kriging believer predictions) used within the batch selection.
+        let xlimits = array![[0., 3.], [0., 4.]];
+        let doe = Lhs::new(&xlimits)
+            .with_rng(Xoshiro256Plus::seed_from_u64(42))
+            .sample(10);
+        let q = 2;
+        let res = EgorBuilder::optimize(f_g24)
+            .configure(|config| {
+                config
+                    .n_cstr(2)
+                    .cstr_tol(array![2e-6, 2e-6])
+                    .configure_qei(|qei_config| {
+                        qei_config.batch(q).strategy(QEiStrategy::KrigingBeliever)
+                    })
+                    .doe(&doe)
+                    .max_iters(8)
+                    .seed(42)
+            })
+            .min_within(&xlimits)
+            .expect("Egor configured")
+            .run()
+            .expect("Egor minimization");
+
+        let (x_data, y_data, c_data) = res
+            .state
+            .surrogate
+            .data
+            .as_ref()
+            .expect("evaluated data in final state");
+        let models = &res.state.surrogate.models;
+        assert_eq!(models.len(), 1 + 2); // objective + 2 constraints
+        for (k, model) in models.iter().enumerate() {
+            let (xt_m, yt_m) = model.training_data();
+            for i in 0..xt_m.nrows() {
+                let mut matched = false;
+                for j in 0..x_data.nrows() {
+                    let same_x = xt_m
+                        .row(i)
+                        .iter()
+                        .zip(x_data.row(j).iter())
+                        .all(|(a, b)| (a - b).abs() < 1e-8);
+                    if same_x {
+                        let expected = if k == 0 {
+                            y_data[[j, 0]]
+                        } else {
+                            c_data[[j, k - 1]]
+                        };
+                        assert!(
+                            (yt_m[i] - expected).abs() < 1e-9,
+                            "model {k} trained with a stale virtual point at row {i}: \
+                             y={} instead of the evaluated value {}",
+                            yt_m[i],
+                            expected
+                        );
+                        matched = true;
+                        break;
+                    }
+                }
+                assert!(
+                    matched,
+                    "model {k} training point at row {i} not found in evaluated doe"
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "persistent")]
+    fn test_egor_state_deser_without_models() {
+        use argmin::core::State;
+
+        // Backward compatibility: states serialized by previous versions do not
+        // have the surrogate `models` field and should still deserialize (with
+        // empty models, triggering a fresh training at restart).
+        let state: EgorState<f64> = EgorState::new();
+        let mut value = serde_json::to_value(&state).expect("EgorState serialization");
+        assert!(value["surrogate"].get("models").is_some());
+        if let Some(surrogate) = value.get_mut("surrogate").and_then(|s| s.as_object_mut()) {
+            surrogate.remove("models");
+        }
+        let deserialized: EgorState<f64> =
+            serde_json::from_value(value).expect("EgorState deserialization without models");
+        assert!(deserialized.surrogate.models.is_empty());
     }
 
     // Mixed-integer tests

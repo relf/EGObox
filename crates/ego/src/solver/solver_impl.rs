@@ -947,6 +947,17 @@ where
     ) -> (Array2<f64>, Array2<f64>, Array2<f64>, Array2<f64>, f64) {
         let mut portfolio = vec![];
 
+        // When several points are selected per iteration (qEI with `batch > 1`),
+        // the models are incrementally updated with virtual points (kriging
+        // believer pseudo-observations, see `compute_virtual_point`) within the
+        // batch. Snapshot the models right after they have been updated with the
+        // real doe data (first model update of the batch) and restore that
+        // snapshot at the end of the selection: the models persisted in the
+        // solver state must only be trained on real evaluated points, the batch
+        // points being incorporated incrementally at the next iteration.
+        let keep_pristine_models = self.config.qei_config.batch > 1;
+        let mut pristine_models: Option<Vec<Box<dyn MixtureGpSurrogate>>> = None;
+
         let sigma_weights = if self.config.runtime_flags.use_gp_var_portfolio
             && self.config.qei_config.batch == 1
         {
@@ -1040,6 +1051,13 @@ where
                     do_clustering,
                     optimize_theta,
                 );
+
+                // Keep a snapshot of the models trained on real doe data only,
+                // before they possibly get updated with qEI virtual points at
+                // i > 0 within the batch.
+                if keep_pristine_models && i == 0 && j == 0 {
+                    pristine_models = Some(models.clone());
+                }
 
                 // Handle failsafe imputation on the first iteration
                 if iter == 0
@@ -1282,6 +1300,13 @@ where
                 }
             }
             portfolio.push((x_dat.to_owned(), y_dat, c_dat, y_penalized, infill_val));
+        }
+        // Restore the models trained on real evaluated data only, discarding the
+        // qEI virtual points used during the batch selection: the models carried
+        // across iterations through the solver state must reflect actual
+        // evaluations, the batch points being added at the next iteration.
+        if let Some(pristine) = pristine_models {
+            *models = pristine;
         }
         let (x_dat, y_dat, c_dat, y_penalized, infill_value) = if portfolio.len() > 1 {
             info!(
