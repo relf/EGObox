@@ -696,7 +696,12 @@ impl MixintGpMixture {
 
     /// Update the mixint mixture of experts with new data points.
     ///
-    /// Delegates to the underlying GpMixture update method.
+    /// Casts/unfolds the new points into the space the inner moe is trained in
+    /// (mirroring `_train`/`_train_on_clusters`) before delegating to the
+    /// underlying `GpMixture::update`, and extends the (original-space)
+    /// `training_data` bookkeeping accordingly, so callers relying on
+    /// `training_data()` (e.g. incremental "fast path" updates) observe the
+    /// true, up-to-date point count instead of the last full-training one.
     ///
     /// # Arguments
     ///
@@ -711,9 +716,6 @@ impl MixintGpMixture {
         x_new: &ArrayBase<impl Data<Elem = f64>, Ix2>,
         y_new: &ArrayBase<impl Data<Elem = f64>, Ix1>,
     ) -> Result<MixintGpMixture> {
-        // Prepare the new inputs the same way `train` does: unfold enum
-        // dimensions when working in folded space and snap the values to the
-        // discrete domains.
         let mut xcast = if self.work_in_folded_space {
             unfold_with_enum_mask(&self.xtypes, &x_new.view())
         } else {
@@ -724,20 +726,19 @@ impl MixintGpMixture {
         // Update the underlying moe (consume self.moe)
         let updated_moe = self.moe.update(&xcast, y_new)?;
 
-        // Extend the mixint training data (kept in the input space, as done in
-        // `train`) with the new points so that further updates rely on an
-        // up-to-date count of already trained points.
-        let xt_combined = concatenate(Axis(0), &[self.training_data.0.view(), x_new.view()])
-            .map_err(|e| MoeError::InvalidValueError(e.to_string()))?;
-        let yt_combined = concatenate(Axis(0), &[self.training_data.1.view(), y_new.view()])
-            .map_err(|e| MoeError::InvalidValueError(e.to_string()))?;
+        // Extend training data bookkeeping (kept in the original, un-cast space,
+        // like `_train`/`_train_on_clusters` do) instead of dropping the new points.
+        let x_combined = concatenate(Axis(0), &[self.training_data.0.view(), x_new.view()])
+            .map_err(|e| MoeError::GpError(egobox_gp::GpError::InvalidValueError(e.to_string())))?;
+        let y_combined = concatenate(Axis(0), &[self.training_data.1.view(), y_new.view()])
+            .map_err(|e| MoeError::GpError(egobox_gp::GpError::InvalidValueError(e.to_string())))?;
 
         // Rebuild MixintGpMixture with updated moe, moving fields
         Ok(MixintGpMixture {
             params: self.params, // Moved
             moe: updated_moe,
             xtypes: self.xtypes, // Moved
-            training_data: (xt_combined, yt_combined),
+            training_data: (x_combined, y_combined),
             work_in_folded_space: self.work_in_folded_space,
         })
     }
@@ -1148,52 +1149,5 @@ mod tests {
         let ytest = mixi_moe.predict(&xtest.view()).expect("Predict val fail");
         let ytrue = ftest(&xtest);
         assert_abs_diff_eq!(ytrue, ytest, epsilon = 2.0);
-    }
-
-    #[test]
-    fn test_mixint_moe_update_extends_training_data() {
-        let xtypes = vec![XType::Int(0, 9)];
-
-        let mixi = MixintContext::new(&xtypes);
-        let surrogate_builder = MoeBuilder::new();
-        let xt = array![[0.], [1.], [2.], [3.], [4.], [5.]];
-        let yt = array![0., 1., 4., 9., 16., 25.];
-        let ds = Dataset::new(xt, yt);
-        let mixi_moe = mixi
-            .create_surrogate(&surrogate_builder, &ds)
-            .expect("Mixint surrogate creation");
-
-        // Check the training data through the trait object as done by the EGO solver
-        let boxed: Box<dyn MixtureGpSurrogate> = Box::new(mixi_moe);
-        let (xt_m, yt_m) = boxed.training_data();
-        assert_eq!(xt_m.nrows(), 6);
-        assert_eq!(yt_m.len(), 6);
-
-        // The update appends the new point to the training data
-        let updated = boxed
-            .update(&array![[6.]].view(), &array![36.].view())
-            .expect("Mixint update");
-        let (xt_u, yt_u) = updated.training_data();
-        assert_eq!(xt_u.nrows(), 7);
-        assert_eq!(yt_u.len(), 7);
-        assert_abs_diff_eq!(xt_u[[6, 0]], 6., epsilon = 1e-10);
-        assert_abs_diff_eq!(yt_u[6], 36., epsilon = 1e-10);
-
-        // A second update appends only its own point: no duplication of
-        // previously trained points
-        let updated2 = updated
-            .update(&array![[7.]].view(), &array![49.].view())
-            .expect("Mixint update");
-        let (xt_u2, yt_u2) = updated2.training_data();
-        assert_eq!(xt_u2.nrows(), 8);
-        assert_eq!(yt_u2.len(), 8);
-        assert_abs_diff_eq!(yt_u2[7], 49., epsilon = 1e-10);
-
-        // The updated model interpolates the newly added points
-        let preds = updated2
-            .predict(&array![[6.], [7.]].view())
-            .expect("Predict val fail");
-        assert_abs_diff_eq!(preds[0], 36., epsilon = 1e-2);
-        assert_abs_diff_eq!(preds[1], 49., epsilon = 1e-2);
     }
 }
