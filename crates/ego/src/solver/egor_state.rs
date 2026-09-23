@@ -132,7 +132,7 @@ impl<F: Float> Clone for SurrogateState<F> {
             infill_data: self.infill_data.clone(),
             infill_value: self.infill_value,
             #[cfg(feature = "persistent")]
-            models: self.models.iter().map(|m| m.clone()).collect(),
+            models: self.models.to_vec(),
         }
     }
 }

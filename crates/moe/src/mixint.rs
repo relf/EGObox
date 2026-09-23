@@ -203,6 +203,24 @@ fn cast_to_discrete_values_mut<F: Float>(
     });
 }
 
+/// Cast/unfold points from the mixed-integer ("public") space into the
+/// continuous, discrete-cast space the inner `moe` surrogate model is actually
+/// trained/updated on (unfolding enum dimensions when working in folded
+/// space, then rounding/snapping to the nearest assessable discrete value).
+fn cast_to_model_space(
+    xtypes: &[XType],
+    work_in_folded_space: bool,
+    x: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+) -> Array2<f64> {
+    let mut xcast = if work_in_folded_space {
+        unfold_with_enum_mask(xtypes, &x.view())
+    } else {
+        x.to_owned()
+    };
+    cast_to_discrete_values_mut(xtypes, &mut xcast);
+    xcast
+}
+
 /// Project continuously relaxed values to their closer assessable values.
 ///
 /// Note: categorical (or enum) x dimensions are still expanded that is
@@ -418,12 +436,7 @@ impl MixintGpMixtureValidParams {
         xt: &ArrayBase<impl Data<Elem = f64>, Ix2>,
         yt: &ArrayBase<impl Data<Elem = f64>, Ix1>,
     ) -> Result<MixintGpMixture> {
-        let mut xcast = if self.work_in_folded_space {
-            unfold_with_enum_mask(&self.xtypes, &xt.view())
-        } else {
-            xt.to_owned()
-        };
-        cast_to_discrete_values_mut(&self.xtypes, &mut xcast);
+        let xcast = cast_to_model_space(&self.xtypes, self.work_in_folded_space, xt);
         let mixmoe = MixintGpMixture {
             moe: self
                 .gpmix_params
@@ -444,12 +457,7 @@ impl MixintGpMixtureValidParams {
         yt: &ArrayBase<impl Data<Elem = f64>, Ix1>,
         clustering: &Clustering,
     ) -> Result<MixintGpMixture> {
-        let mut xcast = if self.work_in_folded_space {
-            unfold_with_enum_mask(&self.xtypes, &xt.view())
-        } else {
-            xt.to_owned()
-        };
-        cast_to_discrete_values_mut(&self.xtypes, &mut xcast);
+        let xcast = cast_to_model_space(&self.xtypes, self.work_in_folded_space, xt);
         let mixmoe = MixintGpMixture {
             moe: self
                 .gpmix_params
@@ -643,32 +651,17 @@ impl GpSurrogate for MixintGpMixture {
     }
 
     fn predict(&self, x: &ArrayView2<f64>) -> Result<Array1<f64>> {
-        let mut xcast = if self.work_in_folded_space {
-            unfold_with_enum_mask(&self.xtypes, x)
-        } else {
-            x.to_owned()
-        };
-        cast_to_discrete_values_mut(&self.xtypes, &mut xcast);
+        let xcast = cast_to_model_space(&self.xtypes, self.work_in_folded_space, x);
         self.moe.predict(&xcast)
     }
 
     fn predict_var(&self, x: &ArrayView2<f64>) -> Result<Array1<f64>> {
-        let mut xcast = if self.work_in_folded_space {
-            unfold_with_enum_mask(&self.xtypes, x)
-        } else {
-            x.to_owned()
-        };
-        cast_to_discrete_values_mut(&self.xtypes, &mut xcast);
+        let xcast = cast_to_model_space(&self.xtypes, self.work_in_folded_space, x);
         self.moe.predict_var(&xcast)
     }
 
     fn predict_valvar(&self, x: &ArrayView2<f64>) -> Result<(Array1<f64>, Array1<f64>)> {
-        let mut xcast = if self.work_in_folded_space {
-            unfold_with_enum_mask(&self.xtypes, x)
-        } else {
-            x.to_owned()
-        };
-        cast_to_discrete_values_mut(&self.xtypes, &mut xcast);
+        let xcast = cast_to_model_space(&self.xtypes, self.work_in_folded_space, x);
         self.moe.predict_valvar(&xcast)
     }
 
@@ -716,12 +709,7 @@ impl MixintGpMixture {
         x_new: &ArrayBase<impl Data<Elem = f64>, Ix2>,
         y_new: &ArrayBase<impl Data<Elem = f64>, Ix1>,
     ) -> Result<MixintGpMixture> {
-        let mut xcast = if self.work_in_folded_space {
-            unfold_with_enum_mask(&self.xtypes, &x_new.view())
-        } else {
-            x_new.to_owned()
-        };
-        cast_to_discrete_values_mut(&self.xtypes, &mut xcast);
+        let xcast = cast_to_model_space(&self.xtypes, self.work_in_folded_space, x_new);
 
         // Update the underlying moe (consume self.moe)
         let updated_moe = self.moe.update(&xcast, y_new)?;
@@ -761,42 +749,22 @@ impl MixintGpMixture {
 #[cfg_attr(feature = "serializable", typetag::serde)]
 impl GpSurrogateExt for MixintGpMixture {
     fn predict_gradients(&self, x: &ArrayView2<f64>) -> Result<Array2<f64>> {
-        let mut xcast = if self.work_in_folded_space {
-            unfold_with_enum_mask(&self.xtypes, x)
-        } else {
-            x.to_owned()
-        };
-        cast_to_discrete_values_mut(&self.xtypes, &mut xcast);
+        let xcast = cast_to_model_space(&self.xtypes, self.work_in_folded_space, x);
         self.moe.predict_gradients(&xcast)
     }
 
     fn predict_var_gradients(&self, x: &ArrayView2<f64>) -> Result<Array2<f64>> {
-        let mut xcast = if self.work_in_folded_space {
-            unfold_with_enum_mask(&self.xtypes, x)
-        } else {
-            x.to_owned()
-        };
-        cast_to_discrete_values_mut(&self.xtypes, &mut xcast);
+        let xcast = cast_to_model_space(&self.xtypes, self.work_in_folded_space, x);
         self.moe.predict_var_gradients(&xcast)
     }
 
     fn predict_valvar_gradients(&self, x: &ArrayView2<f64>) -> Result<(Array2<f64>, Array2<f64>)> {
-        let mut xcast = if self.work_in_folded_space {
-            unfold_with_enum_mask(&self.xtypes, x)
-        } else {
-            x.to_owned()
-        };
-        cast_to_discrete_values_mut(&self.xtypes, &mut xcast);
+        let xcast = cast_to_model_space(&self.xtypes, self.work_in_folded_space, x);
         self.moe.predict_valvar_gradients(&xcast)
     }
 
     fn sample(&self, x: &ArrayView2<f64>, n_traj: usize) -> Result<Array2<f64>> {
-        let mut xcast = if self.work_in_folded_space {
-            unfold_with_enum_mask(&self.xtypes, x)
-        } else {
-            x.to_owned()
-        };
-        cast_to_discrete_values_mut(&self.xtypes, &mut xcast);
+        let xcast = cast_to_model_space(&self.xtypes, self.work_in_folded_space, x);
         self.moe.sample(&xcast.view(), n_traj)
     }
 }

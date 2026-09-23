@@ -540,10 +540,10 @@ impl Observe<EgorState<f64>> for OptimizationObserver {
                 // them for exact continuation.
                 let json = serde_json::to_value(state)
                     .map(|mut value| {
-                        if let Some(surrogate) = value.get_mut("surrogate") {
-                            if let Some(map) = surrogate.as_object_mut() {
-                                map.remove("models");
-                            }
+                        if let Some(surrogate) = value.get_mut("surrogate")
+                            && let Some(map) = surrogate.as_object_mut()
+                        {
+                            map.remove("models");
                         }
                         value
                     })
@@ -1450,8 +1450,6 @@ mod tests {
     #[serial]
     #[cfg(feature = "persistent")]
     fn test_egor_qei_models_trained_on_evaluated_data() {
-        use egobox_moe::GpQualityAssurance;
-
         // qEI run long enough for the incremental model update (fast path) to
         // be used (once nb_points >= 10 * dim = 20 points): the persisted models
         // must be trained on evaluated points only, not on the virtual points
