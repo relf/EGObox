@@ -1256,13 +1256,13 @@ mod tests {
         let xlimits = array![[0., 3.], [0., 4.]];
         let doe = Lhs::new(&xlimits)
             .with_rng(Xoshiro256Plus::seed_from_u64(0))
-            .sample(3);
+            .sample(5);
         let res = EgorBuilder::optimize(f_g24)
             .configure(|config| {
                 config
                     .n_cstr(2)
                     .doe(&doe)
-                    .max_iters(20)
+                    .max_iters(30)
                     .infill_strategy(InfillStrategy::LogEI)
                     .infill_optimizer(InfillOptimizer::Slsqp)
                     //.cstr_infill(true)
