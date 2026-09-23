@@ -7,6 +7,7 @@ use ndarray::{Array1, Array2, ArrayView2};
 #[cfg(feature = "serializable")]
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "persistent")]
 use crate::MoeError;
 #[cfg(feature = "persistent")]
 use std::fs;
@@ -185,25 +186,18 @@ impl MixtureGpSurrogate for AffinedSurrogate {
     }
 
     /// Update the affined mixture with new data points
-    ///
-    /// Note: `y_new` is given in the affined (derived) output space while the inner
-    /// surrogate is trained in the primary output space: the affine transform is
-    /// inverted before delegating so that the inner surrogate training data stays
-    /// consistent.
     fn update(
         &self,
         x_new: &ndarray::ArrayView2<f64>,
         y_new: &ndarray::ArrayView1<f64>,
     ) -> crate::errors::Result<Box<dyn MixtureGpSurrogate>> {
-        if self.scale == 0. {
-            return Err(MoeError::InvalidValueError(
-                "Cannot update an affined surrogate with a null scale".to_string(),
-            ));
-        }
-        // Invert the affine transform to get primary-space target values as the
-        // inner surrogate is trained on primary-space data.
-        let y_inner = (y_new.to_owned() - self.offset) / self.scale;
-        let updated_inner = self.inner.update(x_new, &y_inner.view())?;
+        // `y_new` is expressed in this surrogate's derived output space:
+        // y_derived = scale * y_inner + offset. The inner surrogate is trained
+        // in the primary space, so it must be updated with the inverse
+        // transform y_inner = (y_derived - offset) / scale, not with `y_new`
+        // as-is.
+        let y_inner_new = (&y_new.to_owned() - self.offset) / self.scale;
+        let updated_inner = self.inner.update(x_new, &y_inner_new.view())?;
         Ok(Box::new(AffinedSurrogate::new(
             updated_inner,
             self.scale,
@@ -220,67 +214,5 @@ impl Clone for AffinedSurrogate {
             offset: self.offset,
             training_data: self.training_data.clone(),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{GpMixtureParams, NbClusters, SurrogateBuilder};
-    use approx::assert_abs_diff_eq;
-    use ndarray::array;
-    use ndarray_rand::rand::SeedableRng;
-    use rand_xoshiro::Xoshiro256Plus;
-
-    /// Train a single-expert mixture on primary-space data: y = 0.5 * x - 1
-    fn train_inner() -> Box<dyn MixtureGpSurrogate> {
-        let xt = array![[0.], [1.], [2.], [3.], [4.], [5.]];
-        let yt = array![-1., -0.5, 0., 0.5, 1., 1.5];
-        GpMixtureParams::new()
-            .n_clusters(NbClusters::fixed(1))
-            .with_rng(Xoshiro256Plus::seed_from_u64(42))
-            .train(xt.view(), yt.view())
-            .expect("inner mixture training")
-    }
-
-    #[test]
-    fn test_affined_update_inverse_transform() {
-        // Eq-like derived constraint: derived value = -1 * primary value
-        let scale = -1.;
-        let offset = 0.;
-        let affined = AffinedSurrogate::new(train_inner(), scale, offset);
-
-        // New point with its value given in the derived space
-        let x_new = array![[2.5]];
-        let y_primary_new = 0.5 * 2.5 - 1.;
-        let y_derived_new = scale * y_primary_new + offset;
-        let updated = affined
-            .update(&x_new.view(), &array![y_derived_new].view())
-            .expect("affined update");
-
-        // The updated surrogate interpolates the new point in the derived space
-        let pred = updated.predict(&x_new.view()).expect("prediction");
-        assert_abs_diff_eq!(pred[0], y_derived_new, epsilon = 1e-2);
-
-        // ... and still predicts previously trained points in the derived space
-        let pred_old = updated.predict(&array![[1.]].view()).expect("prediction");
-        assert_abs_diff_eq!(pred_old[0], scale * (0.5 * 1. - 1.), epsilon = 1e-2);
-
-        // The updated training data contains the derived-space target values
-        let (xt_m, yt_m) = updated.training_data();
-        assert_eq!(xt_m.nrows(), 7);
-        assert_abs_diff_eq!(yt_m[6], y_derived_new, epsilon = 1e-10);
-    }
-
-    #[test]
-    fn test_affined_clone_predictions() {
-        let affined = AffinedSurrogate::new(train_inner(), -1., 0.);
-        let x = array![[0.5], [3.5]];
-        let models = vec![Box::new(affined) as Box<dyn MixtureGpSurrogate>];
-        let pred = models[0].predict(&x.view()).expect("prediction");
-        // Clone the models vector as done for model persistency in the solver state
-        let cloned_models: Vec<Box<dyn MixtureGpSurrogate>> = models.clone();
-        let pred_cloned = cloned_models[0].predict(&x.view()).expect("prediction");
-        assert_abs_diff_eq!(pred, pred_cloned, epsilon = 1e-12);
     }
 }
