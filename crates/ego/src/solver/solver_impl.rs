@@ -742,6 +742,11 @@ where
         let mut models = std::mem::take(&mut new_state.surrogate.models);
         #[cfg(not(feature = "persistent"))]
         let mut models: Vec<Box<dyn MixtureGpSurrogate>> = Vec::new();
+        // Under `--no-default-features` (no "persistent"), `models` is never
+        // consulted (see the `#[cfg(feature = "persistent")]`-gated blocks
+        // below): keep it referenced so it isn't flagged as unused.
+        #[cfg(not(feature = "persistent"))]
+        let _ = &models;
 
         let mut rng = new_state
             .take_rng()
@@ -750,16 +755,37 @@ where
             .take_data()
             .ok_or_else(argmin_error_closure!(PotentialBug, "EgorSolver: No data!"))?;
 
-        let (x_dat, c_dat, y_penalized) = loop {
-            let recluster = self.have_to_recluster(new_state.doe.added, new_state.doe.prev_added);
-            if recluster {
-                info!("Reclustering surrogates...");
-            }
+        // Computed once and reused both for the batch (virtual points) search below
+        // and, further down, to incorporate the actually evaluated point(s) into
+        // the persisted `models` (neither `new_state.doe.{added,prev_added}` nor
+        // `new_state.get_iter()` change until after this whole retry loop).
+        let recluster = self.have_to_recluster(new_state.doe.added, new_state.doe.prev_added);
+        if recluster {
+            info!("Reclustering surrogates...");
+        }
+        let init = new_state.get_iter() == 0;
 
-            let init = new_state.get_iter() == 0;
+        let (x_dat, c_dat, y_penalized) = loop {
             let pb = problem.take_problem().unwrap();
             let fcstrs = pb.constraints();
             let fcstr_specs = pb.constraint_specs();
+
+            // Batch (q-points > 1) selection picks points i=1..batch-1 using
+            // Kriging-believer virtual y-values (predicted, not evaluated), which
+            // must never pollute the persisted `models` (only the actually
+            // evaluated point(s) get incorporated into them, further below).
+            // With batch == 1 there is only ever i == 0 (no virtual point is ever
+            // constructed), so it's safe -- and avoids a needless clone -- to hand
+            // `models` over directly rather than searching on a clone of it.
+            #[cfg(feature = "persistent")]
+            let mut search_models: Vec<Box<dyn MixtureGpSurrogate>> =
+                if self.config.qei_config.batch > 1 {
+                    models.clone()
+                } else {
+                    std::mem::take(&mut models)
+                };
+            #[cfg(not(feature = "persistent"))]
+            let mut search_models: Vec<Box<dyn MixtureGpSurrogate>> = Vec::new();
 
             let (x_dat, y_dat, c_dat, y_penalized, infill_value) = self.select_next_points(
                 init,
@@ -767,7 +793,7 @@ where
                 recluster,
                 &mut clusterings,
                 &mut theta_inits,
-                &mut models,
+                &mut search_models,
                 &state.coego.activity,
                 &x_data,
                 &y_data,
@@ -780,6 +806,13 @@ where
                 state.feasibility,
                 &mut rng,
             );
+
+            // batch == 1: `search_models` was `models` itself (moved out above,
+            // untouched by any virtual point), so move it right back.
+            #[cfg(feature = "persistent")]
+            if self.config.qei_config.batch <= 1 {
+                models = search_models;
+            }
 
             problem.problem = Some(pb);
 
@@ -915,6 +948,35 @@ where
             );
         #[cfg(feature = "persistent")]
         {
+            // Incorporate the actually evaluated point(s) into the persisted
+            // models (never the virtual/Kriging-believer values used only for
+            // the batch search above, see `search_models`): see
+            // `must_optimize_theta` for the full-retrain-vs-fast-path decision.
+            let dim = self.config.gp.kpls_dim.unwrap_or(x_data.ncols());
+            let do_clustering: DataClustering = (init || recluster).into();
+            let point_index = state.get_iter() as usize * self.config.qei_config.batch;
+            let optimize_theta: ThetaOptimization = self
+                .must_optimize_theta(do_clustering, x_data.nrows(), dim, point_index)
+                .into();
+            let inits = self.update_models(
+                &mut clusterings,
+                &mut theta_inits,
+                &mut models,
+                &x_data,
+                &y_data,
+                &state.coego.activity,
+                do_clustering,
+                optimize_theta,
+            );
+            self.sync_clustering_and_theta_inits(
+                &mut clusterings,
+                &mut theta_inits,
+                &models,
+                &inits,
+            );
+            new_state = new_state
+                .clusterings(clusterings.clone())
+                .theta_inits(theta_inits.clone());
             new_state.surrogate.models = models;
         }
         Ok(new_state)
@@ -946,17 +1008,6 @@ where
         rng: &mut Xoshiro256Plus,
     ) -> (Array2<f64>, Array2<f64>, Array2<f64>, Array2<f64>, f64) {
         let mut portfolio = vec![];
-
-        // When several points are selected per iteration (qEI with `batch > 1`),
-        // the models are incrementally updated with virtual points (kriging
-        // believer pseudo-observations, see `compute_virtual_point`) within the
-        // batch. Snapshot the models right after they have been updated with the
-        // real doe data (first model update of the batch) and restore that
-        // snapshot at the end of the selection: the models persisted in the
-        // solver state must only be trained on real evaluated points, the batch
-        // points being incorporated incrementally at the next iteration.
-        let keep_pristine_models = self.config.qei_config.batch > 1;
-        let mut pristine_models: Option<Vec<Box<dyn MixtureGpSurrogate>>> = None;
 
         let sigma_weights = if self.config.runtime_flags.use_gp_var_portfolio
             && self.config.qei_config.batch == 1
@@ -1007,31 +1058,17 @@ where
 
                 let do_clustering: DataClustering = ((init && i == 0) || recluster).into();
 
-                // The fast (incremental) path is the default strategy: theta is
-                // fully (re)optimized:
-                // * while the surrogate is still data-starved (few points wrt input dim)
-                // * whenever the clustering itself is (re)computed
-                // * periodically, every `optmod` points, but only for q-batch (>1)
-                //   optimization: within a batch, points i>0 are pseudo-observations
-                //   (infill-strategy virtual points), for which the z-score check
-                //   below is not meaningful, so the legacy periodic override is kept
-                //   as a fallback in that case
+                // The fast (incremental) path is the default strategy; see
+                // `must_optimize_theta` for when a full retrain is triggered instead.
                 // Otherwise the fast path is attempted, itself able to escalate to a
                 // full theta-optimized retraining should the incoming point(s) turn
                 // out to be a poor surprise for the current surrogate, i.e. its
                 // z-score exceeds `ZSCORE_THETA_OPTIM_THRESHOLD` (see
                 // `update_models`'s z-score check).
                 let dim = self.config.gp.kpls_dim.unwrap_or(xt.ncols());
-                let nb_points = xt.nrows();
-                let periodic_optim = self.config.qei_config.batch > 1
-                    && self.config.qei_config.optmod > 1
-                    && (iter as usize * self.config.qei_config.batch + i)
-                        .is_multiple_of(self.config.qei_config.optmod);
+                let point_index = iter as usize * self.config.qei_config.batch + i;
                 let optimize_theta: ThetaOptimization = (j == 0
-                    && !self.config.gp.theta_tuning.is_fixed()
-                    && (do_clustering == DataClustering::Regenerate
-                        || nb_points < MIN_POINTS_DIM_FACTOR * dim
-                        || periodic_optim))
+                    && self.must_optimize_theta(do_clustering, xt.nrows(), dim, point_index))
                     .into();
 
                 info!(
@@ -1051,13 +1088,6 @@ where
                     do_clustering,
                     optimize_theta,
                 );
-
-                // Keep a snapshot of the models trained on real doe data only,
-                // before they possibly get updated with qEI virtual points at
-                // i > 0 within the batch.
-                if keep_pristine_models && i == 0 && j == 0 {
-                    pristine_models = Some(models.clone());
-                }
 
                 // Handle failsafe imputation on the first iteration
                 if iter == 0
@@ -1116,12 +1146,7 @@ where
                     };
                 }
 
-                (0..=self.config.n_internal_cstr()).for_each(|k| {
-                    clusterings[k] = Some(models[k].to_clustering());
-                    if let Some(init) = inits.get(k).and_then(|i| i.as_ref()) {
-                        theta_inits[k] = Some(init.to_owned());
-                    }
-                });
+                self.sync_clustering_and_theta_inits(clusterings, theta_inits, models, &inits);
 
                 let (obj_model, cstr_models) = models.split_first().unwrap();
                 debug!("... surrogates trained");
@@ -1301,13 +1326,6 @@ where
             }
             portfolio.push((x_dat.to_owned(), y_dat, c_dat, y_penalized, infill_val));
         }
-        // Restore the models trained on real evaluated data only, discarding the
-        // qEI virtual points used during the batch selection: the models carried
-        // across iterations through the solver state must reflect actual
-        // evaluations, the batch points being added at the next iteration.
-        if let Some(pristine) = pristine_models {
-            *models = pristine;
-        }
         let (x_dat, y_dat, c_dat, y_penalized, infill_value) = if portfolio.len() > 1 {
             info!(
                 "Portfolio : {:?}",
@@ -1432,6 +1450,53 @@ where
             }
         }
         false
+    }
+
+    /// Whether theta hyperparameters must be fully (re)optimized (as opposed to
+    /// reused as-is / via the fast incremental-update path), given the current
+    /// training set size and clustering state.
+    ///
+    /// True while the surrogate is still data-starved (`nb_points < 10 * dim`),
+    /// whenever the clustering itself is (re)generated, or -- only relevant for
+    /// q-points batches (`batch > 1`), where the incoming points i>0 within a
+    /// batch are Kriging-believer virtual (predicted, not evaluated) values, for
+    /// which the z-score check is not meaningful -- on the legacy periodic
+    /// `optmod` override, kept as a fallback in that case. `point_index` is the
+    /// global point index (`iter * batch [+ i]`) used for that periodic check.
+    fn must_optimize_theta(
+        &self,
+        do_clustering: DataClustering,
+        nb_points: usize,
+        dim: usize,
+        point_index: usize,
+    ) -> bool {
+        if self.config.gp.theta_tuning.is_fixed() {
+            return false;
+        }
+        let periodic_optim = self.config.qei_config.batch > 1
+            && self.config.qei_config.optmod > 1
+            && point_index.is_multiple_of(self.config.qei_config.optmod);
+        do_clustering == DataClustering::Regenerate
+            || nb_points < MIN_POINTS_DIM_FACTOR * dim
+            || periodic_optim
+    }
+
+    /// Sync `clusterings`/`theta_inits` with the `models`/`inits` that just came
+    /// out of `update_models`, so a future full retrain reuses the fitted
+    /// clustering/theta as a warm start.
+    fn sync_clustering_and_theta_inits(
+        &self,
+        clusterings: &mut [Option<Clustering>],
+        theta_inits: &mut [Option<Array2<f64>>],
+        models: &[Box<dyn MixtureGpSurrogate>],
+        inits: &[Option<Array2<f64>>],
+    ) {
+        (0..=self.config.n_internal_cstr()).for_each(|k| {
+            clusterings[k] = Some(models[k].to_clustering());
+            if let Some(init) = inits.get(k).and_then(|i| i.as_ref()) {
+                theta_inits[k] = Some(init.to_owned());
+            }
+        });
     }
 
     /// Update the surrogate models with new data.
