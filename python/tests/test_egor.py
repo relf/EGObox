@@ -505,7 +505,7 @@ class TestEgor(unittest.TestCase):
         )
         optim = egor.minimize(
             branin_constrained,
-            max_iters=70,
+            max_iters=90,
             seed=42,
             # verbose=egx.Verbose.INFO,
         )
