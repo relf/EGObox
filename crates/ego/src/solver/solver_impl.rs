@@ -126,7 +126,7 @@ const MIN_POINTS_DIM_FACTOR: usize = 10;
 /// "fast path" model update is abandoned in favor of a full retraining with
 /// theta optimization: a large z-score means the current hyperparameters no
 /// longer explain the data well.
-const ZSCORE_THETA_OPTIM_THRESHOLD: f64 = 2.5;
+const ZSCORE_THETA_OPTIM_THRESHOLD: f64 = 1.0;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum DataClustering {
