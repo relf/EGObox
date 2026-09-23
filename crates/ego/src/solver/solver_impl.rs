@@ -1069,7 +1069,7 @@ where
                 let point_index = iter as usize * self.config.qei_config.batch + i;
                 let optimize_theta: ThetaOptimization = (j == 0
                     && self.must_optimize_theta(do_clustering, xt.nrows(), dim, point_index))
-                    .into();
+                .into();
 
                 info!(
                     "Update surrogates with {} points... clustering={:?} optimize_theta={:?}",
@@ -1568,9 +1568,7 @@ where
                             results.push(updated);
                         }
                         Err(err) => {
-                            info!(
-                                "Incremental update failed for model {k}: {err}, retraining..."
-                            );
+                            info!("Incremental update failed for model {k}: {err}, retraining...");
                             update_failed = true;
                             results.push(model);
                             break;
