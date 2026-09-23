@@ -206,7 +206,7 @@ pub struct CoegoState {
 /// - [`SurrogateState`]: GP surrogate model state
 /// - [`TregoState`]: TREGO algorithm variant state
 /// - [`CoegoState`]: CoEGO algorithm variant state
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct EgorState<F: Float> {
     // -------------------------------------------------------------------------
     // Core iteration state (required by argmin State trait)

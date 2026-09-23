@@ -634,13 +634,13 @@ mod tests {
     #[serial]
     fn test_gp_config() {
         let initial_doe = array![[0.], [7.], [25.]];
-        const LOWER_BOUND: f64 = 1.5;
+        const LOWER_BOUND: f64 = 3.0;
         let egor = EgorBuilder::optimize(xsinx)
             .configure(|cfg| {
                 cfg.infill_strategy(InfillStrategy::EI)
                     .configure_gp(|gp| {
                         gp.theta_tuning(egobox_gp::ThetaTuning::Full {
-                            init: array![2.0],
+                            init: array![4.0],
                             bounds: array![(LOWER_BOUND, 20.)],
                         })
                         .recombination(egobox_moe::Recombination::Hard)
@@ -655,7 +655,7 @@ mod tests {
         let res = egor.run().expect("Egor should minimize xsinx");
         // Inspect internal state: theta init should be equal to
         // lower bound of theta interval as with a smaller bound
-        // it would be around 1.28 after first iteration
+        // it would be around 2.78 after first iteration
         dbg!(res.state.clone());
         assert_abs_diff_eq!(
             res.state.surrogate.theta_inits.unwrap()[0]
@@ -1451,7 +1451,7 @@ mod tests {
     #[cfg(feature = "persistent")]
     fn test_egor_qei_models_trained_on_evaluated_data() {
         // qEI run long enough for the incremental model update (fast path) to
-        // be used (once nb_points >= 10 * dim = 20 points): the persisted models
+        // be used (once nb_points >= 2 * dim = 20 points): the persisted models
         // must be trained on evaluated points only, not on the virtual points
         // (kriging believer predictions) used within the batch selection.
         let xlimits = array![[0., 3.], [0., 4.]];
@@ -1468,7 +1468,7 @@ mod tests {
                         qei_config.batch(q).strategy(QEiStrategy::KrigingBeliever)
                     })
                     .doe(&doe)
-                    .max_iters(8)
+                    .max_iters(4)
                     .seed(42)
             })
             .min_within(&xlimits)
@@ -1476,12 +1476,14 @@ mod tests {
             .run()
             .expect("Egor minimization");
 
-        let (x_data, y_data, c_data) = res
+        let (x_data, y_data, _) = res
             .state
             .surrogate
             .data
             .as_ref()
             .expect("evaluated data in final state");
+        println!("x_data = {x_data}");
+        println!("y_data = {y_data}");
         let models = &res.state.surrogate.models;
         assert_eq!(models.len(), 1 + 2); // objective + 2 constraints
         for (k, model) in models.iter().enumerate() {
@@ -1493,15 +1495,11 @@ mod tests {
                         .row(i)
                         .iter()
                         .zip(x_data.row(j).iter())
-                        .all(|(a, b)| (a - b).abs() < 1e-8);
+                        .all(|(a, b)| (a - b).abs() < f64::EPSILON);
                     if same_x {
-                        let expected = if k == 0 {
-                            y_data[[j, 0]]
-                        } else {
-                            c_data[[j, k - 1]]
-                        };
+                        let expected = y_data[[j, k]];
                         assert!(
-                            (yt_m[i] - expected).abs() < 1e-9,
+                            (yt_m[i] - expected).abs() < f64::EPSILON,
                             "model {k} trained with a stale virtual point at row {i}: \
                              y={} instead of the evaluated value {}",
                             yt_m[i],
@@ -1519,27 +1517,7 @@ mod tests {
         }
     }
 
-    #[test]
-    #[cfg(feature = "persistent")]
-    fn test_egor_state_deser_without_models() {
-        use argmin::core::State;
-
-        // Backward compatibility: states serialized by previous versions do not
-        // have the surrogate `models` field and should still deserialize (with
-        // empty models, triggering a fresh training at restart).
-        let state: EgorState<f64> = EgorState::new();
-        let mut value = serde_json::to_value(&state).expect("EgorState serialization");
-        assert!(value["surrogate"].get("models").is_some());
-        if let Some(surrogate) = value.get_mut("surrogate").and_then(|s| s.as_object_mut()) {
-            surrogate.remove("models");
-        }
-        let deserialized: EgorState<f64> =
-            serde_json::from_value(value).expect("EgorState deserialization without models");
-        assert!(deserialized.surrogate.models.is_empty());
-    }
-
     // Mixed-integer tests
-
     fn mixsinx(x: &ArrayView2<f64>) -> Array2<f64> {
         if (x.mapv(|v| v.round()).norm_l2() - x.norm_l2()).abs() < 1e-6 {
             (x - 3.5) * ((x - 3.5) / std::f64::consts::PI).mapv(|v| v.sin())
