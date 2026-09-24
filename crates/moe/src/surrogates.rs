@@ -47,11 +47,6 @@ pub trait SgpSurrogateParams: GpSurrogateParams {
 pub trait GpSurrogate: std::fmt::Display + Sync + Send {
     /// Returns input/output dims
     fn dims(&self) -> (usize, usize);
-    /// Predict output values at n points given as (n, xdim) matrix.
-    #[deprecated(since = "0.17.0", note = "renamed predict")]
-    fn predict_values(&self, x: &ArrayView2<f64>) -> Result<Array1<f64>> {
-        self.predict(x)
-    }
     /// Predict output values at n points given as a vector (n,)..
     fn predict(&self, x: &ArrayView2<f64>) -> Result<Array1<f64>>;
     /// Predict variance values at n points given as (n, xdim) matrix.

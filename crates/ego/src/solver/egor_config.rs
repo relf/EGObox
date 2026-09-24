@@ -483,40 +483,6 @@ impl EgorConfig {
         self
     }
 
-    /// Sets Number of parallel evaluations of the function under optimization
-    #[deprecated(
-        since = "0.35.0",
-        note = "Please use `configure_qei` method instead to set the number of parallel evaluations"
-    )]
-    pub fn q_batch(mut self, q_batch: usize) -> Self {
-        self.0.qei_config.batch = q_batch;
-        self
-    }
-
-    /// Sets the parallel infill strategy
-    ///
-    /// Parallel infill criterion to get virtual next promising points in order to allow
-    /// n parallel evaluations of the function under optimization.
-    #[deprecated(
-        since = "0.35.0",
-        note = "Please use `configure_qei` method instead to set the multipoint strategy"
-    )]
-    pub fn qei_strategy(mut self, q_ei: QEiStrategy) -> Self {
-        self.0.qei_config.strategy = q_ei;
-        self
-    }
-
-    /// Sets the number of iteration interval between two hyperparameter optimization
-    /// when computing q points to be evaluated in parallel
-    #[deprecated(
-        since = "0.35.0",
-        note = "Please use `configure_qei` method instead to set the qEI parameters"
-    )]
-    pub fn q_optmod(mut self, q_optmod: usize) -> Self {
-        self.0.qei_config.optmod = q_optmod;
-        self
-    }
-
     /// Configure qEI parameters
     pub fn configure_qei<F: FnOnce(QEiConfig) -> QEiConfig>(mut self, init: F) -> Self {
         self.0.qei_config = init(self.0.qei_config);
