@@ -23,7 +23,7 @@ use crate::{
     InfillObjData,
     utils::{find_best_result_index, is_update_ok, run_recorder::EgorRunData},
 };
-use egobox_moe::Clustering;
+use egobox_moe::{Clustering, MixtureGpSurrogate};
 
 use argmin::core::{ArgminFloat, Problem, State, TerminationReason, TerminationStatus};
 use linfa::Float;
@@ -78,7 +78,7 @@ impl<F: Float> Default for DoeState<F> {
 /// State related to surrogate model management.
 ///
 /// Tracks clusterings, hyperparameters, and training data for GP mixture surrogates.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct SurrogateState<F: Float> {
     /// Current clusterings for objective and constraints GP mixture surrogate models
     pub clusterings: Option<Vec<Option<Clustering>>>,
@@ -97,6 +97,10 @@ pub struct SurrogateState<F: Float> {
     pub infill_data: InfillObjData<F>,
     /// Infill criterion value
     pub infill_value: F,
+    /// Trained surrogate models for objective and constraints (persisted across EGO iterations)
+    #[cfg(feature = "persistent")]
+    #[serde(default)]
+    pub models: Vec<Box<dyn MixtureGpSurrogate>>,
 }
 
 impl<F: Float> Default for SurrogateState<F> {
@@ -110,7 +114,45 @@ impl<F: Float> Default for SurrogateState<F> {
             best_index: None,
             infill_data: Default::default(),
             infill_value: F::infinity(),
+            #[cfg(feature = "persistent")]
+            models: Vec::new(),
         }
+    }
+}
+
+impl<F: Float> Clone for SurrogateState<F> {
+    fn clone(&self) -> Self {
+        SurrogateState {
+            clusterings: self.clusterings.clone(),
+            theta_inits: self.theta_inits.clone(),
+            data: self.data.clone(),
+            x_fail: self.x_fail.clone(),
+            prev_best_index: self.prev_best_index,
+            best_index: self.best_index,
+            infill_data: self.infill_data.clone(),
+            infill_value: self.infill_value,
+            #[cfg(feature = "persistent")]
+            models: self.models.to_vec(),
+        }
+    }
+}
+
+impl<F: Float> std::fmt::Debug for SurrogateState<F> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut s = f.debug_struct("SurrogateState");
+        s.field("clusterings", &self.clusterings);
+        s.field("theta_inits", &self.theta_inits);
+        s.field("data", &self.data);
+        s.field("x_fail", &self.x_fail);
+        s.field("prev_best_index", &self.prev_best_index);
+        s.field("best_index", &self.best_index);
+        s.field("infill_data", &self.infill_data);
+        s.field("infill_value", &self.infill_value);
+        #[cfg(feature = "persistent")]
+        {
+            s.field("models", &"...");
+        }
+        s.finish()
     }
 }
 
@@ -164,7 +206,7 @@ pub struct CoegoState {
 /// - [`SurrogateState`]: GP surrogate model state
 /// - [`TregoState`]: TREGO algorithm variant state
 /// - [`CoegoState`]: CoEGO algorithm variant state
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct EgorState<F: Float> {
     // -------------------------------------------------------------------------
     // Core iteration state (required by argmin State trait)

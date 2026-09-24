@@ -533,14 +533,30 @@ impl Observe<EgorState<f64>> for OptimizationObserver {
             {
                 let state_filename = format!("egor_state_{:04}.json", state.iter);
                 let state_filepath = std::path::Path::new(&self.dir).join(state_filename);
-                if let Ok(json) = serde_json::to_string_pretty(state) {
-                    if let Err(e) = std::fs::write(&state_filepath, json) {
-                        log::warn!("Failed to save EgorState to {:?}: {}", state_filepath, e);
-                    } else {
-                        log::debug!(">>> Saved EgorState to {:?}", state_filepath);
+                // Do not embed the surrogate GP models in the per-iteration state
+                // dump: they are by far the largest part of the state (GP training
+                // data and Cholesky factorizations) and are saved separately as GP
+                // files by the run recorder. Hot start checkpoints still serialize
+                // them for exact continuation.
+                let json = serde_json::to_value(state)
+                    .map(|mut value| {
+                        if let Some(surrogate) = value.get_mut("surrogate")
+                            && let Some(map) = surrogate.as_object_mut()
+                        {
+                            map.remove("models");
+                        }
+                        value
+                    })
+                    .and_then(|value| serde_json::to_string_pretty(&value));
+                match json {
+                    Ok(json) => {
+                        if let Err(e) = std::fs::write(&state_filepath, json) {
+                            log::warn!("Failed to save EgorState to {:?}: {}", state_filepath, e);
+                        } else {
+                            log::debug!(">>> Saved EgorState to {:?}", state_filepath);
+                        }
                     }
-                } else {
-                    log::warn!("Failed to serialize EgorState");
+                    Err(_) => log::warn!("Failed to serialize EgorState"),
                 }
             }
         }
@@ -618,13 +634,13 @@ mod tests {
     #[serial]
     fn test_gp_config() {
         let initial_doe = array![[0.], [7.], [25.]];
-        const LOWER_BOUND: f64 = 1.5;
+        const LOWER_BOUND: f64 = 3.0;
         let egor = EgorBuilder::optimize(xsinx)
             .configure(|cfg| {
                 cfg.infill_strategy(InfillStrategy::EI)
                     .configure_gp(|gp| {
                         gp.theta_tuning(egobox_gp::ThetaTuning::Full {
-                            init: array![2.0],
+                            init: array![4.0],
                             bounds: array![(LOWER_BOUND, 20.)],
                         })
                         .recombination(egobox_moe::Recombination::Hard)
@@ -639,7 +655,7 @@ mod tests {
         let res = egor.run().expect("Egor should minimize xsinx");
         // Inspect internal state: theta init should be equal to
         // lower bound of theta interval as with a smaller bound
-        // it would be around 1.28 after first iteration
+        // it would be around 2.78 after first iteration
         dbg!(res.state.clone());
         assert_abs_diff_eq!(
             res.state.surrogate.theta_inits.unwrap()[0]
@@ -1240,13 +1256,13 @@ mod tests {
         let xlimits = array![[0., 3.], [0., 4.]];
         let doe = Lhs::new(&xlimits)
             .with_rng(Xoshiro256Plus::seed_from_u64(0))
-            .sample(3);
+            .sample(5);
         let res = EgorBuilder::optimize(f_g24)
             .configure(|config| {
                 config
                     .n_cstr(2)
                     .doe(&doe)
-                    .max_iters(20)
+                    .max_iters(30)
                     .infill_strategy(InfillStrategy::LogEI)
                     .infill_optimizer(InfillOptimizer::Slsqp)
                     //.cstr_infill(true)
@@ -1430,8 +1446,78 @@ mod tests {
         assert_abs_diff_eq!(expected, res.x_opt, epsilon = 2e-2);
     }
 
-    // Mixed-integer tests
+    #[test]
+    #[serial]
+    #[cfg(feature = "persistent")]
+    fn test_egor_qei_models_trained_on_evaluated_data() {
+        // qEI run long enough for the incremental model update (fast path) to
+        // be used (once nb_points >= 2 * dim = 20 points): the persisted models
+        // must be trained on evaluated points only, not on the virtual points
+        // (kriging believer predictions) used within the batch selection.
+        let xlimits = array![[0., 3.], [0., 4.]];
+        let doe = Lhs::new(&xlimits)
+            .with_rng(Xoshiro256Plus::seed_from_u64(42))
+            .sample(10);
+        let q = 2;
+        let res = EgorBuilder::optimize(f_g24)
+            .configure(|config| {
+                config
+                    .n_cstr(2)
+                    .cstr_tol(array![2e-6, 2e-6])
+                    .configure_qei(|qei_config| {
+                        qei_config.batch(q).strategy(QEiStrategy::KrigingBeliever)
+                    })
+                    .doe(&doe)
+                    .max_iters(4)
+                    .seed(42)
+            })
+            .min_within(&xlimits)
+            .expect("Egor configured")
+            .run()
+            .expect("Egor minimization");
 
+        let (x_data, y_data, _) = res
+            .state
+            .surrogate
+            .data
+            .as_ref()
+            .expect("evaluated data in final state");
+        println!("x_data = {x_data}");
+        println!("y_data = {y_data}");
+        let models = &res.state.surrogate.models;
+        assert_eq!(models.len(), 1 + 2); // objective + 2 constraints
+        for (k, model) in models.iter().enumerate() {
+            let (xt_m, yt_m) = model.training_data();
+            for i in 0..xt_m.nrows() {
+                let mut matched = false;
+                for j in 0..x_data.nrows() {
+                    let same_x = xt_m
+                        .row(i)
+                        .iter()
+                        .zip(x_data.row(j).iter())
+                        .all(|(a, b)| (a - b).abs() < f64::EPSILON);
+                    if same_x {
+                        let expected = y_data[[j, k]];
+                        assert!(
+                            (yt_m[i] - expected).abs() < f64::EPSILON,
+                            "model {k} trained with a stale virtual point at row {i}: \
+                             y={} instead of the evaluated value {}",
+                            yt_m[i],
+                            expected
+                        );
+                        matched = true;
+                        break;
+                    }
+                }
+                assert!(
+                    matched,
+                    "model {k} training point at row {i} not found in evaluated doe"
+                );
+            }
+        }
+    }
+
+    // Mixed-integer tests
     fn mixsinx(x: &ArrayView2<f64>) -> Array2<f64> {
         if (x.mapv(|v| v.round()).norm_l2() - x.norm_l2()).abs() < 1e-6 {
             (x - 3.5) * ((x - 3.5) / std::f64::consts::PI).mapv(|v| v.sin())

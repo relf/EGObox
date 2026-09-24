@@ -191,8 +191,13 @@ impl MixtureGpSurrogate for AffinedSurrogate {
         x_new: &ndarray::ArrayView2<f64>,
         y_new: &ndarray::ArrayView1<f64>,
     ) -> crate::errors::Result<Box<dyn MixtureGpSurrogate>> {
-        // For affine surrogates, delegate to the inner surrogate
-        let updated_inner = self.inner.update(x_new, y_new)?;
+        // `y_new` is expressed in this surrogate's derived output space:
+        // y_derived = scale * y_inner + offset. The inner surrogate is trained
+        // in the primary space, so it must be updated with the inverse
+        // transform y_inner = (y_derived - offset) / scale, not with `y_new`
+        // as-is.
+        let y_inner_new = (&y_new.to_owned() - self.offset) / self.scale;
+        let updated_inner = self.inner.update(x_new, &y_inner_new.view())?;
         Ok(Box::new(AffinedSurrogate::new(
             updated_inner,
             self.scale,
@@ -201,12 +206,13 @@ impl MixtureGpSurrogate for AffinedSurrogate {
     }
 }
 
-/// Clone a surrogate via serialization round-trip.
-///
-/// This produces an independent owned copy suitable for wrapping
-/// in [`AffinedSurrogate`].
-#[cfg(feature = "persistent")]
-pub fn clone_surrogate(surrogate: &dyn MixtureGpSurrogate) -> Box<dyn MixtureGpSurrogate> {
-    let json = serde_json::to_string(surrogate).expect("surrogate serialization");
-    serde_json::from_str(&json).expect("surrogate deserialization")
+impl Clone for AffinedSurrogate {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            scale: self.scale,
+            offset: self.offset,
+            training_data: self.training_data.clone(),
+        }
+    }
 }
