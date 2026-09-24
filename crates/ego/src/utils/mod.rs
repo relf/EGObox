@@ -10,7 +10,6 @@ mod start_points;
 
 pub(crate) mod gp_recorder;
 pub(crate) mod logging;
-pub(crate) mod run_recorder;
 
 pub use bounds::*;
 pub use cstr_pof::*;
@@ -42,7 +41,4 @@ pub const EGOR_INITIAL_GP_FILENAME: &str = "egor_initial_gp.bin";
 pub const EGOR_GP_FILENAME: &str = "egor_gp.bin";
 
 /// Env variable to trigger run recording
-pub const EGOR_USE_RUN_RECORDER: &str = "EGOR_USE_RUN_RECORDER";
-
-/// BO run filename
-pub const EGOR_RUN_FILENAME: &str = "egor_run.json";
+pub const EGOR_USE_STATE_RECORDING: &str = "EGOR_USE_STATE_RECORDING";

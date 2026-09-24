@@ -21,7 +21,7 @@
 
 use crate::{
     InfillObjData,
-    utils::{find_best_result_index, is_update_ok, run_recorder::EgorRunData},
+    utils::{find_best_result_index, is_update_ok},
 };
 use egobox_moe::{Clustering, MixtureGpSurrogate};
 
@@ -272,10 +272,6 @@ pub struct EgorState<F: Float> {
     // -------------------------------------------------------------------------
     // Persistence and RNG
     // -------------------------------------------------------------------------
-    /// Run data for persistent logging
-    #[cfg(feature = "persistent")]
-    pub run_data: Option<EgorRunData>,
-
     /// Random number generator for reproducibility
     pub rng: Option<Xoshiro256Plus>,
 }
@@ -480,20 +476,6 @@ where
         self
     }
 
-    /// Set the run data
-    #[cfg(feature = "persistent")]
-    #[must_use]
-    pub fn run_data(mut self, run_data: crate::utils::run_recorder::EgorRunData) -> Self {
-        self.run_data = Some(run_data);
-        self
-    }
-
-    /// Moves the current rundata out and replaces it internally with `None`.
-    #[cfg(feature = "persistent")]
-    pub fn take_run_data(&mut self) -> Option<EgorRunData> {
-        self.run_data.take()
-    }
-
     /// Set the random number generator used to draw random points
     #[must_use]
     pub fn rng(mut self, rng: Xoshiro256Plus) -> Self {
@@ -628,8 +610,6 @@ where
             trego: TregoState::default(),
             coego: CoegoState::default(),
 
-            #[cfg(feature = "persistent")]
-            run_data: None,
             rng: Some(Xoshiro256Plus::from_entropy()),
         }
     }

@@ -169,62 +169,6 @@ fn checkpoint_restores_target_before_any_iteration() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
-#[cfg(feature = "persistent")]
-#[test]
-fn recorder_checkpoint_round_trip_preserves_history() {
-    use egobox_ego::HotStartMode;
-    let dir = std::env::temp_dir().join(format!("egobox-recorder-resume-{}", std::process::id()));
-    let checkpoint = dir.join(egobox_ego::CHECKPOINT_FILE);
-    let _ = std::fs::remove_file(&checkpoint);
-    let run = |mode| {
-        EgorBuilder::optimize(xsinx)
-            .configure(|cfg| {
-                cfg.seed(42)
-                    .max_iters(1)
-                    .configure_runtime_flags(|flags| flags.use_run_recorder(true))
-                    .hot_start(mode)
-                    .outdir(dir.to_str().unwrap())
-            })
-            .min_within(&array![[0., 25.]])
-            .unwrap()
-            .run()
-            .unwrap()
-    };
-
-    let initial = run(HotStartMode::Enabled);
-    let recorded = serde_json::to_value(initial.state.run_data.as_ref().unwrap()).unwrap();
-    assert!(checkpoint.exists());
-    assert_eq!(recorded["search_iterations"].as_array().unwrap().len(), 1);
-    assert_eq!(
-        recorded["algorithm_parameters"]["other_params"],
-        serde_json::json!({})
-    );
-
-    let restored = run(HotStartMode::Enabled);
-    assert_eq!(restored.state.iter, 1);
-    assert_eq!(
-        serde_json::to_value(restored.state.run_data.as_ref().unwrap()).unwrap(),
-        recorded
-    );
-
-    let resumed = run(HotStartMode::ExtendedIters(2));
-    assert_eq!(resumed.state.iter, 3);
-    let run_data = resumed.state.run_data.as_ref().unwrap();
-    assert_eq!(run_data.algorithm_parameters.bo_iterations, 3);
-    assert_eq!(
-        run_data.algorithm_parameters.total_samples,
-        resumed.x_doe.nrows()
-    );
-    assert_eq!(run_data.search_iterations.len(), 3);
-    let continued = serde_json::to_value(run_data).unwrap();
-    assert_eq!(continued["initial_samples"], recorded["initial_samples"]);
-    assert_eq!(
-        continued["search_iterations"][0],
-        recorded["search_iterations"][0]
-    );
-    std::fs::remove_dir_all(dir).unwrap();
-}
-
 #[cfg(feature = "basin")]
 #[test]
 fn corrupt_checkpoint_returns_an_error() {
