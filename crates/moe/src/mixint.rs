@@ -748,8 +748,17 @@ impl GpSurrogate for MixintGpMixture {
 }
 
 impl MixintGpMixture {
+    /// Constructor of mixture of experts parameters, automatically choosing between typed and continuous-only versions based on the presence of `xtypes`.
+    pub fn params(xtypes: Option<&[XType]>) -> MixintGpMixtureParams {
+        if let Some(xtypes) = xtypes {
+            Self::params_with_types(xtypes)
+        } else {
+            Self::params_continuous()
+        }
+    }
+
     /// Constructor of mixture of experts parameters
-    pub fn params(xtypes: &[XType]) -> MixintGpMixtureParams {
+    pub fn params_with_types(xtypes: &[XType]) -> MixintGpMixtureParams {
         MixintGpMixtureParams::new(Some(xtypes), &GpMixtureParams::new())
     }
 

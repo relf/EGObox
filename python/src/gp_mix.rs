@@ -262,31 +262,17 @@ impl GpMix {
         let moe = py.detach(|| {
             let regr = RegressionSpec(self.gp_config.regr_spec);
             let corr = CorrelationSpec(self.gp_config.corr_spec);
-            if let Some(xtypes) = self.xtypes.as_ref() {
-                MixintGpMixture::params(xtypes)
-                    .n_clusters(n_clusters)
-                    .recombination(recomb)
-                    .regression_spec(egobox_moe::RegressionSpec::from_bits(regr.0).unwrap())
-                    .correlation_spec(egobox_moe::CorrelationSpec::from_bits(corr.0).unwrap())
-                    .theta_tunings(&theta_tunings)
-                    .kpls_dim(self.gp_config.kpls_dim)
-                    .n_start(n_start)
-                    .with_rng(rng)
-                    .fit(&dataset)
-                    .expect("MoE model training")
-            } else {
-                MixintGpMixture::params_continuous()
-                    .n_clusters(n_clusters)
-                    .recombination(recomb)
-                    .regression_spec(egobox_moe::RegressionSpec::from_bits(regr.0).unwrap())
-                    .correlation_spec(egobox_moe::CorrelationSpec::from_bits(corr.0).unwrap())
-                    .theta_tunings(&theta_tunings)
-                    .kpls_dim(self.gp_config.kpls_dim)
-                    .n_start(n_start)
-                    .with_rng(rng)
-                    .fit(&dataset)
-                    .expect("MoE model training")
-            }
+            MixintGpMixture::params(self.xtypes.as_deref())
+                .n_clusters(n_clusters)
+                .recombination(recomb)
+                .regression_spec(egobox_moe::RegressionSpec::from_bits(regr.0).unwrap())
+                .correlation_spec(egobox_moe::CorrelationSpec::from_bits(corr.0).unwrap())
+                .theta_tunings(&theta_tunings)
+                .kpls_dim(self.gp_config.kpls_dim)
+                .n_start(n_start)
+                .with_rng(rng)
+                .fit(&dataset)
+                .expect("MoE model training")
         });
 
         Gpx(moe)
