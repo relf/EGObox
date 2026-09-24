@@ -183,6 +183,8 @@ pub const HISTORY_FILE: &str = "egor_history.npy";
 /// Numpy filename for failed points (if any)
 /// This file is created only if some points failed to be evaluated
 pub const FAILED_POINTS_FILE: &str = "egor_failed_points.npy";
+/// JSON filename for recorded EgorState files
+pub const STATE_FILE_PREFIX: &str = "egor_state";
 
 /// Egor run metadata
 #[derive(Clone)]
@@ -385,7 +387,10 @@ impl<O: ObjFn, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> E
             };
 
             let result = if let Some(outdir) = self.solver.config.outdir.as_ref() {
-                let hist = OptimizationObserver::new(outdir.clone());
+                let hist = OptimizationObserver::new(
+                    outdir.clone(),
+                    self.solver.config.runtime_flags.use_state_recording,
+                );
                 exec.add_observer(hist, ObserverMode::Always).run()?
             } else {
                 exec.run()?
@@ -424,25 +429,6 @@ impl<O: ObjFn, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> E
             }
         };
 
-        #[cfg(feature = "persistent")]
-        if std::env::var(crate::utils::EGOR_USE_RUN_RECORDER).is_ok() {
-            use crate::utils::{EGOR_RUN_FILENAME, run_recorder};
-
-            let default_dir = String::from("./");
-            let outdir = self.solver.config.outdir.as_ref().unwrap_or(&default_dir);
-            let filename = EGOR_RUN_FILENAME;
-            let filepath = std::path::Path::new(outdir).join(filename);
-
-            let mut run_data = res.state.run_data.as_ref().unwrap().clone();
-            run_data.problem_metadata.test_function = self.run_info.fname.clone();
-            run_data.problem_metadata.replication_number = self.run_info.num;
-
-            match run_recorder::save_run(&filepath, &run_data) {
-                Ok(_) => log::info!("Run data saved to {:?}", filepath),
-                Err(err) => log::info!("Cannot save run data: {:?}", err),
-            };
-        }
-
         info!("Optim Result: min f(x)={} at x={}", res.y_opt, res.x_opt);
 
         Ok(res)
@@ -464,14 +450,16 @@ pub(crate) struct OptimizationObserver {
     pub dir: PathBuf,
     pub best_params: Option<Array2<f64>>,
     pub best_costs: Option<Array2<f64>>,
+    pub state_recording: bool,
 }
 
 impl OptimizationObserver {
-    pub(crate) fn new(dir: String) -> Self {
+    pub(crate) fn new(dir: String, state_recording: bool) -> Self {
         Self {
             dir: PathBuf::from(dir),
             best_params: None,
             best_costs: None,
+            state_recording,
         }
     }
 }
@@ -525,13 +513,10 @@ impl Observe<EgorState<f64>> for OptimizationObserver {
             info!(">>> Save history {:?} in {:?}", hist.shape(), filepath);
             ndarray_npy::write_npy(filepath, &hist).expect("Write current history");
 
-            // Save EgorState if EGOR_USE_RUN_RECORDER equals "WITH_ITER_STATE"
+            // Save EgorState if EGOR_USE_STATE_RECORDING equals "WITH_ITER_STATE"
             #[cfg(feature = "persistent")]
-            if std::env::var(crate::utils::EGOR_USE_RUN_RECORDER)
-                .map(|v| v == "WITH_ITER_STATE")
-                .unwrap_or(false)
-            {
-                let state_filename = format!("egor_state_{:04}.json", state.iter);
+            if self.state_recording {
+                let state_filename = format!("{}_{:04}.json", STATE_FILE_PREFIX, state.iter);
                 let state_filepath = std::path::Path::new(&self.dir).join(state_filename);
                 // Do not embed the surrogate GP models in the per-iteration state
                 // dump: they are by far the largest part of the state (GP training

@@ -37,7 +37,7 @@ outdir = "rosenbrock_output"
 os.makedirs(outdir, exist_ok=True)
 
 # Set environment variable to save EgorState at each iteration
-os.environ["EGOR_USE_RUN_RECORDER"] = "WITH_ITER_STATE"
+os.environ["EGOR_USE_STATE_RECORDING"] = "1"
 
 N_DOE = 10
 DMIN = 1e-6  # TREGO min distance

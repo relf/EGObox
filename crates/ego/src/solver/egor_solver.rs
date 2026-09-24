@@ -113,8 +113,8 @@
 use crate::solver::iteration_strategy::IterationMode;
 use crate::utils::{
     EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER, EGOR_USE_GP_VAR_PORTFOLIO,
-    EGOR_USE_MAX_PROBA_OF_FEASIBILITY, EGOR_USE_RUN_RECORDER, filter_nans, find_best_result_index,
-    is_feasible,
+    EGOR_USE_MAX_PROBA_OF_FEASIBILITY, EGOR_USE_STATE_RECORDING, filter_nans,
+    find_best_result_index, is_feasible,
 };
 use crate::{EgoError, EgorState, MAX_POINT_ADDITION_RETRY, ValidEgorConfig};
 
@@ -359,18 +359,8 @@ where
         );
         info!(
             "{} setting: {}",
-            EGOR_USE_RUN_RECORDER, self.config.runtime_flags.use_run_recorder
+            EGOR_USE_STATE_RECORDING, self.config.runtime_flags.use_state_recording
         );
-
-        #[cfg(feature = "persistent")]
-        if self.config.runtime_flags.use_run_recorder {
-            let run_data = crate::utils::run_recorder::init_run_info(
-                self.xlimits.clone(),
-                self.config.clone(),
-                &initial_state,
-            );
-            initial_state.run_data = Some(run_data);
-        }
 
         info!(
             "********* Initialization: Best fun(x[{}])={} at x={}",
@@ -415,7 +405,7 @@ where
         self.config.iteration_strategy.finalize(&mut res.0);
 
         // Update cooperative activity for next iteration
-        let mut res = {
+        let res = {
             let nx = self.xlimits.nrows();
             let mut rng = res.0.take_rng().unwrap();
             let activity = self
@@ -442,24 +432,6 @@ where
             y_data.row(res.0.surrogate.best_index.unwrap()),
             x_data.row(res.0.surrogate.best_index.unwrap())
         );
-
-        #[cfg(feature = "persistent")]
-        if self.config.runtime_flags.use_run_recorder {
-            use crate::utils::run_recorder;
-
-            let mut run_data = res.0.take_run_data().unwrap();
-
-            let data = res.0.surrogate.data.as_ref().unwrap();
-            let n_points = data.0.nrows();
-            let n_added = res.0.doe.added - res.0.doe.prev_added;
-            let xdata = data.0.slice(s![n_points - n_added.., ..]).to_owned();
-            let ydata = data.1.slice(s![n_points - n_added.., ..]).to_owned();
-
-            run_recorder::update_run_info(&mut run_data, res.0.get_iter() + 1, &xdata, &ydata);
-
-            let state = res.0.clone().run_data(run_data);
-            res = (state, res.1);
-        }
 
         Ok(res)
     }

@@ -57,7 +57,7 @@
 
 use crate::utils::{
     EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER, EGOR_USE_GP_VAR_PORTFOLIO,
-    EGOR_USE_MAX_PROBA_OF_FEASIBILITY, EGOR_USE_RUN_RECORDER,
+    EGOR_USE_MAX_PROBA_OF_FEASIBILITY, EGOR_USE_STATE_RECORDING,
 };
 use crate::{HotStartMode, criteria::*, errors::Result, types::*};
 use egobox_gp::ThetaTuning;
@@ -259,8 +259,8 @@ pub struct RuntimeFlags {
     pub use_gp_var_portfolio: bool,
     /// Disable middle-picker multistarter for infill optimization (env: EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER)
     pub disable_middlepicker_multistarter: bool,
-    /// Enable run data recording to JSON (env: EGOR_USE_RUN_RECORDER)
-    pub use_run_recorder: bool,
+    /// Enable state data recording to JSON (env: EGOR_USE_STATE_RECORDING)
+    pub use_state_recording: bool,
 }
 
 impl Default for RuntimeFlags {
@@ -273,7 +273,7 @@ impl Default for RuntimeFlags {
                 EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER,
             )
             .is_ok(),
-            use_run_recorder: std::env::var(EGOR_USE_RUN_RECORDER).is_ok(),
+            use_state_recording: std::env::var(EGOR_USE_STATE_RECORDING).is_ok(),
         }
     }
 }
@@ -285,7 +285,7 @@ impl RuntimeFlags {
             use_max_proba_of_feasibility: false,
             use_gp_var_portfolio: false,
             disable_middlepicker_multistarter: false,
-            use_run_recorder: false,
+            use_state_recording: false,
         }
     }
 
@@ -307,9 +307,9 @@ impl RuntimeFlags {
         self
     }
 
-    /// Enable run data recording.
-    pub fn use_run_recorder(mut self, enabled: bool) -> Self {
-        self.use_run_recorder = enabled;
+    /// Enable state data recording to JSON.
+    pub fn use_state_recorder(mut self, enabled: bool) -> Self {
+        self.use_state_recording = enabled;
         self
     }
 }
