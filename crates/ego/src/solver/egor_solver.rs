@@ -112,9 +112,8 @@
 //!
 use crate::solver::iteration_strategy::IterationMode;
 use crate::utils::{
-    EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER, EGOR_USE_GP_VAR_PORTFOLIO,
-    EGOR_USE_MAX_PROBA_OF_FEASIBILITY, EGOR_USE_STATE_RECORDING, filter_nans,
-    find_best_result_index, is_feasible,
+    EGOR_USE_GP_VAR_PORTFOLIO, EGOR_USE_MAX_PROBA_OF_FEASIBILITY, EGOR_USE_STATE_RECORDING,
+    filter_nans, find_best_result_index, is_feasible,
 };
 use crate::{EgoError, EgorState, MAX_POINT_ADDITION_RETRY, ValidEgorConfig};
 
@@ -351,11 +350,6 @@ where
         info!(
             "{} setting: {}",
             EGOR_USE_GP_VAR_PORTFOLIO, self.config.runtime_flags.use_gp_var_portfolio
-        );
-        info!(
-            "{} setting: {}",
-            EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER,
-            self.config.runtime_flags.disable_middlepicker_multistarter
         );
         info!(
             "{} setting: {}",
