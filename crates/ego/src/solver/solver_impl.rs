@@ -116,10 +116,14 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
     }
 }
 
+/// Minimum number of training points required before considering
+/// the surrogate data-starved wrt to the dimension of the problem.
+const MIN_POINTS_THRESOLD: usize = 50;
+
 /// Below `MIN_POINTS_DIM_FACTOR * dim` training points, the surrogate is
 /// considered data-starved: theta hyperparameters are always (re)optimized
 /// from scratch instead of reused/incrementally updated.
-const MIN_POINTS_DIM_FACTOR: usize = 10;
+const MIN_POINTS_DIM_FACTOR: usize = 2;
 
 /// z-score threshold on the newly added point(s) prediction error
 /// `(y_new - y_pred).abs() / var_pred.sqrt()`, above which the incremental
@@ -1477,7 +1481,7 @@ where
             && self.config.qei_config.optmod > 1
             && point_index.is_multiple_of(self.config.qei_config.optmod);
         do_clustering == DataClustering::Regenerate
-            || nb_points < MIN_POINTS_DIM_FACTOR * dim
+            || nb_points < (MIN_POINTS_DIM_FACTOR * dim).max(MIN_POINTS_THRESOLD)
             || periodic_optim
     }
 
