@@ -18,8 +18,7 @@
 //! ## Feature Flags
 //!
 //! - `basin`: Use Basin's pure Rust COBYLA and SLSQP implementations.
-//! - `nlopt`: Use NLopt when `basin` is disabled.
-//! - Without either feature, use the `cobyla` and `slsqp` crates.
+//! - Without `basin`, use the `cobyla` and `slsqp` crates.
 
 mod optimizer;
 

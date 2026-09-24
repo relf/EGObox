@@ -64,8 +64,8 @@ jobs:
       fail-fast: false
       matrix:
         features:
-          - persistent-moe,nlopt,blas,linfa/intel-mkl-static
-          - persistent-moe,nlopt,basin
+          - persistent-moe,blas,linfa/intel-mkl-static
+          - persistent-moe,basin
         toolchain:
           - stable
         os: 

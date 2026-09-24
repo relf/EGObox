@@ -114,7 +114,7 @@ where
                     let mut xcoop = xcoop.clone();
                     coego::set_active_x(&mut xcoop, &active, x);
 
-                    // Defensive programming NlOpt::Cobyla may pass NaNs
+                    // Defensive programming COBYLA may pass NaNs
                     if xcoop.iter().any(|x| x.is_nan()) {
                         return f64::INFINITY;
                     }

@@ -2002,8 +2002,6 @@ mod tests {
     test_gp_variance_derivatives!(Constant, SquaredExponential, sphere, 10., 100);
     test_gp_variance_derivatives!(Linear, SquaredExponential, sphere, 10., 100);
     test_gp_variance_derivatives!(Quadratic, SquaredExponential, sphere, 10., 100);
-    // FIXME: exclude as it fails on testing-features CI: blas, nlopt...
-    #[cfg(not(feature = "nlopt"))]
     test_gp_variance_derivatives!(Constant, AbsoluteExponential, norm1, 10., 100);
     test_gp_variance_derivatives!(Linear, AbsoluteExponential, norm1, 1., 50);
     test_gp_variance_derivatives!(Quadratic, AbsoluteExponential, sphere, 10., 100);

@@ -43,7 +43,6 @@ rayon.workspace = true
 
 cobyla = { version = "1.0.4" }
 slsqp = { version = "1.0.1" }
-nlopt = { version = "0.8", optional = true }
 
 rand_xoshiro = { version = "0.6", features = ["serde1"] }
 argmin = { version = "0.11.0", features = ["serde1", "ctrlc"] }

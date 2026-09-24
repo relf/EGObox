@@ -455,24 +455,14 @@ impl<O: ObjFn, C: CstrFn> Constraints<C> for ProblemFunc<O, C> {
 /// * `x` is the input information,
 /// * `g` an optional gradient information to be updated if present
 /// * `u` information provided by the user
-#[cfg(not(feature = "nlopt"))]
 pub trait UserFn<U>: Fn(&[f64], Option<&mut [f64]>, &mut U) -> f64 {}
 
-#[cfg(not(feature = "nlopt"))]
 impl<T, U> UserFn<U> for T where T: Fn(&[f64], Option<&mut [f64]>, &mut U) -> f64 {}
 
 /// A function trait for constraints provided by the user and used by the internal optimizer
 /// It is a specialized version of [`UserFn`] with [`InfillObjData`] as user information
-#[cfg(not(feature = "nlopt"))]
 pub trait CstrFn: Clone + UserFn<InfillObjData<f64>> + Sync {}
-#[cfg(not(feature = "nlopt"))]
 impl<T> CstrFn for T where T: Clone + UserFn<InfillObjData<f64>> + Sync {}
-/// A function trait for constraints used by the internal optimizer
-/// It is a specialized version of [`ObjFn`] with [`InfillObjData`] as user informati
-#[cfg(feature = "nlopt")]
-pub trait CstrFn: Clone + nlopt::ObjFn<InfillObjData<f64>> + Sync {}
-#[cfg(feature = "nlopt")]
-impl<T> CstrFn for T where T: Clone + nlopt::ObjFn<InfillObjData<f64>> + Sync {}
 
 /// A function type for domain constraints which will be used by the internal optimizer
 /// which is the default value for [`crate::EgorFactory`] generic `C` parameter.
