@@ -16,8 +16,8 @@ use egobox_gp::ThetaTuning;
 use linfa::traits::{Fit, PredictInplace};
 use linfa::{DatasetBase, Float, ParamGuard};
 use ndarray::{
-    Array, Array1, Array2, ArrayBase, ArrayView1, ArrayView2, Axis, Data, DataMut, Ix1, Ix2, Zip,
-    concatenate, s,
+    Array, Array1, Array2, ArrayBase, ArrayView1, ArrayView2, Axis, CowArray, Data, DataMut, Ix1,
+    Ix2, Zip, concatenate, s,
 };
 use ndarray_rand::rand::SeedableRng;
 use ndarray_stats::QuantileExt;
@@ -207,18 +207,22 @@ fn cast_to_discrete_values_mut<F: Float>(
 /// continuous, discrete-cast space the inner `moe` surrogate model is actually
 /// trained/updated on (unfolding enum dimensions when working in folded
 /// space, then rounding/snapping to the nearest assessable discrete value).
-fn cast_to_model_space(
-    xtypes: &[XType],
+fn cast_to_model_space<'a>(
+    xtypes: Option<&[XType]>,
     work_in_folded_space: bool,
-    x: &ArrayBase<impl Data<Elem = f64>, Ix2>,
-) -> Array2<f64> {
-    let mut xcast = if work_in_folded_space {
-        unfold_with_enum_mask(xtypes, &x.view())
+    x: CowArray<'a, f64, Ix2>,
+) -> CowArray<'a, f64, Ix2> {
+    if let Some(xtypes) = xtypes {
+        let mut xcast = if work_in_folded_space {
+            CowArray::from(unfold_with_enum_mask(xtypes, &x.view()))
+        } else {
+            x
+        };
+        cast_to_discrete_values_mut(xtypes, &mut xcast);
+        CowArray::from(xcast)
     } else {
-        x.to_owned()
-    };
-    cast_to_discrete_values_mut(xtypes, &mut xcast);
-    xcast
+        x
+    }
 }
 
 /// Project continuously relaxed values to their closer assessable values.
@@ -258,8 +262,8 @@ enum Method {
 pub struct MixintSampling<F: Float, S: egobox_doe::SamplingMethod<F>> {
     /// The continuous sampling method
     method: S,
-    /// The input specifications
-    xtypes: Vec<XType>,
+    /// The input specifications (None means all continuous variables)
+    xtypes: Option<Vec<XType>>,
     /// whether data are in given in folded space (enum indexes) or not (enum masks)
     /// i.e for "blue" in ["red", "green", "blue"] either \[2\] or [0, 0, 1]
     output_in_folded_space: bool,
@@ -271,7 +275,17 @@ impl<F: Float, S: egobox_doe::SamplingMethod<F>> MixintSampling<F, S> {
     pub fn new(method: S, xtypes: Vec<XType>) -> Self {
         MixintSampling {
             method,
-            xtypes: xtypes.clone(),
+            xtypes: Some(xtypes),
+            output_in_folded_space: false,
+            phantom: PhantomData,
+        }
+    }
+
+    /// Creates a new sampling method for continuous-only variables
+    pub fn new_continuous(method: S) -> Self {
+        MixintSampling {
+            method,
+            xtypes: None,
             output_in_folded_space: false,
             phantom: PhantomData,
         }
@@ -298,12 +312,14 @@ impl<F: Float, S: egobox_doe::SamplingMethod<F>> egobox_doe::SamplingMethod<F>
 
     fn sample(&self, ns: usize) -> Array2<F> {
         let mut doe = self.method.sample(ns);
-        cast_to_discrete_values_mut(&self.xtypes, &mut doe);
-        if self.output_in_folded_space {
-            fold_with_enum_index(&self.xtypes, &doe.view())
-        } else {
-            doe
+        // Only apply casting if xtypes is specified
+        if let Some(xtypes) = &self.xtypes {
+            cast_to_discrete_values_mut(xtypes, &mut doe);
+            if self.output_in_folded_space {
+                return fold_with_enum_index(xtypes, &doe.view());
+            }
         }
+        doe
     }
 }
 
@@ -317,8 +333,8 @@ pub type MoeBuilder = GpMixtureParams<f64>;
 pub struct MixintGpMixtureValidParams {
     /// The surrogate factory
     gpmix_params: GpMixtureParams<f64>,
-    /// The input specifications
-    xtypes: Vec<XType>,
+    /// The input specifications (None means all continuous variables)
+    xtypes: Option<Vec<XType>>,
     /// whether data are in given in folded space (enum indexes) or not (enum masks)
     /// i.e for "blue" in ["red", "green", "blue"] either \[2\] or [0, 0, 1]
     work_in_folded_space: bool,
@@ -332,8 +348,8 @@ impl MixintGpMixtureValidParams {
     }
 
     /// Sets the specification
-    pub fn xtypes(&self) -> &[XType] {
-        &self.xtypes
+    pub fn xtypes(&self) -> Option<&Vec<XType>> {
+        self.xtypes.as_ref()
     }
 }
 
@@ -343,11 +359,24 @@ impl MixintGpMixtureValidParams {
 pub struct MixintGpMixtureParams(MixintGpMixtureValidParams);
 
 impl MixintGpMixtureParams {
-    /// Constructor given `xtypes` specifications and given surrogate builder
-    pub fn new(xtypes: &[XType], surrogate_builder: &MoeBuilder) -> Self {
+    /// Constructor given optional `xtypes` specifications and given surrogate builder
+    ///
+    /// Pass `None` for continuous-only variables (no mixed-integer handling)
+    pub fn new(xtypes: Option<&[XType]>, surrogate_builder: &MoeBuilder) -> Self {
         MixintGpMixtureParams(MixintGpMixtureValidParams {
             gpmix_params: surrogate_builder.clone(),
-            xtypes: xtypes.to_vec(),
+            xtypes: xtypes.map(|xt| xt.to_vec()),
+            work_in_folded_space: false,
+        })
+    }
+
+    /// Creates a new instance without xtypes (all continuous variables)
+    ///
+    /// This is equivalent to `new(None, surrogate_builder)`
+    pub fn new_continuous(surrogate_builder: &MoeBuilder) -> Self {
+        MixintGpMixtureParams(MixintGpMixtureValidParams {
+            gpmix_params: surrogate_builder.clone(),
+            xtypes: None,
             work_in_folded_space: false,
         })
     }
@@ -359,8 +388,8 @@ impl MixintGpMixtureParams {
     }
 
     /// Gets the domain specification
-    pub fn xtypes(&self) -> &[XType] {
-        &self.0.xtypes
+    pub fn xtypes(&self) -> Option<&Vec<XType>> {
+        self.0.xtypes.as_ref()
     }
 
     /// Sets the number of clusters
@@ -431,12 +460,26 @@ impl MixintGpMixtureParams {
 }
 
 impl MixintGpMixtureValidParams {
+    /// Cast input data to the space expected by the underlying MoE model.
+    ///
+    /// If xtypes is None, returns the input as-is without any transformation.
+    /// If working in folded space, unfolds enum dimensions to one-hot masks.
+    /// Then projects continuous values to valid discrete values.
+    fn cast_to_model_space<'a>(&self, x: &'a CowArray<'a, f64, Ix2>) -> CowArray<'a, f64, Ix2> {
+        cast_to_model_space(
+            self.xtypes.as_deref(),
+            self.work_in_folded_space,
+            CowArray::from(x),
+        )
+    }
+
     fn _train(
         &self,
         xt: &ArrayBase<impl Data<Elem = f64>, Ix2>,
         yt: &ArrayBase<impl Data<Elem = f64>, Ix1>,
     ) -> Result<MixintGpMixture> {
-        let xcast = cast_to_model_space(&self.xtypes, self.work_in_folded_space, xt);
+        let cow_xt = CowArray::from(xt);
+        let xcast = self.cast_to_model_space(&cow_xt);
         let mixmoe = MixintGpMixture {
             moe: self
                 .gpmix_params
@@ -457,7 +500,8 @@ impl MixintGpMixtureValidParams {
         yt: &ArrayBase<impl Data<Elem = f64>, Ix1>,
         clustering: &Clustering,
     ) -> Result<MixintGpMixture> {
-        let xcast = cast_to_model_space(&self.xtypes, self.work_in_folded_space, xt);
+        let cow_xt = CowArray::from(xt);
+        let xcast = self.cast_to_model_space(&cow_xt);
         let mixmoe = MixintGpMixture {
             moe: self
                 .gpmix_params
@@ -476,7 +520,7 @@ impl MixintGpMixtureValidParams {
 
 impl SurrogateBuilder for MixintGpMixtureParams {
     fn new_with_xtypes(xtypes: &[XType]) -> Self {
-        MixintGpMixtureParams::new(xtypes, &GpMixtureParams::new())
+        MixintGpMixtureParams::new(Some(xtypes), &GpMixtureParams::new())
     }
 
     /// Sets the allowed regression models used in gaussian processes.
@@ -611,8 +655,8 @@ impl From<MixintGpMixtureValidParams> for MixintGpMixtureParams {
 pub struct MixintGpMixture {
     /// the decorated Moe
     moe: GpMixture,
-    /// The input specifications
-    xtypes: Vec<XType>,
+    /// The input specifications (None means all continuous variables, no casting needed)
+    xtypes: Option<Vec<XType>>,
     /// whether training input data are in given in folded space (enum indexes) or not (enum masks)
     /// i.e for "blue" in ["red", "green", "blue"] either \[2\] or [0, 0, 1]
     work_in_folded_space: bool,
@@ -624,7 +668,11 @@ pub struct MixintGpMixture {
 
 impl std::fmt::Display for MixintGpMixture {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let prefix = if discrete(&self.xtypes) { "MixInt" } else { "" };
+        let prefix = if let Some(xtypes) = &self.xtypes {
+            if discrete(xtypes) { "MixInt" } else { "" }
+        } else {
+            ""
+        };
         write!(f, "{}{}", prefix, self.moe)
     }
 }
@@ -644,6 +692,21 @@ impl Clustered for MixintGpMixture {
     }
 }
 
+impl MixintGpMixture {
+    /// Cast input data to the space expected by the underlying MoE model.
+    ///
+    /// If xtypes is None, returns the input as-is without any transformation.
+    /// If working in folded space, unfolds enum dimensions to one-hot masks.
+    /// Then projects continuous values to valid discrete values.
+    fn cast_to_model_space<'a>(&self, x: &'a CowArray<'a, f64, Ix2>) -> CowArray<'a, f64, Ix2> {
+        cast_to_model_space(
+            self.xtypes.as_deref(),
+            self.work_in_folded_space,
+            CowArray::from(x),
+        )
+    }
+}
+
 #[cfg_attr(feature = "serializable", typetag::serde)]
 impl GpSurrogate for MixintGpMixture {
     fn dims(&self) -> (usize, usize) {
@@ -651,17 +714,20 @@ impl GpSurrogate for MixintGpMixture {
     }
 
     fn predict(&self, x: &ArrayView2<f64>) -> Result<Array1<f64>> {
-        let xcast = cast_to_model_space(&self.xtypes, self.work_in_folded_space, x);
+        let cow_x = CowArray::from(x);
+        let xcast = self.cast_to_model_space(&cow_x);
         self.moe.predict(&xcast)
     }
 
     fn predict_var(&self, x: &ArrayView2<f64>) -> Result<Array1<f64>> {
-        let xcast = cast_to_model_space(&self.xtypes, self.work_in_folded_space, x);
+        let cow_x = CowArray::from(x);
+        let xcast = self.cast_to_model_space(&cow_x);
         self.moe.predict_var(&xcast)
     }
 
     fn predict_valvar(&self, x: &ArrayView2<f64>) -> Result<(Array1<f64>, Array1<f64>)> {
-        let xcast = cast_to_model_space(&self.xtypes, self.work_in_folded_space, x);
+        let cow_x = CowArray::from(x);
+        let xcast = self.cast_to_model_space(&cow_x);
         self.moe.predict_valvar(&xcast)
     }
 
@@ -682,9 +748,23 @@ impl GpSurrogate for MixintGpMixture {
 }
 
 impl MixintGpMixture {
+    /// Constructor of mixture of experts parameters, automatically choosing between typed and continuous-only versions based on the presence of `xtypes`.
+    pub fn params(xtypes: Option<&[XType]>) -> MixintGpMixtureParams {
+        if let Some(xtypes) = xtypes {
+            Self::params_with_types(xtypes)
+        } else {
+            Self::params_continuous()
+        }
+    }
+
     /// Constructor of mixture of experts parameters
-    pub fn params(xtypes: &[XType]) -> MixintGpMixtureParams {
-        MixintGpMixtureParams::new(xtypes, &GpMixtureParams::new())
+    pub fn params_with_types(xtypes: &[XType]) -> MixintGpMixtureParams {
+        MixintGpMixtureParams::new(Some(xtypes), &GpMixtureParams::new())
+    }
+
+    /// Constructor of mixture of experts parameters for continuous-only variables
+    pub fn params_continuous() -> MixintGpMixtureParams {
+        MixintGpMixtureParams::new(None, &GpMixtureParams::new())
     }
 
     /// Update the mixint mixture of experts with new data points.
@@ -709,7 +789,11 @@ impl MixintGpMixture {
         x_new: &ArrayBase<impl Data<Elem = f64>, Ix2>,
         y_new: &ArrayBase<impl Data<Elem = f64>, Ix1>,
     ) -> Result<MixintGpMixture> {
-        let xcast = cast_to_model_space(&self.xtypes, self.work_in_folded_space, x_new);
+        let xcast = cast_to_model_space(
+            self.xtypes.as_deref(),
+            self.work_in_folded_space,
+            CowArray::from(x_new),
+        );
 
         // Update the underlying moe (consume self.moe)
         let updated_moe = self.moe.update(&xcast, y_new)?;
@@ -749,23 +833,27 @@ impl MixintGpMixture {
 #[cfg_attr(feature = "serializable", typetag::serde)]
 impl GpSurrogateExt for MixintGpMixture {
     fn predict_gradients(&self, x: &ArrayView2<f64>) -> Result<Array2<f64>> {
-        let xcast = cast_to_model_space(&self.xtypes, self.work_in_folded_space, x);
+        let cow_x = CowArray::from(x);
+        let xcast = self.cast_to_model_space(&cow_x);
         self.moe.predict_gradients(&xcast)
     }
 
     fn predict_var_gradients(&self, x: &ArrayView2<f64>) -> Result<Array2<f64>> {
-        let xcast = cast_to_model_space(&self.xtypes, self.work_in_folded_space, x);
+        let cow_x = CowArray::from(x);
+        let xcast = self.cast_to_model_space(&cow_x);
         self.moe.predict_var_gradients(&xcast)
     }
 
     fn predict_valvar_gradients(&self, x: &ArrayView2<f64>) -> Result<(Array2<f64>, Array2<f64>)> {
-        let xcast = cast_to_model_space(&self.xtypes, self.work_in_folded_space, x);
+        let cow_x = CowArray::from(x);
+        let xcast = self.cast_to_model_space(&cow_x);
         self.moe.predict_valvar_gradients(&xcast)
     }
 
     fn sample(&self, x: &ArrayView2<f64>, n_traj: usize) -> Result<Array2<f64>> {
-        let xcast = cast_to_model_space(&self.xtypes, self.work_in_folded_space, x);
-        self.moe.sample(&xcast.view(), n_traj)
+        let cow_x = CowArray::from(x);
+        let xcast = self.cast_to_model_space(&cow_x);
+        self.moe.sample(&xcast, n_traj)
     }
 }
 
@@ -874,8 +962,8 @@ impl<D: Data<Elem = f64>> PredictInplace<ArrayBase<D, Ix2>, Array1<f64>>
 /// A factory to build consistent sampling method and surrogate regarding
 /// XType specifications
 pub struct MixintContext {
-    /// The input specifications
-    xtypes: Vec<XType>,
+    /// The input specifications (None means all continuous variables)
+    xtypes: Option<Vec<XType>>,
     /// whether data are in given in folded space (enum indexes) or not (enum masks)
     /// i.e for "blue" in ["red", "green", "blue"] either \[2\] or [0, 0, 1]
     /// For sampling data refers to DOE data. For surrogate data refers to training input data
@@ -887,14 +975,28 @@ impl MixintContext {
     /// where working in folded space is the default
     pub fn new(xtypes: &[XType]) -> Self {
         MixintContext {
-            xtypes: xtypes.to_vec(),
+            xtypes: Some(xtypes.to_vec()),
             work_in_folded_space: true,
+        }
+    }
+
+    /// Creates a new context for continuous-only variables (no mixed-integer handling)
+    pub fn new_continuous() -> Self {
+        MixintContext {
+            xtypes: None,
+            work_in_folded_space: false,
         }
     }
 
     /// Compute input dim once unfolded due to continupous relaxation
     pub fn get_unfolded_dim(&self) -> usize {
-        compute_continuous_dim(&self.xtypes)
+        match &self.xtypes {
+            Some(xtypes) => compute_continuous_dim(xtypes),
+            None => {
+                // All continuous, dim equals training data dimension
+                0 // Will be determined from actual data when needed
+            }
+        }
     }
 
     /// Create a mixed integer LHS
@@ -903,15 +1005,16 @@ impl MixintContext {
         kind: LhsKind,
         seed: Option<u64>,
     ) -> MixintSampling<F, Lhs<F, Xoshiro256Plus>> {
+        let xtypes = self.xtypes.as_ref().expect("xtypes required for sampling");
         let lhs = seed
-            .map_or(Lhs::new(&as_continuous_limits(&self.xtypes)), |seed| {
+            .map_or(Lhs::new(&as_continuous_limits(xtypes)), |seed| {
                 let rng = Xoshiro256Plus::seed_from_u64(seed);
-                Lhs::new(&as_continuous_limits(&self.xtypes)).with_rng(rng)
+                Lhs::new(&as_continuous_limits(xtypes)).with_rng(rng)
             })
             .kind(kind);
         MixintSampling {
             method: lhs,
-            xtypes: self.xtypes.clone(),
+            xtypes: Some(xtypes.clone()),
             output_in_folded_space: self.work_in_folded_space,
             phantom: PhantomData,
         }
@@ -919,9 +1022,10 @@ impl MixintContext {
 
     /// Create a mixed integer full factorial
     pub fn create_ffact_sampling<F: Float>(&self) -> MixintSampling<F, FullFactorial<F>> {
+        let xtypes = self.xtypes.as_ref().expect("xtypes required for sampling");
         MixintSampling {
-            method: FullFactorial::new(&as_continuous_limits(&self.xtypes)),
-            xtypes: self.xtypes.clone(),
+            method: FullFactorial::new(&as_continuous_limits(xtypes)),
+            xtypes: Some(xtypes.clone()),
             output_in_folded_space: self.work_in_folded_space,
             phantom: PhantomData,
         }
@@ -932,13 +1036,14 @@ impl MixintContext {
         &self,
         seed: Option<u64>,
     ) -> MixintSampling<F, Random<F, Xoshiro256Plus>> {
-        let rand = seed.map_or(Random::new(&as_continuous_limits(&self.xtypes)), |seed| {
+        let xtypes = self.xtypes.as_ref().expect("xtypes required for sampling");
+        let rand = seed.map_or(Random::new(&as_continuous_limits(xtypes)), |seed| {
             let rng = Xoshiro256Plus::seed_from_u64(seed);
-            Random::new(&as_continuous_limits(&self.xtypes)).with_rng(rng)
+            Random::new(&as_continuous_limits(xtypes)).with_rng(rng)
         });
         MixintSampling {
             method: rand,
-            xtypes: self.xtypes.clone(),
+            xtypes: Some(xtypes.clone()),
             output_in_folded_space: self.work_in_folded_space,
             phantom: PhantomData,
         }
@@ -950,8 +1055,19 @@ impl MixintContext {
         surrogate_builder: &MoeBuilder,
         dataset: &DatasetBase<Array2<f64>, Array1<f64>>,
     ) -> Result<MixintGpMixture> {
-        let mut params = MixintGpMixtureParams::new(&self.xtypes, surrogate_builder);
-        let params = params.work_in_folded_space(self.work_in_folded_space);
+        let params = match &self.xtypes {
+            Some(xtypes) => {
+                let mut params =
+                    MixintGpMixtureParams::new(Some(xtypes.as_slice()), surrogate_builder);
+                params.work_in_folded_space(self.work_in_folded_space);
+                params
+            }
+            None => {
+                let mut params = MixintGpMixtureParams::new_continuous(surrogate_builder);
+                params.work_in_folded_space(self.work_in_folded_space);
+                params
+            }
+        };
         params.fit(dataset)
     }
 }
@@ -1117,5 +1233,98 @@ mod tests {
         let ytest = mixi_moe.predict(&xtest.view()).expect("Predict val fail");
         let ytrue = ftest(&xtest);
         assert_abs_diff_eq!(ytrue, ytest, epsilon = 2.0);
+    }
+
+    #[test]
+    fn test_continuous_only_no_xtypes() {
+        // Test that when xtypes is None, no casting is applied
+        let surrogate_builder = MoeBuilder::new();
+        let params = MixintGpMixtureParams::new_continuous(&surrogate_builder);
+
+        // Verify xtypes is None
+        assert!(params.xtypes().is_none());
+
+        // Create some continuous training data
+        let xt = array![[0.0, 1.0], [1.0, 2.0], [2.0, 3.0], [3.0, 4.0]];
+        let yt = array![1.0, 2.0, 3.0, 4.0];
+        let ds = Dataset::new(xt.clone(), yt.clone());
+
+        // Train the model
+        let model = params.fit(&ds).expect("Failed to train model");
+
+        // Predict should work without any issues
+        let xtest = array![[1.5, 2.5]];
+        let ytest = model.predict(&xtest.view()).expect("Predict failed");
+
+        // Should get a reasonable prediction (linear interpolation)
+        assert!(ytest[0] > 0.0);
+    }
+
+    #[test]
+    fn test_mixint_context_continuous() {
+        // Test MixintContext with continuous-only variables
+        let xtypes = vec![XType::Float(0.0, 1.0), XType::Float(0.0, 1.0)];
+        let mixi = MixintContext::new(&xtypes);
+
+        // Verify xtypes is Some
+        assert!(mixi.xtypes.is_some());
+
+        // Create continuous sampling
+        let sampler = mixi.create_rand_sampling::<f64>(Some(42));
+        let samples = sampler.sample(5);
+
+        // Should have 2 columns (same as the xtypes)
+        assert_eq!(samples.ncols(), 2);
+        assert_eq!(samples.nrows(), 5);
+
+        // All values should be in [0, 1]
+        for i in 0..samples.nrows() {
+            for j in 0..samples.ncols() {
+                let val = samples[[i, j]];
+                assert!((0.0..=1.0).contains(&val), "Value {} out of range", val);
+            }
+        }
+    }
+
+    #[test]
+    fn test_params_with_optional_xtypes() {
+        // Test MixintGpMixtureParams::new with Some xtypes
+        let xtypes = vec![XType::Float(0.0, 1.0), XType::Int(0, 5)];
+        let builder = MoeBuilder::new();
+        let params_with_xtypes = MixintGpMixtureParams::new(Some(&xtypes), &builder);
+        assert!(params_with_xtypes.xtypes().is_some());
+        assert_eq!(params_with_xtypes.xtypes().unwrap().len(), 2);
+
+        // Test MixintGpMixtureParams::new with None (continuous only)
+        let params_continuous = MixintGpMixtureParams::new(None::<&[XType]>, &builder);
+        assert!(params_continuous.xtypes().is_none());
+
+        // Test that params_continuous works for training
+        let xt = array![[0.0, 0.0], [0.5, 0.0], [1.0, 0.0]];
+        let yt = array![0.0, 0.5, 1.0];
+        let ds = Dataset::new(xt, yt);
+        let model = params_continuous.fit(&ds).expect("Training failed");
+
+        let xtest = array![[0.25, 0.0]];
+        let ytest = model.predict(&xtest.view()).expect("Prediction failed");
+        assert!(ytest[0] >= 0.0 && ytest[0] <= 1.0);
+    }
+
+    #[test]
+    fn test_params_continuous_helper() {
+        // Test the params_continuous() helper method
+        let builder = MoeBuilder::new();
+        let params = MixintGpMixtureParams::new_continuous(&builder);
+        assert!(params.xtypes().is_none());
+
+        // Should be able to train and predict
+        let xt = array![[0.0], [1.0], [2.0]];
+        let yt = array![0.0, 1.0, 2.0];
+        let ds = Dataset::new(xt, yt);
+        let model = params.fit(&ds).expect("Training failed");
+
+        let xtest = array![[1.5]];
+        let ytest = model.predict(&xtest.view()).expect("Prediction failed");
+        assert!((ytest[0] - 1.5).abs() < 0.5);
     }
 }

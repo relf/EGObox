@@ -209,26 +209,11 @@ class Egor:
             In the third case Viability, a surrogate is used to model the failure region
             which is used as a constraint and drive the optimization toward the viable region.
     
-        seed (int >= 0 or None):
-            Deprecated: use seed argument in minimize() or suggest() instead.
-    
-        outdir (String or None):
-            Deprecated: use outdir argument in minimize() instead.
-    
-        warm_start (bool):
-            Deprecated: use warm_start argument in minimize() instead.
-    
-        hot_start (bool, int >= 0 or None):
-            Deprecated: use hot_start argument in minimize() instead.
-    
-        verbose (int, Verbose enum, or None):
-            Deprecated: use verbose argument in minimize() instead.
-    
     # Returns
     
         Egor object which can be used to optimize a function using the minimize method.
     """
-    def __new__(cls, xspecs: typing.Any, gp_config: GpConfig = ..., n_cstr: builtins.int = 0, cstr_tol: typing.Optional[typing.Sequence[builtins.float]] = None, cstr_specs: typing.Optional[typing.Sequence[CstrSpec]] = None, n_start: builtins.int = 20, n_doe: builtins.int = 0, doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, infill_strategy: InfillStrategy = InfillStrategy.LOG_EI, feasible_infill_strategy: FeasibleInfillStrategy = FeasibleInfillStrategy.NONE, cstr_infill: builtins.bool = False, cstr_strategy: ConstraintStrategy = ConstraintStrategy.MC, qei_config: QEiConfig = ..., infill_optimizer: InfillOptimizer = InfillOptimizer.COBYLA, trego: typing.Optional[typing.Any] = None, coego_n_coop: builtins.int = 0, target: builtins.float = -1.7976931348623157e+308, failsafe_strategy: FailsafeStrategy = FailsafeStrategy.REJECTION, seed: typing.Optional[builtins.int] = None, outdir: typing.Optional[builtins.str] = None, warm_start: builtins.bool = False, hot_start: typing.Optional[typing.Any] = None, verbose: typing.Optional[typing.Any] = None) -> Egor: ...
+    def __new__(cls, xspecs: typing.Any, gp_config: GpConfig = ..., n_cstr: builtins.int = 0, cstr_tol: typing.Optional[typing.Sequence[builtins.float]] = None, cstr_specs: typing.Optional[typing.Sequence[CstrSpec]] = None, n_start: builtins.int = 20, n_doe: builtins.int = 0, doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, infill_strategy: InfillStrategy = InfillStrategy.LOG_EI, feasible_infill_strategy: FeasibleInfillStrategy = FeasibleInfillStrategy.NONE, cstr_infill: builtins.bool = False, cstr_strategy: ConstraintStrategy = ConstraintStrategy.MC, qei_config: QEiConfig = ..., infill_optimizer: InfillOptimizer = InfillOptimizer.COBYLA, trego: typing.Optional[typing.Any] = None, coego_n_coop: builtins.int = 0, target: builtins.float = -1.7976931348623157e+308, failsafe_strategy: FailsafeStrategy = FailsafeStrategy.REJECTION) -> Egor: ...
     def minimize(self, fun: typing.Any, fcstrs: typing.Sequence[typing.Any] = [], fcstr_specs: typing.Sequence[CstrSpec] = [], max_iters: builtins.int = 20, run_info: typing.Optional[typing.Any] = None, outdir: typing.Optional[builtins.str] = None, warm_start: builtins.bool = False, hot_start: typing.Optional[typing.Any] = None, seed: typing.Optional[builtins.int] = None, timeout: typing.Optional[builtins.float] = None, verbose: typing.Optional[typing.Any] = None, stop_on_error: builtins.bool = False) -> EgorOptim:
         r"""
         This function finds the minimum of a given function "fun"
@@ -357,12 +342,6 @@ class Egor:
                 y_opt (array[1, nx]): fun(x_opt)
                 x_doe (array[ns, nx]): x values of the final DOE
                 y_doe (array[ns, 1 + n_cstr]): y values of the final DOE
-        """
-    def load_gp_models(self, file: builtins.str) -> builtins.list[Gpx]:
-        r"""
-        This function loads surrogate models from a file and returns them as a list of Gpx objects.
-        The file is expected to be a binary file containing a serialized vector of boxed
-        surrogate models (Vec<Box<dyn MixtureGpSurrogate>>) generated during optimization execution
         """
 
 @typing.final
@@ -732,6 +711,26 @@ class Gpx:
         
         # Returns
             the couple (nx, ny)
+        """
+    def update(self, x_new: numpy.typing.NDArray[numpy.float64], y_new: numpy.typing.NDArray[numpy.float64]) -> Gpx:
+        r"""
+        Update the mixture of experts with new data points.
+        
+        For single-expert mixtures, uses efficient GP update with Cholesky rank-1 updates.
+        For multi-expert mixtures, assigns new points to clusters and refits experts with fixed theta.
+        
+        # Parameters
+            x_new (array[n_new, nx]): New input data points
+            y_new (array[n_new,]): New output data values
+        
+        # Returns
+            A new Gpx instance updated with the new data
+        
+        # Example
+            >>> import egobox as egx
+            >>> import numpy as np
+            >>> gpx = egx.Gpx.builder().fit(np.array([[0.0], [1.0]]), np.array([0.0, 1.0]))
+            >>> gpx_updated = gpx.update(np.array([[2.0]]), np.array([1.5]))
         """
     def training_data(self) -> tuple[numpy.typing.NDArray[numpy.float64], numpy.typing.NDArray[numpy.float64]]:
         r"""
