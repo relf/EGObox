@@ -112,9 +112,7 @@
 //!
 use crate::solver::iteration_strategy::IterationMode;
 use crate::utils::{
-    EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER, EGOR_USE_GP_VAR_PORTFOLIO,
-    EGOR_USE_MAX_PROBA_OF_FEASIBILITY, EGOR_USE_STATE_RECORDING, filter_nans,
-    find_best_result_index, is_feasible,
+    EGOR_USE_GP_VAR_PORTFOLIO, EGOR_USE_STATE_RECORDING, filter_nans, find_best_result_index,
 };
 use crate::{EgoError, EgorState, MAX_POINT_ADDITION_RETRY, ValidEgorConfig};
 
@@ -318,24 +316,6 @@ where
         initial_state.surrogate.prev_best_index = initial_state.surrogate.best_index;
         initial_state.last_best_iter = 0;
 
-        // Use proba of feasibility when corresponding flag is enabled
-        // (when disabled, feasibility is set to true whatever the actual feasibility of the point,
-        // meaning that the criterion be used for infill will not be affected by feasibility)
-        initial_state.feasibility = !self.config.runtime_flags.use_max_proba_of_feasibility || {
-            is_feasible(
-                &y_data.row(best_index),
-                &c_data.row(best_index),
-                &initial_state.doe.cstr_tol,
-            )
-        };
-        if self.config.runtime_flags.use_max_proba_of_feasibility {
-            info!("Using max proba of feasibility for infill criterion");
-            info!(
-                "Initial best point feasibility = {}",
-                initial_state.feasibility
-            );
-        }
-
         // Initialize iteration strategy state (e.g., TREGO sigma)
         self.config
             .iteration_strategy
@@ -345,17 +325,7 @@ where
         debug!("Initial State = {initial_state:?}");
         info!(
             "{} setting: {}",
-            EGOR_USE_MAX_PROBA_OF_FEASIBILITY,
-            self.config.runtime_flags.use_max_proba_of_feasibility
-        );
-        info!(
-            "{} setting: {}",
             EGOR_USE_GP_VAR_PORTFOLIO, self.config.runtime_flags.use_gp_var_portfolio
-        );
-        info!(
-            "{} setting: {}",
-            EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER,
-            self.config.runtime_flags.disable_middlepicker_multistarter
         );
         info!(
             "{} setting: {}",
@@ -383,8 +353,6 @@ where
             state.get_max_iters()
         );
         let now = Instant::now();
-
-        let feasibility = state.feasibility;
 
         // Use iteration strategy to determine global vs local step
         let mut state = state;
@@ -416,13 +384,6 @@ where
             (res.0.rng(rng).activity(activity), res.1)
         };
 
-        // Update feasibility
-        if res.0.feasibility != feasibility {
-            info!(
-                "Best point feasibility changed {} -> {}",
-                feasibility, res.0.feasibility
-            );
-        }
         info!(
             "********* End iteration {}/{} in {:.3}s: Best fun(x[{}])={} at x={}",
             res.0.get_iter() + 1,

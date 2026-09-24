@@ -4,10 +4,7 @@ use linfa::Float;
 use ndarray::{Array1, Array2, ArrayView2};
 use serde::{Deserialize, Serialize};
 
-// Re-export from egobox_moe for backward compatibility
-#[deprecated(since = "0.36.1", note = "Use `egobox_moe::SurrogateBuilder` instead")]
 pub use egobox_moe::SurrogateBuilder;
-#[deprecated(since = "0.36.1", note = "Use `egobox_moe::XType` instead")]
 pub use egobox_moe::XType;
 
 /// Optimization result

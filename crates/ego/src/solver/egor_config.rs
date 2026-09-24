@@ -55,10 +55,7 @@
 //!     .check()?;
 //! ```
 
-use crate::utils::{
-    EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER, EGOR_USE_GP_VAR_PORTFOLIO,
-    EGOR_USE_MAX_PROBA_OF_FEASIBILITY, EGOR_USE_STATE_RECORDING,
-};
+use crate::utils::{EGOR_USE_GP_VAR_PORTFOLIO, EGOR_USE_STATE_RECORDING};
 use crate::{HotStartMode, criteria::*, errors::Result, types::*};
 use egobox_gp::ThetaTuning;
 use egobox_moe::NbClusters;
@@ -253,12 +250,8 @@ pub const EGO_DEFAULT_N_START: usize = 20;
 /// implementation which reads from environment variables.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RuntimeFlags {
-    /// Use max probability of feasibility for infill criterion (env: EGOR_USE_MAX_PROBA_OF_FEASIBILITY)
-    pub use_max_proba_of_feasibility: bool,
     /// Use GP variance portfolio for infill optimization (env: EGOR_USE_GP_VAR_PORTFOLIO)
     pub use_gp_var_portfolio: bool,
-    /// Disable middle-picker multistarter for infill optimization (env: EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER)
-    pub disable_middlepicker_multistarter: bool,
     /// Enable state data recording to JSON (env: EGOR_USE_STATE_RECORDING)
     pub use_state_recording: bool,
 }
@@ -267,12 +260,7 @@ impl Default for RuntimeFlags {
     /// Creates RuntimeFlags by reading from environment variables for backward compatibility.
     fn default() -> Self {
         RuntimeFlags {
-            use_max_proba_of_feasibility: std::env::var(EGOR_USE_MAX_PROBA_OF_FEASIBILITY).is_ok(),
             use_gp_var_portfolio: std::env::var(EGOR_USE_GP_VAR_PORTFOLIO).is_ok(),
-            disable_middlepicker_multistarter: std::env::var(
-                EGOR_DO_NOT_USE_MIDDLEPICKER_MULTISTARTER,
-            )
-            .is_ok(),
             use_state_recording: std::env::var(EGOR_USE_STATE_RECORDING).is_ok(),
         }
     }
@@ -282,28 +270,14 @@ impl RuntimeFlags {
     /// Creates RuntimeFlags with all flags disabled.
     pub fn none() -> Self {
         RuntimeFlags {
-            use_max_proba_of_feasibility: false,
             use_gp_var_portfolio: false,
-            disable_middlepicker_multistarter: false,
             use_state_recording: false,
         }
-    }
-
-    /// Use max probability of feasibility for infill criterion.
-    pub fn use_max_proba_of_feasibility(mut self, enabled: bool) -> Self {
-        self.use_max_proba_of_feasibility = enabled;
-        self
     }
 
     /// Use GP variance portfolio for infill optimization.
     pub fn use_gp_var_portfolio(mut self, enabled: bool) -> Self {
         self.use_gp_var_portfolio = enabled;
-        self
-    }
-
-    /// Disable middle-picker multistarter.
-    pub fn disable_middlepicker_multistarter(mut self, enabled: bool) -> Self {
-        self.disable_middlepicker_multistarter = enabled;
         self
     }
 
@@ -506,40 +480,6 @@ impl EgorConfig {
     /// Removes any previously specified initial doe to get the default doe usage
     pub fn default_doe(mut self) -> Self {
         self.0.doe = None;
-        self
-    }
-
-    /// Sets Number of parallel evaluations of the function under optimization
-    #[deprecated(
-        since = "0.35.0",
-        note = "Please use `configure_qei` method instead to set the number of parallel evaluations"
-    )]
-    pub fn q_batch(mut self, q_batch: usize) -> Self {
-        self.0.qei_config.batch = q_batch;
-        self
-    }
-
-    /// Sets the parallel infill strategy
-    ///
-    /// Parallel infill criterion to get virtual next promising points in order to allow
-    /// n parallel evaluations of the function under optimization.
-    #[deprecated(
-        since = "0.35.0",
-        note = "Please use `configure_qei` method instead to set the multipoint strategy"
-    )]
-    pub fn qei_strategy(mut self, q_ei: QEiStrategy) -> Self {
-        self.0.qei_config.strategy = q_ei;
-        self
-    }
-
-    /// Sets the number of iteration interval between two hyperparameter optimization
-    /// when computing q points to be evaluated in parallel
-    #[deprecated(
-        since = "0.35.0",
-        note = "Please use `configure_qei` method instead to set the qEI parameters"
-    )]
-    pub fn q_optmod(mut self, q_optmod: usize) -> Self {
-        self.0.qei_config.optmod = q_optmod;
         self
     }
 

@@ -1269,12 +1269,7 @@ where
                 let sub_rng = Xoshiro256Plus::seed_from_u64(rng.r#gen());
                 // let multistarter = GlobalMultiStarter::new(&self.xlimits, sub_rng);
                 let xsamples = x_data.to_owned();
-                let multistarter = MiddlePickerMultiStarter::new(
-                    &self.xlimits,
-                    &xsamples,
-                    sub_rng,
-                    self.config.runtime_flags.disable_middlepicker_multistarter,
-                );
+                let multistarter = MiddlePickerMultiStarter::new(&self.xlimits, &xsamples, sub_rng);
 
                 let infill_optpb = InfillOptProblem::new(
                     obj_model.as_ref(),
