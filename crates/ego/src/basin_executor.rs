@@ -284,7 +284,7 @@ where
     if let Some(outdir) = config.outdir {
         exec = exec.observe_with(
             Observer {
-                inner: OptimizationObserver::new(outdir),
+                inner: OptimizationObserver::new(outdir, config.runtime_flags.use_state_recording),
                 error: observer_error.clone(),
             },
             ObserverMode::Always,
