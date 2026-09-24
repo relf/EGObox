@@ -26,7 +26,6 @@ Features control optional dependencies and capabilities across crates:
 - `serializable`: Enable serde-based serialization
 - `persistent`: Enable JSON save/load (implies serializable)
 - `blas`: Optional BLAS/LAPACK backend via `ndarray-linalg` and Intel MKL for performance
-- `nlopt`: Alternative optimizers (Cobyla, Slsqp) via nlopt crate
 
 **Always specify features explicitly in dependencies** - most crates use `default-features = false` for linfa dependencies.
 

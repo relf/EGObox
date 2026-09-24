@@ -1043,7 +1043,6 @@ mod tests {
         println!("theta={:?}", sgp.theta());
         println!("variance={:?}", sgp.variance());
         println!("noise variance={:?}", sgp.noise_variance());
-        #[cfg(not(feature = "nlopt"))]
         assert_abs_diff_eq!(eta2, sgp.noise_variance(), epsilon = 0.015);
         assert_abs_diff_eq!(&z, sgp.inducings(), epsilon = 0.0015);
 

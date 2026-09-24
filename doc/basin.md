@@ -11,8 +11,7 @@ maturin develop --release --features basin
 
 The feature is available on `egobox-gp`, `egobox-moe`, `egobox-ego`,
 `egobox-gpx`, and the Python package. Enabling it on EGO also enables it for GP
-training. When `basin` and `nlopt` are both enabled, Basin supplies the numerical
-solvers. The feature is disabled by default.
+training. The feature is disabled by default.
 
 ## Execution and compatibility
 

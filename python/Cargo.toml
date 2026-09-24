@@ -18,7 +18,6 @@ doctest = false                 # do not doctest as doc uses Python style for Py
 default = []
 basin = ["egobox-ego/basin", "egobox-gp/basin", "egobox-moe/basin", "egobox-gpx/basin"]
 
-nlopt = ["egobox-ego/nlopt", "egobox-gp/nlopt"]
 serializable-gp = ["egobox-gp/serializable"]
 persistent-moe = ["egobox-moe/persistent"]
 blas = ["ndarray/blas", "egobox-gp/blas", "egobox-moe/blas", "egobox-ego/blas"]

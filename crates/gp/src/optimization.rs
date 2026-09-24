@@ -74,56 +74,8 @@ pub(crate) fn prepare_multistart<F: Float>(
     (theta0s, bounds)
 }
 
-/// Optimize gp hyper parameters given an initial guess and bounds with NLOPT::Cobyla
-#[cfg(all(feature = "nlopt", not(feature = "basin")))]
-pub(crate) fn optimize_params<ObjF, F>(
-    objfn: ObjF,
-    param0: &Array1<F>,
-    bounds: &[(F, F)],
-    cobyla: CobylaParams,
-) -> (f64, Array1<f64>)
-where
-    ObjF: Fn(&[f64], Option<&mut [f64]>, &mut ()) -> f64,
-    F: Float,
-{
-    use nlopt::*;
-
-    let base: f64 = 10.;
-    // block to drop optimizer and allow self.corr borrowing after
-    let mut optimizer = Nlopt::new(Algorithm::Cobyla, param0.len(), objfn, Target::Minimize, ());
-    let mut param = param0
-        .map(|v| unsafe { *(v as *const F as *const f64) })
-        .into_raw_vec_and_offset()
-        .0;
-
-    let lower_bounds = bounds.iter().map(|b| into_f64(&b.0)).collect::<Vec<_>>();
-    optimizer.set_lower_bounds(&lower_bounds).unwrap();
-    let upper_bounds = bounds.iter().map(|b| into_f64(&b.1)).collect::<Vec<_>>();
-    optimizer.set_upper_bounds(&upper_bounds).unwrap();
-
-    optimizer.set_initial_step1(cobyla.rhobeg).unwrap();
-    optimizer.set_maxeval(cobyla.maxeval as u32).unwrap();
-    optimizer.set_ftol_rel(cobyla.ftol_rel).unwrap();
-
-    match optimizer.optimize(&mut param) {
-        Ok((_, fmin)) => {
-            let params_opt = arr1(&param);
-            let fval = if f64::is_nan(fmin) {
-                f64::INFINITY
-            } else {
-                fmin
-            };
-            (fval, params_opt)
-        }
-        Err(_e) => {
-            // println!("ERROR OPTIM in GP err={:?}", e);
-            (f64::INFINITY, arr1(&param).mapv(|v| base.powf(v)))
-        }
-    }
-}
-
 /// Optimize gp hyper parameters given an initial guess and bounds with cobyla
-#[cfg(not(any(feature = "nlopt", feature = "basin")))]
+#[cfg(not(feature = "basin"))]
 pub(crate) fn optimize_params<ObjF, F>(
     objfn: ObjF,
     param0: &Array1<F>,
