@@ -145,44 +145,41 @@ impl<'a> Optimizer<'a> {
             .unwrap_or(Array1::zeros(self.cons.len()));
         match self.algo {
             Algorithm::Cobyla => {
-                {
-                    let xinit = self.xinit.clone().unwrap().to_vec();
-                    let bounds: Vec<_> = self
-                        .bounds
-                        .outer_iter()
-                        .map(|row| (row[0], row[1]))
-                        .collect();
-                    let cstrs: Vec<_> = self
-                        .cons
-                        .iter()
-                        .enumerate()
-                        .map(|(i, f)| {
-                            let cstr_tol = cstr_tol[i];
-                            move |x: &[f64], u: &mut InfillObjData<f64>| {
-                                let scale_cstr =
-                                    u.scale_cstr.as_ref().expect("constraint scaling")[i];
-                                -(*f)(x, None, u) + cstr_tol / scale_cstr
-                            }
-                        })
-                        .collect();
-                    let res = cobyla::minimize(
-                        |x: &[f64], u: &mut InfillObjData<f64>| (self.fun)(x, None, u),
-                        &xinit,
-                        &bounds,
-                        &cstrs,
-                        self.user_data.clone(),
-                        self.max_eval,
-                        RhoBeg::All(0.5),
-                        Some(cobyla::StopTols {
-                            ftol_rel: self.ftol_rel.unwrap_or(0.0),
-                            ftol_abs: self.ftol_abs.unwrap_or(0.0),
-                            ..cobyla::StopTols::default()
-                        }),
-                    );
-                    match res {
-                        Ok((_, x_opt, y_opt)) => (y_opt, arr1(&x_opt)),
-                        Err((_, x_opt, _)) => (f64::INFINITY, arr1(&x_opt)),
-                    }
+                let xinit = self.xinit.clone().unwrap().to_vec();
+                let bounds: Vec<_> = self
+                    .bounds
+                    .outer_iter()
+                    .map(|row| (row[0], row[1]))
+                    .collect();
+                let cstrs: Vec<_> = self
+                    .cons
+                    .iter()
+                    .enumerate()
+                    .map(|(i, f)| {
+                        let cstr_tol = cstr_tol[i];
+                        move |x: &[f64], u: &mut InfillObjData<f64>| {
+                            let scale_cstr = u.scale_cstr.as_ref().expect("constraint scaling")[i];
+                            -(*f)(x, None, u) + cstr_tol / scale_cstr
+                        }
+                    })
+                    .collect();
+                let res = cobyla::minimize(
+                    |x: &[f64], u: &mut InfillObjData<f64>| (self.fun)(x, None, u),
+                    &xinit,
+                    &bounds,
+                    &cstrs,
+                    self.user_data.clone(),
+                    self.max_eval,
+                    RhoBeg::All(0.5),
+                    Some(cobyla::StopTols {
+                        ftol_rel: self.ftol_rel.unwrap_or(0.0),
+                        ftol_abs: self.ftol_abs.unwrap_or(0.0),
+                        ..cobyla::StopTols::default()
+                    }),
+                );
+                match res {
+                    Ok((_, x_opt, y_opt)) => (y_opt, arr1(&x_opt)),
+                    Err((_, x_opt, _)) => (f64::INFINITY, arr1(&x_opt)),
                 }
             }
             Algorithm::Slsqp => {
@@ -199,8 +196,7 @@ impl<'a> Optimizer<'a> {
                     .map(|(i, f)| {
                         let cstr_tol = cstr_tol[i];
                         move |x: &[f64], g: Option<&mut [f64]>, u: &mut InfillObjData<f64>| {
-                            let scale_cstr =
-                                u.scale_cstr.as_ref().expect("constraint scaling")[i];
+                            let scale_cstr = u.scale_cstr.as_ref().expect("constraint scaling")[i];
                             (*f)(x, g, u) - cstr_tol / scale_cstr
                         }
                     })
