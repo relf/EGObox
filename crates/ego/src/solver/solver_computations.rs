@@ -79,8 +79,6 @@ pub(crate) struct MiddlePickerMultiStarter<'a, 'b, R: Rng + Clone> {
     xlimits: &'a Array2<f64>,
     xtrain: &'b Array2<f64>,
     rng: R,
-    /// If true, disable middle-picker and fallback to LHS
-    disable_middlepicker: bool,
 }
 
 impl<R: Rng + Clone> super::solver_infill_optim::MultiStarter
@@ -89,51 +87,43 @@ impl<R: Rng + Clone> super::solver_infill_optim::MultiStarter
     fn multistart(&mut self, n_start: usize, active: &[usize]) -> Array2<f64> {
         let xlimits = coego::get_active_x(Axis(0), self.xlimits, active);
 
-        if !self.disable_middlepicker {
-            let nt = self.xtrain.nrows();
-            // Compute the maximum number of points n to consider to generate midpoints
-            // to avoid too much computation when large training set
-            // Consider one tenth of training points as midpoints nb will grow as (n * (n-1) / 2)
-            // and multistart rarely exceeds 50. We do not want to pick only midpoints
-            // but keep some diversity by adding LHS points (at least when nt is small < 50).
-            let n = (nt / 10).max(2);
+        let nt = self.xtrain.nrows();
+        // Compute the maximum number of points n to consider to generate midpoints
+        // to avoid too much computation when large training set
+        // Consider one tenth of training points as midpoints nb will grow as (n * (n-1) / 2)
+        // and multistart rarely exceeds 50. We do not want to pick only midpoints
+        // but keep some diversity by adding LHS points (at least when nt is small < 50).
+        let n = (nt / 10).max(2);
 
-            let xt = self.xtrain;
-            let mut indices: Vec<usize> = (0..xt.nrows()).collect();
-            indices.shuffle(&mut self.rng);
-            let selected = indices
-                .iter()
-                .take(n)
-                .map(|&i| xt.slice(s![i, ..]))
-                .collect::<Vec<_>>();
-            let xt = stack(Axis(0), &selected).unwrap();
+        let xt = self.xtrain;
+        let mut indices: Vec<usize> = (0..xt.nrows()).collect();
+        indices.shuffle(&mut self.rng);
+        let selected = indices
+            .iter()
+            .take(n)
+            .map(|&i| xt.slice(s![i, ..]))
+            .collect::<Vec<_>>();
+        let xt = stack(Axis(0), &selected).unwrap();
 
-            let xt = coego::get_active_x(Axis(1), &xt, active);
-            let midpoints =
-                utils::start_points(&xt, &xlimits.column(0), &xlimits.column(1), Some(n_start));
-            let n_midpoints = midpoints.nrows();
-            let missing_points: i32 = n_start as i32 - n_midpoints as i32;
-            if missing_points <= 0 {
-                debug!("MiddlePickerMultiStarter: pick {n_midpoints} pts");
-                midpoints
-            } else {
-                debug!(
-                    "MiddlePickerMultiStarter: pick {n_midpoints} pt(s), add {missing_points} LHS pt(s)"
-                );
-                // complete with LHS
-                let sampling = Lhs::new(&xlimits)
-                    .kind(LhsKind::Maximin)
-                    .with_rng(&mut self.rng);
-                let missings = sampling.sample((missing_points as usize).max(3)); // sampling with at least 3 points
-                let missings = missings.slice(s![0..(missing_points as usize), ..]);
-                concatenate(Axis(0), &[midpoints.view(), missings]).unwrap()
-            }
+        let xt = coego::get_active_x(Axis(1), &xt, active);
+        let midpoints =
+            utils::start_points(&xt, &xlimits.column(0), &xlimits.column(1), Some(n_start));
+        let n_midpoints = midpoints.nrows();
+        let missing_points: i32 = n_start as i32 - n_midpoints as i32;
+        if missing_points <= 0 {
+            debug!("MiddlePickerMultiStarter: pick {n_midpoints} pts");
+            midpoints
         } else {
-            // fallback on LHS
+            debug!(
+                "MiddlePickerMultiStarter: pick {n_midpoints} pt(s), add {missing_points} LHS pt(s)"
+            );
+            // complete with LHS
             let sampling = Lhs::new(&xlimits)
                 .kind(LhsKind::Maximin)
                 .with_rng(&mut self.rng);
-            sampling.sample(n_start)
+            let missings = sampling.sample((missing_points as usize).max(3)); // sampling with at least 3 points
+            let missings = missings.slice(s![0..(missing_points as usize), ..]);
+            concatenate(Axis(0), &[midpoints.view(), missings]).unwrap()
         }
     }
 
@@ -143,17 +133,11 @@ impl<R: Rng + Clone> super::solver_infill_optim::MultiStarter
 }
 
 impl<'a, 'b, R: Rng + Clone> MiddlePickerMultiStarter<'a, 'b, R> {
-    pub fn new(
-        xlimits: &'a Array2<f64>,
-        xtrain: &'b Array2<f64>,
-        rng: R,
-        disable_middlepicker: bool,
-    ) -> Self {
+    pub fn new(xlimits: &'a Array2<f64>, xtrain: &'b Array2<f64>, rng: R) -> Self {
         MiddlePickerMultiStarter {
             xlimits,
             xtrain,
             rng,
-            disable_middlepicker,
         }
     }
 }

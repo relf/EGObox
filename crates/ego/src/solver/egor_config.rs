@@ -55,9 +55,7 @@
 //!     .check()?;
 //! ```
 
-use crate::utils::{
-    EGOR_USE_GP_VAR_PORTFOLIO, EGOR_USE_MAX_PROBA_OF_FEASIBILITY, EGOR_USE_STATE_RECORDING,
-};
+use crate::utils::{EGOR_USE_GP_VAR_PORTFOLIO, EGOR_USE_STATE_RECORDING};
 use crate::{HotStartMode, criteria::*, errors::Result, types::*};
 use egobox_gp::ThetaTuning;
 use egobox_moe::NbClusters;
@@ -252,8 +250,6 @@ pub const EGO_DEFAULT_N_START: usize = 20;
 /// implementation which reads from environment variables.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RuntimeFlags {
-    /// Use max probability of feasibility for infill criterion (env: EGOR_USE_MAX_PROBA_OF_FEASIBILITY)
-    pub use_max_proba_of_feasibility: bool,
     /// Use GP variance portfolio for infill optimization (env: EGOR_USE_GP_VAR_PORTFOLIO)
     pub use_gp_var_portfolio: bool,
     /// Enable state data recording to JSON (env: EGOR_USE_STATE_RECORDING)
@@ -264,7 +260,6 @@ impl Default for RuntimeFlags {
     /// Creates RuntimeFlags by reading from environment variables for backward compatibility.
     fn default() -> Self {
         RuntimeFlags {
-            use_max_proba_of_feasibility: std::env::var(EGOR_USE_MAX_PROBA_OF_FEASIBILITY).is_ok(),
             use_gp_var_portfolio: std::env::var(EGOR_USE_GP_VAR_PORTFOLIO).is_ok(),
             use_state_recording: std::env::var(EGOR_USE_STATE_RECORDING).is_ok(),
         }
@@ -275,28 +270,14 @@ impl RuntimeFlags {
     /// Creates RuntimeFlags with all flags disabled.
     pub fn none() -> Self {
         RuntimeFlags {
-            use_max_proba_of_feasibility: false,
             use_gp_var_portfolio: false,
-            disable_middlepicker_multistarter: false,
             use_state_recording: false,
         }
-    }
-
-    /// Use max probability of feasibility for infill criterion.
-    pub fn use_max_proba_of_feasibility(mut self, enabled: bool) -> Self {
-        self.use_max_proba_of_feasibility = enabled;
-        self
     }
 
     /// Use GP variance portfolio for infill optimization.
     pub fn use_gp_var_portfolio(mut self, enabled: bool) -> Self {
         self.use_gp_var_portfolio = enabled;
-        self
-    }
-
-    /// Disable middle-picker multistarter.
-    pub fn disable_middlepicker_multistarter(mut self, enabled: bool) -> Self {
-        self.disable_middlepicker_multistarter = enabled;
         self
     }
 

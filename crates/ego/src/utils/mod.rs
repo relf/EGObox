@@ -24,9 +24,6 @@ pub use start_points::*;
 /// Env variable to enable logging feature
 pub const EGOBOX_LOG: &str = "EGOBOX_LOG";
 
-/// Env variable to enable the use of PoF as criterion while no feasible point is found
-pub const EGOR_USE_MAX_PROBA_OF_FEASIBILITY: &str = "EGOR_USE_MAX_PROBA_OF_FEASIBILITY";
-
 /// Env variable to enable the portfolio method used for global infill criterion optimization
 pub const EGOR_USE_GP_VAR_PORTFOLIO: &str = "EGOR_USE_GP_VAR_PORTFOLIO";
 
