@@ -16,7 +16,10 @@ doctest = false                 # do not doctest as doc uses Python style for Py
 
 [features]
 default = []
-basin = ["egobox-ego/basin", "egobox-gp/basin", "egobox-moe/basin", "egobox-gpx/basin"]
+# Use cobyla crate (C-ported NLopt COBYLA) instead of basin COBYLA
+c-cobyla = ["egobox-ego/c-cobyla", "egobox-gp/c-cobyla", "egobox-moe/c-cobyla", "egobox-gpx/c-cobyla"]
+# Use slsqp crate (C-ported NLopt SLSQP) instead of basin SLSQP
+c-slsqp = ["egobox-ego/c-slsqp", "egobox-gpx/c-slsqp"]
 
 serializable-gp = ["egobox-gp/serializable"]
 persistent-moe = ["egobox-moe/persistent"]

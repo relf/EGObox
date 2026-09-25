@@ -11,7 +11,7 @@ pub(crate) struct CobylaParams {
     pub rhobeg: f64,
     pub ftol_rel: f64,
     pub maxeval: usize,
-    #[cfg(feature = "basin")]
+    #[cfg(not(feature = "c-cobyla"))]
     pub bounded_evaluations: bool,
 }
 
@@ -21,7 +21,7 @@ impl Default for CobylaParams {
             rhobeg: 0.5,
             ftol_rel: 1e-4,
             maxeval: 200,
-            #[cfg(feature = "basin")]
+            #[cfg(not(feature = "c-cobyla"))]
             bounded_evaluations: false,
         }
     }
@@ -75,7 +75,7 @@ pub(crate) fn prepare_multistart<F: Float>(
 }
 
 /// Optimize gp hyper parameters given an initial guess and bounds with cobyla
-#[cfg(not(feature = "basin"))]
+#[cfg(feature = "c-cobyla")]
 pub(crate) fn optimize_params<ObjF, F>(
     objfn: ObjF,
     param0: &Array1<F>,
@@ -131,7 +131,7 @@ fn into_f64<F: Float>(v: &F) -> f64 {
 }
 
 /// Optimize log10 GP hyperparameters using Basin's bounded COBYLA adapter.
-#[cfg(feature = "basin")]
+#[cfg(not(feature = "c-cobyla"))]
 pub(crate) fn optimize_params<ObjF, F>(
     objfn: ObjF,
     param0: &Array1<F>,

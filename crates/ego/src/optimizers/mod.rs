@@ -19,7 +19,8 @@
 //!
 //! Basin pure Rust COBYLA and SLSQP implementations are used by default.
 //!
-//! - `c-cobyla`: Use the `cobyla` crate (C-ported NLopt COBYLA) instead of Basin COBYLA.
+//! - `c-cobyla`: Use the `cobyla` crate (C-ported NLopt COBYLA) instead of Basin COBYLA
+//!   (also for GP hyperparameters training).
 //! - `c-slsqp`: Use the `slsqp` crate (C-ported NLopt SLSQP) instead of Basin SLSQP.
 
 mod optimizer;

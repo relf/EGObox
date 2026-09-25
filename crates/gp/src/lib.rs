@@ -32,6 +32,5 @@ pub use sparse_algorithm::*;
 pub use sparse_parameters::*;
 pub use utils::DiffMatrix;
 
-#[cfg(feature = "basin-optimizer")]
 #[doc(hidden)]
 pub mod basin_optimizer;
