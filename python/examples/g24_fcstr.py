@@ -21,31 +21,27 @@ def G24(point):
 
 
 # Constraints < 0
+# Function constraints are evaluated at a single point x (shape (nx,))
+# and have to return a float value
 def G24_c1(point, gradient=False):
     if gradient:
         raise NotImplementedError("G24_c1: Gradient not implemented")
     else:
-        p = np.atleast_2d(point)
-        return (
-            -2.0 * p[:, 0] ** 4.0
-            + 8.0 * p[:, 0] ** 3.0
-            - 8.0 * p[:, 0] ** 2.0
-            + p[:, 1]
-            - 2.0
-        )
+        x1, x2 = point[0], point[1]
+        return -2.0 * x1**4.0 + 8.0 * x1**3.0 - 8.0 * x1**2.0 + x2 - 2.0
 
 
 def G24_c2(point, gradient=False):
     if gradient:
         raise NotImplementedError("G24_c2: Gradient not implemented")
     else:
-        p = np.atleast_2d(point)
+        x1, x2 = point[0], point[1]
         return (
-            -4.0 * p[:, 0] ** 4.0
-            + 32.0 * p[:, 0] ** 3.0
-            - 88.0 * p[:, 0] ** 2.0
-            + 96.0 * p[:, 0]
-            + p[:, 1]
+            -4.0 * x1**4.0
+            + 32.0 * x1**3.0
+            - 88.0 * x1**2.0
+            + 96.0 * x1
+            + x2
             - 36.0
         )
 
