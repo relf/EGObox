@@ -23,6 +23,8 @@ use rand_xoshiro::Xoshiro256Plus;
 use serde::{Serialize, de::DeserializeOwned};
 
 use super::coego;
+#[cfg(feature = "persistent")]
+use super::solver_impl::DataClustering;
 use super::solver_infill_optim::MultiStarter;
 
 /// LocalMultiStarter is a multistart strategy that samples points in the local area
@@ -80,7 +82,10 @@ where
     SB: SurrogateBuilder + Serialize + DeserializeOwned,
     C: CstrFn,
 {
-    /// Local step where infill criterion is optimized within trust region
+    /// Local step where infill criterion is optimized within trust region.
+    /// `models` are expected to be trained on the current state data, they
+    /// are updated with the evaluated point and persisted in the returned state.
+    #[cfg_attr(not(feature = "persistent"), allow(unused_mut))]
     pub fn trego_step<
         O: CostFunction<Param = Array2<f64>, Output = Array2<f64>, Error = crate::EgoError>
             + Constraints<C>,
@@ -88,7 +93,7 @@ where
         &mut self,
         problem: &mut Problem<O>,
         state: EgorState<f64>,
-        models: Vec<Box<dyn MixtureGpSurrogate>>,
+        mut models: Vec<Box<dyn MixtureGpSurrogate>>,
         infill_data: &InfillObjData<f64>,
         max_dist: f64,
         min_acceptance_distance: f64,
@@ -258,6 +263,33 @@ where
                 &c_data.row(new_best_index),
                 &new_state.doe.cstr_tol,
             );
+
+        #[cfg(feature = "persistent")]
+        {
+            // Incorporate the evaluated point into the persisted models
+            // (fast incremental update unless full retraining is required)
+            if add_count > 0 {
+                let mut clusterings = new_state.take_clusterings().ok_or_else(|| {
+                    crate::EgoError::InternalError("EgorSolver: No clustering!".to_string())
+                })?;
+                let mut theta_inits = new_state.take_theta_inits().ok_or_else(|| {
+                    crate::EgoError::InternalError("EgorSolver: No theta inits!".to_string())
+                })?;
+                let point_index = state.get_iter() as usize * self.config.qei_config.batch;
+                self.refresh_models(
+                    &mut clusterings,
+                    &mut theta_inits,
+                    &mut models,
+                    &x_data,
+                    &y_data,
+                    &state.coego.activity,
+                    DataClustering::Fixed,
+                    point_index,
+                );
+                new_state = new_state.clusterings(clusterings).theta_inits(theta_inits);
+            }
+            new_state.surrogate.models = models;
+        }
 
         new_state = new_state.data((x_data, y_data, c_data)).rng(rng);
         new_state.surrogate.prev_best_index = new_state.surrogate.best_index;

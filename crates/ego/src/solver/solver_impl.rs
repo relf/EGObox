@@ -132,7 +132,7 @@ const MIN_POINTS_DIM_FACTOR: usize = 2;
 const ZSCORE_THETA_OPTIM_THRESHOLD: f64 = 1.0;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum DataClustering {
+pub(crate) enum DataClustering {
     /// Clustering is not updated given values are used as is
     Fixed,
     /// Clustering is recomputed
@@ -492,124 +492,6 @@ where
         }
     }
 
-    /// Regenerate surrogate models from current state
-    /// This method supposes that clustering is done and thetas has to be optimized
-    pub fn refresh_surrogates(
-        &self,
-        state: &EgorState<f64>,
-    ) -> Vec<Box<dyn egobox_moe::MixtureGpSurrogate>> {
-        info!(
-            "Train surrogates with {} points...",
-            state.surrogate.data.as_ref().unwrap().0.nrows()
-        );
-
-        let mapping = self
-            .config
-            .cstr_specs
-            .as_ref()
-            .map(|s| internal_cstr_mapping(s));
-
-        #[cfg(feature = "persistent")]
-        if let Some(ref mapping) = mapping {
-            return self.refresh_surrogates_with_mapping(state, mapping);
-        }
-
-        (0..=self.config.n_internal_cstr())
-            .into_par_iter()
-            .map(|k| {
-                let name = if k == 0 {
-                    "Objective".to_string()
-                } else {
-                    format!("Constraint[{k}]")
-                };
-                self.make_clustered_surrogate(
-                    &name,
-                    &state.surrogate.data.as_ref().unwrap().0,
-                    &state
-                        .surrogate
-                        .data
-                        .as_ref()
-                        .unwrap()
-                        .1
-                        .slice(s![.., k])
-                        .to_owned(),
-                    DataClustering::Fixed,
-                    (!self.config.gp.theta_tuning.is_fixed()).into(),
-                    state.surrogate.clusterings.as_ref().unwrap()[k].as_ref(),
-                    state.surrogate.theta_inits.as_ref().unwrap()[k].as_ref(),
-                    &state.coego.activity,
-                )
-                .0
-            })
-            .collect()
-    }
-
-    /// Optimized refresh: train only primary constraint columns and derive
-    /// transformed ones via [`AffinedSurrogate`] wrappers.
-    #[cfg(feature = "persistent")]
-    fn refresh_surrogates_with_mapping(
-        &self,
-        state: &EgorState<f64>,
-        mapping: &[InternalCstrKind],
-    ) -> Vec<Box<dyn egobox_moe::MixtureGpSurrogate>> {
-        let primary_indices: Vec<usize> = mapping
-            .iter()
-            .enumerate()
-            .filter_map(|(i, kind)| matches!(kind, InternalCstrKind::Primary).then_some(i))
-            .collect();
-
-        let primary_models: Vec<(usize, Box<dyn MixtureGpSurrogate>)> = primary_indices
-            .into_par_iter()
-            .map(|k| {
-                let name = if k == 0 {
-                    "Objective".to_string()
-                } else {
-                    format!("Constraint[{k}]")
-                };
-                let model = self
-                    .make_clustered_surrogate(
-                        &name,
-                        &state.surrogate.data.as_ref().unwrap().0,
-                        &state
-                            .surrogate
-                            .data
-                            .as_ref()
-                            .unwrap()
-                            .1
-                            .slice(s![.., k])
-                            .to_owned(),
-                        DataClustering::Fixed,
-                        (!self.config.gp.theta_tuning.is_fixed()).into(),
-                        state.surrogate.clusterings.as_ref().unwrap()[k].as_ref(),
-                        state.surrogate.theta_inits.as_ref().unwrap()[k].as_ref(),
-                        &state.coego.activity,
-                    )
-                    .0;
-                (k, model)
-            })
-            .collect();
-
-        let mut models: Vec<Option<Box<dyn MixtureGpSurrogate>>> =
-            (0..mapping.len()).map(|_| None).collect();
-        for (k, model) in primary_models {
-            models[k] = Some(model);
-        }
-
-        for (k, kind) in mapping.iter().enumerate() {
-            if let InternalCstrKind::Derived {
-                source,
-                scale,
-                offset,
-            } = kind
-            {
-                let cloned = models[*source].as_ref().unwrap().clone();
-                models[k] = Some(Box::new(AffinedSurrogate::new(cloned, *scale, *offset)));
-            }
-        }
-
-        models.into_iter().map(|o| o.unwrap()).collect()
-    }
-
     /// Train all constraint columns in parallel (no deduplication).
     #[allow(clippy::too_many_arguments)]
     fn train_all_columns(
@@ -949,13 +831,9 @@ where
             // models (never the virtual/Kriging-believer values used only for
             // the batch search above, see `search_models`): see
             // `must_optimize_theta` for the full-retrain-vs-fast-path decision.
-            let dim = self.config.gp.kpls_dim.unwrap_or(x_data.ncols());
             let do_clustering: DataClustering = (init || recluster).into();
             let point_index = state.get_iter() as usize * self.config.qei_config.batch;
-            let optimize_theta: ThetaOptimization = self
-                .must_optimize_theta(do_clustering, x_data.nrows(), dim, point_index)
-                .into();
-            let inits = self.update_models(
+            self.refresh_models(
                 &mut clusterings,
                 &mut theta_inits,
                 &mut models,
@@ -963,13 +841,7 @@ where
                 &y_data,
                 &state.coego.activity,
                 do_clustering,
-                optimize_theta,
-            );
-            self.sync_clustering_and_theta_inits(
-                &mut clusterings,
-                &mut theta_inits,
-                &models,
-                &inits,
+                point_index,
             );
             new_state = new_state
                 .clusterings(clusterings.clone())
@@ -1068,23 +940,30 @@ where
                     && self.must_optimize_theta(do_clustering, xt.nrows(), dim, point_index))
                 .into();
 
-                info!(
-                    "Update surrogates with {} points... clustering={:?} optimize_theta={:?}",
-                    xt.nrows(),
-                    do_clustering,
-                    optimize_theta
-                );
-
-                let inits = self.update_models(
-                    clusterings,
-                    theta_inits,
-                    models,
-                    &xt,
-                    &yt,
-                    actives,
-                    do_clustering,
-                    optimize_theta,
-                );
+                // Persisted models are already trained on the evaluated points at
+                // the end of the previous iteration: do not retrain them on the
+                // very same data.
+                let inits = if Self::models_up_to_date(models, do_clustering, xt.nrows()) {
+                    debug!("Surrogates already up to date with {} points", xt.nrows());
+                    vec![None; models.len()]
+                } else {
+                    info!(
+                        "Update surrogates with {} points... clustering={:?} optimize_theta={:?}",
+                        xt.nrows(),
+                        do_clustering,
+                        optimize_theta
+                    );
+                    self.update_models(
+                        clusterings,
+                        theta_inits,
+                        models,
+                        &xt,
+                        &yt,
+                        actives,
+                        do_clustering,
+                        optimize_theta,
+                    )
+                };
 
                 // Handle failsafe imputation on the first iteration
                 if iter == 0
@@ -1471,6 +1350,69 @@ where
         do_clustering == DataClustering::Regenerate
             || nb_points < (MIN_POINTS_DIM_FACTOR * dim).max(MIN_POINTS_THRESOLD)
             || periodic_optim
+    }
+
+    /// Whether `models` do not need any training given `nb_points` training
+    /// points: clustering is kept and models are already trained on all of them.
+    fn models_up_to_date(
+        models: &[Box<dyn MixtureGpSurrogate>],
+        do_clustering: DataClustering,
+        nb_points: usize,
+    ) -> bool {
+        do_clustering == DataClustering::Fixed
+            && !models.is_empty()
+            && models
+                .iter()
+                .all(|m| m.training_data().0.nrows() == nb_points)
+    }
+
+    /// Bring `models` in line with the whole training data `(x_data, y_data)`
+    /// (see `must_optimize_theta` for the full-retrain-vs-fast-path decision)
+    /// then sync `clusterings`/`theta_inits` with the resulting models.
+    ///
+    /// With a fixed clustering, models already trained on all `x_data` rows are
+    /// left untouched: retraining on the very same data is pointless.
+    /// `point_index` is the global point index used by `must_optimize_theta`.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn refresh_models(
+        &self,
+        clusterings: &mut [Option<Clustering>],
+        theta_inits: &mut [Option<Array2<f64>>],
+        models: &mut Vec<Box<dyn MixtureGpSurrogate>>,
+        x_data: &Array2<f64>,
+        y_data: &Array2<f64>,
+        actives: &Array2<usize>,
+        do_clustering: DataClustering,
+        point_index: usize,
+    ) {
+        if Self::models_up_to_date(models, do_clustering, x_data.nrows()) {
+            debug!(
+                "Surrogates already up to date with {} points",
+                x_data.nrows()
+            );
+            return;
+        }
+        let dim = self.config.gp.kpls_dim.unwrap_or(x_data.ncols());
+        let optimize_theta: ThetaOptimization = self
+            .must_optimize_theta(do_clustering, x_data.nrows(), dim, point_index)
+            .into();
+        info!(
+            "Update surrogates with {} points... clustering={:?} optimize_theta={:?}",
+            x_data.nrows(),
+            do_clustering,
+            optimize_theta
+        );
+        let inits = self.update_models(
+            clusterings,
+            theta_inits,
+            models,
+            x_data,
+            y_data,
+            actives,
+            do_clustering,
+            optimize_theta,
+        );
+        self.sync_clustering_and_theta_inits(clusterings, theta_inits, models, &inits);
     }
 
     /// Sync `clusterings`/`theta_inits` with the `models`/`inits` that just came
