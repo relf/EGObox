@@ -22,7 +22,9 @@ use egobox_ego::{CoegoStatus, InfillObjData, Result, find_best_result_index};
 use egobox_gp::ThetaTuning;
 use egobox_moe::NbClusters;
 use ndarray::{Array1, Array2, ArrayView2, Axis, array, concatenate};
-use numpy::{IntoPyArray, PyArray1, PyArray2, PyArrayMethods, PyReadonlyArray2, ToPyArray};
+use numpy::{
+    IntoPyArray, PyArray2, PyArrayMethods, PyReadonlyArray2, PyReadonlyArrayDyn, ToPyArray,
+};
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyBool;
@@ -444,12 +446,20 @@ impl Egor {
                     Python::attach(|py| {
                         if let Some(g) = g {
                             let args = (Array1::from(x.to_vec()).into_pyarray(py), true);
-                            let grad = cstr.bind(py).call1(args).unwrap();
-                            let grad = grad.cast_into::<PyArray1<f64>>().unwrap().readonly();
-                            g.copy_from_slice(grad.as_slice().unwrap())
+                            cstr.bind(py)
+                                .call1(args)
+                                .and_then(|res| extract_cstr_gradient(&res, g))
+                                .unwrap_or_else(|e| {
+                                    panic!("Function constraint gradient evaluation failed: {e}")
+                                });
                         }
                         let args = (Array1::from(x.to_vec()).into_pyarray(py), false);
-                        cstr.bind(py).call1(args).unwrap().extract().unwrap()
+                        cstr.bind(py)
+                            .call1(args)
+                            .and_then(|res| extract_cstr_value(&res))
+                            .unwrap_or_else(|e| {
+                                panic!("Function constraint evaluation failed: {e}")
+                            })
                     })
                 }
             })
@@ -826,6 +836,50 @@ impl Egor {
         };
         config
     }
+}
+
+/// Extract the value of a function constraint as a scalar.
+/// Accepts a Python float or any numpy array holding a single element
+/// (e.g. shape (1,) or (1, 1)) as NumPy >= 2.4 no longer converts those implicitly.
+fn extract_cstr_value(res: &Bound<'_, PyAny>) -> PyResult<f64> {
+    if let Ok(v) = res.extract::<f64>() {
+        return Ok(v);
+    }
+    let arr = res.extract::<PyReadonlyArrayDyn<f64>>().map_err(|_| {
+        PyTypeError::new_err(format!(
+            "function constraint should return a float, got {}",
+            res.get_type()
+        ))
+    })?;
+    let arr = arr.as_array();
+    if arr.len() != 1 {
+        return Err(PyValueError::new_err(format!(
+            "function constraint should return a single value, got array of shape {:?}",
+            arr.shape()
+        )));
+    }
+    Ok(*arr.iter().next().unwrap())
+}
+
+/// Copy the gradient of a function constraint into `g`.
+/// Accepts any numpy array holding `g.len()` elements (e.g. shape (nx,) or (1, nx)).
+fn extract_cstr_gradient(res: &Bound<'_, PyAny>, g: &mut [f64]) -> PyResult<()> {
+    let arr = res.extract::<PyReadonlyArrayDyn<f64>>().map_err(|_| {
+        PyTypeError::new_err(format!(
+            "function constraint gradient should be a float numpy array, got {}",
+            res.get_type()
+        ))
+    })?;
+    let arr = arr.as_array();
+    if arr.len() != g.len() {
+        return Err(PyValueError::new_err(format!(
+            "function constraint gradient should have {} elements, got array of shape {:?}",
+            g.len(),
+            arr.shape()
+        )));
+    }
+    g.iter_mut().zip(arr.iter()).for_each(|(gi, ai)| *gi = *ai);
+    Ok(())
 }
 
 fn normalize_hot_start(py: Python, hot_start: Option<Py<PyAny>>) -> PyResult<Option<u64>> {
