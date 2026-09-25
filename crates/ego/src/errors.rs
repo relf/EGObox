@@ -42,15 +42,12 @@ pub enum EgoError {
     #[error("EGO exit (no more point)")]
     NoMorePointToAddError(Box<EgorState<f64>>),
     /// When error during saving
-    #[cfg(feature = "persistent")]
     #[error("Save error: {0}")]
     SaveBinaryError(#[from] bincode::error::EncodeError),
     /// When error during loading
-    #[cfg(feature = "persistent")]
     #[error("Load error: {0}")]
     LoadBinaryError(#[from] bincode::error::DecodeError),
     /// When error during saving
-    #[cfg(feature = "persistent")]
     #[error("Save error: {0}")]
     JsonError(#[from] serde_json::Error),
 }

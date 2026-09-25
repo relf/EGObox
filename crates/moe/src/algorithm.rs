@@ -28,11 +28,8 @@ use ndarray_linalg::Norm;
 use ndarray_rand::rand::Rng;
 use ndarray_stats::QuantileExt;
 
-#[cfg(feature = "serializable")]
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "persistent")]
 use std::fs;
-#[cfg(feature = "persistent")]
 use std::io::Write;
 
 macro_rules! check_allowed {
@@ -426,8 +423,7 @@ fn predict_smooth(
 /// Implementation note: the structure is not generic over 'F: Float' to be able to
 /// implement use serde easily as deserialization of generic impls is not supported yet
 /// See <https://github.com/dtolnay/typetag/issues/1>
-#[cfg_attr(feature = "serializable", derive(Serialize, Deserialize))]
-#[derive(Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct GpMixture {
     /// The mode of recombination to get the output prediction from experts prediction
     recombination: Recombination<f64>,
@@ -480,7 +476,7 @@ impl Clustered for GpMixture {
     }
 }
 
-#[cfg_attr(feature = "serializable", typetag::serde)]
+#[typetag::serde]
 impl GpSurrogate for GpMixture {
     fn dims(&self) -> (usize, usize) {
         self.experts[0].dims()
@@ -508,7 +504,6 @@ impl GpSurrogate for GpMixture {
     }
 
     /// Save Moe model in given file.
-    #[cfg(feature = "persistent")]
     fn save(&self, path: &str, format: GpFileFormat) -> Result<()> {
         let mut file = fs::File::create(path).unwrap();
 
@@ -525,7 +520,7 @@ impl GpSurrogate for GpMixture {
     }
 }
 
-#[cfg_attr(feature = "serializable", typetag::serde)]
+#[typetag::serde]
 impl GpSurrogateExt for GpMixture {
     fn predict_gradients(&self, x: &ArrayView2<f64>) -> Result<Array2<f64>> {
         match self.recombination {
@@ -569,7 +564,7 @@ impl GpMetrics<MoeError, GpMixtureParams<f64>, Self> for GpMixture {
     }
 }
 
-#[cfg_attr(feature = "serializable", typetag::serde)]
+#[typetag::serde]
 impl GpQualityAssurance for GpMixture {
     fn training_data(&self) -> &(Array2<f64>, Array1<f64>) {
         (self as &dyn GpMetrics<_, _, _>).training_data()
@@ -600,7 +595,7 @@ impl GpQualityAssurance for GpMixture {
     }
 }
 
-#[cfg_attr(feature = "serializable", typetag::serde)]
+#[typetag::serde]
 impl MixtureGpSurrogate for GpMixture {
     /// Selected experts in the mixture
     fn experts(&self) -> &Vec<Box<dyn FullGpSurrogate>> {
@@ -1249,7 +1244,6 @@ impl GpMixture {
     }
 
     /// Load Moe from the given file.
-    #[cfg(feature = "persistent")]
     pub fn load(path: &str, format: GpFileFormat) -> Result<Box<GpMixture>> {
         let data = fs::read(path)?;
         let moe = match format {
@@ -1513,7 +1507,6 @@ mod tests {
             .expect("MOE fitted");
     }
 
-    #[cfg(feature = "persistent")]
     #[test]
     fn test_save_load_moe() {
         let test_dir = "target/tests";

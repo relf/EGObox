@@ -464,7 +464,6 @@ impl OptimizationObserver {
             ndarray_npy::write_npy(filepath, &hist).expect("Write current history");
 
             // Save EgorState if EGOR_USE_STATE_RECORDING equals "WITH_ITER_STATE"
-            #[cfg(feature = "persistent")]
             if self.state_recording {
                 let state_filename = format!("{}_{:04}.json", STATE_FILE_PREFIX, state.iter);
                 let state_filepath = std::path::Path::new(&self.dir).join(state_filename);
@@ -1382,7 +1381,6 @@ mod tests {
 
     #[test]
     #[serial]
-    #[cfg(feature = "persistent")]
     fn test_egor_qei_models_trained_on_evaluated_data() {
         // qEI run long enough for the incremental model update (fast path) to
         // be used (once nb_points >= 2 * dim = 20 points): the persisted models

@@ -1,7 +1,5 @@
 use crate::errors::Result;
-#[cfg(feature = "persistent")]
 use std::fs;
-#[cfg(feature = "persistent")]
 use std::io::Write;
 use std::path::Path;
 

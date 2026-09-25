@@ -4,14 +4,10 @@ use crate::surrogates::*;
 use crate::types::*;
 use ndarray::{Array1, Array2, ArrayView2};
 
-#[cfg(feature = "serializable")]
 use serde::{Deserialize, Serialize};
 
-#[cfg(feature = "persistent")]
 use crate::MoeError;
-#[cfg(feature = "persistent")]
 use std::fs;
-#[cfg(feature = "persistent")]
 use std::io::Write;
 
 /// A wrapper surrogate applying an affine transform to another surrogate's predictions.
@@ -23,7 +19,7 @@ use std::io::Write;
 ///
 /// For `Eq(z)`: inner predicts `c - z`, transform with `scale=-1, offset=0` gives `z - c`.
 /// For `Btw(lo, hi)`: inner predicts `lo - c`, transform with `scale=-1, offset=lo-hi` gives `c - hi`.
-#[cfg_attr(feature = "serializable", derive(Serialize, Deserialize))]
+#[derive(Serialize, Deserialize)]
 pub struct AffinedSurrogate {
     /// The underlying trained surrogate
     inner: Box<dyn MixtureGpSurrogate>,
@@ -76,7 +72,7 @@ impl Clustered for AffinedSurrogate {
     }
 }
 
-#[cfg_attr(feature = "serializable", typetag::serde)]
+#[typetag::serde]
 impl GpSurrogate for AffinedSurrogate {
     fn dims(&self) -> (usize, usize) {
         self.inner.dims()
@@ -101,7 +97,6 @@ impl GpSurrogate for AffinedSurrogate {
         ))
     }
 
-    #[cfg(feature = "persistent")]
     fn save(&self, path: &str, format: GpFileFormat) -> Result<()> {
         let mut file = fs::File::create(path).unwrap();
         let bytes = match format {
@@ -118,7 +113,7 @@ impl GpSurrogate for AffinedSurrogate {
     }
 }
 
-#[cfg_attr(feature = "serializable", typetag::serde)]
+#[typetag::serde]
 impl GpSurrogateExt for AffinedSurrogate {
     fn predict_gradients(&self, x: &ArrayView2<f64>) -> Result<Array2<f64>> {
         let grad = self.inner.predict_gradients(x)?;
@@ -142,7 +137,7 @@ impl GpSurrogateExt for AffinedSurrogate {
     }
 }
 
-#[cfg_attr(feature = "serializable", typetag::serde)]
+#[typetag::serde]
 impl GpQualityAssurance for AffinedSurrogate {
     fn training_data(&self) -> &(Array2<f64>, Array1<f64>) {
         &self.training_data
@@ -179,7 +174,7 @@ impl GpQualityAssurance for AffinedSurrogate {
     }
 }
 
-#[cfg_attr(feature = "serializable", typetag::serde)]
+#[typetag::serde]
 impl MixtureGpSurrogate for AffinedSurrogate {
     fn experts(&self) -> &Vec<Box<dyn FullGpSurrogate>> {
         self.inner.experts()

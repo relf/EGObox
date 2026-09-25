@@ -64,8 +64,8 @@ jobs:
       fail-fast: false
       matrix:
         features:
-          - persistent-moe,blas,linfa/intel-mkl-static
-          - persistent-moe,c-cobyla,c-slsqp
+          - blas,linfa/intel-mkl-static
+          - c-cobyla,c-slsqp
         toolchain:
           - stable
         os: 

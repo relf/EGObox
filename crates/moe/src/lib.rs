@@ -27,18 +27,8 @@
 //! * It leverages on the egobox GP PLS reduction feature to handle high dimensional problems.
 //! * Mixed-integer variables are supported via continuous relaxation and projection of the MoE model.
 //!   See `mixint` module for more details.
-//! * MoE trained model can be save to disk and reloaded. See `persistent` feature for more details.
-//!  
-//! # Features
-//!
-//! ## serializable
-//!
-//! The `serializable` feature enables serialization based on [serde crate](https://serde.rs/).
-//!
-//! ## persistent
-//!
-//! The `persistent` feature enables `save()`/`load()` methods for a MoE model
-//! to/from a json file using the [serde and serde_json crates](https://serde.rs/).
+//! * MoE trained model is serializable with [serde](https://serde.rs/) and can be saved to disk
+//!   and reloaded using `save()`/`load()` methods (json or binary format).
 //!
 //! # Example
 //!

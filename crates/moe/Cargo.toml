@@ -21,23 +21,17 @@ default = []
 # Use cobyla crate (C-ported NLopt COBYLA) instead of basin COBYLA for GP training
 c-cobyla = ["egobox-gp/c-cobyla"]
 
-persistent = ["serializable", "serde_json", "bincode"]
-serializable = [
-    "serde",
-    "typetag",
-    "bitflags/serde",
-    "linfa-clustering/serde",
-    "egobox-gp/serializable",
-]
 blas = ["ndarray-linalg", "linfa/ndarray-linalg", "linfa-pls/blas"]
 
 [dependencies]
 egobox-doe = { version = "0.35.1", path = "../doe" }
-egobox-gp = { version = "0.36.4", path = "../gp" }
+egobox-gp = { version = "0.36.4", path = "../gp", features = ["serializable"] }
 
 linfa.workspace = true
 linfa-linalg.workspace = true
-linfa-clustering = { version = "0.8", default-features = false }
+linfa-clustering = { version = "0.8", default-features = false, features = [
+    "serde",
+] }
 linfa-pls = { version = "0.8", default-features = false }
 
 ndarray.workspace = true
@@ -55,11 +49,11 @@ log.workspace = true
 env_logger.workspace = true
 thiserror.workspace = true
 
-serde = { version = "1", features = ["derive"], optional = true }
-serde_json = { version = "1", optional = true }
-bincode = { workspace = true, optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1" }
+bincode.workspace = true
 
-typetag = { version = "0.2", optional = true }
+typetag = { version = "0.2" }
 
 [dev-dependencies]
 criterion.workspace = true

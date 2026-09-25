@@ -15,14 +15,12 @@ use ndarray::{Array1, Array2, Array3};
 use ndarray_rand::rand::SeedableRng;
 use rand_xoshiro::Xoshiro256Plus;
 
-#[cfg(feature = "serializable")]
 use serde::{Deserialize, Serialize};
 
 pub use egobox_gp::{Inducings, SparseMethod, ThetaTuning};
 
 /// Number of clusters specification
-#[derive(Clone, Debug, PartialEq)]
-#[cfg_attr(feature = "serializable", derive(Serialize, Deserialize))]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum NbClusters {
     /// Use a fixed number of clusters
     Fixed {
@@ -93,8 +91,7 @@ impl NbClusters {
 }
 
 /// Type of Gaussian Process
-#[derive(Clone)]
-#[cfg_attr(feature = "serializable", derive(Serialize, Deserialize))]
+#[derive(Clone, Serialize, Deserialize)]
 pub enum GpType<F: Float> {
     /// Full Gaussian Process
     FullGp,
@@ -108,8 +105,7 @@ pub enum GpType<F: Float> {
 }
 
 /// Mixture of experts checked parameters
-#[derive(Clone)]
-#[cfg_attr(feature = "serializable", derive(Serialize, Deserialize))]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct GpMixtureValidParams<F: Float> {
     /// Gp Type
     gp_type: GpType<F>,
@@ -222,8 +218,7 @@ impl<F: Float> GpMixtureValidParams<F> {
 }
 
 /// Mixture of experts parameters
-#[derive(Clone)]
-#[cfg_attr(feature = "serializable", derive(Serialize, Deserialize))]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct GpMixtureParams<F: Float>(GpMixtureValidParams<F>);
 
 impl<F: Float> Default for GpMixtureParams<F> {

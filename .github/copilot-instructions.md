@@ -23,8 +23,8 @@ The project extensively uses builder pattern for complex configurations:
 
 ### Feature Flags Philosophy
 Features control optional dependencies and capabilities across crates:
-- `serializable`: Enable serde-based serialization
-- `persistent`: Enable JSON save/load (implies serializable)
+- `serializable`: Enable serde-based serialization (`doe`, `gp`; always enabled in `moe` and `ego`)
+- `persistent`: Enable JSON save/load in `gp` (implies serializable; always enabled in `moe` and `ego`)
 - `blas`: Optional BLAS/LAPACK backend via `ndarray-linalg` and Intel MKL for performance
 
 **Always specify features explicitly in dependencies** - most crates use `default-features = false` for linfa dependencies.
@@ -106,7 +106,7 @@ Use `#[cfg(feature = "blas")]` guards when dealing with these types.
 Heavy use of `rayon` for parallelization - operations on training data, optimization multistart, etc. Functions accepting closures should be `Send + Sync` aware.
 
 ### Serialization Patterns
-When `serializable`/`persistent` features enabled:
+In `doe` and `gp`, when `serializable`/`persistent` features enabled:
 ```rust
 #[cfg_attr(feature = "serializable", derive(Serialize, Deserialize))]
 pub struct MyStruct { ... }
@@ -114,7 +114,7 @@ pub struct MyStruct { ... }
 
 For JSON persistence in `ego` and `moe`:
 ```rust
-model.save("model.json")?;  // Requires persistent feature
+model.save("model.json")?;
 let model = Model::load("model.json")?;
 ```
 

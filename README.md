@@ -102,13 +102,13 @@ The table below presents the various features available depending on the subcrat
 
 | Name         | doe  | gp   | moe  | ego  |
 | :----------- | :--- | :--- | :--- | :--- |
-| serializable | ✔️    | ✔️    | ✔️    |      |
-| persistent   |      |      | ✔️    | ✔️(*) |
+| serializable | ✔️    | ✔️    |      |      |
+| persistent   |      | ✔️    |      |      |
 | blas         |      | ✔️    | ✔️    | ✔️    |
 | c-cobyla     |      | ✔️    | ✔️    | ✔️    |
 | c-slsqp      |      |      |      | ✔️    |
 
-(*) for persistent mixture of gaussian processes with discrete variable available in `ego`
+Note: `moe` and `ego` models are always serializable and can be saved/loaded (json or binary format).
 
 #### serializable
 
