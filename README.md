@@ -273,6 +273,10 @@ Tfaily, Ali, et al. (2024).
 [Bayesian optimization with hidden constraints for aircraft design.](https://hal.science/hal-04673615/)
 Structural and Multidisciplinary Optimization 67.7 (2024): 123.
 
+Larsson, J. (2026).
+[Basin: Efficient and Extensible Numerical Optimization in Rust](https://doi.org/10.48550/arXiv.2608.11279).
+arXiv:2608.11279. [basin.rs](https://basin.rs)
+
 smtorg. (2018). [Surrogate modeling toolbox](https://github.com/SMTOrg/smt). GitHub.
 
 ## License
