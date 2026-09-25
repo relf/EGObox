@@ -12,8 +12,7 @@ use crate::{DEFAULT_CSTR_TOL, EgorSolver, MAX_POINT_ADDITION_RETRY, ValidEgorCon
 use crate::{EgorState, types::*};
 use egobox_moe::{as_continuous_limits, to_discrete_space};
 
-use argmin::argmin_error_closure;
-use argmin::core::{CostFunction, Problem, State};
+use basin::{CostFunction, Problem};
 
 use egobox_doe::{Lhs, LhsKind};
 use egobox_gp::ThetaTuning;
@@ -418,7 +417,8 @@ where
 
     /// Refresh infill data used to optimize infill criterion
     pub fn refresh_infill_data<
-        O: CostFunction<Param = Array2<f64>, Output = Array2<f64>> + Constraints<C>,
+        O: CostFunction<Param = Array2<f64>, Output = Array2<f64>, Error = crate::EgoError>
+            + Constraints<C>,
     >(
         &self,
         problem: &mut Problem<O>,
@@ -432,7 +432,7 @@ where
         let fmin = y_data[[state.surrogate.best_index.unwrap(), 0]];
         let xbest = x_data.row(state.surrogate.best_index.unwrap()).to_vec();
 
-        let pb = problem.take_problem().unwrap();
+        let pb = problem.inner();
         let fcstrs = pb.constraints();
         let fcstr_specs = pb.constraint_specs();
 
@@ -480,8 +480,6 @@ where
         );
 
         let all_scale_cstr = concatenate![Axis(0), scale_cstr, scale_fcstr];
-
-        problem.problem = Some(pb);
 
         InfillObjData {
             fmin,
@@ -724,7 +722,10 @@ where
     /// * Find next promising location(s) of optimum
     /// * Update state: Evaluate true function, update doe and optimum
     #[allow(clippy::type_complexity)]
-    pub fn ego_step<O: CostFunction<Param = Array2<f64>, Output = Array2<f64>> + Constraints<C>>(
+    pub fn ego_step<
+        O: CostFunction<Param = Array2<f64>, Output = Array2<f64>, Error = crate::EgoError>
+            + Constraints<C>,
+    >(
         &mut self,
         problem: &mut Problem<O>,
         state: EgorState<f64>,
@@ -732,16 +733,10 @@ where
         let mut new_state = state.clone();
         let mut clusterings = new_state
             .take_clusterings()
-            .ok_or_else(argmin_error_closure!(
-                PotentialBug,
-                "EgorSolver: No clustering!"
-            ))?;
+            .ok_or_else(|| EgoError::InternalError("EgorSolver: No clustering!".to_string()))?;
         let mut theta_inits = new_state
             .take_theta_inits()
-            .ok_or_else(argmin_error_closure!(
-                PotentialBug,
-                "EgorSolver: No theta inits!"
-            ))?;
+            .ok_or_else(|| EgoError::InternalError("EgorSolver: No theta inits!".to_string()))?;
         #[cfg(feature = "persistent")]
         let mut models = std::mem::take(&mut new_state.surrogate.models);
         #[cfg(not(feature = "persistent"))]
@@ -754,10 +749,10 @@ where
 
         let mut rng = new_state
             .take_rng()
-            .ok_or_else(argmin_error_closure!(PotentialBug, "EgorSolver: No rng!"))?;
+            .ok_or_else(|| EgoError::InternalError("EgorSolver: No rng!".to_string()))?;
         let (mut x_data, mut y_data, mut c_data) = new_state
             .take_data()
-            .ok_or_else(argmin_error_closure!(PotentialBug, "EgorSolver: No data!"))?;
+            .ok_or_else(|| EgoError::InternalError("EgorSolver: No data!".to_string()))?;
 
         // Computed once and reused both for the batch (virtual points) search below
         // and, further down, to incorporate the actually evaluated point(s) into
@@ -770,7 +765,7 @@ where
         let init = new_state.get_iter() == 0;
 
         let (x_dat, c_dat, y_penalized) = loop {
-            let pb = problem.take_problem().unwrap();
+            let pb = problem.inner();
             let fcstrs = pb.constraints();
             let fcstr_specs = pb.constraint_specs();
 
@@ -817,8 +812,6 @@ where
             if self.config.qei_config.batch <= 1 {
                 models = search_models;
             }
-
-            problem.problem = Some(pb);
 
             debug!("Try adding {x_dat}");
             let usable_indices = usable_data(&x_data, &x_dat);

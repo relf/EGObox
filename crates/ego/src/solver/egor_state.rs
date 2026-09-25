@@ -1,8 +1,8 @@
 //! # EgorState - Optimizer State Implementation
 //!
 //! This module implements the [`EgorState`] struct which tracks all state information
-//! during EGO optimization. It implements the `argmin::State` trait for integration
-//! with the argmin optimization framework.
+//! during EGO optimization. It is used by the basin executor through a thin
+//! wrapper implementing the `basin::State` trait.
 //!
 //! ## State Organization
 //!
@@ -25,7 +25,7 @@ use crate::{
 };
 use egobox_moe::{Clustering, MixtureGpSurrogate};
 
-use argmin::core::{ArgminFloat, Problem, State, TerminationReason, TerminationStatus};
+use crate::{TerminationReason, TerminationStatus};
 use linfa::Float;
 use ndarray::{Array1, Array2};
 use ndarray_rand::rand::SeedableRng;
@@ -201,7 +201,7 @@ pub struct CoegoState {
 ///
 /// This struct is passed from one iteration of an algorithm to the next.
 /// It is organized into logical sub-states for better maintainability:
-/// - Core iteration state (param, cost, iter, etc.) - required by argmin `State` trait
+/// - Core iteration state (param, cost, iter, etc.) - best point tracking, iteration and termination
 /// - [`DoeState`]: Design of Experiments management
 /// - [`SurrogateState`]: GP surrogate model state
 /// - [`TregoState`]: TREGO algorithm variant state
@@ -209,7 +209,7 @@ pub struct CoegoState {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct EgorState<F: Float> {
     // -------------------------------------------------------------------------
-    // Core iteration state (required by argmin State trait)
+    // Core iteration state (best point tracking, iteration and termination)
     // -------------------------------------------------------------------------
     /// Current parameter vector
     pub param: Option<Array1<F>>,
@@ -276,18 +276,13 @@ pub struct EgorState<F: Float> {
     pub rng: Option<Xoshiro256Plus>,
 }
 
-impl<F> EgorState<F>
-where
-    Self: State<Float = F>,
-    F: Float,
-{
+impl<F: Float> EgorState<F> {
     /// Set parameter vector. This shifts the stored parameter vector to the previous parameter
     /// vector.
     ///
     /// # Example
     ///
     /// ```
-    /// # use argmin::core::State;
     /// # use egobox_ego::EgorState;
     /// # use ndarray::array;
     /// # let state: EgorState<f64> = EgorState::new();
@@ -319,7 +314,6 @@ where
     ///
     /// ```
     /// # use egobox_ego::EgorState;
-    /// # use argmin::core::{State, ArgminFloat};
     /// # let state: EgorState<f64> = EgorState::new();
     /// # assert_eq!(state.target_cost.to_ne_bytes(), f64::NEG_INFINITY.to_ne_bytes());
     /// let state = state.target_cost(0.0);
@@ -337,7 +331,6 @@ where
     ///
     /// ```
     /// # use egobox_ego::EgorState;
-    /// # use argmin::core::{State, ArgminFloat};
     /// # let state: EgorState<f64> = EgorState::new();
     /// # assert_eq!(state.max_iters, u64::MAX);
     /// let state = state.max_iters(1000);
@@ -356,7 +349,6 @@ where
     ///
     /// ```
     /// # use ndarray::array;
-    /// # use argmin::core::State;
     /// # use egobox_ego::EgorState;
     /// # let state: EgorState<f64> = EgorState::new();
     /// # let cost_old = 1.0f64;
@@ -507,7 +499,6 @@ where
     /// ```
     /// # use ndarray::array;
     /// # use egobox_ego::EgorState;
-    /// # use argmin::core::{State, ArgminFloat};
     /// # let mut state: EgorState<f64> = EgorState::new();
     /// # state.cost = Some(array![12.0, 0.1]);
     /// let cost = state.get_full_cost();
@@ -525,7 +516,6 @@ where
     /// ```
     /// # use ndarray::array;
     /// # use egobox_ego::EgorState;
-    /// # use argmin::core::{State, ArgminFloat};
     /// # let mut state: EgorState<f64> = EgorState::new();
     /// # state.best_cost = Some(array![12.0, 0.1]);
     /// let cost = state.get_full_best_cost();
@@ -537,24 +527,16 @@ where
     }
 }
 
-impl<F> EgorState<F>
-where
-    F: Float + ArgminFloat,
-{
+impl<F: Float> EgorState<F> {
     /// Allow hot start feature by extending current max_iters
     pub fn extend_max_iters(&mut self, ext_iters: u64) {
         self.max_iters += ext_iters;
     }
-}
 
-impl<F> State for EgorState<F>
-where
-    F: Float + ArgminFloat,
-{
-    /// Type of parameter vector
-    type Param = Array1<F>;
-    /// Floating point precision
-    type Float = F;
+    /// Returns `true` if the optimization is terminated.
+    pub fn terminated(&self) -> bool {
+        self.termination_status.terminated()
+    }
 
     /// Create new `EgorState` instance
     ///
@@ -564,7 +546,7 @@ where
     /// # extern crate web_time;
     /// # use web_time;
     /// # use std::collections::HashMap;
-    /// # use argmin::core::{State, TerminationStatus};
+    /// # use egobox_ego::TerminationStatus;
     /// use egobox_ego::EgorState;
     /// let state: EgorState<f64> = EgorState::new();
     ///
@@ -584,7 +566,7 @@ where
     /// # assert_eq!(state.time.unwrap(), web_time::Duration::new(0, 0));
     /// # assert_eq!(state.termination_status, TerminationStatus::NotTerminated);
     /// ```
-    fn new() -> Self {
+    pub fn new() -> Self {
         EgorState {
             param: None,
             prev_param: None,
@@ -620,7 +602,6 @@ where
     /// # Example
     ///
     /// ```
-    /// # use argmin::core::{State, ArgminFloat};
     /// # use ndarray::array;
     /// # use egobox_ego::EgorState;
     ///
@@ -642,7 +623,7 @@ where
     /// assert_eq!(state.best_cost.as_ref().unwrap()[0], 0.5);
     /// assert!(state.is_best());
     /// ```
-    fn update(&mut self) {
+    pub fn update(&mut self) {
         if let Some((x_data, y_data, c_data)) = self.surrogate.data.as_ref() {
             let best_index = self
                 .surrogate
@@ -676,7 +657,6 @@ where
     /// ```
     /// # use ndarray::array;
     /// # use egobox_ego::EgorState;
-    /// # use argmin::core::{State, ArgminFloat};
     /// # let mut state: EgorState<f64> = EgorState::new();
     /// # assert!(state.param.is_none());
     /// # state.param = Some(array![1.0, 2.0]);
@@ -686,7 +666,7 @@ where
     /// # assert_eq!(param.as_ref().unwrap()[0].to_ne_bytes(), 1.0f64.to_ne_bytes());
     /// # assert_eq!(param.as_ref().unwrap()[1].to_ne_bytes(), 2.0f64.to_ne_bytes());
     /// ```
-    fn get_param(&self) -> Option<&Array1<F>> {
+    pub fn get_param(&self) -> Option<&Array1<F>> {
         self.param.as_ref()
     }
 
@@ -697,7 +677,6 @@ where
     /// ```
     /// # use ndarray::array;
     /// # use egobox_ego::EgorState;
-    /// # use argmin::core::{State, ArgminFloat};
     ///
     /// # let mut state: EgorState<f64> = EgorState::new();
     ///
@@ -709,7 +688,7 @@ where
     /// # assert_eq!(best_param.as_ref().unwrap()[0].to_ne_bytes(), 1.0f64.to_ne_bytes());
     /// # assert_eq!(best_param.as_ref().unwrap()[1].to_ne_bytes(), 2.0f64.to_ne_bytes());
     /// ```
-    fn get_best_param(&self) -> Option<&Array1<F>> {
+    pub fn get_best_param(&self) -> Option<&Array1<F>> {
         self.best_param.as_ref()
     }
 
@@ -718,14 +697,14 @@ where
     /// # Example
     ///
     /// ```
-    /// # use argmin::core::{State, ArgminFloat, TerminationReason, TerminationStatus};
+    /// # use egobox_ego::{TerminationReason, TerminationStatus};
     /// # use egobox_ego::EgorState;
     /// # let mut state: EgorState<f64> = EgorState::new();
     /// # assert_eq!(state.termination_status, TerminationStatus::NotTerminated);
     /// let state = state.terminate_with(TerminationReason::MaxItersReached);
     /// # assert_eq!(state.termination_status, TerminationStatus::Terminated(TerminationReason::MaxItersReached));
     /// ```
-    fn terminate_with(mut self, reason: TerminationReason) -> Self {
+    pub fn terminate_with(mut self, reason: TerminationReason) -> Self {
         self.termination_status = TerminationStatus::Terminated(reason);
         self
     }
@@ -738,12 +717,12 @@ where
     /// # extern crate web_time;
     /// # use web_time;
     /// # use egobox_ego::EgorState;
-    /// # use argmin::core::{State, ArgminFloat, TerminationReason};
+    /// # use egobox_ego::TerminationReason;
     /// # let mut state: EgorState<f64> = EgorState::new();
     /// let state = state.time(Some(web_time::Duration::new(0, 12)));
     /// # assert_eq!(state.time.unwrap(), web_time::Duration::new(0, 12));
     /// ```
-    fn time(&mut self, time: Option<web_time::Duration>) -> &mut Self {
+    pub fn time(&mut self, time: Option<web_time::Duration>) -> &mut Self {
         self.time = time;
         self
     }
@@ -755,16 +734,15 @@ where
     /// ```
     /// # use ndarray::array;
     /// # use egobox_ego::EgorState;
-    /// # use argmin::core::{State, ArgminFloat};
     /// # let mut state: EgorState<f64> = EgorState::new();
     /// # state.cost = Some(array![12.0]);
     /// let cost = state.get_cost();
     /// # assert_eq!(cost.to_ne_bytes(), 12.0f64.to_ne_bytes());
     /// ```
-    fn get_cost(&self) -> Self::Float {
+    pub fn get_cost(&self) -> F {
         match self.cost.as_ref() {
-            Some(c) => *(c.get(0).unwrap_or(&Self::Float::infinity())),
-            None => Self::Float::infinity(),
+            Some(c) => *(c.get(0).unwrap_or(&F::infinity())),
+            None => F::infinity(),
         }
     }
 
@@ -775,16 +753,15 @@ where
     /// ```
     /// # use ndarray::array;
     /// # use egobox_ego::EgorState;
-    /// # use argmin::core::{State, ArgminFloat};
     /// # let mut state: EgorState<f64> = EgorState::new();
     /// # state.best_cost = Some(array![12.0]);
     /// let best_cost = state.get_best_cost();
     /// # assert_eq!(best_cost.to_ne_bytes(), 12.0f64.to_ne_bytes());
     /// ```
-    fn get_best_cost(&self) -> Self::Float {
+    pub fn get_best_cost(&self) -> F {
         match self.best_cost.as_ref() {
-            Some(c) => *(c.get(0).unwrap_or(&Self::Float::infinity())),
-            None => Self::Float::infinity(),
+            Some(c) => *(c.get(0).unwrap_or(&F::infinity())),
+            None => F::infinity(),
         }
     }
 
@@ -795,13 +772,12 @@ where
     /// ```
     /// # use ndarray::array;
     /// # use egobox_ego::EgorState;
-    /// # use argmin::core::{State, ArgminFloat};
     /// # let mut state: EgorState<f64> = EgorState::new();
     /// # state.target_cost = 12.0;
     /// let target_cost = state.get_target_cost();
     /// # assert_eq!(target_cost.to_ne_bytes(), 12.0f64.to_ne_bytes());
     /// ```
-    fn get_target_cost(&self) -> Self::Float {
+    pub fn get_target_cost(&self) -> F {
         self.target_cost
     }
 
@@ -811,13 +787,12 @@ where
     ///
     /// ```
     /// # use egobox_ego::EgorState;
-    /// # use argmin::core::{State, ArgminFloat};
     /// # let mut state: EgorState<f64> = EgorState::new();
     /// # state.iter = 12;
     /// let iter = state.get_iter();
     /// # assert_eq!(iter, 12);
     /// ```
-    fn get_iter(&self) -> u64 {
+    pub fn get_iter(&self) -> u64 {
         self.iter
     }
 
@@ -827,13 +802,12 @@ where
     ///
     /// ```
     /// # use egobox_ego::EgorState;
-    /// # use argmin::core::{State, ArgminFloat};
     /// # let mut state: EgorState<f64> = EgorState::new();
     /// # state.last_best_iter = 12;
     /// let last_best_iter = state.get_last_best_iter();
     /// # assert_eq!(last_best_iter, 12);
     /// ```
-    fn get_last_best_iter(&self) -> u64 {
+    pub fn get_last_best_iter(&self) -> u64 {
         self.last_best_iter
     }
 
@@ -843,13 +817,12 @@ where
     ///
     /// ```
     /// # use egobox_ego::EgorState;
-    /// # use argmin::core::{State, ArgminFloat};
     /// # let mut state: EgorState<f64> = EgorState::new();
     /// # state.max_iters = 12;
     /// let max_iters = state.get_max_iters();
     /// # assert_eq!(max_iters, 12);
     /// ```
-    fn get_max_iters(&self) -> u64 {
+    pub fn get_max_iters(&self) -> u64 {
         self.max_iters
     }
 
@@ -858,13 +831,13 @@ where
     /// # Example
     ///
     /// ```
-    /// # use argmin::core::{State, ArgminFloat, TerminationStatus};
+    /// # use egobox_ego::TerminationStatus;
     /// # use egobox_ego::EgorState;
     /// # let mut state: EgorState<f64> = EgorState::new();
     /// let termination_status = state.get_termination_status();
     /// # assert_eq!(*termination_status, TerminationStatus::NotTerminated);
     /// ```
-    fn get_termination_status(&self) -> &TerminationStatus {
+    pub fn get_termination_status(&self) -> &TerminationStatus {
         &self.termination_status
     }
 
@@ -873,13 +846,13 @@ where
     /// # Example
     ///
     /// ```
-    /// # use argmin::core::{State, ArgminFloat, TerminationReason};
+    /// # use egobox_ego::TerminationReason;
     /// # use egobox_ego::EgorState;
     /// # let mut state: EgorState<f64> = EgorState::new();
     /// let termination_reason = state.get_termination_reason();
     /// # assert_eq!(termination_reason, None);
     /// ```
-    fn get_termination_reason(&self) -> Option<&TerminationReason> {
+    pub fn get_termination_reason(&self) -> Option<&TerminationReason> {
         match &self.termination_status {
             TerminationStatus::Terminated(reason) => Some(reason),
             TerminationStatus::NotTerminated => None,
@@ -894,12 +867,11 @@ where
     /// # extern crate web_time;
     /// # use web_time;
     /// # use egobox_ego::EgorState;
-    /// # use argmin::core::{State, ArgminFloat};
     /// # let mut state: EgorState<f64> = EgorState::new();
     /// let time = state.get_time();
     /// # assert_eq!(time.unwrap(), web_time::Duration::new(0, 0));
     /// ```
-    fn get_time(&self) -> Option<web_time::Duration> {
+    pub fn get_time(&self) -> Option<web_time::Duration> {
         self.time
     }
 
@@ -909,43 +881,13 @@ where
     ///
     /// ```
     /// # use egobox_ego::EgorState;
-    /// # use argmin::core::{State, ArgminFloat};
     /// # let mut state: EgorState<f64> = EgorState::new();
     /// # assert_eq!(state.iter, 0);
     /// state.increment_iter();
     /// # assert_eq!(state.iter, 1);
     /// ```
-    fn increment_iter(&mut self) {
+    pub fn increment_iter(&mut self) {
         self.iter += 1;
-    }
-
-    /// Set all function evaluation counts to the evaluation counts of another `Problem`.
-    ///
-    /// ```
-    /// # use std::collections::HashMap;
-    /// # use egobox_ego::EgorState;
-    /// # use argmin::core::{Problem, State, ArgminFloat};
-    /// # let mut state: EgorState<f64> = EgorState::new();
-    /// # assert_eq!(state.counts, HashMap::new());
-    /// # state.counts.insert("test2".to_string(), 10u64);
-    /// #
-    /// # #[derive(Eq, PartialEq, Debug)]
-    /// # struct UserDefinedProblem {};
-    /// #
-    /// # let mut problem = Problem::new(UserDefinedProblem {});
-    /// # problem.counts.insert("test1", 10u64);
-    /// # problem.counts.insert("test2", 2);
-    /// state.func_counts(&problem);
-    /// # let mut hm = HashMap::new();
-    /// # hm.insert("test1".to_string(), 10u64);
-    /// # hm.insert("test2".to_string(), 2u64);
-    /// # assert_eq!(state.counts, hm);
-    /// ```
-    fn func_counts<O>(&mut self, problem: &Problem<O>) {
-        for (k, &v) in problem.counts.iter() {
-            let count = self.counts.entry(k.to_string()).or_insert(0);
-            *count = v
-        }
     }
 
     /// Returns function evaluation counts
@@ -955,7 +897,6 @@ where
     /// ```
     /// # use std::collections::HashMap;
     /// # use egobox_ego::EgorState;
-    /// # use argmin::core::{State, ArgminFloat};
     /// # let mut state: EgorState<f64> = EgorState::new();
     /// # assert_eq!(state.counts, HashMap::new());
     /// # state.counts.insert("test2".to_string(), 10u64);
@@ -964,7 +905,7 @@ where
     /// # hm.insert("test2".to_string(), 10u64);
     /// # assert_eq!(*counts, hm);
     /// ```
-    fn get_func_counts(&self) -> &HashMap<String, u64> {
+    pub fn get_func_counts(&self) -> &HashMap<String, u64> {
         &self.counts
     }
 
@@ -975,7 +916,6 @@ where
     ///
     /// ```
     /// # use egobox_ego::EgorState;
-    /// # use argmin::core::{State, ArgminFloat};
     /// # let mut state: EgorState<f64> = EgorState::new();
     /// # state.last_best_iter = 13;
     /// # state.iter = 12;
@@ -986,7 +926,7 @@ where
     /// # let is_best = state.is_best();
     /// # assert!(!is_best);
     /// ```
-    fn is_best(&self) -> bool {
+    pub fn is_best(&self) -> bool {
         // FIXME: last best iter is 1-based index while iter is 0-based
         // This is done because last iter number is displayed in
         self.last_best_iter == self.iter + 1

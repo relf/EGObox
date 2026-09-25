@@ -8,7 +8,7 @@ use crate::solver::solver_infill_optim::InfillOptProblem;
 use crate::types::Constraints;
 use crate::utils::{find_best_result_index_from, is_feasible, is_update_ok, update_data};
 
-use argmin::core::{CostFunction, Problem};
+use basin::{CostFunction, Problem};
 
 use egobox_doe::Lhs;
 use egobox_doe::SamplingMethod;
@@ -82,7 +82,8 @@ where
 {
     /// Local step where infill criterion is optimized within trust region
     pub fn trego_step<
-        O: CostFunction<Param = Array2<f64>, Output = Array2<f64>> + Constraints<C>,
+        O: CostFunction<Param = Array2<f64>, Output = Array2<f64>, Error = crate::EgoError>
+            + Constraints<C>,
     >(
         &mut self,
         problem: &mut Problem<O>,
@@ -104,7 +105,7 @@ where
         let xbest = x_data.row(best_index).to_owned();
         let cbest = c_data.row(best_index).to_owned();
 
-        let pb = problem.take_problem().unwrap();
+        let pb = problem.inner();
         let fcstrs = pb.constraints();
         let fcstr_specs = pb.constraint_specs();
         let fcstr_mapping = crate::types::function_cstr_affine_mapping(fcstrs.len(), fcstr_specs)
@@ -168,8 +169,6 @@ where
             multistarter,
             (xbest.to_owned(), ybest, cbest),
         );
-
-        problem.problem = Some(pb);
 
         let mut new_state = new_state.infill_value(-infill_obj);
         info!(

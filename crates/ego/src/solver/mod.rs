@@ -1,7 +1,7 @@
 //! # Solver Module - EGO Optimizer Implementation
 //!
 //! This module contains the core implementation of the Efficient Global Optimization (EGO)
-//! algorithm using the argmin optimization framework.
+//! algorithm, executed with the basin optimization framework.
 //!
 //! ## Architecture Overview
 //!
@@ -9,8 +9,9 @@
 //!
 //! ### Public API
 //!
-//! - [`EgorSolver`] - Main optimizer implementing `argmin::Solver` trait
-//! - [`EgorState`] - Optimizer state implementing `argmin::State` trait  
+//! - [`EgorSolver`] - Main optimizer implementing `basin::Solver` trait
+//! - [`EgorState`] - Optimizer state (iterations, best point, surrogate data, ...)
+//! - [`TerminationStatus`] / [`TerminationReason`] - Optimization termination status
 //! - [`EgorConfig`] / [`ValidEgorConfig`] - Configuration builders and validated config
 //! - [`EgorService`] - Ask-and-tell interface for external control
 //!
@@ -76,20 +77,6 @@
 //!     .min_within(&xlimits)
 //!     .run()
 //! ```
-//!
-//! ## Usage with argmin
-//!
-//! The solver integrates with argmin's executor for checkpointing and observation:
-//!
-//! ```ignore
-//! use argmin::core::{Executor, observers::ObserverMode};
-//!
-//! let solver = EgorSolver::new(config);
-//! let result = Executor::new(problem, solver)
-//!     .configure(|state| state.max_iters(50))
-//!     .add_observer(MyObserver, ObserverMode::Always)
-//!     .run()?;
-//! ```
 
 pub mod activity_strategy;
 mod coego;
@@ -101,6 +88,7 @@ pub mod iteration_strategy;
 mod solver_computations;
 mod solver_impl;
 mod solver_infill_optim;
+mod termination;
 mod trego;
 
 pub use activity_strategy::{ActivityStrategy, CooperativeActivity, FullActivity};
@@ -111,3 +99,4 @@ pub use egor_state::*;
 pub use iteration_strategy::{
     IterationMode, IterationStrategy, StandardEgoStrategy, TregoStrategy,
 };
+pub use termination::*;

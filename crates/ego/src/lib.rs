@@ -340,10 +340,9 @@
 
 pub mod criteria;
 
-#[cfg(feature = "basin")]
-mod basin_executor;
 mod egor;
 mod errors;
+mod executor;
 mod solver;
 mod types;
 
@@ -352,9 +351,8 @@ pub use crate::errors::*;
 pub use crate::solver::*;
 pub use crate::types::*;
 pub use crate::utils::{
-    CHECKPOINT_FILE, Checkpoint, CheckpointingFrequency, EGOBOX_LOG, EGOR_GP_FILENAME,
-    EGOR_INITIAL_GP_FILENAME, EGOR_USE_GP_VAR_PORTFOLIO, HotStartCheckpoint, HotStartMode,
-    find_best_result_index, load_gp_models,
+    CHECKPOINT_FILE, EGOBOX_LOG, EGOR_GP_FILENAME, EGOR_INITIAL_GP_FILENAME,
+    EGOR_USE_GP_VAR_PORTFOLIO, HotStartMode, find_best_result_index, load_gp_models,
 };
 pub use egobox_moe::{CorrelationSpec, RegressionSpec};
 

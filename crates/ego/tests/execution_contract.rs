@@ -1,5 +1,4 @@
-use argmin::core::{TerminationReason, TerminationStatus};
-use egobox_ego::EgorBuilder;
+use egobox_ego::{EgorBuilder, TerminationReason, TerminationStatus};
 use ndarray::{Array2, ArrayView2, array};
 
 fn xsinx(x: &ArrayView2<f64>) -> Array2<f64> {
@@ -103,7 +102,6 @@ fn timeout_is_reported() {
     );
 }
 
-#[cfg(feature = "basin")]
 #[test]
 fn checkpoint_continuation_matches_uninterrupted_run() {
     use egobox_ego::HotStartMode;
@@ -140,7 +138,6 @@ fn checkpoint_continuation_matches_uninterrupted_run() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
-#[cfg(feature = "basin")]
 #[test]
 fn checkpoint_restores_target_before_any_iteration() {
     use egobox_ego::HotStartMode;
@@ -169,7 +166,6 @@ fn checkpoint_restores_target_before_any_iteration() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
-#[cfg(feature = "basin")]
 #[test]
 fn corrupt_checkpoint_returns_an_error() {
     use egobox_ego::HotStartMode;
@@ -192,7 +188,7 @@ fn corrupt_checkpoint_returns_an_error() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
-#[cfg(all(feature = "basin", unix))]
+#[cfg(unix)]
 #[test]
 fn interruption_works_for_repeated_runs() {
     if std::env::var_os("EGOBOX_INTERRUPT_TEST_CHILD").is_some() {

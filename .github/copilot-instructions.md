@@ -132,9 +132,9 @@ let model = Model::load("model.json")?;
 - Function signatures: `fn(x: &ArrayView2<f64>) -> Array2<f64>` for objective functions
 
 ### External Optimizer Integration
-- `argmin` framework powers the optimizer loop in `ego`
-- Custom `Solver` implementation in `solver/egor_solver.rs`
-- Observers for checkpointing/monitoring via `argmin::core::observers::Observe`
+- `basin` framework powers the optimizer loop in `ego` (`src/executor.rs`)
+- `EgorSolver` implements `basin::Solver` (see `src/executor.rs`), algorithm in `solver/egor_solver.rs`
+- Hot start checkpointing and history observers via basin executor (`ExactCheckpointWriter`, `basin::Observe`)
 
 ## Key Files
 
