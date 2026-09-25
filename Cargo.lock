@@ -703,7 +703,6 @@ dependencies = [
  "bincode",
  "clap",
  "csv",
- "egobox-ego",
  "egobox-moe",
  "linfa",
  "ndarray 0.16.1",
