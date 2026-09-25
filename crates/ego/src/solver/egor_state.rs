@@ -98,7 +98,6 @@ pub struct SurrogateState<F: Float> {
     /// Infill criterion value
     pub infill_value: F,
     /// Trained surrogate models for objective and constraints (persisted across EGO iterations)
-    #[cfg(feature = "persistent")]
     #[serde(default)]
     pub models: Vec<Box<dyn MixtureGpSurrogate>>,
 }
@@ -114,7 +113,6 @@ impl<F: Float> Default for SurrogateState<F> {
             best_index: None,
             infill_data: Default::default(),
             infill_value: F::infinity(),
-            #[cfg(feature = "persistent")]
             models: Vec::new(),
         }
     }
@@ -131,7 +129,6 @@ impl<F: Float> Clone for SurrogateState<F> {
             best_index: self.best_index,
             infill_data: self.infill_data.clone(),
             infill_value: self.infill_value,
-            #[cfg(feature = "persistent")]
             models: self.models.to_vec(),
         }
     }
@@ -148,10 +145,7 @@ impl<F: Float> std::fmt::Debug for SurrogateState<F> {
         s.field("best_index", &self.best_index);
         s.field("infill_data", &self.infill_data);
         s.field("infill_value", &self.infill_value);
-        #[cfg(feature = "persistent")]
-        {
-            s.field("models", &"...");
-        }
+        s.field("models", &"...");
         s.finish()
     }
 }

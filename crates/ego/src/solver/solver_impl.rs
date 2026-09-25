@@ -18,7 +18,6 @@ use egobox_doe::{Lhs, LhsKind};
 use egobox_gp::ThetaTuning;
 use env_logger::{Builder, Env};
 
-#[cfg(feature = "persistent")]
 use egobox_moe::AffinedSurrogate;
 use egobox_moe::{Clustering, CorrelationSpec, MixtureGpSurrogate, NbClusters, RegressionSpec};
 use log::{debug, info};
@@ -528,7 +527,6 @@ where
 
     /// Train only primary constraint columns and derive transformed ones
     /// via [`AffinedSurrogate`] wrappers.
-    #[cfg(feature = "persistent")]
     #[allow(clippy::too_many_arguments)]
     fn train_with_mapping(
         &self,
@@ -619,15 +617,7 @@ where
         let mut theta_inits = new_state
             .take_theta_inits()
             .ok_or_else(|| EgoError::InternalError("EgorSolver: No theta inits!".to_string()))?;
-        #[cfg(feature = "persistent")]
         let mut models = std::mem::take(&mut new_state.surrogate.models);
-        #[cfg(not(feature = "persistent"))]
-        let mut models: Vec<Box<dyn MixtureGpSurrogate>> = Vec::new();
-        // Under `--no-default-features` (no "persistent"), `models` is never
-        // consulted (see the `#[cfg(feature = "persistent")]`-gated blocks
-        // below): keep it referenced so it isn't flagged as unused.
-        #[cfg(not(feature = "persistent"))]
-        let _ = &models;
 
         let mut rng = new_state
             .take_rng()
@@ -658,15 +648,12 @@ where
             // With batch == 1 there is only ever i == 0 (no virtual point is ever
             // constructed), so it's safe -- and avoids a needless clone -- to hand
             // `models` over directly rather than searching on a clone of it.
-            #[cfg(feature = "persistent")]
             let mut search_models: Vec<Box<dyn MixtureGpSurrogate>> =
                 if self.config.qei_config.batch > 1 {
                     models.clone()
                 } else {
                     std::mem::take(&mut models)
                 };
-            #[cfg(not(feature = "persistent"))]
-            let mut search_models: Vec<Box<dyn MixtureGpSurrogate>> = Vec::new();
 
             let (x_dat, y_dat, c_dat, y_penalized, infill_value) = self.select_next_points(
                 init,
@@ -690,7 +677,6 @@ where
 
             // batch == 1: `search_models` was `models` itself (moved out above,
             // untouched by any virtual point), so move it right back.
-            #[cfg(feature = "persistent")]
             if self.config.qei_config.batch <= 1 {
                 models = search_models;
             }
@@ -825,7 +811,6 @@ where
                 &c_data.row(best_index),
                 &new_state.doe.cstr_tol,
             );
-        #[cfg(feature = "persistent")]
         {
             // Incorporate the actually evaluated point(s) into the persisted
             // models (never the virtual/Kriging-believer values used only for
@@ -1004,7 +989,6 @@ where
                     }
                 };
 
-                #[cfg(feature = "persistent")]
                 if self.config.outdir.is_some() && i == 0 && j == 0 {
                     use crate::utils::{EGOR_GP_FILENAME, EGOR_INITIAL_GP_FILENAME, gp_recorder};
 
@@ -1232,7 +1216,6 @@ where
             .as_ref()
             .map(|s| internal_cstr_mapping(s));
 
-        #[cfg(feature = "persistent")]
         let (models_new, inits) = if let Some(ref mapping) = mapping {
             self.train_with_mapping(
                 mapping,
@@ -1255,17 +1238,6 @@ where
                 actives,
             )
         };
-
-        #[cfg(not(feature = "persistent"))]
-        let (models_new, inits) = self.train_all_columns(
-            xt,
-            yt,
-            do_clustering,
-            optimize_theta,
-            clusterings,
-            theta_inits,
-            actives,
-        );
 
         *models = models_new;
         inits.into_iter().map(Some).collect()

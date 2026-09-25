@@ -23,7 +23,6 @@ use rand_xoshiro::Xoshiro256Plus;
 use serde::{Serialize, de::DeserializeOwned};
 
 use super::coego;
-#[cfg(feature = "persistent")]
 use super::solver_impl::DataClustering;
 use super::solver_infill_optim::MultiStarter;
 
@@ -85,7 +84,6 @@ where
     /// Local step where infill criterion is optimized within trust region.
     /// `models` are expected to be trained on the current state data, they
     /// are updated with the evaluated point and persisted in the returned state.
-    #[cfg_attr(not(feature = "persistent"), allow(unused_mut))]
     pub fn trego_step<
         O: CostFunction<Param = Array2<f64>, Output = Array2<f64>, Error = crate::EgoError>
             + Constraints<C>,
@@ -264,7 +262,6 @@ where
                 &new_state.doe.cstr_tol,
             );
 
-        #[cfg(feature = "persistent")]
         {
             // Incorporate the evaluated point into the persisted models
             // (fast incremental update unless full retraining is required)

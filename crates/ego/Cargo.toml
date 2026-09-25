@@ -12,14 +12,13 @@ keywords = ["machine-learning", "bayesian", "optimization"]
 categories = ["algorithms", "mathematics", "science"]
 
 [features]
-default = ["persistent"]
+default = []
 # Use cobyla crate (C-ported NLopt COBYLA) instead of basin COBYLA
 # for infill optimization and GP hyperparameters training
 c-cobyla = ["dep:cobyla", "egobox-gp/c-cobyla", "egobox-moe/c-cobyla"]
 # Use slsqp crate (C-ported NLopt SLSQP) instead of basin SLSQP for infill optimization
 c-slsqp = ["dep:slsqp"]
 
-persistent = ["egobox-moe/persistent"]
 blas = ["ndarray-linalg", "linfa/ndarray-linalg", "linfa-pls/blas"]
 
 [dependencies]
@@ -29,9 +28,7 @@ egobox-doe = { version = "0.35.1", path = "../doe", features = [
     "serializable",
 ] }
 egobox-gp = { version = "0.36.4", path = "../gp", features = ["serializable"] }
-egobox-moe = { version = "0.35.5", path = "../moe", features = [
-    "serializable",
-] }
+egobox-moe = { version = "0.35.5", path = "../moe" }
 
 linfa.workspace = true
 linfa-linalg.workspace = true

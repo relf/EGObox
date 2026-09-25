@@ -29,15 +29,12 @@ pub enum MoeError {
     #[error("Sample error: {0}")]
     SampleError(String),
     /// When error during saving
-    #[cfg(feature = "persistent")]
     #[error("Save error: {0}")]
     SaveJsonError(#[from] serde_json::Error),
     /// When error during saving
-    #[cfg(feature = "persistent")]
     #[error("Save error: {0}")]
     SaveBinaryError(#[from] bincode::error::EncodeError),
     /// When error during loading
-    #[cfg(feature = "persistent")]
     #[error("Load error: {0}")]
     LoadBinaryError(#[from] bincode::error::DecodeError),
     /// When error during loading

@@ -39,8 +39,6 @@ use crate::{EgoError, EgorState, MAX_POINT_ADDITION_RETRY, ValidEgorConfig};
 use crate::types::*;
 
 use egobox_doe::{Lhs, SamplingMethod};
-#[cfg(not(feature = "persistent"))]
-use egobox_moe::MixtureGpSurrogate;
 use log::{debug, info};
 use ndarray::{Array1, Array2, ArrayBase, Axis, Data, Ix2, Zip, concatenate, s};
 use ndarray_npy::{read_npy, write_npy};
@@ -365,10 +363,7 @@ where
             .ok_or_else(|| EgoError::InternalError("EgorSolver: No theta inits!".to_string()))?;
         // Persisted models are usually up to date (or lag by the point added
         // by a previous local step), hence reused as-is or incrementally updated.
-        #[cfg(feature = "persistent")]
         let mut models = std::mem::take(&mut local_state.surrogate.models);
-        #[cfg(not(feature = "persistent"))]
-        let mut models: Vec<Box<dyn MixtureGpSurrogate>> = Vec::new();
         {
             let (x_data, y_data, _) = local_state
                 .surrogate

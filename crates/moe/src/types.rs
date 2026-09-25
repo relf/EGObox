@@ -11,12 +11,10 @@ use linfa::Float;
 use ndarray::{Array1, Array2};
 use std::fmt::Display;
 
-#[cfg(feature = "serializable")]
 use serde::{Deserialize, Serialize};
 
 /// Enumeration of recombination modes handled by the mixture
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serializable", derive(Serialize, Deserialize))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum Recombination<F: Float> {
     /// prediction is taken from the expert with highest responsability
     /// resulting in a model with discontinuities
@@ -48,7 +46,7 @@ bitflags! {
     ///
     /// See [bitflags::bitflags]
     #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, Copy)]
-    #[cfg_attr(feature = "serializable", derive(Serialize, Deserialize))]
+    #[derive(Serialize, Deserialize)]
     pub struct RegressionSpec: u8 {
         /// Constant regression
         const CONSTANT = 0x01;
@@ -73,7 +71,8 @@ bitflags! {
     ///
     /// See [bitflags::bitflags]
     #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, Copy)]
-    #[cfg_attr(feature = "serializable", derive(Serialize, Deserialize), serde(transparent))]
+    #[derive(Serialize, Deserialize)]
+    #[serde(transparent)]
     pub struct CorrelationSpec: u8 {
         /// Squared exponential correlation model
         const SQUAREDEXPONENTIAL = 0x01;
@@ -102,8 +101,7 @@ pub trait Clustered {
 }
 
 /// A structure for clustering
-#[derive(Clone, Debug)]
-#[cfg_attr(feature = "serializable", derive(Serialize, Deserialize))]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Clustering {
     /// Recombination between the clusters
     pub(crate) recombination: Recombination<f64>,
@@ -153,7 +151,7 @@ pub struct GpMetricResult {
 }
 
 /// A trait for GP surrogate quality assessment
-#[cfg_attr(feature = "serializable", typetag::serde(tag = "type_gpqa"))]
+#[typetag::serde(tag = "type_gpqa")]
 pub trait GpQualityAssurance {
     /// Return the training data (xt, yt)
     fn training_data(&self) -> &(Array2<f64>, Array1<f64>);
@@ -207,7 +205,7 @@ pub trait GpQualityAssurance {
 }
 
 /// A trait for Mixture of GP surrogates with derivatives using clustering
-#[cfg_attr(feature = "serializable", typetag::serde(tag = "type_mixture"))]
+#[typetag::serde(tag = "type_mixture")]
 #[dyn_clonable::clonable]
 pub trait MixtureGpSurrogate:
     Clone + Clustered + GpSurrogate + GpSurrogateExt + GpQualityAssurance + Display

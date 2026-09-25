@@ -24,14 +24,10 @@ use ndarray_stats::QuantileExt;
 use rand_xoshiro::Xoshiro256Plus;
 use std::marker::PhantomData;
 
-#[cfg(feature = "serializable")]
 use serde::{Deserialize, Serialize};
 
-#[cfg(feature = "persistent")]
 use crate::{GpFileFormat, MoeError as MoeErrorType};
-#[cfg(feature = "persistent")]
 use std::fs;
-#[cfg(feature = "persistent")]
 use std::io::Write;
 
 /// Expand xlimits to add continuous dimensions for enumeration x features.
@@ -258,7 +254,7 @@ enum Method {
 
 /// A decorator of LHS sampling that takes into account XType specifications
 /// casting continuous LHS result from floats to discrete types.
-#[cfg_attr(feature = "serializable", derive(Serialize, Deserialize))]
+#[derive(Serialize, Deserialize)]
 pub struct MixintSampling<F: Float, S: egobox_doe::SamplingMethod<F>> {
     /// The continuous sampling method
     method: S,
@@ -328,8 +324,7 @@ pub type MoeBuilder = GpMixtureParams<f64>;
 /// A decorator of Moe surrogate builder that takes into account XType specifications
 ///
 /// It allows to implement continuous relaxation over continuous Moe builder.
-#[derive(Clone)]
-#[cfg_attr(feature = "serializable", derive(Serialize, Deserialize))]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct MixintGpMixtureValidParams {
     /// The surrogate factory
     gpmix_params: GpMixtureParams<f64>,
@@ -354,8 +349,7 @@ impl MixintGpMixtureValidParams {
 }
 
 /// Parameters for mixture of experts surrogate model
-#[derive(Clone)]
-#[cfg_attr(feature = "serializable", derive(Serialize, Deserialize))]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct MixintGpMixtureParams(MixintGpMixtureValidParams);
 
 impl MixintGpMixtureParams {
@@ -650,8 +644,7 @@ impl From<MixintGpMixtureValidParams> for MixintGpMixtureParams {
 }
 
 /// The Moe model that takes into account XType specifications
-#[cfg_attr(feature = "serializable", derive(Serialize, Deserialize))]
-#[derive(Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct MixintGpMixture {
     /// the decorated Moe
     moe: GpMixture,
@@ -707,7 +700,7 @@ impl MixintGpMixture {
     }
 }
 
-#[cfg_attr(feature = "serializable", typetag::serde)]
+#[typetag::serde]
 impl GpSurrogate for MixintGpMixture {
     fn dims(&self) -> (usize, usize) {
         self.moe.dims()
@@ -732,7 +725,6 @@ impl GpSurrogate for MixintGpMixture {
     }
 
     /// Save Moe model in given file.
-    #[cfg(feature = "persistent")]
     fn save(&self, path: &str, format: GpFileFormat) -> Result<()> {
         let mut file = fs::File::create(path).unwrap();
         let bytes = match format {
@@ -816,7 +808,6 @@ impl MixintGpMixture {
     }
 
     /// Load MixintGpMixture from given file.
-    #[cfg(feature = "persistent")]
     pub fn load(path: &str, format: GpFileFormat) -> Result<Box<MixintGpMixture>> {
         let data = fs::read(path)?;
         let moe = match format {
@@ -830,7 +821,7 @@ impl MixintGpMixture {
     }
 }
 
-#[cfg_attr(feature = "serializable", typetag::serde)]
+#[typetag::serde]
 impl GpSurrogateExt for MixintGpMixture {
     fn predict_gradients(&self, x: &ArrayView2<f64>) -> Result<Array2<f64>> {
         let cow_x = CowArray::from(x);
@@ -867,7 +858,7 @@ impl GpMetrics<MoeError, MixintGpMixtureParams, Self> for MixintGpMixture {
     }
 }
 
-#[cfg_attr(feature = "serializable", typetag::serde)]
+#[typetag::serde]
 impl GpQualityAssurance for MixintGpMixture {
     fn training_data(&self) -> &(Array2<f64>, Array1<f64>) {
         (self as &dyn GpMetrics<_, _, _>).training_data()
@@ -898,7 +889,7 @@ impl GpQualityAssurance for MixintGpMixture {
     }
 }
 
-#[cfg_attr(feature = "serializable", typetag::serde)]
+#[typetag::serde]
 impl MixtureGpSurrogate for MixintGpMixture {
     fn experts(&self) -> &Vec<Box<dyn FullGpSurrogate>> {
         self.moe.experts()

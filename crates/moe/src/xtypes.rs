@@ -3,13 +3,11 @@
 //! This module defines the `XType` enum for specifying variable domains
 //! and helper functions for working with mixed-integer spaces.
 
-#[cfg(feature = "serializable")]
 use serde::{Deserialize, Serialize};
 
 /// An enumeration to define the type of an input variable component
 /// with its domain definition
-#[derive(Debug, Clone)]
-#[cfg_attr(feature = "serializable", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum XType {
     /// Continuous variable in [lower bound, upper bound]
     Float(f64, f64),
