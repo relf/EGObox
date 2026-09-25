@@ -14,14 +14,15 @@ categories = ["algorithms", "mathematics", "science"]
 [features]
 
 default = []
-basin = ["dep:basin"]
+# Use cobyla crate (C-ported NLopt COBYLA) instead of basin COBYLA for GP hyperparameters training
+c-cobyla = ["dep:cobyla"]
 
 serializable = ["serde", "typetag", "linfa/serde", "rand_xoshiro/serde1"]
 persistent = ["serializable", "serde_json"]
 blas = ["ndarray-linalg", "linfa/ndarray-linalg", "linfa-pls/blas"]
 
 [dependencies]
-basin = { workspace = true, optional = true }
+basin = { workspace = true }
 egobox-doe = { version = "0.35.1", path = "../doe" }
 
 linfa.workspace = true
@@ -43,7 +44,7 @@ ndarray-linalg = { version = "0.17", optional = true }
 ndarray-einsum = "0.8"
 
 ndarray-npy.workspace = true
-cobyla = { version = "1.0.4" }
+cobyla = { version = "1.0.4", optional = true }
 paste = "1.0"
 
 serde = { version = "1", features = ["derive"], optional = true }

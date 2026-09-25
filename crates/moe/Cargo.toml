@@ -18,7 +18,8 @@ categories = ["algorithms", "mathematics", "science"]
 
 [features]
 default = []
-basin = ["egobox-gp/basin"]
+# Use cobyla crate (C-ported NLopt COBYLA) instead of basin COBYLA for GP training
+c-cobyla = ["egobox-gp/c-cobyla"]
 
 persistent = ["serializable", "serde_json", "bincode"]
 serializable = [

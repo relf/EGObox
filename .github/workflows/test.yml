@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        backend: [default, basin]
+        backend: [default, c-optim]
         toolchain:
           - stable
         os: 
@@ -30,7 +30,7 @@ jobs:
             backend: default
           - toolchain: 1.88.0
             os: ubuntu-latest
-            backend: basin
+            backend: c-optim
 
     steps:
       - name: Checkout sources
@@ -55,7 +55,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --all --release ${{ matrix.backend == 'basin' && '--features basin' || '' }}
+          args: --all --release ${{ matrix.backend == 'c-optim' && '--features c-cobyla,c-slsqp' || '' }}
 
   test-features:
     name: testing-features-${{ matrix.toolchain }}-${{ matrix.os }}-${{ matrix.features }}
@@ -65,7 +65,7 @@ jobs:
       matrix:
         features:
           - persistent-moe,blas,linfa/intel-mkl-static
-          - persistent-moe,basin
+          - persistent-moe,c-cobyla,c-slsqp
         toolchain:
           - stable
         os: 

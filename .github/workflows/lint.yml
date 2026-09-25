@@ -14,7 +14,7 @@ jobs:
       matrix:
         toolchain:
           - stable
-        features: [default, basin]
+        features: [default, c-optim]
     steps:
       - name: Checkout sources
         uses: actions/checkout@v6
@@ -37,5 +37,5 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: --all-targets ${{ matrix.features == 'basin' && '--features basin' || '' }} -- -D warnings
+          args: --all-targets ${{ matrix.features == 'c-optim' && '--features c-cobyla,c-slsqp' || '' }} -- -D warnings
 

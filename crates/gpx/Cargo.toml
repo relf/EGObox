@@ -12,7 +12,10 @@ keywords = ["machine-learning", "bayesian", "optimization"]
 categories = ["algorithms", "mathematics", "science"]
 
 [features]
-basin = ["egobox-ego/basin", "egobox-moe/basin"]
+# Use cobyla crate (C-ported NLopt COBYLA) instead of basin COBYLA
+c-cobyla = ["egobox-ego/c-cobyla", "egobox-moe/c-cobyla"]
+# Use slsqp crate (C-ported NLopt SLSQP) instead of basin SLSQP
+c-slsqp = ["egobox-ego/c-slsqp"]
 
 [dependencies]
 egobox-ego = { version = "0.40", path = "../ego" }

@@ -105,7 +105,8 @@ The table below presents the various features available depending on the subcrat
 | serializable | ✔️    | ✔️    | ✔️    |      |
 | persistent   |      |      | ✔️    | ✔️(*) |
 | blas         |      | ✔️    | ✔️    | ✔️    |
-| basin        |      | ✔️    | ✔️    | ✔️    |
+| c-cobyla     |      | ✔️    | ✔️    | ✔️    |
+| c-slsqp      |      |      |      | ✔️    |
 
 (*) for persistent mixture of gaussian processes with discrete variable available in `ego`
 
@@ -121,15 +122,15 @@ When selected, the save and load as a json file with [serde_json crate](https://
 
 When selected, the usage of BLAS/LAPACK backend is possible, see [below](#blaslapack-backend-optional) for more information.
 
-#### basin
+#### c-cobyla, c-slsqp
 
-The optional `basin` feature selects [Basin](https://basin.rs) for EGO execution,
-COBYLA and SLSQP acquisition optimization, and COBYLA GP hyperparameter fitting.
-It is also available on `egobox-gpx` and the Python package. Builds without `basin` retain their
-existing backends.
+By default, [Basin](https://basin.rs) pure Rust optimizers are used: COBYLA for GP hyperparameters
+training (`gp`, `moe`) and COBYLA/SLSQP for infill criterion optimization (`ego`), which also always
+uses Basin to execute the EGO loop.
 
-The Rust builders, result types, and Python API stay the same. Argmin remains a
-dependency for compatibility with the public Rust interfaces. See
+When selected, `c-cobyla` (resp. `c-slsqp`) uses the [cobyla](https://crates.io/crates/cobyla)
+(resp. [slsqp](https://crates.io/crates/slsqp)) crate, a C-ported NLopt implementation, instead of
+the Basin one. These features are also available on `egobox-gpx` and the Python package. See
 [Basin integration](doc/basin.md) for build commands, checkpoint behavior, and
 reproducible comparisons.
 
@@ -271,6 +272,10 @@ AIAA Aviation forum and Ascend 2024.
 Tfaily, Ali, et al. (2024).
 [Bayesian optimization with hidden constraints for aircraft design.](https://hal.science/hal-04673615/)
 Structural and Multidisciplinary Optimization 67.7 (2024): 123.
+
+Larsson, J. (2026).
+[Basin: Efficient and Extensible Numerical Optimization in Rust](https://doi.org/10.48550/arXiv.2608.11279).
+arXiv:2608.11279. [basin.rs](https://basin.rs)
 
 smtorg. (2018). [Surrogate modeling toolbox](https://github.com/SMTOrg/smt). GitHub.
 
