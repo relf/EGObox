@@ -106,6 +106,8 @@ The table below presents the various features available depending on the subcrat
 | persistent   |      |      | ✔️    | ✔️(*) |
 | blas         |      | ✔️    | ✔️    | ✔️    |
 | basin        |      | ✔️    | ✔️    | ✔️    |
+| c-cobyla     |      |      |      | ✔️    |
+| c-slsqp      |      |      |      | ✔️    |
 
 (*) for persistent mixture of gaussian processes with discrete variable available in `ego`
 
@@ -123,13 +125,15 @@ When selected, the usage of BLAS/LAPACK backend is possible, see [below](#blasla
 
 #### basin
 
-The optional `basin` feature selects [Basin](https://basin.rs) for EGO execution,
-COBYLA and SLSQP acquisition optimization, and COBYLA GP hyperparameter fitting.
-It is also available on `egobox-gpx` and the Python package. Builds without `basin` retain their
-existing backends.
+`ego` always uses [Basin](https://basin.rs) for EGO execution and, by default, Basin COBYLA
+and SLSQP for infill criterion optimization. The optional `basin` feature also selects Basin
+COBYLA for GP hyperparameter fitting. It is also available on `egobox-gpx` and the Python package.
 
-The Rust builders, result types, and Python API stay the same. Argmin remains a
-dependency for compatibility with the public Rust interfaces. See
+#### c-cobyla, c-slsqp
+
+When selected, infill criterion optimization in `ego` uses respectively the
+[cobyla](https://crates.io/crates/cobyla) and [slsqp](https://crates.io/crates/slsqp) crates
+(C-ported NLopt implementations) instead of Basin ones. See
 [Basin integration](doc/basin.md) for build commands, checkpoint behavior, and
 reproducible comparisons.
 

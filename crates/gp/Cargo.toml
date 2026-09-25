@@ -14,7 +14,10 @@ categories = ["algorithms", "mathematics", "science"]
 [features]
 
 default = []
-basin = ["dep:basin"]
+# Use basin optimizers for GP hyperparameters training
+basin = ["basin-optimizer"]
+# Expose basin optimizer adapter only (used by egobox-ego)
+basin-optimizer = ["dep:basin"]
 
 serializable = ["serde", "typetag", "linfa/serde", "rand_xoshiro/serde1"]
 persistent = ["serializable", "serde_json"]

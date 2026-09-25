@@ -17,8 +17,10 @@
 //!
 //! ## Feature Flags
 //!
-//! - `basin`: Use Basin's pure Rust COBYLA and SLSQP implementations.
-//! - Without `basin`, use the `cobyla` and `slsqp` crates.
+//! Basin pure Rust COBYLA and SLSQP implementations are used by default.
+//!
+//! - `c-cobyla`: Use the `cobyla` crate (C-ported NLopt COBYLA) instead of Basin COBYLA.
+//! - `c-slsqp`: Use the `slsqp` crate (C-ported NLopt SLSQP) instead of Basin SLSQP.
 
 mod optimizer;
 

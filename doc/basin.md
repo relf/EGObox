@@ -1,8 +1,16 @@
 # Basin integration
 
-`egobox-ego` always runs its EGO solver with Basin's executor. Enable the
-`basin` feature to also use Basin's numerical solvers (COBYLA/SLSQP for infill
-optimization and GP training):
+`egobox-ego` always runs its EGO solver with Basin's executor and, by default,
+optimizes the infill criterion with Basin's pure Rust COBYLA and SLSQP. The
+`c-cobyla` and `c-slsqp` features of `egobox-ego` switch back, respectively, to
+the `cobyla` and `slsqp` crates (C-ported NLopt implementations):
+
+```sh
+cargo run --release -p egobox-ego --features c-cobyla,c-slsqp --example ackley
+```
+
+GP hyperparameter training uses the `cobyla` crate by default. Enable the
+`basin` feature to use Basin's COBYLA for GP training as well:
 
 ```sh
 cargo run --release -p egobox-ego --features basin --example ackley
@@ -11,9 +19,10 @@ cd python
 maturin develop --release --features basin
 ```
 
-The feature is available on `egobox-gp`, `egobox-moe`, `egobox-ego`,
-`egobox-gpx`, and the Python package. Enabling it on EGO also enables it for GP
-training. The feature is disabled by default.
+The `basin` feature is available on `egobox-gp`, `egobox-moe`, `egobox-ego`,
+`egobox-gpx`, and the Python package, and is disabled by default. `egobox-gp`
+also has a `basin-optimizer` feature which only exposes the Basin optimizer
+adapter used by `egobox-ego`, without changing GP training.
 
 ## Execution and compatibility
 
@@ -88,8 +97,8 @@ objective value, constraint violation, observations, iterations, exit reason, an
 wall-clock time.
 
 ```sh
-cargo build --release -p egobox-ego --example backend_comparison
-RAYON_NUM_THREADS=2 target/release/examples/backend_comparison 10 > default.jsonl
+cargo build --release -p egobox-ego --features c-cobyla,c-slsqp --example backend_comparison
+RAYON_NUM_THREADS=2 target/release/examples/backend_comparison 10 > c-optimizers.jsonl
 cargo build --release -p egobox-ego --features basin --example backend_comparison
 RAYON_NUM_THREADS=2 target/release/examples/backend_comparison 10 > basin.jsonl
 ```
