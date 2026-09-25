@@ -6,7 +6,7 @@ use egobox_moe::to_discrete_space;
 use crate::utils::{compute_cstr_scales, logpofs, logpofs_grad, pofs, pofs_grad};
 use crate::{EgorSolver, solver::coego};
 
-use argmin::core::{CostFunction, Problem};
+use basin::{CostFunction, Problem};
 
 use egobox_doe::{Lhs, LhsKind, SamplingMethod};
 use egobox_moe::MixtureGpSurrogate;
@@ -578,7 +578,9 @@ where
     }
 
     /// Evaluate the objective function at given x points
-    pub fn eval_obj<O: CostFunction<Param = Array2<f64>, Output = Array2<f64>>>(
+    pub fn eval_obj<
+        O: CostFunction<Param = Array2<f64>, Output = Array2<f64>, Error = crate::EgoError>,
+    >(
         &self,
         pb: &mut Problem<O>,
         x: &Array2<f64>,
@@ -591,7 +593,7 @@ where
         } else {
             x.to_owned()
         };
-        match pb.problem("cost_count", |problem| problem.cost(&x)) {
+        match pb.cost(&x) {
             Ok(y) => Ok(y),
             Err(err) => {
                 warn!("Objective function evaluation failed at x = {x:?} with error: {err}");
@@ -648,22 +650,19 @@ where
     /// within the problem structure so that the function is taken from there
     pub fn eval_problem_fcstrs<O: Constraints<C>>(
         &self,
-        pb: &mut Problem<O>,
+        pb: &Problem<O>,
         x: &ArrayBase<impl Data<Elem = f64>, Ix2>,
     ) -> Array2<f64> {
-        let problem = pb.take_problem().unwrap();
+        let problem = pb.inner();
         let fcstrs = problem.constraints();
         let fcstr_specs = problem.constraint_specs();
 
         let res = self.eval_fcstrs(fcstrs, x);
-        let res = if let Some(specs) = fcstr_specs {
+        if let Some(specs) = fcstr_specs {
             crate::types::transform_function_constraints(&res, specs)
         } else {
             res
-        };
-
-        pb.problem = Some(problem);
-        res
+        }
     }
 }
 

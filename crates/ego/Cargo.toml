@@ -13,14 +13,14 @@ categories = ["algorithms", "mathematics", "science"]
 
 [features]
 default = ["persistent"]
-basin = ["dep:basin", "dep:ctrlc", "egobox-gp/basin", "egobox-moe/basin"]
+basin = ["egobox-gp/basin", "egobox-moe/basin"]
 
 persistent = ["egobox-moe/persistent"]
 blas = ["ndarray-linalg", "linfa/ndarray-linalg", "linfa-pls/blas"]
 
 [dependencies]
-basin = { workspace = true, optional = true, features = ["serde"] }
-ctrlc = { workspace = true, optional = true }
+basin = { workspace = true, features = ["serde"] }
+ctrlc = { workspace = true }
 egobox-doe = { version = "0.35.1", path = "../doe", features = [
     "serializable",
 ] }
@@ -45,7 +45,6 @@ cobyla = { version = "1.0.4" }
 slsqp = { version = "1.0.1" }
 
 rand_xoshiro = { version = "0.6", features = ["serde1"] }
-argmin = { version = "0.11.0", features = ["serde1", "ctrlc"] }
 bincode.workspace = true
 web-time = "1.1.0"
 libm = "0.2.6"

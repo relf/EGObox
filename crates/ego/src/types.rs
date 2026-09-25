@@ -1,5 +1,5 @@
 use crate::{EgoError, EgorState, Result};
-use argmin::core::CostFunction;
+use basin::CostFunction;
 use linfa::Float;
 use ndarray::{Array1, Array2, ArrayView2};
 use serde::{Deserialize, Serialize};
@@ -392,7 +392,7 @@ pub trait Constraints<C: CstrFn> {
 }
 
 /// As structure to handle the objective and constraints functions for implementing
-/// the optimization problem and `argmin::CostFunction` to be used with argmin framework.
+/// the optimization problem and `basin::CostFunction` to be used with basin framework.
 #[derive(Clone)]
 pub struct ProblemFunc<O: ObjFn, C: CstrFn> {
     fobj: O,
@@ -430,13 +430,13 @@ impl<O: ObjFn, C: CstrFn> CostFunction for ProblemFunc<O, C> {
     type Param = Array2<f64>;
     /// Type of the return value computed by the cost function
     type Output = Array2<f64>;
+    /// Type of the error returned by the cost function
+    type Error = EgoError;
 
     /// Apply the cost function to a parameter `p`
-    fn cost(&self, p: &Self::Param) -> std::result::Result<Self::Output, argmin::core::Error> {
+    fn cost(&self, p: &Self::Param) -> Result<Self::Output> {
         // Evaluate objective function, forward error on failure
-        self.fobj
-            .eval(&p.view())
-            .map_err(|e| argmin::core::Error::msg(e.to_string()))
+        self.fobj.eval(&p.view())
     }
 }
 

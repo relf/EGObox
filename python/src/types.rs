@@ -624,9 +624,9 @@ pub(crate) enum ExitStatus {
     ObjectiveFunctionError = 7,
 }
 
-impl From<argmin::core::TerminationStatus> for ExitStatus {
-    fn from(value: argmin::core::TerminationStatus) -> Self {
-        use argmin::core::{TerminationReason, TerminationStatus};
+impl From<egobox_ego::TerminationStatus> for ExitStatus {
+    fn from(value: egobox_ego::TerminationStatus) -> Self {
+        use egobox_ego::{TerminationReason, TerminationStatus};
         match value {
             TerminationStatus::Terminated(reason) => match reason {
                 TerminationReason::MaxItersReached => ExitStatus::MaxItersReached,

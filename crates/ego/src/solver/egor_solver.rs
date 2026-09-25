@@ -1,19 +1,12 @@
-//! Egor implementation as a [argmin::core::Solver] to be used to benefit from
-//! features coming with the argmin framework such as checkpointing or observers.
+//! Egor implementation of the EGO algorithm as a [basin] solver.
 //!
-//! Note: Depending on your need you can either use the `EgorSolver` or the provided
-//! `EgorBuilder` which allows to build an `Egor` struct which wraps the `argmin::Executor`
-//! running an `EgorSolver` on `ObjFun`. See [`crate::EgorBuilder`]
+//! The [`EgorSolver`] is run by the basin executor wrapped in the [`crate::Egor`]
+//! optimizer which provides hot start checkpointing, interruption and
+//! observation (history saving) features. Use [`crate::EgorBuilder`] to build it:
 //!
 //! ```no_run
-//! use ndarray::{array, Array2, ArrayView1, ArrayView2, Zip};
-//! use egobox_doe::{Lhs, SamplingMethod};
-//! use egobox_ego::{EgorBuilder, EgorConfig, InfillStrategy, InfillOptimizer, ProblemFunc, EgorSolver, to_xtypes};
-//! use egobox_moe::GpMixtureParams;
-//! use rand_xoshiro::Xoshiro256Plus;
-//! use ndarray_rand::rand::SeedableRng;
-//! use argmin::core::Executor;
-//!
+//! use ndarray::{array, Array2, ArrayView2, Zip};
+//! use egobox_ego::EgorBuilder;
 //! use argmin_testfunctions::rosenbrock;
 //!
 //! // Rosenbrock test function: minimum y_opt = 0 at x_opt = (1, 1)
@@ -24,91 +17,17 @@
 //!         .par_for_each(|mut yi, xi| yi.assign(&array![rosenbrock(&xi.to_vec())]));
 //!     y
 //! }
-//! let xtypes = to_xtypes(&array![[-2., 2.], [-2., 2.]]);
-//! let fobj = ProblemFunc::new(rosenb);
-//! let config = EgorConfig::default()
-//!                .xtypes(&xtypes)
-//!                .seed(42)
-//!                .check()
-//!                .expect("optimizer configuration validated");
-//! let solver: EgorSolver<GpMixtureParams<f64>> = EgorSolver::new(config);
-//! let res = Executor::new(fobj, solver)
-//!             .configure(|state| state.max_iters(20))
+//! let res = EgorBuilder::optimize(rosenb)
+//!             .configure(|config| config.seed(42).max_iters(20))
+//!             .min_within(&array![[-2., 2.], [-2., 2.]])
+//!             .expect("optimizer configured")
 //!             .run()
-//!             .unwrap();
+//!             .expect("Rosenbrock minimization");
 //! println!("Rosenbrock min result = {:?}", res.state);
 //! ```
 //!
-//! Constraints are expected to be evaluated with the objective function
-//! meaning that the function passed to the optimizer has to return
-//! a vector consisting of [obj, cstr_1, ..., cstr_n] and the cstr values
-//! are intended to be negative at the end of the optimization.
-//! Constraint number should be declared with `n_cstr` setter.
-//! A tolerance can be adjust with `cstr_tol` setter for relaxing constraint violation
-//! if specified cstr values should be < `cstr_tol` (instead of < 0)
-//!
-//! ```no_run
-//! use ndarray::{array, Array2, ArrayView1, ArrayView2, Zip};
-//! use egobox_doe::{Lhs, SamplingMethod};
-//! use egobox_ego::{EgorBuilder, EgorConfig, InfillStrategy, InfillOptimizer, ProblemFunc, EgorSolver, to_xtypes};
-//! use egobox_moe::GpMixtureParams;
-//! use rand_xoshiro::Xoshiro256Plus;
-//! use ndarray_rand::rand::SeedableRng;
-//! use argmin::core::Executor;
-//!
-//! // Function G24: 1 global optimum y_opt = -5.5080 at x_opt =(2.3295, 3.1785)
-//! fn g24(x: &ArrayView1<f64>) -> f64 {
-//!    -x[0] - x[1]
-//! }
-//!
-//! // Constraints < 0
-//! fn g24_c1(x: &ArrayView1<f64>) -> f64 {
-//!     -2.0 * x[0].powf(4.0) + 8.0 * x[0].powf(3.0) - 8.0 * x[0].powf(2.0) + x[1] - 2.0
-//! }
-//!
-//! fn g24_c2(x: &ArrayView1<f64>) -> f64 {
-//!     -4.0 * x[0].powf(4.0) + 32.0 * x[0].powf(3.0)
-//!     - 88.0 * x[0].powf(2.0) + 96.0 * x[0] + x[1]
-//!     - 36.0
-//! }
-//!
-//! // Gouped function : objective + constraints
-//! fn f_g24(x: &ArrayView2<f64>) -> Array2<f64> {
-//!     let mut y = Array2::zeros((x.nrows(), 3));
-//!     Zip::from(y.rows_mut())
-//!         .and(x.rows())
-//!         .for_each(|mut yi, xi| {
-//!             yi.assign(&array![g24(&xi), g24_c1(&xi), g24_c2(&xi)]);
-//!         });
-//!     y
-//! }
-//!
-//! let xlimits = array![[0., 3.], [0., 4.]];
-//! let doe = Lhs::new(&xlimits).sample(10);
-//! let xtypes = to_xtypes(&xlimits);
-//!
-//! let fobj = ProblemFunc::new(f_g24);
-//!
-//! let config = EgorConfig::default()
-//!     .xtypes(&xtypes)
-//!     .n_cstr(2)
-//!     .infill_strategy(InfillStrategy::EI)
-//!     .infill_optimizer(InfillOptimizer::Cobyla)
-//!     .doe(&doe)
-//!     .seed(42)
-//!     .target(-5.5080)
-//!     .check()
-//!     .expect("configuration validated");
-//!
-//! let solver: EgorSolver<GpMixtureParams<f64>> =
-//!   EgorSolver::new(config);
-//!
-//! let res = Executor::new(fobj, solver)
-//!             .configure(|state| state.max_iters(40))
-//!             .run()
-//!             .expect("g24 minimized");
-//! println!("G24 min result = {:?}", res.state);
-//! ```
+//! Alternatively, [`crate::EgorServiceBuilder`] provides an ask-and-tell interface
+//! when the optimization loop has to be controlled externally.
 //!
 use crate::solver::iteration_strategy::IterationMode;
 use crate::utils::{
@@ -123,9 +42,8 @@ use log::{debug, info};
 use ndarray::{Array1, Array2, ArrayBase, Axis, Data, Ix2, Zip, concatenate, s};
 use ndarray_npy::{read_npy, write_npy};
 
-use argmin::core::{
-    CostFunction, KV, Problem, Solver, State, TerminationReason, TerminationStatus,
-};
+use crate::{TerminationReason, errors::Result};
+use basin::{CostFunction, Problem};
 
 use ndarray_rand::rand::SeedableRng;
 use rand_xoshiro::Xoshiro256Plus;
@@ -143,9 +61,8 @@ pub const DEFAULT_CSTR_TOL: f64 = 1e-4;
 /// Termination reason when the objective function returns an error.
 pub const OBJECTIVE_FUNCTION_ERROR: &str = "Objective function error";
 
-/// Implementation of `argmin::core::Solver` for Egor optimizer.
-/// Therefore this structure can be used with `argmin::core::Executor` and benefit
-/// from observers and checkpointing features.
+/// EGO solver implementing the `basin::Solver` trait used by [`crate::Egor`]
+/// to benefit from basin executor features (checkpointing, observers, interruption).
 #[derive(Clone, Serialize, Deserialize)]
 pub struct EgorSolver<SB: SurrogateBuilder, C: CstrFn = Cstr> {
     pub(crate) config: ValidEgorConfig,
@@ -169,21 +86,19 @@ pub fn to_xtypes(xlimits: &ArrayBase<impl Data<Elem = f64>, Ix2>) -> Vec<XType> 
     xtypes
 }
 
-impl<O, SB, C> Solver<O, EgorState<f64>> for EgorSolver<SB, C>
+impl<SB, C> EgorSolver<SB, C>
 where
-    O: CostFunction<Param = Array2<f64>, Output = Array2<f64>> + Constraints<C>,
     C: CstrFn,
     SB: SurrogateBuilder + Serialize + DeserializeOwned,
 {
-    fn name(&self) -> &str {
-        "Egor"
-    }
-
-    fn init(
+    /// Initialize the optimization: evaluate the initial DOE and set up the state
+    pub(crate) fn init_state<
+        O: CostFunction<Param = Array2<f64>, Output = Array2<f64>, Error = EgoError> + Constraints<C>,
+    >(
         &mut self,
         problem: &mut Problem<O>,
         state: EgorState<f64>,
-    ) -> std::result::Result<(EgorState<f64>, Option<KV>), argmin::core::Error> {
+    ) -> Result<EgorState<f64>> {
         let mut rng = if let Some(seed) = self.config.seed {
             Xoshiro256Plus::seed_from_u64(seed)
         } else {
@@ -293,8 +208,7 @@ where
                     "cstr_tol length ({}) is larger than total internal constraint count ({})",
                     cstr_tol.len(),
                     n_total_cstr
-                ))
-                .into());
+                )));
             }
             if cstr_tol.len() < n_total_cstr {
                 let mut tol = cstr_tol.to_vec();
@@ -339,14 +253,17 @@ where
             x_data.row(best_index)
         );
 
-        Ok((initial_state, None))
+        Ok(initial_state)
     }
 
-    fn next_iter(
+    /// Run one iteration of the EGO algorithm
+    pub(crate) fn next_state<
+        O: CostFunction<Param = Array2<f64>, Output = Array2<f64>, Error = EgoError> + Constraints<C>,
+    >(
         &mut self,
         problem: &mut Problem<O>,
         state: EgorState<f64>,
-    ) -> std::result::Result<(EgorState<f64>, Option<KV>), argmin::core::Error> {
+    ) -> Result<EgorState<f64>> {
         debug!(
             "********* Start iteration {}/{}",
             state.get_iter() + 1,
@@ -360,79 +277,64 @@ where
             .config
             .iteration_strategy
             .prepare(&mut state, &self.xlimits);
-        let mut res = match mode {
+        let mut new_state = match mode {
             IterationMode::Global => self.ego_iteration(problem, state)?,
             IterationMode::Local {
                 max_dist,
                 min_acceptance_distance,
             } => self.local_iteration(problem, state, max_dist, min_acceptance_distance)?,
         };
-        let (x_data, y_data, _c_data) = res.0.surrogate.data.clone().unwrap();
+        let (x_data, y_data, _c_data) = new_state.surrogate.data.clone().unwrap();
 
         // Post-iteration hook
-        self.config.iteration_strategy.finalize(&mut res.0);
+        self.config.iteration_strategy.finalize(&mut new_state);
 
         // Update cooperative activity for next iteration
-        let res = {
+        let new_state = {
             let nx = self.xlimits.nrows();
-            let mut rng = res.0.take_rng().unwrap();
+            let mut rng = new_state.take_rng().unwrap();
             let activity = self
                 .config
                 .activity_strategy
                 .generate_activity(nx, &mut rng);
             debug!("Component activity = {activity:?}");
-            (res.0.rng(rng).activity(activity), res.1)
+            new_state.rng(rng).activity(activity)
         };
 
         info!(
             "********* End iteration {}/{} in {:.3}s: Best fun(x[{}])={} at x={}",
-            res.0.get_iter() + 1,
-            res.0.get_max_iters(),
+            new_state.get_iter() + 1,
+            new_state.get_max_iters(),
             now.elapsed().as_secs_f64(),
-            res.0.surrogate.best_index.unwrap(),
-            y_data.row(res.0.surrogate.best_index.unwrap()),
-            x_data.row(res.0.surrogate.best_index.unwrap())
+            new_state.surrogate.best_index.unwrap(),
+            y_data.row(new_state.surrogate.best_index.unwrap()),
+            x_data.row(new_state.surrogate.best_index.unwrap())
         );
+        debug!("Current Cost {:?}", new_state.get_cost());
+        debug!("Best cost {:?}", new_state.get_best_cost());
+        debug!("Best index {:?}", new_state.surrogate.best_index);
+        debug!("Data {:?}", new_state.surrogate.data.as_ref().unwrap());
 
-        Ok(res)
+        Ok(new_state)
     }
 
-    fn terminate(&mut self, state: &EgorState<f64>) -> TerminationStatus {
-        debug!(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> end iteration");
-        debug!("Current Cost {:?}", state.get_cost());
-        debug!("Best cost {:?}", state.get_best_cost());
-        debug!("Best index {:?}", state.surrogate.best_index);
-        debug!("Data {:?}", state.surrogate.data.as_ref().unwrap());
-
-        TerminationStatus::NotTerminated
-    }
-}
-
-impl<SB, C: CstrFn> EgorSolver<SB, C>
-where
-    SB: SurrogateBuilder + Serialize + DeserializeOwned,
-{
     /// Iteration of EGO algorithm
     fn ego_iteration<
-        O: CostFunction<Param = Array2<f64>, Output = Array2<f64>> + Constraints<C>,
+        O: CostFunction<Param = Array2<f64>, Output = Array2<f64>, Error = EgoError> + Constraints<C>,
     >(
         &mut self,
         problem: &mut Problem<O>,
         state: EgorState<f64>,
-    ) -> std::result::Result<(EgorState<f64>, Option<KV>), argmin::core::Error> {
+    ) -> Result<EgorState<f64>> {
         match self.ego_step(problem, state.clone()) {
-            Ok(new_state) => Ok((new_state, None)),
-            Err(EgoError::NoMorePointToAddError(state)) => Ok((
-                state.terminate_with(TerminationReason::SolverConverged),
-                None,
+            Ok(new_state) => Ok(new_state),
+            Err(EgoError::NoMorePointToAddError(state)) => {
+                Ok(state.terminate_with(TerminationReason::SolverConverged))
+            }
+            Err(EgoError::ObjectiveFunctionError(_)) => Ok(state.terminate_with(
+                TerminationReason::SolverExit(OBJECTIVE_FUNCTION_ERROR.to_string()),
             )),
-            Err(EgoError::ObjectiveFunctionError(_)) => Ok((
-                state.terminate_with(TerminationReason::SolverExit(
-                    OBJECTIVE_FUNCTION_ERROR.to_string(),
-                )),
-                None,
-            )),
-            Err(err) => Err(err.into()),
+            Err(err) => Err(err),
         }
     }
 
@@ -442,20 +344,20 @@ where
     /// around the current best point. Uses `min_acceptance_distance` to
     /// decide whether a candidate point is sufficiently far from the best.
     fn local_iteration<
-        O: CostFunction<Param = Array2<f64>, Output = Array2<f64>> + Constraints<C>,
+        O: CostFunction<Param = Array2<f64>, Output = Array2<f64>, Error = EgoError> + Constraints<C>,
     >(
         &mut self,
         problem: &mut Problem<O>,
         state: EgorState<f64>,
         max_dist: f64,
         min_acceptance_distance: f64,
-    ) -> std::result::Result<(EgorState<f64>, Option<KV>), argmin::core::Error> {
+    ) -> Result<EgorState<f64>> {
         // Local step
         let models = self.refresh_surrogates(&state);
         let mut local_state = state;
         let infill_data = self.refresh_infill_data(problem, &mut local_state, &models);
         let fallback_state = local_state.clone();
-        let new_state = match self.trego_step(
+        match self.trego_step(
             problem,
             local_state,
             models,
@@ -463,12 +365,11 @@ where
             max_dist,
             min_acceptance_distance,
         ) {
-            Ok(state) => state,
-            Err(crate::EgoError::ObjectiveFunctionError(_)) => fallback_state.terminate_with(
+            Ok(state) => Ok(state),
+            Err(EgoError::ObjectiveFunctionError(_)) => Ok(fallback_state.terminate_with(
                 TerminationReason::SolverExit(OBJECTIVE_FUNCTION_ERROR.to_string()),
-            ),
-            Err(err) => return Err(err.into()),
-        };
-        Ok((new_state, None))
+            )),
+            Err(err) => Err(err),
+        }
     }
 }

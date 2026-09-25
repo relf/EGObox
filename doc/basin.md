@@ -1,6 +1,8 @@
 # Basin integration
 
-Enable `basin` to use Basin's executor and numerical solvers:
+`egobox-ego` always runs its EGO solver with Basin's executor. Enable the
+`basin` feature to also use Basin's numerical solvers (COBYLA/SLSQP for infill
+optimization and GP training):
 
 ```sh
 cargo run --release -p egobox-ego --features basin --example ackley
@@ -15,30 +17,31 @@ training. The feature is disabled by default.
 
 ## Execution and compatibility
 
-The high-level Rust and Python APIs retain their existing signatures and result
-types. The original Argmin trait implementations remain available. A private
-adapter runs the shared EGO solver through Basin and translates its execution
-results into EGObox's public state. Argmin therefore remains a compatibility
-dependency even in Basin builds.
+The high-level Rust and Python APIs (`EgorBuilder`, `EgorServiceBuilder`) retain
+their existing signatures. `EgorSolver` implements `basin::Solver` and is run
+by a private executor module which translates Basin execution results into
+EGObox's public state. `egobox-ego` does not depend on Argmin anymore:
+`EgorState` exposes its accessors as inherent methods, and termination is
+reported with EGObox's own `TerminationStatus` and `TerminationReason` types.
 
 Targets are checked after initialization and before further iterations. A target
 of negative infinity disables target stopping. Iteration limits, timeouts,
 objective errors, and interrupts retain their existing exit-status meanings.
-Elapsed time measures the current invocation, including initialization. As with
-the default executor, timeout checks occur after completed iterations and cannot
-interrupt a running objective evaluation.
+Elapsed time measures the current invocation, including initialization. Timeout
+checks occur after completed iterations and cannot interrupt a running objective
+evaluation.
 
-Basin writes solver-aware hot-start checkpoints to `egor_checkpoint.bin`; the
-default executor continues to use `egor_checkpoint.json`. Exact continuation
-requires the same backend, Basin version, and concrete solver/problem types.
+Basin writes solver-aware hot-start checkpoints to `egor_checkpoint.bin`
+(former Argmin `egor_checkpoint.json` files are not supported anymore). Exact
+continuation requires the same Basin version and concrete solver/problem types.
 The checkpoint retains the solver, state, RNG, and evaluation counters. Loading
 skips initialization, and `ExtendedIters(n)` adds to the saved iteration budget.
 The saved target remains in effect. A target already reached stops immediately,
 even when the iteration budget is extended.
 
-Use the existing DOE warm-start mechanism to switch backends. Hot-start files
-are not converted between backends. Checkpoint read and write errors are returned
-to the caller.
+Use the existing DOE warm-start mechanism to switch numerical backends or to
+restart from an older run. Checkpoint read and write errors are returned to the
+caller.
 
 ## Numerical settings
 
