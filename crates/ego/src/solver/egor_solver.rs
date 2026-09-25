@@ -30,6 +30,7 @@
 //! when the optimization loop has to be controlled externally.
 //!
 use crate::solver::iteration_strategy::IterationMode;
+use crate::solver::solver_impl::DataClustering;
 use crate::utils::{
     EGOR_USE_GP_VAR_PORTFOLIO, EGOR_USE_STATE_RECORDING, filter_nans, find_best_result_index,
 };
@@ -38,6 +39,8 @@ use crate::{EgoError, EgorState, MAX_POINT_ADDITION_RETRY, ValidEgorConfig};
 use crate::types::*;
 
 use egobox_doe::{Lhs, SamplingMethod};
+#[cfg(not(feature = "persistent"))]
+use egobox_moe::MixtureGpSurrogate;
 use log::{debug, info};
 use ndarray::{Array1, Array2, ArrayBase, Axis, Data, Ix2, Zip, concatenate, s};
 use ndarray_npy::{read_npy, write_npy};
@@ -353,8 +356,40 @@ where
         min_acceptance_distance: f64,
     ) -> Result<EgorState<f64>> {
         // Local step
-        let models = self.refresh_surrogates(&state);
         let mut local_state = state;
+        let mut clusterings = local_state
+            .take_clusterings()
+            .ok_or_else(|| EgoError::InternalError("EgorSolver: No clustering!".to_string()))?;
+        let mut theta_inits = local_state
+            .take_theta_inits()
+            .ok_or_else(|| EgoError::InternalError("EgorSolver: No theta inits!".to_string()))?;
+        // Persisted models are usually up to date (or lag by the point added
+        // by a previous local step), hence reused as-is or incrementally updated.
+        #[cfg(feature = "persistent")]
+        let mut models = std::mem::take(&mut local_state.surrogate.models);
+        #[cfg(not(feature = "persistent"))]
+        let mut models: Vec<Box<dyn MixtureGpSurrogate>> = Vec::new();
+        {
+            let (x_data, y_data, _) = local_state
+                .surrogate
+                .data
+                .as_ref()
+                .ok_or_else(|| EgoError::InternalError("EgorSolver: No data!".to_string()))?;
+            let point_index = local_state.get_iter() as usize * self.config.qei_config.batch;
+            self.refresh_models(
+                &mut clusterings,
+                &mut theta_inits,
+                &mut models,
+                x_data,
+                y_data,
+                &local_state.coego.activity,
+                DataClustering::Fixed,
+                point_index,
+            );
+        }
+        let mut local_state = local_state
+            .clusterings(clusterings)
+            .theta_inits(theta_inits);
         let infill_data = self.refresh_infill_data(problem, &mut local_state, &models);
         let fallback_state = local_state.clone();
         match self.trego_step(
