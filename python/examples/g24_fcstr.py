@@ -36,14 +36,7 @@ def G24_c2(point, gradient=False):
         raise NotImplementedError("G24_c2: Gradient not implemented")
     else:
         x1, x2 = point[0], point[1]
-        return (
-            -4.0 * x1**4.0
-            + 32.0 * x1**3.0
-            - 88.0 * x1**2.0
-            + 96.0 * x1
-            + x2
-            - 36.0
-        )
+        return -4.0 * x1**4.0 + 32.0 * x1**3.0 - 88.0 * x1**2.0 + 96.0 * x1 + x2 - 36.0
 
 
 # Grouped evaluation

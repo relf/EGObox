@@ -940,23 +940,30 @@ where
                     && self.must_optimize_theta(do_clustering, xt.nrows(), dim, point_index))
                 .into();
 
-                info!(
-                    "Update surrogates with {} points... clustering={:?} optimize_theta={:?}",
-                    xt.nrows(),
-                    do_clustering,
-                    optimize_theta
-                );
-
-                let inits = self.update_models(
-                    clusterings,
-                    theta_inits,
-                    models,
-                    &xt,
-                    &yt,
-                    actives,
-                    do_clustering,
-                    optimize_theta,
-                );
+                // Persisted models are already trained on the evaluated points at
+                // the end of the previous iteration: do not retrain them on the
+                // very same data.
+                let inits = if Self::models_up_to_date(models, do_clustering, xt.nrows()) {
+                    debug!("Surrogates already up to date with {} points", xt.nrows());
+                    vec![None; models.len()]
+                } else {
+                    info!(
+                        "Update surrogates with {} points... clustering={:?} optimize_theta={:?}",
+                        xt.nrows(),
+                        do_clustering,
+                        optimize_theta
+                    );
+                    self.update_models(
+                        clusterings,
+                        theta_inits,
+                        models,
+                        &xt,
+                        &yt,
+                        actives,
+                        do_clustering,
+                        optimize_theta,
+                    )
+                };
 
                 // Handle failsafe imputation on the first iteration
                 if iter == 0
@@ -1345,6 +1352,20 @@ where
             || periodic_optim
     }
 
+    /// Whether `models` do not need any training given `nb_points` training
+    /// points: clustering is kept and models are already trained on all of them.
+    fn models_up_to_date(
+        models: &[Box<dyn MixtureGpSurrogate>],
+        do_clustering: DataClustering,
+        nb_points: usize,
+    ) -> bool {
+        do_clustering == DataClustering::Fixed
+            && !models.is_empty()
+            && models
+                .iter()
+                .all(|m| m.training_data().0.nrows() == nb_points)
+    }
+
     /// Bring `models` in line with the whole training data `(x_data, y_data)`
     /// (see `must_optimize_theta` for the full-retrain-vs-fast-path decision)
     /// then sync `clusterings`/`theta_inits` with the resulting models.
@@ -1364,12 +1385,7 @@ where
         do_clustering: DataClustering,
         point_index: usize,
     ) {
-        if do_clustering == DataClustering::Fixed
-            && !models.is_empty()
-            && models
-                .iter()
-                .all(|m| m.training_data().0.nrows() == x_data.nrows())
-        {
+        if Self::models_up_to_date(models, do_clustering, x_data.nrows()) {
             debug!(
                 "Surrogates already up to date with {} points",
                 x_data.nrows()
