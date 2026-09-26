@@ -26,6 +26,67 @@
 //! println!("Rosenbrock min result = {:?}", res.state);
 //! ```
 //!
+//! Constraints are expected to be evaluated with the objective function
+//! meaning that the function passed to the optimizer has to return
+//! a vector consisting of [obj, cstr_1, ..., cstr_n] and the cstr values
+//! are intended to be negative at the end of the optimization.
+//! Constraint number should be declared with `n_cstr` setter.
+//! A tolerance can be adjust with `cstr_tol` setter for relaxing constraint violation
+//! if specified cstr values should be < `cstr_tol` (instead of < 0)
+//!
+//! ```no_run
+//! use ndarray::{array, Array2, ArrayView1, ArrayView2, Zip};
+//! use egobox_doe::{Lhs, SamplingMethod};
+//! use egobox_ego::{EgorBuilder, InfillStrategy, InfillOptimizer};
+//!
+//! // Function G24: 1 global optimum y_opt = -5.5080 at x_opt =(2.3295, 3.1785)
+//! fn g24(x: &ArrayView1<f64>) -> f64 {
+//!    -x[0] - x[1]
+//! }
+//!
+//! // Constraints < 0
+//! fn g24_c1(x: &ArrayView1<f64>) -> f64 {
+//!     -2.0 * x[0].powf(4.0) + 8.0 * x[0].powf(3.0) - 8.0 * x[0].powf(2.0) + x[1] - 2.0
+//! }
+//!
+//! fn g24_c2(x: &ArrayView1<f64>) -> f64 {
+//!     -4.0 * x[0].powf(4.0) + 32.0 * x[0].powf(3.0)
+//!     - 88.0 * x[0].powf(2.0) + 96.0 * x[0] + x[1]
+//!     - 36.0
+//! }
+//!
+//! // Gouped function : objective + constraints
+//! fn f_g24(x: &ArrayView2<f64>) -> Array2<f64> {
+//!     let mut y = Array2::zeros((x.nrows(), 3));
+//!     Zip::from(y.rows_mut())
+//!         .and(x.rows())
+//!         .for_each(|mut yi, xi| {
+//!             yi.assign(&array![g24(&xi), g24_c1(&xi), g24_c2(&xi)]);
+//!         });
+//!     y
+//! }
+//!
+//! let xlimits = array![[0., 3.], [0., 4.]];
+//! let doe = Lhs::new(&xlimits).sample(10);
+//!
+//! let res = EgorBuilder::optimize(f_g24)
+//!             .configure(|config| {
+//!                 config
+//!                     .n_cstr(2)
+//!                     .infill_strategy(InfillStrategy::EI)
+//!                     .infill_optimizer(InfillOptimizer::Cobyla)
+//!                     .doe(&doe)
+//!                     .seed(42)
+//!                     .target(-5.5080)
+//!                     .max_iters(40)
+//!             })
+//!             .min_within(&xlimits)
+//!             .expect("optimizer configured")
+//!             .run()
+//!             .expect("g24 minimized");
+//! println!("G24 min result = {:?}", res.state);
+//! ```
+//!
 //! Alternatively, [`crate::EgorServiceBuilder`] provides an ask-and-tell interface
 //! when the optimization loop has to be controlled externally.
 //!
