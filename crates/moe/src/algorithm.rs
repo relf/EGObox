@@ -1127,7 +1127,7 @@ impl GpMixture {
 
         if n_clusters == 1 {
             // Single expert: use efficient GP update (consume self)
-            info!(
+            debug!(
                 "Updating single-expert mixture with {} new points",
                 x_new.nrows()
             );
@@ -1158,7 +1158,7 @@ impl GpMixture {
             Ok(moe)
         } else {
             // Multiple experts: assign new points to clusters and update each expert
-            info!(
+            debug!(
                 "Updating multi-expert mixture ({} clusters) with {} new points",
                 n_clusters,
                 x_new.nrows()
