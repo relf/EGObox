@@ -348,6 +348,25 @@ impl<O: ObjFn, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> E
         }
 
         let state = crate::executor::run(self.fobj.clone(), self.solver.clone())?;
+        info!(
+            "Optimization Result:\n    \
+             param (best):  {}\n    \
+             cost (best):   {}\n    \
+             iters (best):  {}\n    \
+             iters (total): {}\n    \
+             termination:   {}\n    \
+             time:          {}",
+            state
+                .get_best_param()
+                .map_or("None".to_string(), |p| format!("{p}")),
+            state.get_best_cost(),
+            state.get_last_best_iter(),
+            state.get_iter(),
+            state.get_termination_status(),
+            state
+                .get_time()
+                .map_or("None".to_string(), |t| format!("{t:?}")),
+        );
         let (x_data, y_data, c_data) = state.clone().take_data().unwrap();
 
         let res = if !self.solver.config.discrete() {
