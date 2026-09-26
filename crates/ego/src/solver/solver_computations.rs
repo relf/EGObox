@@ -25,16 +25,8 @@ use serde::de::DeserializeOwned;
 
 const CSTR_DOUBT: f64 = 3.;
 
-fn uses_log_feasibility(composition: InfillComposition) -> bool {
-    matches!(composition, InfillComposition::Log)
-}
-
 fn neutral_infill_val(composition: InfillComposition) -> f64 {
-    if uses_log_feasibility(composition) {
-        0.0
-    } else {
-        -1.0
-    }
+    if composition.is_log() { 0.0 } else { -1.0 }
 }
 
 fn neutral_infill_grad(dim: usize) -> Array1<f64> {
@@ -180,20 +172,25 @@ where
             1.
         };
 
-        let scale_infill_obj = self.compute_infill_obj_scale(
-            &scaling_points.view(),
-            obj_model,
-            cstr_models,
-            cstr_tols,
-            fmin,
-            scale_ic,
-            sigma_weight,
-        );
-        info!(
-            "Infill criterion {} scaling is updated to {}",
-            self.config.infill_criterion.name(),
-            scale_infill_obj
-        );
+        let scale_infill_obj = if !self.config.infill_criterion.composition().is_log() {
+            let scale = self.compute_infill_obj_scale(
+                &scaling_points.view(),
+                obj_model,
+                cstr_models,
+                cstr_tols,
+                fmin,
+                scale_ic,
+                sigma_weight,
+            );
+            info!(
+                "Infill criterion {} scaling is updated to {}",
+                self.config.infill_criterion.name(),
+                scale
+            );
+            scale
+        } else {
+            1.
+        };
         let scale_cstr = if cstr_models.is_empty() {
             Array1::zeros((0,))
         } else {
@@ -352,7 +349,7 @@ where
         // Log acquisition values already express relative improvements. Dividing
         // by a remote negative tail can erase their gradients and make absolute
         // objective tolerances stop the inner optimizer at its starting point.
-        if uses_log_feasibility(self.config.infill_criterion.composition()) {
+        if self.config.infill_criterion.composition().is_log() {
             return 1.0;
         }
         let mut crit_vals = Array1::zeros(x.nrows());
@@ -472,7 +469,6 @@ where
         sigma_weight: f64,
     ) -> f64 {
         let composition = self.config.infill_criterion.composition();
-        let uses_log_feasibility = uses_log_feasibility(composition);
         let infill_obj = if feasibility {
             self.eval_infill_obj(
                 x,
@@ -492,7 +488,7 @@ where
             // and not penalize it more than that
             neutral_infill_val(composition)
         };
-        if uses_log_feasibility {
+        if composition.is_log() {
             infill_obj - logpofs(x, cstr_models, &cstr_tols.to_vec())
         } else {
             infill_obj * pofs(x, cstr_models, &cstr_tols.to_vec())
@@ -519,9 +515,8 @@ where
             self.eval_grad_infill_obj(x, obj_model, fmin, viability_model, alpha, scale, scale_ic)
         } else {
             let composition = self.config.infill_criterion.composition();
-            let uses_log_feasibility = uses_log_feasibility(composition);
 
-            if uses_log_feasibility {
+            if composition.is_log() {
                 let infill_grad = if feasibility {
                     Array1::from_vec(self.eval_grad_infill_obj(
                         x,
@@ -674,12 +669,6 @@ mod tests {
     fn test_infeasible_infill_obj_matches_composition() {
         assert_eq!(neutral_infill_val(InfillComposition::Linear), -1.0);
         assert_eq!(neutral_infill_val(InfillComposition::Log), 0.0);
-    }
-
-    #[test]
-    fn test_uses_log_feasibility_matches_composition() {
-        assert!(!uses_log_feasibility(InfillComposition::Linear));
-        assert!(uses_log_feasibility(InfillComposition::Log));
     }
 
     #[test]

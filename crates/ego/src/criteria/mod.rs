@@ -18,6 +18,13 @@ pub enum InfillComposition {
     Log,
 }
 
+impl InfillComposition {
+    /// Whether the infill criterion values are expressed in log-space.
+    pub fn is_log(&self) -> bool {
+        matches!(self, InfillComposition::Log)
+    }
+}
+
 /// A trait for infill criterion which maximmum location will
 /// determine the next most promising point expected to be the
 /// optimum location of the objective function
@@ -91,6 +98,12 @@ impl std::fmt::Debug for dyn InfillCriterion {
 mod tests {
     use super::*;
     use crate::criteria::{EI, LOG_EI, WB2, WB2S};
+
+    #[test]
+    fn test_composition_is_log() {
+        assert!(!InfillComposition::Linear.is_log());
+        assert!(InfillComposition::Log.is_log());
+    }
 
     #[test]
     fn test_default_composition_is_linear() {
