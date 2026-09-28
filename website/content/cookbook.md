@@ -371,3 +371,72 @@ Note:
 - Use `fcstrs` for cheap constraints; use `cstr_specs` for expensive constraints that need surrogate modeling
 - The `fun` callable should return `(objective, *constraint_values)` when using surrogate constraints, but for `fcstrs`, constraints are passed separately
 - Multiple cheap constraints can be provided as a list to `fcstrs`
+
+## Recipe 12: Constrained Engineering Problem With Active Constraints
+
+Use when:
+
+- the objective and constraints come from a coupled simulation (e.g. an aero-structural MDA)
+- constraints are expressed in physical units (kg, Pa, N, ...)
+- some constraints are equalities, or are expected to be active at the optimum
+- the optimum is likely to lie on variable bounds
+
+Suggested setup:
+
+```python
+import numpy as np
+import egobox as egx
+
+LW_REF = 100.0  # order of magnitude of the equality constraint (here in kg)
+EPS = 1e-3      # accepted band on the scaled equality constraint (here 0.1 kg)
+
+def fun(x):
+    # obj, stress margins (>= 0, already of order 1), lift minus weight (in kg)
+    obj, stress, lift_minus_weight = simulate(x)
+    return np.hstack([obj, stress, lift_minus_weight / LW_REF])
+
+optim = egx.Egor(
+    xspecs,
+    cstr_specs=[egx.CstrSpec.geq(0.0)] * 3 + [egx.CstrSpec.btw(-EPS, EPS)],
+    gp_config=egx.GpConfig(corr_spec=egx.CorrelationSpec.MATERN52),
+    infill_strategy=egx.InfillStrategy.LOG_EI,
+    infill_optimizer=egx.InfillOptimizer.SLSQP,
+    cstr_infill=True,
+    trego=egx.TregoConfig(beta=0.8),
+    failsafe_strategy=egx.FailsafeStrategy.REJECTION,
+)
+res = optim.minimize(fun, max_iters=150, outdir="run_s42", seed=42, timeout=3200.0)
+```
+
+Why it helps:
+
+- The feasibility tolerance `cstr_tol` is **absolute** (default `1e-4` on every internal constraint):
+  scaling each constraint to order 1 makes it meaningful. A constraint in kg with values around
+  1000 is almost never considered satisfied.
+- A narrow band `CstrSpec.btw(-eps, eps)` is much easier to satisfy than `CstrSpec.eq(0.0)`
+  while keeping the equality precise enough in practice.
+- The `SLSQP` infill optimizer follows active constraint boundaries more accurately than `COBYLA`.
+- `cstr_infill=True` weights the infill criterion by the probability of feasibility, which drives
+  the search towards the feasible region when the initial DoE contains no feasible point.
+- `REJECTION` is the safest failsafe strategy when simulation failures are rare.
+- `timeout` stops the optimization gracefully before a batch-job time limit.
+
+Case study (11 variables, 3 stress constraints, 1 lift = weight equality, 200 iterations, seed 42):
+
+| Setting | Feasible points | Best feasible objective (reference 41.84) |
+|---|---|---|
+| unscaled equality constraint (in kg) | 0 / 124 | none |
+| scaled, `CstrSpec.eq`, `COBYLA` | 5 / 186 | 37.21 |
+| scaled, `CstrSpec.btw` band, `COBYLA` | 8 / 206 | 41.24 |
+| as above with `WB2S` infill criterion | 8 / 207 | 32.25 |
+| scaled, `CstrSpec.btw` band, `SLSQP` | 13 / 210 | 41.81 |
+
+Across seeds, the last setup reached within 0.5% of the gradient-based reference in about
+60 to 140 iterations, hence `max_iters=150`.
+
+Note:
+
+- Make `fun` free of side effects between calls: if the simulation restarts from the state
+  of a previous call, one diverged (NaN) evaluation can make all the following ones fail.
+- Compare configurations with at least two seeds: in this case study the seed alone changed
+  the final objective by up to 1.3%.
