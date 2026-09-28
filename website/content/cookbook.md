@@ -16,7 +16,11 @@ Each recipe includes:
 **Notes**
 
 - Start from the closest recipe, then tune one group of parameters at a time.
-- Keep random seeds fixed while comparing configurations.
+- Keep random seeds fixed while comparing configurations, and confirm a difference with at least
+  two seeds: the seed alone can change the final objective by about 1%.
+- Use a distinct `outdir` for each run you compare: with `warm_start=True`, a run silently
+  continues from the DOE already saved in its `outdir`.
+- Use the `timeout` argument of `minimize()` to stop gracefully before a batch-job time limit.
 - Regarding the required `xspecs` parameter (i.e. the input space) used by `Egor`: When using continuous variables only, the simplest form is a list of `[lower, upper]` pairs, e.g. `[[0.0, 1.0], [1.0, 10.0], [-5.0, 5.0]]`. Otherwise, see the [XSpecs in Python API](../python-api#xspecs) for more complex variable types.
 - For complete parameter definitions, see the [Python API](../python-api).
 
@@ -64,6 +68,12 @@ Why it helps:
 
 - smaller DOE reduces initial expensive calls (default xdim + 1)
 
+Note:
+
+- 20 iterations suit unconstrained problems in low dimension. With several constraints active
+  at the optimum, plan for many more iterations (see [Recipe 12](#recipe-12-constrained-engineering-problem-with-active-constraints),
+  where about 100 to 150 iterations were needed in dimension 11).
+
 ## Recipe 3: High Dimension (d > 10)
 
 Use when:
@@ -91,6 +101,8 @@ Rule of thumb:
 
 - around d=20, start with kpls_dim=5
 - around d=100, start with kpls_dim=10
+- just above d=10 (up to about 15), first try without KPLS: full GPs remain affordable and can
+  model constraints much more accurately than their KPLS counterparts
 
 ## Recipe 4: Very High Dimension (d > 50)
 
@@ -171,7 +183,10 @@ Why it helps:
 - TREGO alternates global and local trust-region behavior improves convergence
 - Matern52 is often more robust on rougher landscapes
 - On bad infill optimization you can try to change the infill optimizer; try `SLSQP`
-- Default `LOG_EI` optimization on rough landscapes may be too difficult; try `WB2`, `WB2S` or even `EI` instead
+- Default `LOG_EI` optimization on rough landscapes may be too difficult; try `WB2`, `WB2S` or even `EI` instead.
+  The effect is problem dependent: on a constrained 11D problem, `WB2S` did much worse than `LOG_EI`
+  (see [Recipe 12](#recipe-12-constrained-engineering-problem-with-active-constraints)), so compare
+  with `LOG_EI` before switching.
 
 ## Recipe 7: Constraint-Heavy Problems
 
@@ -236,8 +251,16 @@ Why it helps:
 
 Alternatives:
 
-- `FailsafeStrategy.REJECTION`: drops failed points (simplest)
-- `FailsafeStrategy.IMPUTATION`: fills failed outputs with surrogate-based estimates
+- `FailsafeStrategy.REJECTION`: drops failed points (simplest, and the safest choice when failures are rare)
+- `FailsafeStrategy.IMPUTATION`: fills failed outputs with surrogate-based estimates.
+  Imputed values are fed back into the surrogates and may drift: check that the imputed
+  objective values stay in a plausible range.
+
+Note:
+
+- Make `fun` free of side effects between calls. A simulation that restarts from the state left
+  by the previous call can turn a single failure into a series of failures (every following
+  evaluation starting from a NaN state).
 
 ## Recipe 9: Restart From an Existing DOE
 
@@ -327,7 +350,12 @@ Why it helps:
 Note:
 
 - The constraint function `fun` should return raw values; `cstr_specs` interprets feasibility
-- For equality constraints, consider using a small tolerance via `cstr_tol`
+- For equality constraints, consider using a small tolerance via `cstr_tol`, or a narrow band
+  `CstrSpec.btw(value - eps, value + eps)`, often easier for the optimizer to satisfy
+- `CstrSpec.eq` and `CstrSpec.btw` each expand to two internal constraints: `cstr_tol` must have
+  one entry per internal constraint
+- Tolerances are absolute (default `1e-4`): scale constraints to order 1 so that the tolerance
+  is meaningful
 
 ## Recipe 11: Cheap Not Metamodelized Constraint
 
