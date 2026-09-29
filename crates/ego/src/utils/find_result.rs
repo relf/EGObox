@@ -59,6 +59,8 @@ pub fn find_best_result_index_from<F: Float>(
     let min = new_ydata
         .outer_iter()
         .enumerate()
+        // Points with non finite values (e.g. failed evaluations) are never the best
+        .filter(|(_, y)| y.iter().all(|v| v.is_finite()))
         .fold((usize::MAX, best), |a, b| {
             std::cmp::min_by(a, b, |(i, u), (j, v)| cstr_min((*i, u), (*j, v), cstr_tol))
         });
@@ -92,10 +94,15 @@ pub fn find_best_result_index<F: Float>(
             .and(cstrs.rows())
             .and(alldata.slice(s![.., 0]))
             .for_each(|mut c_obj_row, c_row, obj| {
-                let c_sum = zip(c_row, &alltols)
-                    .filter(|(c, ctol)| *c > ctol)
-                    .fold(F::zero(), |acc, (c, ctol)| acc + (*c - *ctol).abs());
-                c_obj_row.assign(&array![c_sum, *obj]);
+                if obj.is_finite() && c_row.iter().all(|c| c.is_finite()) {
+                    let c_sum = zip(c_row, &alltols)
+                        .filter(|(c, ctol)| *c > ctol)
+                        .fold(F::zero(), |acc, (c, ctol)| acc + (*c - *ctol).abs());
+                    c_obj_row.assign(&array![c_sum, *obj]);
+                } else {
+                    // Points with non finite values (e.g. failed evaluations) are never the best
+                    c_obj_row.fill(F::infinity());
+                }
             });
         let min_csum_index = c_obj.slice(s![.., 0]).argmin().ok();
 
@@ -136,8 +143,15 @@ pub fn find_best_result_index<F: Float>(
             perm.indices[index]
         }
     } else {
-        // unconstrained optimization
-        y_data.column(0).argmin().unwrap()
+        // unconstrained optimization, points with non finite values are never the best
+        y_data
+            .column(0)
+            .indexed_iter()
+            .filter(|(_, y)| y.is_finite())
+            .fold((0, F::infinity()), |(i_min, y_min), (i, &y)| {
+                if y < y_min { (i, y) } else { (i_min, y_min) }
+            })
+            .0
     }
 }
 
@@ -222,6 +236,28 @@ mod tests {
         let ydata = array![[1.0], [-1.0], [2.0], [-3.0]];
         let cstr_tol = Array1::from_elem(4, 0.1);
         assert_abs_diff_eq!(3, find_best_result_index(&ydata, &cdata, &cstr_tol));
+    }
+
+    #[test]
+    fn test_find_best_ignores_non_finite() {
+        let cstr_tol = Array1::from_elem(1, 0.1);
+        let cdata = array![[], [], [], []];
+
+        // constrained: NaN objective with feasible constraint is not the best
+        let ydata = array![[1.0, -0.15], [f64::NAN, -0.2], [-1.0, 2.0], [0.5, -0.1]];
+        assert_eq!(3, find_best_result_index(&ydata, &cdata, &cstr_tol));
+        assert_eq!(
+            3,
+            find_best_result_index_from(0, 1, &ydata, &cdata, &cstr_tol)
+        );
+
+        // unconstrained: NaN objective is not the best
+        let ydata = array![[1.0], [f64::NAN], [-1.0], [f64::NEG_INFINITY]];
+        assert_eq!(2, find_best_result_index(&ydata, &cdata, &cstr_tol));
+        assert_eq!(
+            2,
+            find_best_result_index_from(0, 1, &ydata, &cdata, &cstr_tol)
+        );
     }
 
     #[test]

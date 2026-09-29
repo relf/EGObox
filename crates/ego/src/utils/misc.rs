@@ -85,8 +85,11 @@ pub fn filter_nans(ydata: &ArrayBase<impl Data<Elem = f64>, Ix2>) -> (Vec<usize>
 }
 
 /// Append `x_new` (resp. `y_new`, `c_new`) to `x_data` (resp. y_data, resp. c_data)
-/// if `y_new` and `c_new` do not contain NaN values
-/// Returns the number of added points and the failed points (if any)
+/// if `y_new` and `c_new` do not contain NaN values.
+/// When `y_penalized` is given, failed points are appended with their penalized values
+/// *before* the valid points, hence the valid added points are the last ones.
+/// Returns the number of added points, the number of valid added points
+/// and the failed points (if any)
 pub fn update_data(
     x_data: &mut Array2<f64>,
     y_data: &mut Array2<f64>,
@@ -95,7 +98,7 @@ pub fn update_data(
     y_new: &Array2<f64>,
     c_new: &Array2<f64>,
     y_penalized: Option<&Array2<f64>>,
-) -> (usize, Option<Array2<f64>>) {
+) -> (usize, usize, Option<Array2<f64>>) {
     let (valid_idx, invalid_idx) = filter_nans(y_new);
 
     let mut add_count = 0;
@@ -129,7 +132,7 @@ pub fn update_data(
 
     add_count += valid_idx.len();
 
-    (add_count, x_fail_points)
+    (add_count, valid_idx.len(), x_fail_points)
 }
 
 // Re-export from egobox_moe for backward compatibility
@@ -168,10 +171,33 @@ mod tests {
                 &array![[8.], [9.]],
                 None
             ),
-            (1, Some(array![[1e-15, 1.]]))
+            (1, 1, Some(array![[1e-15, 1.]]))
         );
         assert_eq!(&array![[0., 1.], [2., 3.], [3., 4.]], xdata);
         assert_eq!(&array![[3.], [4.], [6.]], ydata);
         assert_eq!(&array![[5.], [6.], [8.]], cdata);
+    }
+
+    #[test]
+    fn test_update_data_with_penalized_values() {
+        let mut xdata = array![[0., 1.], [2., 3.]];
+        let mut ydata = array![[3.], [4.]];
+        let mut cdata = array![[5.], [6.]];
+        assert_eq!(
+            update_data(
+                &mut xdata,
+                &mut ydata,
+                &mut cdata,
+                &array![[3., 4.], [1e-15, 1.]],
+                &array![[6.], [f64::NAN]],
+                &array![[8.], [9.]],
+                Some(&array![[7.], [4.]])
+            ),
+            (2, 1, Some(array![[1e-15, 1.]]))
+        );
+        // failed point is appended first with its penalized value
+        assert_eq!(&array![[0., 1.], [2., 3.], [1e-15, 1.], [3., 4.]], xdata);
+        assert_eq!(&array![[3.], [4.], [4.], [6.]], ydata);
+        assert_eq!(&array![[5.], [6.], [9.], [8.]], cdata);
     }
 }
