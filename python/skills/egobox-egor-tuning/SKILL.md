@@ -52,7 +52,7 @@ The cookbook contains 12 practical recipes covering:
 |------|----------|------------|
 | Cheap | Large (3×n_dims) | High (50+) |
 | Expensive | Small (n_dims+1) | Moderate (20-30) |
-| Expensive, active constraints | Small (n_dims+1) | High (100-150 for d ≈ 10) |
+| Expensive, active constraints | Small (n_dims+1) | High (100-200 for d ≈ 10) |
 
 ### Convergence Issues
 

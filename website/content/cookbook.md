@@ -72,7 +72,7 @@ Note:
 
 - 20 iterations suit unconstrained problems in low dimension. With several constraints active
   at the optimum, plan for many more iterations (see [Recipe 12](#recipe-12-constrained-engineering-problem-with-active-constraints),
-  where about 100 to 150 iterations were needed in dimension 11).
+  where about 100 to 200 iterations were needed in dimension 11).
 
 ## Recipe 3: High Dimension (d > 10)
 
@@ -433,7 +433,7 @@ optim = egx.Egor(
     trego=egx.TregoConfig(beta=0.8),
     failsafe_strategy=egx.FailsafeStrategy.REJECTION,
 )
-res = optim.minimize(fun, max_iters=150, outdir="run_s42", seed=42, timeout=3200.0)
+res = optim.minimize(fun, max_iters=200, outdir="run_s42", seed=42, timeout=3200.0)
 ```
 
 Why it helps:
@@ -446,7 +446,9 @@ Why it helps:
 - The `SLSQP` infill optimizer follows active constraint boundaries more accurately than `COBYLA`.
 - `cstr_infill=True` weights the infill criterion by the probability of feasibility, which drives
   the search towards the feasible region when the initial DoE contains no feasible point.
-- `REJECTION` is the safest failsafe strategy when simulation failures are rare.
+- `REJECTION` is the safest failsafe strategy when simulation failures are rare. In this case
+  study, `VIABILITY` (modeling the failure region) did not reduce the number of failures,
+  made iterations more expensive and gave a similar or worse objective.
 - `timeout` stops the optimization gracefully before a batch-job time limit.
 
 Case study (11 variables, 3 stress constraints, 1 lift = weight equality, 200 iterations, seed 42):
@@ -460,7 +462,17 @@ Case study (11 variables, 3 stress constraints, 1 lift = weight equality, 200 it
 | scaled, `CstrSpec.btw` band, `SLSQP` | 13 / 210 | 41.81 |
 
 Across seeds, the last setup reached within 0.5% of the gradient-based reference in about
-60 to 140 iterations, hence `max_iters=150`.
+60 to 140 iterations, but not always within 0.1%. With `max_iters=200`, it ended within 0.07%
+of the reference on the three seeds tested, for a run time of 1.1 to 1.7 times that of the
+gradient-based optimizer (which needs the derivatives of the simulation).
+
+Failure handling on the same problem (200 iterations):
+
+| Seed | `REJECTION`: objective | failed points | `VIABILITY`: objective | failed points |
+|---|---|---|---|---|
+| 42 | 41.824 | 7 | 41.827 | 15 |
+| 1 | 41.828 | 7 | 41.811 | 3 |
+| 3 | 41.807 | 34 | 41.700 | 32 |
 
 Note:
 

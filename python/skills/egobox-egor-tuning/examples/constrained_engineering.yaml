@@ -19,4 +19,4 @@ recommendation:
   kernel: Matern52
   failsafe_strategy: REJECTION
   n_doe: 12
-  max_iters: 150
+  max_iters: 200
