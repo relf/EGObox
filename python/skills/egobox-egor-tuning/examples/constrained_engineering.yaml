@@ -1,0 +1,22 @@
+case: constrained_engineering
+
+dimension: 11
+evaluation_time: 2s
+constraints:
+  - 3 inequalities (stress margins, order 1)
+  - 1 equality (lift minus weight, in kg, order 1000)
+optimum: on variable bounds, with active constraints
+
+recommendation:
+  constraints:
+    scaling: divide each constraint by its order of magnitude (cstr_tol is absolute, 1e-4)
+    equality: CstrSpec.btw(-eps, eps) rather than CstrSpec.eq
+  cstr_infill: true
+  infill_strategy: LOG_EI
+  infill_optimizer: SLSQP
+  trego:
+    beta: 0.8
+  kernel: Matern52
+  failsafe_strategy: REJECTION
+  n_doe: 12
+  max_iters: 200
