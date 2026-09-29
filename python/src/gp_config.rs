@@ -114,6 +114,54 @@ impl<'a, 'py> FromPyObject<'a, 'py> for GpConfig {
     }
 }
 
+/// Check correlation spec flags, an int in [1, 15]
+pub(crate) fn validate_corr_spec(corr_spec: u8) -> PyResult<()> {
+    if egobox_moe::CorrelationSpec::from_bits(corr_spec).is_none_or(|spec| spec.is_empty()) {
+        return Err(PyValueError::new_err(format!(
+            "corr_spec should be a union of CorrelationSpec flags (an int in [1, 15]), got {corr_spec}"
+        )));
+    }
+    Ok(())
+}
+
+/// Check theta hyperparameters initial values and bounds
+pub(crate) fn validate_theta(
+    theta_init: Option<&Vec<f64>>,
+    theta_bounds: Option<&Vec<Vec<f64>>>,
+) -> PyResult<()> {
+    if theta_init.is_some_and(|init| init.is_empty()) {
+        return Err(PyValueError::new_err("theta_init should not be empty"));
+    }
+    if let Some(bounds) = theta_bounds {
+        if bounds.is_empty() {
+            return Err(PyValueError::new_err("theta_bounds should not be empty"));
+        }
+        for (i, b) in bounds.iter().enumerate() {
+            if !matches!(b[..], [lower, upper] if lower < upper) {
+                return Err(PyValueError::new_err(format!(
+                    "theta_bounds[{i}] should be [lower, upper] with lower < upper, got {b:?}"
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+impl GpConfig {
+    /// Check the configuration consistency
+    pub(crate) fn validate(&self) -> PyResult<()> {
+        if egobox_moe::RegressionSpec::from_bits(self.regr_spec).is_none_or(|spec| spec.is_empty())
+        {
+            return Err(PyValueError::new_err(format!(
+                "regr_spec should be a union of RegressionSpec flags (an int in [1, 7]), got {}",
+                self.regr_spec
+            )));
+        }
+        validate_corr_spec(self.corr_spec)?;
+        validate_theta(self.theta_init.as_ref(), self.theta_bounds.as_ref())
+    }
+}
+
 impl Default for GpConfig {
     fn default() -> Self {
         GpConfig::new(

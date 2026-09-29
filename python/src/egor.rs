@@ -12,13 +12,14 @@
 //!
 
 use crate::domain::*;
+use crate::errors::{CallbackError, ego_err, install_panic_hook};
 use crate::gp_config::*;
 use crate::logging::init_logger;
 use crate::qei_config::*;
 use crate::trego_config::{TregoConfig, TregoConfigSpec};
 use crate::types::*;
 
-use egobox_ego::{CoegoStatus, InfillObjData, Result, find_best_result_index};
+use egobox_ego::{CoegoStatus, InfillObjData, find_best_result_index};
 use egobox_gp::ThetaTuning;
 use egobox_moe::NbClusters;
 use ndarray::{Array1, Array2, ArrayView2, Axis, array, concatenate};
@@ -36,7 +37,9 @@ fn parse_trego_config(py: Python, value: Py<PyAny>) -> PyResult<TregoConfigSpec>
         return Ok(spec);
     }
 
-    let dict = value.bind(py).cast::<pyo3::types::PyDict>()?;
+    let dict = value.bind(py).cast::<pyo3::types::PyDict>().map_err(|_| {
+        PyTypeError::new_err("trego should be a TregoConfig, a dict, a bool or None")
+    })?;
     let mut cfg = TregoConfig::default();
 
     for key_any in dict.keys().iter() {
@@ -59,7 +62,10 @@ fn parse_run_info(py: Python, value: Py<PyAny>) -> PyResult<RunInfo> {
         return Ok(info);
     }
 
-    let dict = value.bind(py).cast::<pyo3::types::PyDict>()?;
+    let dict = value
+        .bind(py)
+        .cast::<pyo3::types::PyDict>()
+        .map_err(|_| PyTypeError::new_err("run_info should be a RunInfo or a dict"))?;
     let mut info = RunInfo::new("fobj".to_string(), 1);
 
     for key_any in dict.keys().iter() {
@@ -256,14 +262,15 @@ impl Egor {
         coego_n_coop: usize,
         target: f64,
         failsafe_strategy: FailsafeStrategy,
-    ) -> Self {
+    ) -> PyResult<Self> {
         let doe = doe.map(|x| x.to_owned_array());
-        let xtypes = parse(py, xspecs.clone_ref(py));
+        let xtypes = parse(py, xspecs.clone_ref(py))?;
+        gp_config.validate()?;
 
         // Parse trego configuration: boolean or custom configuration
         let trego = match trego {
             Some(trego_py) => {
-                let trego_typ = parse_trego_config(py, trego_py).expect("Bad TREGO configuration");
+                let trego_typ = parse_trego_config(py, trego_py)?;
                 match trego_typ {
                     TregoConfigSpec::Activated(active) => {
                         if active {
@@ -282,7 +289,7 @@ impl Egor {
         };
         log::info!("TREGO config: {:?}", trego);
 
-        Egor {
+        Ok(Egor {
             xtypes,
             gp_config,
             n_cstr,
@@ -301,7 +308,7 @@ impl Egor {
             coego_n_coop,
             target,
             failsafe_strategy,
-        }
+        })
     }
 
     /// This function finds the minimum of a given function "fun"
@@ -408,19 +415,31 @@ impl Egor {
 
         let hot_start = normalize_hot_start(py, hot_start)?;
 
-        let obj = |x: &ArrayView2<f64>| -> Result<Array2<f64>> {
+        // Errors raised within user callbacks which have to abort the optimization
+        let callback_error = CallbackError::default();
+        let callback_error = &callback_error;
+        install_panic_hook();
+
+        let ny = 1 + self
+            .cstr_specs
+            .as_ref()
+            .map_or(self.n_cstr, |specs| specs.len());
+        let obj = |x: &ArrayView2<f64>| -> std::result::Result<Array2<f64>, String> {
             Python::attach(|py| {
                 let args = (x.to_owned().into_pyarray(py),);
                 let res = fun.bind(py).call1(args);
                 match res {
-                    Ok(res) => {
-                        let pyarray = res.cast_into::<PyArray2<f64>>().unwrap();
-                        Ok(pyarray.to_owned_array())
-                    }
+                    // Python exception in objective function is handled by the optimizer
+                    // wrt stop_on_error and failsafe_strategy options
                     Err(e) => {
                         log::error!("Error during objective function evaluation: {:?}", e);
-                        Err(egobox_ego::EgoError::ObjectiveFunctionError(e.to_string()))
+                        Err(e.to_string())
                     }
+                    // Wrong returned value is a usage error which aborts the optimization
+                    Ok(res) => match extract_obj_value(&res, x.nrows(), ny) {
+                        Ok(y) => Ok(y),
+                        Err(e) => callback_error.abort(e),
+                    },
                 }
             })
         };
@@ -446,20 +465,19 @@ impl Egor {
                     Python::attach(|py| {
                         if let Some(g) = g {
                             let args = (Array1::from(x.to_vec()).into_pyarray(py), true);
-                            cstr.bind(py)
+                            if let Err(e) = cstr
+                                .bind(py)
                                 .call1(args)
                                 .and_then(|res| extract_cstr_gradient(&res, g))
-                                .unwrap_or_else(|e| {
-                                    panic!("Function constraint gradient evaluation failed: {e}")
-                                });
+                            {
+                                callback_error.abort(e)
+                            }
                         }
                         let args = (Array1::from(x.to_vec()).into_pyarray(py), false);
                         cstr.bind(py)
                             .call1(args)
                             .and_then(|res| extract_cstr_value(&res))
-                            .unwrap_or_else(|e| {
-                                panic!("Function constraint evaluation failed: {e}")
-                            })
+                            .unwrap_or_else(|e| callback_error.abort(e))
                     })
                 }
             })
@@ -488,7 +506,7 @@ impl Egor {
                 )
             })
             .min_within_mixint_space(&self.xtypes)
-            .expect("Egor configured");
+            .map_err(ego_err)?;
 
         let py_run_info = if let Some(ri) = run_info {
             parse_run_info(py, ri)?
@@ -504,11 +522,17 @@ impl Egor {
             num: py_run_info.num,
         });
 
-        let res = py.detach(|| {
-            mixintegor
-                .run()
-                .expect("Egor should optimize the objective function")
-        });
+        let res = py
+            .detach(|| std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| mixintegor.run())));
+        let res = match res {
+            Ok(res) => res.map_err(ego_err)?,
+            // The optimizer was aborted: raise the recorded callback error if any
+            // (the panic payload may have been rewrapped when crossing threads)
+            Err(payload) => match callback_error.take() {
+                Some(err) => return Err(err),
+                None => std::panic::resume_unwind(payload),
+            },
+        };
 
         let status = RunStatus {
             info: py_run_info,
@@ -562,10 +586,19 @@ impl Egor {
         x_doe: PyReadonlyArray2<f64>,
         y_doe: PyReadonlyArray2<f64>,
         seed: Option<u64>,
-    ) -> Py<PyArray2<f64>> {
+    ) -> PyResult<Py<PyArray2<f64>>> {
         let x_doe = x_doe.as_array();
         let y_doe = y_doe.as_array();
-        let doe = concatenate(Axis(1), &[x_doe.view(), y_doe.view()]).unwrap();
+        check_doe(Some(&x_doe), &y_doe)?;
+        if x_doe.ncols() != self.xtypes.len() {
+            return Err(PyValueError::new_err(format!(
+                "x_doe should be of shape (ns, {}), got {:?}",
+                self.xtypes.len(),
+                x_doe.shape()
+            )));
+        }
+        let doe = concatenate(Axis(1), &[x_doe.view(), y_doe.view()])
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
         let mixintegor = egobox_ego::EgorServiceBuilder::optimize()
             .configure(|config| {
@@ -583,10 +616,10 @@ impl Egor {
                 )
             })
             .min_within_mixint_space(&self.xtypes)
-            .expect("Egor configured");
+            .map_err(ego_err)?;
 
         let x_suggested = py.detach(|| mixintegor.suggest(&x_doe, &y_doe));
-        x_suggested.to_pyarray(py).into()
+        Ok(x_suggested.to_pyarray(py).into())
     }
 
     /// This function gives the best evaluation index given the outputs
@@ -600,12 +633,17 @@ impl Egor {
     ///     index in y_doe of the best evaluation
     ///
     #[pyo3(signature = (y_doe))]
-    fn get_result_index(&self, y_doe: PyReadonlyArray2<f64>) -> usize {
+    fn get_result_index(&self, y_doe: PyReadonlyArray2<f64>) -> PyResult<usize> {
         let y_doe = y_doe.as_array();
+        check_doe(None, &y_doe)?;
         // TODO: Make c_doe an optional argument ?
         let n_fcstrs = 0;
         let c_doe = Array2::zeros((y_doe.nrows(), n_fcstrs));
-        find_best_result_index(&y_doe, &c_doe, &self.cstr_tol(n_fcstrs))
+        Ok(find_best_result_index(
+            &y_doe,
+            &c_doe,
+            &self.cstr_tol(n_fcstrs),
+        ))
     }
 
     /// This function gives the best result given inputs and outputs
@@ -629,9 +667,10 @@ impl Egor {
         py: Python,
         x_doe: PyReadonlyArray2<f64>,
         y_doe: PyReadonlyArray2<f64>,
-    ) -> OptimResult {
+    ) -> PyResult<OptimResult> {
         let x_doe = x_doe.as_array();
         let y_doe = y_doe.as_array();
+        check_doe(Some(&x_doe), &y_doe)?;
         // TODO: Make c_doe an optional argument ?
         let n_fcstrs = 0;
         let c_doe = Array2::zeros((y_doe.nrows(), n_fcstrs));
@@ -640,13 +679,33 @@ impl Egor {
         let y_opt = y_doe.row(idx).to_pyarray(py).into();
         let x_doe = x_doe.to_pyarray(py).into();
         let y_doe = y_doe.to_pyarray(py).into();
-        OptimResult {
+        Ok(OptimResult {
             x_opt,
             y_opt,
             x_doe,
             y_doe,
-        }
+        })
     }
+}
+
+/// Check (x_doe, y_doe) are non empty with the same number of rows
+fn check_doe(x_doe: Option<&ArrayView2<f64>>, y_doe: &ArrayView2<f64>) -> PyResult<()> {
+    if y_doe.nrows() == 0 || y_doe.ncols() == 0 {
+        return Err(PyValueError::new_err(format!(
+            "y_doe should be a non empty array of shape (ns, 1 + n_cstr), got {:?}",
+            y_doe.shape()
+        )));
+    }
+    if let Some(x_doe) = x_doe
+        && x_doe.nrows() != y_doe.nrows()
+    {
+        return Err(PyValueError::new_err(format!(
+            "x_doe and y_doe should have the same number of rows, got {} and {}",
+            x_doe.nrows(),
+            y_doe.nrows()
+        )));
+    }
+    Ok(())
 }
 
 impl Egor {
@@ -835,6 +894,34 @@ impl Egor {
             config = config.seed(seed);
         };
         config
+    }
+}
+
+/// Extract the value returned by the objective function as an (n, ny) float array
+fn extract_obj_value(res: &Bound<'_, PyAny>, n: usize, ny: usize) -> PyResult<Array2<f64>> {
+    let arr = res.extract::<PyReadonlyArray2<f64>>().map_err(|_| {
+        PyTypeError::new_err(format!(
+            "objective function should return a 2D float64 numpy array of shape ({n}, {ny}), got {}",
+            describe(res)
+        ))
+    })?;
+    let arr = arr.as_array();
+    if arr.dim() != (n, ny) {
+        return Err(PyValueError::new_err(format!(
+            "objective function should return an array of shape ({n}, {ny}) \
+             (objective + {} constraints), got {:?}",
+            ny - 1,
+            arr.shape()
+        )));
+    }
+    Ok(arr.to_owned())
+}
+
+/// Describe a Python value type (with shape and dtype for numpy arrays) for error messages
+fn describe(res: &Bound<'_, PyAny>) -> String {
+    match (res.getattr("shape"), res.getattr("dtype")) {
+        (Ok(shape), Ok(dtype)) => format!("{} of shape {shape} and dtype {dtype}", res.get_type()),
+        _ => res.get_type().to_string(),
     }
 }
 

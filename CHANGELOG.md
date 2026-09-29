@@ -2,6 +2,10 @@
 
 ## Version 0.38.0 - unreleased
 
+* Python API raises standard exceptions (`ValueError`, `TypeError`, `OSError`, `RuntimeError`) instead of
+  `PanicException` on invalid input or failure. Errors raised by function constraints are propagated as is.
+  `Gpx.save()`/`SparseGpx.save()` raise on failure instead of returning `False`.
+
 ## Version 0.37.7 - unreleased
 
 * Add the configuration of objective-error handling by @relf in https://github.com/relf/EGObox/pull/447

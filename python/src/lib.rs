@@ -9,6 +9,7 @@ mod sparse_gp_mix;
 mod trego_config;
 
 pub(crate) mod domain;
+pub(crate) mod errors;
 pub(crate) mod logging;
 pub(crate) mod types;
 

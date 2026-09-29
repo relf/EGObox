@@ -636,7 +636,10 @@ class Gpx:
             filename with .json or .bin extension (string)
                 file generated in the current directory
         
-        # Returns True if save succeeds otherwise False
+        # Returns True when save succeeds
+        
+        # Raises
+            OSError or ValueError when the model can not be saved
         """
     @staticmethod
     def load(filename: builtins.str) -> Gpx:
@@ -1012,7 +1015,10 @@ class SparseGpx:
             filename with .json or .bin extension (string)
                 file generated in the current directory
         
-        # Returns True if save succeeds otherwise False
+        # Returns True when save succeeds
+        
+        # Raises
+            OSError or ValueError when the model can not be saved
         """
     @staticmethod
     def load(filename: builtins.str) -> SparseGpx:

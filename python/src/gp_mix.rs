@@ -9,8 +9,9 @@
 //!
 //! See the [tutorial notebook](https://github.com/relf/egobox/notebooks/Gpx_Tutorial.ipynb) for usage.
 //!
-use std::{cmp::Ordering, path::Path};
+use std::cmp::Ordering;
 
+use crate::errors::{check_nx, gp_file_format, moe_err, moe_file_err, training_data};
 use crate::logging::init_logger;
 use crate::types::*;
 use crate::{domain::parse, gp_config::GpConfig};
@@ -22,12 +23,12 @@ use egobox_moe::{
 #[allow(unused_imports)] // Avoid linting problem
 use egobox_moe::{GpMixture, GpSurrogate, GpSurrogateExt};
 use linfa::{Dataset, traits::Fit};
-use log::error;
-use ndarray::{Array1, Array2, Axis, Ix1, Ix2, Zip, array};
+use ndarray::{Array1, Array2, Zip, array};
 use ndarray_rand::rand::SeedableRng;
 use numpy::{
     IntoPyArray, PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2, PyReadonlyArrayDyn,
 };
+use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 use rand_xoshiro::Xoshiro256Plus;
@@ -149,12 +150,13 @@ impl GpMix {
         max_eval: usize,
         seed: Option<u64>,
         verbose: Option<Py<PyAny>>,
-    ) -> Self {
+    ) -> PyResult<Self> {
         init_logger(py, verbose);
         let xtypes = xspecs
             .as_ref()
-            .map(|xspecs| parse(py, xspecs.clone_ref(py)));
-        GpMix {
+            .map(|xspecs| parse(py, xspecs.clone_ref(py)))
+            .transpose()?;
+        Ok(GpMix {
             gp_config: GpConfig::new(
                 regr_spec,
                 corr_spec,
@@ -168,7 +170,7 @@ impl GpMix {
             ),
             xtypes,
             seed,
-        }
+        })
     }
 
     /// Fit the parameters of the model using the training dataset to build a trained model
@@ -180,37 +182,23 @@ impl GpMix {
     /// # Returns Gpx object
     ///     the fitted Gaussian process mixture  
     ///
-    fn fit(&mut self, py: Python, xt: PyReadonlyArrayDyn<f64>, yt: PyReadonlyArrayDyn<f64>) -> Gpx {
-        let xt = xt.as_array();
-        let xt = match xt.to_owned().into_dimensionality::<Ix2>() {
-            Ok(xt) => xt,
-            Err(_) => match xt.into_dimensionality::<Ix1>() {
-                Ok(xt) => xt.insert_axis(Axis(1)).to_owned(),
-                _ => {
-                    error!("Training input has to be an [nsamples, nx] array");
-                    panic!("Bad training input data");
-                }
-            },
-        };
-
-        let yt = yt.as_array();
-        let yt = match yt.to_owned().into_dimensionality::<Ix1>() {
-            Ok(yt) => yt,
-            Err(_) => match yt.into_dimensionality::<Ix2>() {
-                Ok(yt) => {
-                    if yt.dim().1 == 1 {
-                        yt.to_owned().remove_axis(Axis(1))
-                    } else {
-                        error!("Training output has to be one dimensional");
-                        panic!("Bad training output data");
-                    }
-                }
-                Err(_) => {
-                    error!("Training output has to be one dimensional");
-                    panic!("Bad training output data");
-                }
-            },
-        };
+    fn fit(
+        &mut self,
+        py: Python,
+        xt: PyReadonlyArrayDyn<f64>,
+        yt: PyReadonlyArrayDyn<f64>,
+    ) -> PyResult<Gpx> {
+        self.gp_config.validate()?;
+        let (xt, yt) = training_data(xt.as_array(), yt.as_array())?;
+        if let Some(xtypes) = self.xtypes.as_ref()
+            && xtypes.len() != xt.ncols()
+        {
+            return Err(PyValueError::new_err(format!(
+                "training input should have {} columns as specified by xspecs, got {}",
+                xtypes.len(),
+                xt.ncols()
+            )));
+        }
         let dataset = Dataset::new(xt, yt);
 
         let recomb = match self.gp_config.recombination {
@@ -272,10 +260,9 @@ impl GpMix {
                 .n_start(n_start)
                 .with_rng(rng)
                 .fit(&dataset)
-                .expect("MoE model training")
         });
 
-        Gpx(moe)
+        Ok(Gpx(moe.map_err(moe_err)?))
     }
 }
 
@@ -320,7 +307,7 @@ impl Gpx {
         max_eval: usize,
         seed: Option<u64>,
         verbose: Option<Py<PyAny>>,
-    ) -> GpMix {
+    ) -> PyResult<GpMix> {
         GpMix::new(
             py,
             xspecs,
@@ -339,8 +326,8 @@ impl Gpx {
     }
 
     /// Returns the String representation from serde json serializer
-    fn __repr__(&self) -> String {
-        serde_json::to_string(&self.0).unwrap()
+    fn __repr__(&self) -> PyResult<String> {
+        serde_json::to_string(&self.0).map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
 
     /// Returns a String informal representation
@@ -356,14 +343,16 @@ impl Gpx {
     ///     filename with .json or .bin extension (string)
     ///         file generated in the current directory
     ///
-    /// # Returns True if save succeeds otherwise False
+    /// # Returns True when save succeeds
     ///
-    fn save(&self, filename: String) -> bool {
-        let format = match Path::new(&filename).extension().unwrap().to_str().unwrap() {
-            "json" => egobox_moe::GpFileFormat::Json,
-            _ => egobox_moe::GpFileFormat::Binary,
-        };
-        self.0.save(&filename, format).is_ok()
+    /// # Raises
+    ///     OSError or ValueError when the model can not be saved
+    ///
+    fn save(&self, filename: String) -> PyResult<bool> {
+        self.0
+            .save(&filename, gp_file_format(&filename))
+            .map_err(|e| moe_file_err(e, &filename))?;
+        Ok(true)
     }
 
     /// Load Gaussian processes mixture from file.
@@ -373,12 +362,10 @@ impl Gpx {
     ///         json filepath generated by saving a trained Gaussian processes mixture
     ///
     #[staticmethod]
-    fn load(filename: String) -> Gpx {
-        let format = match Path::new(&filename).extension().unwrap().to_str().unwrap() {
-            "json" => egobox_moe::GpFileFormat::Json,
-            _ => egobox_moe::GpFileFormat::Binary,
-        };
-        Gpx(*MixintGpMixture::load(&filename, format).unwrap())
+    fn load(filename: String) -> PyResult<Gpx> {
+        let gpx = MixintGpMixture::load(&filename, gp_file_format(&filename))
+            .map_err(|e| moe_file_err(e, &filename))?;
+        Ok(Gpx(*gpx))
     }
 
     /// Predict output values at nsamples points.
@@ -390,8 +377,14 @@ impl Gpx {
     /// Returns
     ///     the output values at nsamples x points (array[nsamples,])
     ///
-    fn predict<'py>(&self, py: Python<'py>, x: PyReadonlyArray2<f64>) -> Bound<'py, PyArray1<f64>> {
-        self.0.predict(&x.as_array()).unwrap().into_pyarray(py)
+    fn predict<'py>(
+        &self,
+        py: Python<'py>,
+        x: PyReadonlyArray2<f64>,
+    ) -> PyResult<Bound<'py, PyArray1<f64>>> {
+        let x = x.as_array();
+        check_nx(&x, self.0.dims().0)?;
+        Ok(self.0.predict(&x).map_err(moe_err)?.into_pyarray(py))
     }
 
     /// Predict variances at nsample points.
@@ -407,8 +400,10 @@ impl Gpx {
         &self,
         py: Python<'py>,
         x: PyReadonlyArray2<f64>,
-    ) -> Bound<'py, PyArray1<f64>> {
-        self.0.predict_var(&x.as_array()).unwrap().into_pyarray(py)
+    ) -> PyResult<Bound<'py, PyArray1<f64>>> {
+        let x = x.as_array();
+        check_nx(&x, self.0.dims().0)?;
+        Ok(self.0.predict_var(&x).map_err(moe_err)?.into_pyarray(py))
     }
 
     /// Predict surrogate output derivatives at nsamples points.
@@ -425,11 +420,14 @@ impl Gpx {
         &self,
         py: Python<'py>,
         x: PyReadonlyArray2<f64>,
-    ) -> Bound<'py, PyArray2<f64>> {
-        self.0
-            .predict_gradients(&x.as_array())
-            .unwrap()
-            .into_pyarray(py)
+    ) -> PyResult<Bound<'py, PyArray2<f64>>> {
+        let x = x.as_array();
+        check_nx(&x, self.0.dims().0)?;
+        Ok(self
+            .0
+            .predict_gradients(&x)
+            .map_err(moe_err)?
+            .into_pyarray(py))
     }
 
     /// Predict variance derivatives at nsamples points.
@@ -446,11 +444,14 @@ impl Gpx {
         &self,
         py: Python<'py>,
         x: PyReadonlyArray2<f64>,
-    ) -> Bound<'py, PyArray2<f64>> {
-        self.0
-            .predict_var_gradients(&x.as_array())
-            .unwrap()
-            .into_pyarray(py)
+    ) -> PyResult<Bound<'py, PyArray2<f64>>> {
+        let x = x.as_array();
+        check_nx(&x, self.0.dims().0)?;
+        Ok(self
+            .0
+            .predict_var_gradients(&x)
+            .map_err(moe_err)?
+            .into_pyarray(py))
     }
 
     /// Sample gaussian process trajectories.
@@ -468,11 +469,10 @@ impl Gpx {
         py: Python<'py>,
         x: PyReadonlyArray2<f64>,
         n_traj: usize,
-    ) -> Bound<'py, PyArray2<f64>> {
-        self.0
-            .sample(&x.as_array(), n_traj)
-            .unwrap()
-            .into_pyarray(py)
+    ) -> PyResult<Bound<'py, PyArray2<f64>>> {
+        let x = x.as_array();
+        check_nx(&x, self.0.dims().0)?;
+        Ok(self.0.sample(&x, n_traj).map_err(moe_err)?.into_pyarray(py))
     }
 
     /// Get the input and output dimensions of the surrogate
@@ -502,17 +502,21 @@ impl Gpx {
     ///     >>> gpx = egx.Gpx.builder().fit(np.array([[0.0], [1.0]]), np.array([0.0, 1.0]))
     ///     >>> gpx_updated = gpx.update(np.array([[2.0]]), np.array([1.5]))
     ///
-    fn update(&self, x_new: PyReadonlyArray2<f64>, y_new: PyReadonlyArray1<f64>) -> Gpx {
+    fn update(&self, x_new: PyReadonlyArray2<f64>, y_new: PyReadonlyArray1<f64>) -> PyResult<Gpx> {
         let x_arr = x_new.as_array();
         let y_arr = y_new.as_array();
+        check_nx(&x_arr, self.0.dims().0)?;
+        if x_arr.nrows() != y_arr.len() {
+            return Err(PyValueError::new_err(format!(
+                "x_new and y_new should have the same number of samples, got {} and {}",
+                x_arr.nrows(),
+                y_arr.len()
+            )));
+        }
 
-        let updated_moe = self
-            .0
-            .clone()
-            .update(&x_arr, &y_arr)
-            .expect("GP update failed");
+        let updated_moe = self.0.clone().update(&x_arr, &y_arr).map_err(moe_err)?;
 
-        Gpx(updated_moe)
+        Ok(Gpx(updated_moe))
     }
 
     /// Get the nt training data points used to fit the surrogate
