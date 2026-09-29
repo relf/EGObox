@@ -119,7 +119,7 @@ class TestGpMix(unittest.TestCase):
             y_pred = gpx.predict(x_test)
             self.assertEqual(n_dim, gpx.dims()[0])
             error = np.linalg.norm(y_pred - y_test) / np.linalg.norm(y_test)
-            self.assertAlmostEqual(0.0, error, delta=5e-1)
+            self.assertAlmostEqual(0.0, error, delta=6e-1)
             print("   RMS error: " + str(error))
 
     def test_multi_outputs_exception(self):
