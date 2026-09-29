@@ -1779,6 +1779,74 @@ mod tests {
         assert!(res.state.surrogate.x_fail.is_some());
     }
 
+    /// Constrained problem whose optimum lies on the border of a failure region
+    fn cstr_quadratic_with_nans(x: &ArrayView2<f64>) -> Array2<f64> {
+        let mut y = Array2::zeros((x.nrows(), 2));
+        Zip::from(y.rows_mut())
+            .and(x.rows())
+            .for_each(|mut yi, xi| {
+                if xi[0] * xi[1] >= 0.1 {
+                    yi[0] = (xi[0] - 0.2).powi(2) + (xi[1] - 0.2).powi(2);
+                    yi[1] = 0.3 - xi[0];
+                } else {
+                    yi.fill(f64::NAN);
+                }
+            });
+        y
+    }
+
+    #[test]
+    #[serial]
+    fn test_egor_imputation_never_selects_failed_point_as_best() {
+        let xlimits = array![[0.0, 1.0], [0.0, 1.0]];
+        let initial_doe = Lhs::new(&xlimits)
+            .with_rng(Xoshiro256Plus::seed_from_u64(42))
+            .sample(10);
+        for trego in [false, true] {
+            let res = EgorBuilder::optimize(cstr_quadratic_with_nans)
+                .configure(|cfg| {
+                    cfg.doe(&initial_doe)
+                        .n_cstr(1)
+                        .cstr_infill(true)
+                        .trego(trego)
+                        .max_iters(30)
+                        .failsafe_strategy(FailsafeStrategy::Imputation)
+                        .seed(42)
+                })
+                .min_within(&xlimits)
+                .expect("Egor should be configured")
+                .run()
+                .expect("Egor should minimize cstr_quadratic_with_nans");
+
+            let x_fail = res.state.surrogate.x_fail.as_ref().expect("failed points");
+            assert!(x_fail.nrows() > 0);
+            // best point is an actually evaluated one
+            assert!(res.y_opt.iter().all(|v| v.is_finite()));
+            assert_abs_diff_eq!(
+                cstr_quadratic_with_nans(&res.x_opt.view().insert_axis(Axis(0))).row(0),
+                res.y_opt.view(),
+                epsilon = 1e-12
+            );
+            assert!(crate::utils::is_update_ok(x_fail, &res.x_opt));
+            // imputed values stay within the range of the observed values
+            assert!(res.y_doe.iter().all(|v| v.is_finite()));
+            let (valid_idx, invalid_idx) =
+                crate::utils::filter_nans(&cstr_quadratic_with_nans(&res.x_doe.view()));
+            assert!(!invalid_idx.is_empty());
+            let y_valid = res.y_doe.select(Axis(0), &valid_idx);
+            for &i in &invalid_idx {
+                for (j, col) in y_valid.columns().into_iter().enumerate() {
+                    let (lo, hi) = col
+                        .iter()
+                        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), &y| {
+                            (lo.min(y), hi.max(y))
+                        });
+                    assert!(lo <= res.y_doe[[i, j]] && res.y_doe[[i, j]] <= hi);
+                }
+            }
+        }
+    }
+
     #[test]
     #[serial]
     fn test_egor_handles_objective_error_with_failsafe_by_default() {

@@ -13,8 +13,7 @@ use egobox_moe::MixtureGpSurrogate;
 
 use log::{debug, info, warn};
 use ndarray::{
-    Array, Array1, Array2, ArrayBase, ArrayView2, Axis, Data, Ix1, Ix2, Zip, array, concatenate, s,
-    stack,
+    Array, Array1, Array2, ArrayBase, ArrayView2, Axis, Data, Ix1, Ix2, Zip, concatenate, s, stack,
 };
 use ndarray_rand::rand::seq::SliceRandom;
 
@@ -313,23 +312,50 @@ where
         }
     }
 
+    /// Compute the values imputed to a failed point `xk` (failsafe imputation strategy):
+    /// a pessimistic objective prediction (mean + standard deviation) and the constraint
+    /// predictions, each clamped within the range of the finite values of `y_data`.
+    ///
+    /// Clamping keeps imputed values in the observed range: as they are fed back
+    /// to the surrogates, unbounded values would otherwise blow up iteration after iteration.
     pub(crate) fn compute_penalized_point(
         &self,
         xk: &ArrayBase<impl Data<Elem = f64>, Ix1>,
         obj_model: &dyn MixtureGpSurrogate,
         cstr_models: &[Box<dyn MixtureGpSurrogate>],
+        y_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
     ) -> Array1<f64> {
-        let mut res: Array1<f64> = Array1::zeros((1 + cstr_models.len(),));
-
         let x = &xk.view().insert_axis(Axis(0));
-        let pred = obj_model.predict(x).unwrap_or(array![1e10])[0];
-        let var = obj_model.predict_var(x).unwrap_or(array![1e10])[0];
-        res[0] = pred + var;
-        let cstr_vals = cstr_models
-            .iter()
-            .map(|m| m.predict(x).unwrap_or(array![1e10])[0])
-            .collect::<Array1<f64>>();
-        res.slice_mut(s![1..]).assign(&cstr_vals);
+        let mut res = Array1::from_elem(1 + cstr_models.len(), f64::NAN);
+        if let (Ok(pred), Ok(var)) = (obj_model.predict(x), obj_model.predict_var(x)) {
+            res[0] = pred[0] + var[0].max(0.).sqrt();
+        }
+        for (i, m) in cstr_models.iter().enumerate() {
+            if let Ok(pred) = m.predict(x) {
+                res[i + 1] = pred[0];
+            }
+        }
+
+        Zip::from(&mut res)
+            .and(y_data.columns())
+            .for_each(|v, col| {
+                let (lo, hi) = col
+                    .iter()
+                    .filter(|y| y.is_finite())
+                    .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), &y| {
+                        (lo.min(y), hi.max(y))
+                    });
+                if lo <= hi {
+                    // Unknown value is taken as the worst observed one
+                    *v = if v.is_finite() {
+                        (*v).clamp(lo, hi)
+                    } else {
+                        hi
+                    };
+                } else if !v.is_finite() {
+                    *v = 1e10;
+                }
+            });
         res
     }
 

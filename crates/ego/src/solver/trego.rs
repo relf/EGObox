@@ -188,7 +188,7 @@ where
         let x_new = x_opt.insert_axis(Axis(0));
         debug!("x_old={} x_new={}", x_data.row(best_index), x_new.row(0));
 
-        let (add_count, x_fail_points) = if xbest.l1_dist(&x_new.row(0)).unwrap()
+        let (add_count, valid_count, x_fail_points) = if xbest.l1_dist(&x_new.row(0)).unwrap()
             > min_acceptance_distance
             && is_update_ok(&x_data, &x_new.row(0))
         {
@@ -209,6 +209,7 @@ where
                         &x_new.row(0),
                         obj_model.as_ref(),
                         cstr_models,
+                        &y_data,
                     );
                     let y_pen = y_pen.insert_axis(Axis(0));
                     Some(y_pen)
@@ -217,7 +218,7 @@ where
             };
 
             // Update DOE and best point
-            let (add_count, x_fail_points) = update_data(
+            let (add_count, valid_count, x_fail_points) = update_data(
                 &mut x_data,
                 &mut y_data,
                 &mut c_data,
@@ -230,9 +231,9 @@ where
             new_state = new_state
                 .param(x_new.row(0).to_owned())
                 .cost(y_new.row(0).to_owned());
-            (add_count, x_fail_points)
+            (add_count, valid_count, x_fail_points)
         } else {
-            (0, None)
+            (0, 0, None)
         };
 
         new_state = new_state
@@ -243,12 +244,13 @@ where
             add_count, new_state.doe.added
         );
 
-        let new_best_index = if add_count == 0 {
+        // A failed point with imputed values is never a candidate for the best
+        let new_best_index = if valid_count == 0 {
             best_index
         } else {
             find_best_result_index_from(
                 best_index,
-                y_data.nrows() - 1,
+                y_data.nrows() - valid_count,
                 &y_data,
                 &c_data,
                 &new_state.doe.cstr_tol,

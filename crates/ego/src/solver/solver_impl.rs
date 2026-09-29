@@ -758,7 +758,7 @@ where
             FailsafeStrategy::Imputation => Some(y_penalized),
             _ => None,
         };
-        let (add_count, x_fail_points) = update_data(
+        let (add_count, valid_count, x_fail_points) = update_data(
             &mut x_data,
             &mut y_data,
             &mut c_data,
@@ -794,9 +794,11 @@ where
         );
         new_state.doe.no_point_added_retries = MAX_POINT_ADDITION_RETRY;
 
+        // Only actually evaluated points (appended last) are candidates for the best,
+        // failed points with imputed values are not.
         let best_index = find_best_result_index_from(
             state.surrogate.best_index.unwrap(),
-            y_data.nrows() - add_count,
+            y_data.nrows() - valid_count,
             &y_data,
             &c_data,
             &new_state.doe.cstr_tol,
@@ -975,6 +977,7 @@ where
                                         &xfail,
                                         &*models[0],
                                         &models[1..],
+                                        y_data,
                                     );
                                     y_row.assign(&y_pred);
                                 });
@@ -1151,8 +1154,12 @@ where
                             .unwrap();
                         y_dat = concatenate![Axis(0), y_dat, yk];
 
-                        let yk_pen =
-                            self.compute_penalized_point(&xk, obj_model.as_ref(), cstr_models);
+                        let yk_pen = self.compute_penalized_point(
+                            &xk,
+                            obj_model.as_ref(),
+                            cstr_models,
+                            y_data,
+                        );
                         let yk_pen = yk_pen.insert_axis(Axis(0));
                         y_penalized = concatenate![Axis(0), y_penalized, yk_pen];
 
