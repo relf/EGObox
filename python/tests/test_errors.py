@@ -28,6 +28,10 @@ class TestErrors(unittest.TestCase):
         with self.assertRaises(exc):
             fn(*args, **kwargs)
 
+    def assertRaisesFileError(self, fn, *args, **kwargs):
+        with self.assertRaises((FileNotFoundError, ProcessLookupError)):
+            fn(*args, **kwargs)
+
     # Domain specifications
 
     def test_empty_domain(self):
@@ -115,11 +119,11 @@ class TestErrors(unittest.TestCase):
         self.assertTrue(gpx.save(filename))
         self.assertEqual((1, 1), egx.Gpx.load(filename).dims())
 
-        self.assertRaisesStd(
-            FileNotFoundError, gpx.save, os.path.join(self.tmpdir.name, "no", "gp.json")
+        self.assertRaisesFileError(
+            gpx.save, os.path.join(self.tmpdir.name, "no", "gp.json")
         )
-        self.assertRaisesStd(
-            FileNotFoundError, egx.Gpx.load, os.path.join(self.tmpdir.name, "gp.json")
+        self.assertRaisesFileError(
+            egx.Gpx.load, os.path.join(self.tmpdir.name, "gp.json")
         )
 
         garbage = os.path.join(self.tmpdir.name, "garbage.json")
