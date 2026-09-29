@@ -1279,6 +1279,40 @@ mod tests {
 
     #[test]
     #[serial]
+    fn test_egor_random_point_fallback_when_infill_optim_fails() {
+        // Domain constraint infeasible everywhere: infill optimization always fails
+        // and no feasible point is ever known, random points are expected to be added
+        let xlimits = array![[0., 1.], [0., 1.]];
+        let doe = Lhs::new(&xlimits)
+            .with_rng(Xoshiro256Plus::seed_from_u64(42))
+            .sample(5);
+        let infeasible = |_x: &[f64], g: Option<&mut [f64]>, _u: &mut InfillObjData<f64>| {
+            if let Some(g) = g {
+                g.fill(0.);
+            }
+            1.
+        };
+        let max_iters = 5;
+        let res = EgorBuilder::optimize(|x: &ArrayView2<f64>| {
+            x.map_axis(Axis(1), |xi| xi.dot(&xi)).insert_axis(Axis(1))
+        })
+        .subject_to(vec![infeasible])
+        .configure(|config| {
+            config
+                .doe(&doe)
+                .max_iters(max_iters)
+                .infill_optimizer(InfillOptimizer::Slsqp)
+                .seed(42)
+        })
+        .min_within(&xlimits)
+        .expect("Egor configured")
+        .run()
+        .expect("Minimize failure");
+        assert_eq!(res.x_doe.nrows(), doe.nrows() + max_iters);
+    }
+
+    #[test]
+    #[serial]
     fn test_egor_g24_with_domain_constraints() {
         let xlimits = array![[0., 3.], [0., 4.]];
         let doe = Lhs::new(&xlimits)

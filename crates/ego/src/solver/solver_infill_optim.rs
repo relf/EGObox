@@ -321,28 +321,37 @@ where
                 );
             }
 
-            let res = res.unwrap_or_else(|| {
-                // Last resort: rather than returning the current best point which
-                // is already known (hence rejected as too close to existing data),
+            let res = res.or_else(|| {
+                if infill_data.feasibility {
+                    // A feasible point is known: keep current best point which will be
+                    // rejected as too close to existing data, eventually leading
+                    // to solver convergence
+                    return None;
+                }
+                // Last chance when no feasible point is known yet: rather than returning
+                // the current best point (hence rejected and stopping the solver),
                 // pick the best random starting point regarding the infill objective
                 info!("Infill optimization failed, pick best random point");
                 let x_start = multistarter.multistart(self.config.n_start, &active);
                 let mut data = infill_data.clone();
-                x_start
+                let res = x_start
                     .outer_iter()
                     .map(|x| (obj(&x.to_vec(), None, &mut data), x.to_owned()))
                     .fold((f64::INFINITY, x_start.row(0).to_owned()), |a, b| {
                         if b.0 < a.0 { b } else { a }
-                    })
+                    });
+                Some(res)
             });
 
-            let mut xopt_coop = current_best_point.0.to_vec();
-            coego::set_active_x(&mut xopt_coop, &active, &res.1.to_vec());
-            infill_data.xbest = xopt_coop.clone();
-            let xopt_coop = Array1::from(xopt_coop);
+            if let Some(res) = res {
+                let mut xopt_coop = current_best_point.0.to_vec();
+                coego::set_active_x(&mut xopt_coop, &active, &res.1.to_vec());
+                infill_data.xbest = xopt_coop.clone();
+                let xopt_coop = Array1::from(xopt_coop);
 
-            best_point = (res.0, xopt_coop.to_owned());
-            current_best_point = (xopt_coop, current_best_point.1, current_best_point.2);
+                best_point = (res.0, xopt_coop.to_owned());
+                current_best_point = (xopt_coop, current_best_point.1, current_best_point.2);
+            }
         }
         best_point
     }
