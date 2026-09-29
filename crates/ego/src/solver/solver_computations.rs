@@ -619,7 +619,11 @@ where
             Err(err) => {
                 warn!("Objective function evaluation failed at x = {x:?} with error: {err}");
                 if self.config.stop_on_error {
-                    Err(crate::EgoError::ObjectiveFunctionError(err.to_string()))
+                    match err {
+                        // Avoid wrapping an objective function error twice
+                        crate::EgoError::ObjectiveFunctionError(_) => Err(err),
+                        _ => Err(crate::EgoError::ObjectiveFunctionError(err.to_string())),
+                    }
                 } else {
                     Ok(Array::from_shape_vec(
                         (x.nrows(), 1 + self.config.n_cstr),

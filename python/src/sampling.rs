@@ -66,8 +66,8 @@ pub fn sampling(
     xspecs: Py<PyAny>,
     n_samples: usize,
     seed: Option<u64>,
-) -> Bound<'_, PyArray2<f64>> {
-    let xtypes: Vec<egobox_moe::XType> = domain::parse(py, xspecs);
+) -> PyResult<Bound<'_, PyArray2<f64>>> {
+    let xtypes: Vec<egobox_moe::XType> = domain::parse(py, xspecs)?;
     let mixin = MixintContext::new(&xtypes);
     let doe = match method {
         Sampling::Lhs => Box::new(mixin.create_lhs_sampling(LhsKind::default(), seed))
@@ -88,7 +88,7 @@ pub fn sampling(
         }
     }
     .sample(n_samples);
-    doe.into_pyarray(py)
+    Ok(doe.into_pyarray(py))
 }
 
 /// Samples generation using optimized Latin Hypercube Sampling
@@ -109,6 +109,6 @@ pub(crate) fn lhs(
     xspecs: Py<PyAny>,
     n_samples: usize,
     seed: Option<u64>,
-) -> Bound<PyArray2<f64>> {
+) -> PyResult<Bound<PyArray2<f64>>> {
     sampling(py, Sampling::Lhs, xspecs, n_samples, seed)
 }

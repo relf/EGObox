@@ -726,7 +726,7 @@ impl GpSurrogate for MixintGpMixture {
 
     /// Save Moe model in given file.
     fn save(&self, path: &str, format: GpFileFormat) -> Result<()> {
-        let mut file = fs::File::create(path).unwrap();
+        let mut file = fs::File::create(path)?;
         let bytes = match format {
             GpFileFormat::Json => serde_json::to_vec(self).map_err(MoeErrorType::SaveJsonError)?,
             GpFileFormat::Binary => {
@@ -811,7 +811,9 @@ impl MixintGpMixture {
     pub fn load(path: &str, format: GpFileFormat) -> Result<Box<MixintGpMixture>> {
         let data = fs::read(path)?;
         let moe = match format {
-            GpFileFormat::Json => serde_json::from_slice(&data).unwrap(),
+            GpFileFormat::Json => serde_json::from_slice(&data).map_err(|err| {
+                MoeErrorType::LoadError(format!("Error while loading from {path}: ({err})"))
+            })?,
             GpFileFormat::Binary => {
                 bincode::serde::decode_from_slice(&data, bincode::config::standard())
                     .map(|(surrogate, _)| surrogate)?
