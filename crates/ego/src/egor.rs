@@ -1229,6 +1229,88 @@ mod tests {
         assert_abs_diff_eq!(expected, res.x_opt, epsilon = 3e-2);
     }
 
+    /// Objective: sphere, constraints: x_i >= 0.9 for the first 4 components (c <= 0)
+    fn f_sphere_far_cstrs(x: &ArrayView2<f64>) -> Array2<f64> {
+        let mut y = Array2::zeros((x.nrows(), 5));
+        Zip::from(y.rows_mut())
+            .and(x.rows())
+            .for_each(|mut yi, xi| {
+                yi[0] = xi.mapv(|v| v * v).sum();
+                for j in 0..4 {
+                    yi[j + 1] = 0.9 - xi[j];
+                }
+            });
+        y
+    }
+
+    #[test]
+    #[serial]
+    fn test_egor_no_feasible_initial_point_does_not_stop() {
+        // Initial doe far away from feasible domain: no feasible point
+        let dim = 6;
+        let xlimits = Array2::from_shape_fn((dim, 2), |(_, j)| j as f64);
+        let doe_limits = Array2::from_shape_fn((dim, 2), |(_, j)| 0.3 * j as f64);
+        let doe = Lhs::new(&doe_limits)
+            .with_rng(Xoshiro256Plus::seed_from_u64(42))
+            .sample(8);
+        let max_iters = 10;
+        let res = EgorBuilder::optimize(f_sphere_far_cstrs)
+            .configure(|config| {
+                config
+                    .n_cstr(4)
+                    .doe(&doe)
+                    .max_iters(max_iters)
+                    .infill_strategy(InfillStrategy::LogEI)
+                    .infill_optimizer(InfillOptimizer::Slsqp)
+                    .trego(true)
+                    .seed(42)
+            })
+            .min_within(&xlimits)
+            .expect("Egor configured")
+            .run()
+            .expect("Minimize failure");
+        println!("Result = {res:?}");
+        assert!(
+            res.x_doe.nrows() > doe.nrows() + 2,
+            "Egor should keep adding points, got {} points",
+            res.x_doe.nrows()
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn test_egor_random_point_fallback_when_infill_optim_fails() {
+        // Domain constraint infeasible everywhere: infill optimization always fails
+        // and no feasible point is ever known, random points are expected to be added
+        let xlimits = array![[0., 1.], [0., 1.]];
+        let doe = Lhs::new(&xlimits)
+            .with_rng(Xoshiro256Plus::seed_from_u64(42))
+            .sample(5);
+        let infeasible = |_x: &[f64], g: Option<&mut [f64]>, _u: &mut InfillObjData<f64>| {
+            if let Some(g) = g {
+                g.fill(0.);
+            }
+            1.
+        };
+        let max_iters = 5;
+        let res = EgorBuilder::optimize(|x: &ArrayView2<f64>| {
+            x.map_axis(Axis(1), |xi| xi.dot(&xi)).insert_axis(Axis(1))
+        })
+        .subject_to(vec![infeasible])
+        .configure(|config| {
+            config
+                .doe(&doe)
+                .max_iters(max_iters)
+                .infill_optimizer(InfillOptimizer::Slsqp)
+                .seed(42)
+        })
+        .min_within(&xlimits)
+        .expect("Egor configured")
+        .run()
+        .expect("Minimize failure");
+        assert_eq!(res.x_doe.nrows(), doe.nrows() + max_iters);
+    }
+
     #[test]
     #[serial]
     fn test_egor_g24_with_domain_constraints() {
