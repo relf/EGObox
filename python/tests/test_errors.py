@@ -38,9 +38,7 @@ class TestErrors(unittest.TestCase):
         self.assertRaisesStd(TypeError, egx.Egor, "abc")
         self.assertRaisesStd(ValueError, egx.Egor, [[0.0]])
         self.assertRaisesStd(ValueError, egx.lhs, np.zeros((2, 3)), 5)
-        self.assertRaisesStd(
-            ValueError, egx.Egor, [egx.XSpec(egx.XType.FLOAT, [0.0])]
-        )
+        self.assertRaisesStd(ValueError, egx.Egor, [egx.XSpec(egx.XType.FLOAT, [0.0])])
         self.assertRaisesStd(ValueError, egx.Egor, [egx.XSpec(egx.XType.INT, [1])])
         self.assertRaisesStd(ValueError, egx.Egor, [egx.XSpec(egx.XType.ORD)])
         self.assertRaisesStd(ValueError, egx.Egor, [egx.XSpec(egx.XType.ENUM)])
@@ -79,9 +77,7 @@ class TestErrors(unittest.TestCase):
     def test_bad_training_data(self):
         yt2 = np.hstack((self.yt[:, None], self.yt[:, None]))
         self.assertRaisesStd(ValueError, egx.Gpx.builder().fit, self.xt, yt2)
-        self.assertRaisesStd(
-            ValueError, egx.Gpx.builder().fit, self.xt, self.yt[:3]
-        )
+        self.assertRaisesStd(ValueError, egx.Gpx.builder().fit, self.xt, self.yt[:3])
         self.assertRaisesStd(
             ValueError,
             egx.Gpx.builder(xspecs=[[0.0, 1.0], [0.0, 1.0]]).fit,
