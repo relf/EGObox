@@ -213,7 +213,7 @@ where
         };
         // Warm-start DOE constraint columns are already in canonical form.
         // otherwise transform constraints to canonical form (ie. cstr < 0)
-        let y_data = if !warm_start_doe.is_some()
+        let y_data = if warm_start_doe.is_none()
             && let Some(ref specs) = self.config.cstr_specs
         {
             crate::types::transform_constraints(&y_data, specs)

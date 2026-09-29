@@ -12,6 +12,10 @@ use serde::{Serialize, de::DeserializeOwned};
 
 use super::coego;
 
+/// Minimal probability of viability required for an infill point
+/// when viability failsafe strategy is used
+const MIN_PROBA_OF_VIABILITY: f64 = 0.25;
+
 /// A trait for multi start initial points computation
 pub(crate) trait MultiStarter {
     /// Return initial points for optimization multistart
@@ -243,17 +247,35 @@ where
                                   gradient: Option<&mut [f64]>,
                                   params: &mut InfillObjData<f64>|
              -> f64 {
+                let mut gradient = gradient;
                 if let Some(viab_model) = &viability_model {
                     let active = active.to_vec();
                     let InfillObjData { xbest: xcoop, .. } = params;
                     let mut xcoop = xcoop.clone();
                     coego::set_active_x(&mut xcoop, &active, x);
-                    0.25 - Self::mean_cstr(&**viab_model, &xcoop, gradient, 1.0, &active)
-                        .clamp(0.0, 1.0)
+                    let pov = Self::mean_cstr(
+                        &**viab_model,
+                        &xcoop,
+                        gradient.as_deref_mut(),
+                        1.0,
+                        &active,
+                    );
+                    // Constraint is MIN_PROBA_OF_VIABILITY - pov: negate pov gradient,
+                    // and zero it where clamping makes the constraint flat
+                    if let Some(grad) = gradient {
+                        if (0.0..=1.0).contains(&pov) {
+                            grad.iter_mut().for_each(|g| *g = -*g);
+                        } else {
+                            grad.fill(0.0);
+                        }
+                    }
+                    MIN_PROBA_OF_VIABILITY - pov.clamp(0.0, 1.0)
                 } else {
-                    unreachable!(
-                        "Viability model should be provided when viability constraint is used in infill optimization"
-                    )
+                    // If no viability model is provided, consider the point as feasible by default
+                    if let Some(grad) = gradient {
+                        grad.fill(0.0);
+                    }
+                    -1.0
                 }
             };
             if self.config.failsafe_strategy == FailsafeStrategy::Viability {
