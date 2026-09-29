@@ -243,41 +243,39 @@ where
             cstr_refs.extend(cstr_funcs.clone());
 
             // If viability strategy, we add the corresponding constraint
-            let viability_cstr = |x: &[f64],
-                                  gradient: Option<&mut [f64]>,
-                                  params: &mut InfillObjData<f64>|
-             -> f64 {
-                let mut gradient = gradient;
-                if let Some(viab_model) = &viability_model {
-                    let active = active.to_vec();
-                    let InfillObjData { xbest: xcoop, .. } = params;
-                    let mut xcoop = xcoop.clone();
-                    coego::set_active_x(&mut xcoop, &active, x);
-                    let pov = Self::mean_cstr(
-                        &**viab_model,
-                        &xcoop,
-                        gradient.as_deref_mut(),
-                        1.0,
-                        &active,
-                    );
-                    // Constraint is MIN_PROBA_OF_VIABILITY - pov: negate pov gradient,
-                    // and zero it where clamping makes the constraint flat
-                    if let Some(grad) = gradient {
-                        if (0.0..=1.0).contains(&pov) {
-                            grad.iter_mut().for_each(|g| *g = -*g);
-                        } else {
+            let viability_cstr =
+                |x: &[f64], gradient: Option<&mut [f64]>, params: &mut InfillObjData<f64>| -> f64 {
+                    let mut gradient = gradient;
+                    if let Some(viab_model) = &viability_model {
+                        let active = active.to_vec();
+                        let InfillObjData { xbest: xcoop, .. } = params;
+                        let mut xcoop = xcoop.clone();
+                        coego::set_active_x(&mut xcoop, &active, x);
+                        let pov = Self::mean_cstr(
+                            &**viab_model,
+                            &xcoop,
+                            gradient.as_deref_mut(),
+                            1.0,
+                            &active,
+                        );
+                        // Constraint is MIN_PROBA_OF_VIABILITY - pov: negate pov gradient,
+                        // and zero it where clamping makes the constraint flat
+                        if let Some(grad) = gradient {
+                            if (0.0..=1.0).contains(&pov) {
+                                grad.iter_mut().for_each(|g| *g = -*g);
+                            } else {
+                                grad.fill(0.0);
+                            }
+                        }
+                        MIN_PROBA_OF_VIABILITY - pov.clamp(0.0, 1.0)
+                    } else {
+                        // If no viability model is provided, consider the point as feasible by default
+                        if let Some(grad) = gradient {
                             grad.fill(0.0);
                         }
+                        -1.0
                     }
-                    MIN_PROBA_OF_VIABILITY - pov.clamp(0.0, 1.0)
-                } else {
-                    // If no viability model is provided, consider the point as feasible by default
-                    if let Some(grad) = gradient {
-                        grad.fill(0.0);
-                    }
-                    -1.0
-                }
-            };
+                };
             if self.config.failsafe_strategy == FailsafeStrategy::Viability {
                 cstr_refs.push(&viability_cstr as &(dyn OptFn<InfillObjData<f64>> + Sync));
             }
