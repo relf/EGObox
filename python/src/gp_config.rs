@@ -40,12 +40,12 @@ pub(crate) struct GpConfig {
     #[pyo3(get, set)]
     pub n_clusters: isize,
 
-    /// (Recombination.Smooth or Recombination.Hard (default))
+    /// (Recombination.SMOOTH or Recombination.HARD (default))
     ///   Specify how the various experts predictions are recombined
-    ///   * Smooth: prediction is a combination of experts prediction wrt their responsabilities,
+    ///   * SMOOTH: prediction is a combination of experts prediction wrt their responsibilities,
     ///   the heaviside factor which controls steepness of the change between experts regions is optimized
     ///   to get best mixture quality.
-    ///   * Hard: prediction is taken from the expert with highest responsability
+    ///   * HARD: prediction is taken from the expert with highest responsibility
     ///   resulting in a model with discontinuities.
     #[pyo3(get, set)]
     pub recombination: Recombination,
@@ -64,13 +64,16 @@ pub(crate) struct GpConfig {
     pub theta_bounds: Option<Vec<Vec<f64>>>,
 
     /// (int >= 0)
-    ///   Number of internal GP hyperpameters optimization restart (multistart)
+    ///   Number of internal GP hyperparameters optimization restarts (multistart).
     ///   When zero, optimization is disabled and theta init value is used as is.
+    ///   Not to be confused with `Egor(n_start=...)`, the infill criterion optimization multistart.
     #[pyo3(get, set)]
     pub n_start: usize,
 
     /// (int >= 0)
-    ///   Max number of likelihood evaluations during GP hyperparameters optimization
+    ///   Max number of likelihood evaluations of each GP hyperparameters optimization start.
+    ///   This is an upper limit: each start gets clamp(10 * nx, 25, max_eval) evaluations.
+    ///   Not to be confused with `Egor.minimize(max_iters=...)`, the optimization iteration budget.
     #[pyo3(get, set)]
     pub max_eval: usize,
 }
@@ -200,9 +203,11 @@ impl GpConfig {
     /// theta_bounds : list of [float, float], optional
     ///     Search space of GP theta hyperparameters (default: None, [1e-2, 1e1] for all components)
     /// n_start : int, optional
-    ///     Number of GP hyperparameters optimization restarts, 0 to disable optimization (default: 10)
+    ///     Number of GP hyperparameters optimization restarts, 0 to disable optimization (default: 10).
+    ///     Not to be confused with `Egor(n_start=...)`, the infill criterion optimization multistart.
     /// max_eval : int, optional
-    ///     Max number of likelihood evaluations during GP hyperparameters optimization (default: 50)
+    ///     Max number of likelihood evaluations of each GP hyperparameters optimization start (default: 50).
+    ///     Upper limit: each start gets clamp(10 * nx, 25, max_eval) evaluations.
     ///
     /// Returns
     /// -------

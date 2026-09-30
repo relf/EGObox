@@ -35,80 +35,75 @@ use rand_xoshiro::Xoshiro256Plus;
 
 /// Gaussian processes mixture builder
 ///
-/// # Parameters
+/// Parameters
+/// ----------
+/// xspecs : list of XSpec, list of [lower, upper] or None
+///     Specifications of the nx components of the input x (eg. len(xspecs) == nx),
+///     with XSpec(xtype=FLOAT|INT|ORD|ENUM, xlimits=[<f(xtype)>] or tags=[strings]).
+///     Depending on the x type we get the following for xlimits:
 ///
-///     xspecs (list(XSpec)) where XSpec(xtype=FLOAT|INT|ORD|ENUM, xlimits=[<f(xtype)>] or tags=[strings]):
-///         Specifications of the nx components of the input x (eg. len(xspecs) == nx)
-///         Depending on the x type we get the following for xlimits:
-///         * when FLOAT: xlimits is [float lower_bound, float upper_bound],
-///         * when INT: xlimits is [int lower_bound, int upper_bound],
-///         * when ORD: xlimits is [float_1, float_2, ..., float_n],
-///         * when ENUM: xlimits is just the int size of the enumeration otherwise a list of tags is specified
-///           (eg xlimits=[3] or tags=["red", "green", "blue"], tags are there for documention purpose but
-///            tags specific values themselves are not used only indices in the enum are used hence
-///            we can just specify the size of the enum, xlimits=[3]),
+///     * when FLOAT: xlimits is [float lower_bound, float upper_bound],
+///     * when INT: xlimits is [int lower_bound, int upper_bound],
+///     * when ORD: xlimits is [float_1, float_2, ..., float_n],
+///     * when ENUM: xlimits is just the int size of the enumeration otherwise a list of tags is specified
+///       (eg xlimits=[3] or tags=["red", "green", "blue"], tags are there for documentation purpose but
+///       tags specific values themselves are not used only indices in the enum are used hence
+///       we can just specify the size of the enum, xlimits=[3]).
 ///
-///         When None, inputs are expected to be floats and no input space restriction is applied
-///         (ie. xlimits is [-inf, inf] for all components).
+///     When None, inputs are expected to be floats and no input space restriction is applied
+///     (ie. xlimits is [-inf, inf] for all components).
+/// regr_spec : int
+///     RegressionSpec flags, an int in [1, 7]. Specification of regression models used in mixture.
+///     Can be RegressionSpec.CONSTANT (1), RegressionSpec.LINEAR (2), RegressionSpec.QUADRATIC (4) or
+///     any bit-wise union of these values (e.g. RegressionSpec.CONSTANT | RegressionSpec.LINEAR)
+/// corr_spec : int
+///     CorrelationSpec flags, an int in [1, 15]. Specification of correlation models used in mixture.
+///     Can be CorrelationSpec.SQUARED_EXPONENTIAL (1), CorrelationSpec.ABSOLUTE_EXPONENTIAL (2),
+///     CorrelationSpec.MATERN32 (4), CorrelationSpec.MATERN52 (8) or
+///     any bit-wise union of these values (e.g. CorrelationSpec.MATERN32 | CorrelationSpec.MATERN52)
+/// kpls_dim : int, optional
+///     Number of components to be used when PLS projection is used (a.k.a KPLS method), 0 < kpls_dim < nx.
+///     This is used to address high-dimensional problems typically when nx > 9.
+/// n_clusters : int
+///     Number of clusters used by the mixture of surrogate experts (default is 1).
+///     When set to 0, the number of cluster is determined automatically and refreshed every
+///     10-points addition (should say 'tentative addition' because addition may fail for some points
+///     but it is counted anyway).
+///     When set to negative number -n, the number of clusters is determined automatically in [1, n]
+///     this is used to limit the number of trials hence the execution time.
+/// recombination : Recombination
+///     Specify how the various experts predictions are recombined (default is Recombination.HARD)
 ///
-///     regr_spec (RegressionSpec flags, an int in [1, 7]):
-///         Specification of regression models used in mixture.
-///         Can be RegressionSpec.CONSTANT (1), RegressionSpec.LINEAR (2), RegressionSpec.QUADRATIC (4) or
-///         any bit-wise union of these values (e.g. RegressionSpec.CONSTANT | RegressionSpec.LINEAR)
+///     * SMOOTH: prediction is a combination of experts prediction wrt their responsibilities,
+///       the heaviside factor which controls steepness of the change between experts regions is optimized
+///       to get best mixture quality.
+///     * HARD: prediction is taken from the expert with highest responsibility
+///       resulting in a model with discontinuities.
+/// theta_init : list of float, optional
+///     Initial guess for GP theta hyperparameters, one value per input component.
+///     When None the default is 1e-1 for all components
+/// theta_bounds : list of [float, float], optional
+///     Search space [[lower_1, upper_1], ..., [lower_nx, upper_nx]] when optimizing theta GP hyperparameters.
+///     When None the default is [1e-2, 1e1] for all components.
+/// n_start : int >= 0
+///     Number of internal GP hyperparameters optimization restarts (multistart).
+///     When zero, optimization is disabled and theta init value is used as is.
+/// max_eval : int >= 0
+///     Max number of likelihood evaluations of each GP hyperparameters optimization start.
+///     This is an upper limit: each start gets clamp(10 * nx, 25, max_eval) evaluations.
+/// seed : int >= 0, optional
+///     Random generator seed to allow computation reproducibility.
+///     Unlike `Egor` where seed is given to `minimize()`, it is given here at construction.
+/// verbose : Verbose or int in [0, 4], optional
+///     Optional verbose level to control logging output (default is 0)
+///     Used mainly for debugging and development purposes.
+///     Unlike `Egor` where verbose is given to `minimize()`, it is given here at construction.
 ///
-///     corr_spec (CorrelationSpec flags, an int in [1, 15]):
-///         Specification of correlation models used in mixture.
-///         Can be CorrelationSpec.SQUARED_EXPONENTIAL (1), CorrelationSpec.ABSOLUTE_EXPONENTIAL (2),
-///         CorrelationSpec.MATERN32 (4), CorrelationSpec.MATERN52 (8) or
-///         any bit-wise union of these values (e.g. CorrelationSpec.MATERN32 | CorrelationSpec.MATERN52)
+/// Returns
+/// -------
+/// GpMix
+///     A builder which can be fitted to data to get a Gpx object (a trained Gaussian processes mixture)
 ///
-///     n_clusters (int):
-///         Number of clusters used by the mixture of surrogate experts (default is 1).
-///         When set to 0, the number of cluster is determined automatically and refreshed every
-///         10-points addition (should say 'tentative addition' because addition may fail for some points
-///         but it is counted anyway).
-///         When set to negative number -n, the number of clusters is determined automatically in [1, n]
-///         this is used to limit the number of trials hence the execution time.
-///
-///     recombination (Recombination.Smooth or Recombination.Hard (default)):
-///         Specify how the various experts predictions are recombined
-///         * Smooth: prediction is a combination of experts prediction wrt their responsabilities,
-///         the heaviside factor which controls steepness of the change between experts regions is optimized
-///         to get best mixture quality.
-///         * Hard: prediction is taken from the expert with highest responsability
-///         resulting in a model with discontinuities.
-///
-///     theta_init ([nx] where nx is the dimension of inputs x):
-///         Initial guess for GP theta hyperparameters.
-///         When None the default is 1e-1 for all components
-///
-///     theta_bounds ([[lower_1, upper_1], ..., [lower_nx, upper_nx]] where nx is the dimension of inputs x):
-///         Space search when optimizing theta GP hyperparameters
-///         When None the default is [1e-2, 1e1] for all components.
-///         Note: `Egor` may adapt these bounds automatically for high-dimensional inputs.
-///
-///     kpls_dim (0 < int < nx where nx is the dimension of inputs x):
-///         Number of components to be used when PLS projection is used (a.k.a KPLS method).
-///         This is used to address high-dimensional problems typically when nx > 9.
-///
-///     n_start (int >= 0):
-///         Number of internal GP hyperpameters optimization restart (multistart)
-///         When is zero, optimization is disabled and theta init value is used as is.
-///
-///     max_eval (int >= 0):
-///         Max number of likelihood evaluations during GP hyperparameters optimization
-///
-///     seed (int >= 0):
-///         Random generator seed to allow computation reproducibility.
-///
-///     verbose (Verbose or int in [0, 4]):
-///         Optional verbose level to control logging output (default is 0)
-///         Used mainly for debugging and development purposes
-///
-/// # Returns
-///
-///     GpMix object which can be fitted to data to get a Gpx object (a trained Gaussian processes mixture)
-///         
 #[gen_stub_pyclass]
 #[pyclass(skip_from_py_object, module = "egobox")]
 pub(crate) struct GpMix {
@@ -177,12 +172,17 @@ impl GpMix {
 
     /// Fit the parameters of the model using the training dataset to build a trained model
     ///
-    /// # Parameters
-    ///     xt (array[nsamples, nx]): input samples
-    ///     yt (array[nsamples, 1]): output samples
+    /// Parameters
+    /// ----------
+    /// xt : array[nsamples, nx] or array[nsamples] when nx == 1
+    ///     input samples
+    /// yt : array[nsamples] or array[nsamples, 1]
+    ///     output samples
     ///
-    /// # Returns Gpx object
-    ///     the fitted Gaussian process mixture  
+    /// Returns
+    /// -------
+    /// Gpx
+    ///     the fitted Gaussian process mixture
     ///
     fn fit(
         &mut self,
@@ -344,14 +344,20 @@ impl Gpx {
     /// If the filename has .json JSON human readable format is used
     /// otherwise an optimized binary format is used.
     ///
-    /// # Parameters
-    ///     filename with .json or .bin extension (string)
-    ///         file generated in the current directory
+    /// Parameters
+    /// ----------
+    /// filename : str
+    ///     file path with .json or .bin extension
     ///
-    /// # Returns True when save succeeds
+    /// Returns
+    /// -------
+    /// bool
+    ///     True when save succeeds
     ///
-    /// # Raises
-    ///     OSError or ValueError when the model can not be saved
+    /// Raises
+    /// ------
+    /// OSError or ValueError
+    ///     when the model can not be saved
     ///
     fn save(&self, filename: String) -> PyResult<bool> {
         self.0
@@ -362,9 +368,20 @@ impl Gpx {
 
     /// Load Gaussian processes mixture from file.
     ///
-    /// # Parameters
-    ///     filename (string)
-    ///         json filepath generated by saving a trained Gaussian processes mixture
+    /// Parameters
+    /// ----------
+    /// filename : str
+    ///     .json or .bin file path generated by saving a trained model
+    ///
+    /// Returns
+    /// -------
+    /// Gpx
+    ///     the loaded model
+    ///
+    /// Raises
+    /// ------
+    /// OSError or ValueError
+    ///     when the model can not be loaded
     ///
     #[staticmethod]
     fn load(filename: String) -> PyResult<Gpx> {
@@ -375,12 +392,15 @@ impl Gpx {
 
     /// Predict output values at nsamples points.
     ///
-    /// # Parameters
-    ///     x (array[nsamples, nx])
-    ///         input values
+    /// Parameters
+    /// ----------
+    /// x : array[nsamples, nx]
+    ///     input values
     ///
     /// Returns
-    ///     the output values at nsamples x points (array[nsamples,])
+    /// -------
+    /// array[nsamples]
+    ///     the output values at the nsamples x points
     ///
     fn predict<'py>(
         &self,
@@ -392,14 +412,17 @@ impl Gpx {
         Ok(self.0.predict(&x).map_err(moe_err)?.into_pyarray(py))
     }
 
-    /// Predict variances at nsample points.
+    /// Predict variances at nsamples points.
     ///
-    /// # Parameters
-    ///     x (array[nsamples, nx])
-    ///         input values
+    /// Parameters
+    /// ----------
+    /// x : array[nsamples, nx]
+    ///     input values
     ///
-    /// # Returns
-    ///     the variances of the output values at nsamples input points (array[nsamples,])
+    /// Returns
+    /// -------
+    /// array[nsamples]
+    ///     the variances of the output values at the nsamples x points
     ///
     fn predict_var<'py>(
         &self,
@@ -413,13 +436,16 @@ impl Gpx {
 
     /// Predict surrogate output derivatives at nsamples points.
     ///
-    /// # Parameters
-    ///     x (array[nsamples, nx])
-    ///         input values
+    /// Parameters
+    /// ----------
+    /// x : array[nsamples, nx]
+    ///     input values
     ///
-    /// # Returns
-    ///     the output derivatives at nsamples x points (array[nsamples, nx]) wrt inputs
-    ///     The ith column is the partial derivative value wrt to the ith component of x at the given samples.
+    /// Returns
+    /// -------
+    /// array[nsamples, nx]
+    ///     the output derivatives wrt inputs at the nsamples x points.
+    ///     The ith column is the partial derivative wrt the ith component of x.
     ///
     fn predict_gradients<'py>(
         &self,
@@ -437,13 +463,16 @@ impl Gpx {
 
     /// Predict variance derivatives at nsamples points.
     ///
-    /// # Parameters
-    ///     x (array[nsamples, nx])
-    ///         input values
+    /// Parameters
+    /// ----------
+    /// x : array[nsamples, nx]
+    ///     input values
     ///
-    /// # Returns
-    ///     the variance derivatives at nsamples x points (array[nsamples, nx]) wrt inputs
-    ///     The ith column is the partial derivative value wrt to the ith component of x at the given samples.
+    /// Returns
+    /// -------
+    /// array[nsamples, nx]
+    ///     the variance derivatives wrt inputs at the nsamples x points.
+    ///     The ith column is the partial derivative wrt the ith component of x.
     ///
     fn predict_var_gradients<'py>(
         &self,
@@ -461,13 +490,17 @@ impl Gpx {
 
     /// Sample gaussian process trajectories.
     ///
-    /// # Parameters
-    ///     x (array[nsamples, nx])
-    ///         locations of the sampled trajectories
-    ///     n_traj number of trajectories to generate
+    /// Parameters
+    /// ----------
+    /// x : array[nsamples, nx]
+    ///     locations of the sampled trajectories
+    /// n_traj : int
+    ///     number of trajectories to generate
     ///
-    /// # Returns
-    ///     the trajectories as an array[nsamples, n_traj]
+    /// Returns
+    /// -------
+    /// array[nsamples, n_traj]
+    ///     the trajectories
     ///
     fn sample<'py>(
         &self,
@@ -482,7 +515,9 @@ impl Gpx {
 
     /// Get the input and output dimensions of the surrogate
     ///
-    /// # Returns
+    /// Returns
+    /// -------
+    /// tuple[int, int]
     ///     the couple (nx, ny)
     ///
     fn dims(&self) -> (usize, usize) {
@@ -494,18 +529,24 @@ impl Gpx {
     /// For single-expert mixtures, uses efficient GP update with Cholesky rank-1 updates.
     /// For multi-expert mixtures, assigns new points to clusters and refits experts with fixed theta.
     ///
-    /// # Parameters
-    ///     x_new (array[n_new, nx]): New input data points
-    ///     y_new (array[n_new,]): New output data values
+    /// Parameters
+    /// ----------
+    /// x_new : array[n_new, nx]
+    ///     new input data points
+    /// y_new : array[n_new]
+    ///     new output data values
     ///
-    /// # Returns
-    ///     A new Gpx instance updated with the new data
+    /// Returns
+    /// -------
+    /// Gpx
+    ///     a new Gpx instance updated with the new data
     ///
-    /// # Example
-    ///     >>> import egobox as egx
-    ///     >>> import numpy as np
-    ///     >>> gpx = egx.Gpx.builder().fit(np.array([[0.0], [1.0]]), np.array([0.0, 1.0]))
-    ///     >>> gpx_updated = gpx.update(np.array([[2.0]]), np.array([1.5]))
+    /// Examples
+    /// --------
+    /// >>> import egobox as egx
+    /// >>> import numpy as np
+    /// >>> gpx = egx.Gpx.builder().fit(np.array([[0.0], [1.0]]), np.array([0.0, 1.0]))
+    /// >>> gpx_updated = gpx.update(np.array([[2.0]]), np.array([1.5]))
     ///
     fn update(&self, x_new: PyReadonlyArray2<f64>, y_new: PyReadonlyArray1<f64>) -> PyResult<Gpx> {
         let x_arr = x_new.as_array();
@@ -526,8 +567,10 @@ impl Gpx {
 
     /// Get the nt training data points used to fit the surrogate
     ///
-    /// # Returns
-    ///     the couple (ndarray[nt, nx], ndarray[nt,])
+    /// Returns
+    /// -------
+    /// tuple[array[nt, nx], array[nt]]
+    ///     the couple (xt, yt)
     ///
     fn training_data<'py>(
         &self,
@@ -542,8 +585,10 @@ impl Gpx {
 
     /// Get optimized thetas hyperparameters (ie once GP experts are fitted)
     ///
-    /// # Returns
-    ///     thetas as an array[n_clusters, nx or kpls_dim]
+    /// Returns
+    /// -------
+    /// array[n_clusters, nx or kpls_dim]
+    ///     thetas of each expert
     ///
     fn thetas<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
         let experts = self.0.experts();
@@ -557,8 +602,10 @@ impl Gpx {
 
     /// Get GP expert variance (ie posterior GP variance)
     ///
-    /// # Returns
-    ///     variances as an array[n_clusters]
+    /// Returns
+    /// -------
+    /// array[n_clusters]
+    ///     variance of each expert
     ///
     fn variances<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
         let experts = self.0.experts();
@@ -569,12 +616,14 @@ impl Gpx {
         variances.into_pyarray(py)
     }
 
-    /// Get reduced likelihood values gotten when fitting the GP experts
+    /// Get reduced likelihood values obtained when fitting the GP experts
     ///
-    /// Maybe used to compare various parameterization
+    /// May be used to compare various parameterizations
     ///
-    /// # Returns
-    ///     likelihood as an array[n_clusters]
+    /// Returns
+    /// -------
+    /// array[n_clusters]
+    ///     likelihood of each expert
     ///
     fn likelihoods<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
         let experts = self.0.experts();

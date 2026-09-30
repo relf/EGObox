@@ -69,116 +69,107 @@ fn parse_run_info(py: Python, value: Py<PyAny>) -> PyResult<RunInfo> {
 
 /// Optimizer constructor
 ///
-/// # Parameters
+/// Parameters
+/// ----------
+/// xspecs : list of XSpec, list of [lower, upper] or array[nx, 2]
+///     Specifications of the nx components of the input x (eg. len(xspecs) == nx),
+///     with XSpec(xtype=FLOAT|INT|ORD|ENUM, xlimits=[<f(xtype)>] or tags=[strings]).
+///     Depending on the x type we get the following for xlimits:
 ///
-///     xspecs (list(XSpec)) where XSpec(xtype=FLOAT|INT|ORD|ENUM, xlimits=[<f(xtype)>] or tags=[strings]):
-///         Specifications of the nx components of the input x (eg. len(xspecs) == nx)
-///         Depending on the x type we get the following for xlimits:
-///         * when FLOAT: xlimits is [float lower_bound, float upper_bound],
-///         * when INT: xlimits is [int lower_bound, int upper_bound],
-///         * when ORD: xlimits is [float_1, float_2, ..., float_n],
-///         * when ENUM: xlimits is just the int size of the enumeration otherwise a list of tags is specified
-///           (eg xlimits=[3] or tags=["red", "green", "blue"], tags are there for documention purpose but
-///            tags specific values themselves are not used only indices in the enum are used hence
-///            we can just specify the size of the enum, xlimits=[3]),
+///     * when FLOAT: xlimits is [float lower_bound, float upper_bound],
+///     * when INT: xlimits is [int lower_bound, int upper_bound],
+///     * when ORD: xlimits is [float_1, float_2, ..., float_n],
+///     * when ENUM: xlimits is just the int size of the enumeration otherwise a list of tags is specified
+///       (eg xlimits=[3] or tags=["red", "green", "blue"], tags are there for documentation purpose but
+///       tags specific values themselves are not used only indices in the enum are used hence
+///       we can just specify the size of the enum, xlimits=[3]).
+/// gp_config : GpConfig or dict, optional
+///     GP configuration used by the optimizer, see GpConfig for details.
+/// n_cstr : int
+///     Number of constraints returned by `fun` (see `minimize`) which will be approximated by surrogates.
+///     Can be omitted when `cstr_specs` is given.
+/// cstr_tol : list of float, optional
+///     Tolerances for constraints to be satisfied (cstr < tol).
+///     The list must cover all internal constraints: the `n_cstr` surrogate constraints
+///     (after `cstr_specs` expansion, see below) followed by the function constraints
+///     `fcstrs` given to `minimize` (after `fcstr_specs` expansion).
+///     When None, tolerances default to DEFAULT_CSTR_TOL=1e-4.
+/// cstr_specs : list of CstrSpec or dict, optional
+///     Describe how each surrogate-modeled constraint (returned by `fun`) should be interpreted.
+///     This allows users to define bounds directly instead of manually rewriting
+///     constraints in `c <= 0` form:
 ///
-///     gp_config (GpConfig):
-///        GP configuration used by the optimizer, see GpConfig for details.
+///     * CstrSpec.leq(bound): c <= bound (less or equal)
+///     * CstrSpec.geq(bound): c >= bound (greater or equal)
+///     * CstrSpec.eq(value): c == value (expands to two internal constraints)
+///     * CstrSpec.btw(lower, upper): lower <= c <= upper (between, expands to two internal constraints)
 ///
-///     n_cstr (int):
-///         the number of constraints which will be approximated by surrogates (see `fun` argument)
+///     When set, `n_cstr` is inferred from `len(cstr_specs)` (`n_cstr` is ignored if set to zero,
+///     or must match otherwise).
+/// n_start : int > 0
+///     Number of starts of the multistart optimization of the infill criterion (best result taken).
+///     Not to be confused with `GpConfig(n_start=...)`, the GP hyperparameters optimization multistart.
+/// n_doe : int >= 0
+///     Number of samples of initial LHS sampling (used when DOE not provided by the user).
+///     When 0 a number of points is computed automatically regarding the number of input variables
+///     of the function under optimization.
+/// doe : array[ns, nt], optional
+///     Initial DOE containing ns samples:
+///     either nt = nx then only x are specified and ns evals are done to get y doe values,
+///     or nt = nx + ny then x = doe[:, :nx] and y = doe[:, nx:] are specified.
+///     Note that `suggest` takes x and y as two separate arrays `x_doe` and `y_doe`.
+/// infill_strategy : InfillStrategy
+///     Infill criterion to decide best next promising point.
+///     Can be either InfillStrategy.LOG_EI (default), InfillStrategy.EI, InfillStrategy.WB2, InfillStrategy.WB2S
+/// feasible_infill_strategy : FeasibleInfillStrategy
+///     Weight the infill criterion by the probability of viability to avoid regions where
+///     `fun` fails (hidden constraints). Can be either FeasibleInfillStrategy.NONE (default),
+///     FeasibleInfillStrategy.EFI_P, or FeasibleInfillStrategy.EFI_FE.
+///     Independent of `cstr_infill`, both can be used together.
+/// cstr_infill : bool
+///     Activate constrained infill criterion where the product of probabilities of feasibility
+///     of the `n_cstr` surrogate constraints is used as a factor of the infill criterion.
+///     Independent of `feasible_infill_strategy`, both can be used together.
+/// cstr_strategy : ConstraintStrategy
+///     Constraint management, either use the mean value or the upper trust bound of the constraint surrogates.
+///     Can be either ConstraintStrategy.MC (mean constraint, default) or ConstraintStrategy.UTB (upper trust bound).
+/// qei_config : QEiConfig or dict, optional
+///     Configuration for parallel (qEI) evaluation also known as batch or multipoint evaluation.
+///     q points are selected at each iteration of the EGO algorithm.
+///     See QEiConfig for details.
+/// infill_optimizer : InfillOptimizer
+///     Internal optimizer used to optimize infill criteria.
+///     Can be either InfillOptimizer.COBYLA (default) or InfillOptimizer.SLSQP
+/// trego : TregoConfig, bool or dict, optional
+///     TREGO configuration to activate TREGO strategy for global optimization.
+///     When True activate TREGO with default configuration.
+///     To activate TREGO with custom configuration see TregoConfig for details.
+///     When None or False TREGO is not used.
+/// coego_n_coop : int >= 0
+///     Number of cooperative components groups which will be used by the CoEGO algorithm.
+///     Better to have n_coop a divider of nx or if not with a remainder as large as possible.
+///     The CoEGO algorithm is used to tackle high-dimensional problems turning it in a set of
+///     partial optimizations using only nx / n_coop components at a time.
+///     The default value is 0 meaning that the CoEGO algorithm is not used.
+/// target : float, optional
+///     Known optimum used as stopping criterion: the optimization stops once
+///     an objective value lower than or equal to target is found.
+///     When None (default) no target is used.
+/// failsafe_strategy : FailsafeStrategy
+///     Strategy to handle objective computation failure at a given x point.
+///     A failure is detected when the objective function returns NaN value(s).
+///     Can be either FailsafeStrategy.REJECTION (default), FailsafeStrategy.IMPUTATION, or FailsafeStrategy.VIABILITY.
+///     Rejection simply ignores the failed point whereas Imputation
+///     uses the objective surrogate prediction to fill the missing value.
+///     In the third case Viability, a surrogate is used to model the failure region
+///     which is used as a constraint and drive the optimization toward the viable region.
 ///
-///     cstr_tol (list(n_cstr + n_fcstr,)):
-///         List of tolerances for constraints to be satisfied (cstr < tol),
-///         list size should be equal to n_cstr + n_fctrs where n_cstr is the `n_cstr` argument
-///         and `n_fcstr` the number of constraints passed as functions.
-///         When None, tolerances default to DEFAULT_CSTR_TOL=1e-4.
+/// Returns
+/// -------
+/// Egor
+///     An optimizer which can be used to optimize a function using the minimize method.
+///     Random seed and logging verbosity are given to `minimize()`, not to the constructor.
 ///
-///     cstr_specs (list(n_cstr,) or None):
-///         Optional list of CstrSpec objects describing how each surrogate-modeled
-///         constraint (returned by `fun`) should be interpreted.
-///         This allows users to define bounds directly instead of manually rewriting
-///         constraints in `c <= 0` form:
-///           * CstrSpec.leq(bound): c <= bound
-///           * CstrSpec.geq(bound): c >= bound
-///           * CstrSpec.eq(value): c == value (expands to two internal constraints)
-///           * CstrSpec.btw(lower, upper): lower <= c <= upper
-///             (expands to two internal constraints)
-///
-///         When set, `n_cstr` is inferred from `len(cstr_specs)` (legacy `n_cstr`
-///         value is ignored if set to zero, or must match otherwise).
-///         If `cstr_tol` is explicitly provided, its length must match the total
-///         number of internal constraints after expansion.
-///
-///     n_start (int > 0):
-///         Number of runs of infill strategy optimizations (best result taken)
-///
-///     n_doe (int >= 0):
-///         Number of samples of initial LHS sampling (used when DOE not provided by the user).
-///         When 0 a number of points is computed automatically regarding the number of input variables
-///         of the function under optimization.
-///
-///     doe (array[ns, nt]):
-///         Initial DOE containing ns samples:
-///             either nt = nx then only x are specified and ns evals are done to get y doe values,
-///             or nt = nx + ny then x = doe[:, :nx] and y = doe[:, nx:] are specified
-///
-///     infill_strategy (InfillStrategy enum):
-///         Infill criteria to decide best next promising point.
-///         Can be either InfillStrategy.LOG_EI, InfillStrategy.EI, InfillStrategy.WB2, InfillStrategy.WB2S
-///
-///     feasible_infill_strategy (FeasibleInfillStrategy enum):
-///         Strategy to handle feasibility information in the infill criterion.
-///         Can be either FeasibleInfillStrategy.NONE, FeasibleInfillStrategy.EFI_P, or FeasibleInfillStrategy.EFI_FE
-///
-///     cstr_infill (bool):
-///         Activate constrained infill criterion where the product of probability of feasibility of constraints
-///         used as a factor of the infill criterion specified via infill_strategy
-///         
-///     cstr_strategy (ConstraintStrategy enum):
-///         Constraint management either use the mean value or upper bound
-///         Can be either ConstraintStrategy.MeanValue or ConstraintStrategy.UpperTrustedBound.
-///
-///     infill_optimizer (InfillOptimizer enum):
-///         Internal optimizer used to optimize infill criteria.
-///         Can be either InfillOptimizer.COBYLA or InfillOptimizer.SLSQP
-///
-///     qei_config (QEiConfig):
-///         Configuration for parallel (qEI) evaluation also known as batch or multipoint evaluation.
-///         q points are selected at each iteration of the EGO algorithm.
-///         See QEiConfig for details.
-///
-///     trego (TregoConfig, bool or None):
-///         TREGO configuration to activate TREGO strategy for global optimization.
-///         When True activate TREGO with default configuration.
-///         To activate TREGO with custom configuration see TregoConfig for details.
-///         When None or False TREGO is not used.
-///
-///     coego_n_coop (int >= 0):
-///         Number of cooperative components groups which will be used by the CoEGO algorithm.
-///         Better to have n_coop a divider of nx or if not with a remainder as large as possible.  
-///         The CoEGO algorithm is used to tackle high-dimensional problems turning it in a set of
-///         partial optimizations using only nx / n_coop components at a time.
-///         The default value is 0 meaning that the CoEGO algorithm is not used.
-///   
-///     target (float or None):
-///         Known optimum used as stopping criterion: the optimization stops once
-///         an objective value lower than or equal to target is found.
-///         When None (default) no target is used.
-///
-///     failsafe_strategy (FailsafeStrategy enum):
-///         Strategy to handle objective computation failure at a given x point.
-///         A failure is detected when the objective function returns NaN value(s).
-///         Can be either FailsafeStrategy.REJECTION, FailsafeStrategy.IMPUTATION, or FailsafeStrategy.VIABILITY.
-///         Rejection simply ignores the failed point whereas Imputation
-///         uses the objective surrogate prediction to fill the missing value.
-///         In the third case Viability, a surrogate is used to model the failure region
-///         which is used as a constraint and drive the optimization toward the viable region.
-///
-/// # Returns
-///
-///     Egor object which can be used to optimize a function using the minimize method.
-///      
 #[gen_stub_pyclass]
 #[pyclass(skip_from_py_object, module = "egobox")]
 pub(crate) struct Egor {
@@ -305,85 +296,79 @@ impl Egor {
 
     /// This function finds the minimum of a given function "fun"
     ///
-    /// # Parameters
+    /// Parameters
+    /// ----------
+    /// fun : callable (array[n, nx]) -> array[n, ny]
+    ///     The function to be minimized: fun(x) = [obj(x), cstr_1(x), ... cstr_k(x)] where
     ///
-    ///     fun: (array[n, nx] -> array[n, ny])
-    ///         the function to be minimized
-    ///         fun(x) = [obj(x), cstr_1(x), ... cstr_k(x)] where
-    ///            obj is the objective function [n, nx] -> [n, 1]
-    ///            cstr_i is the ith constraint function [n, nx] -> [n, 1]
-    ///            an k the number of constraints (n_cstr)
-    ///            hence ny = 1 (obj) + k (cstrs)
-    ///         cstr functions are expected be negative (<=0) at the optimum.
-    ///         This constraints will be approximated using surrogates, so
-    ///         if constraints are cheap to evaluate better to pass them through run(fcstrs=[...])
+    ///     * obj is the objective function [n, nx] -> [n, 1]
+    ///     * cstr_i is the ith constraint function [n, nx] -> [n, 1]
+    ///     * k is the number of constraints (n_cstr), hence ny = 1 (obj) + k (cstrs)
     ///
-    ///     fcstrs:
-    ///         list of constraints functions defined as g(x, return_grad): (ndarray[nx], bool) -> float or ndarray[nx,]
-    ///         If the given "return_grad" boolean is "False" the function has to return the constraint float value
-    ///         to be made negative by the optimizer (which drives the input array "x").
-    ///         Otherwise the function has to return the gradient (ndarray[nx,]) of the constraint function
-    ///         wrt the "nx" components of "x".
+    ///     cstr functions are expected to be negative (<=0) at the optimum (unless `cstr_specs` is used).
+    ///     These constraints will be approximated using surrogates, so
+    ///     if constraints are cheap to evaluate better to pass them through `fcstrs`.
+    /// fcstrs : list of callable (array[nx], bool) -> float or array[nx], optional
+    ///     Constraint functions defined as g(x, return_grad).
+    ///     If the given "return_grad" boolean is False the function has to return the constraint float value
+    ///     to be made negative by the optimizer (which drives the input array "x").
+    ///     Otherwise the function has to return the gradient (array[nx]) of the constraint function
+    ///     wrt the nx components of "x".
+    /// fcstr_specs : list of CstrSpec or dict, optional
+    ///     One CstrSpec per fcstr specifying how each function constraint should be interpreted.
+    ///     Length must be zero (legacy behavior) or equal to len(fcstrs).
+    ///     This allows raw constraints not written as c <= 0, for example:
+    ///     CstrSpec.leq(b), CstrSpec.geq(b), CstrSpec.eq(v), CstrSpec.btw(lo, hi).
+    ///     Note: CstrSpec.eq and CstrSpec.btw expand to two internal constraints each.
+    ///     When `cstr_tol` is explicitly provided, ensure its size covers all internal
+    ///     constraints: surrogate constraints + expanded function constraints.
+    /// max_iters : int
+    ///     The iteration budget, number of fun calls is "n_doe + q_batch * max_iters".
+    ///     Not to be confused with `GpConfig(max_eval=...)`, the likelihood evaluations budget.
+    /// run_info : RunInfo or dict, optional
+    ///     Information about the run to be passed to the optimizer with the following attributes:
     ///
-    ///     fcstr_specs:
-    ///         optional list of CstrSpec objects, one per fcstr, specifying how each function
-    ///         constraint should be interpreted.
-    ///         Length must be zero (legacy behavior) or equal to len(fcstrs).
-    ///         This allows raw constraints not written as c <= 0, for example:
-    ///         CstrSpec.leq(b), CstrSpec.geq(b), CstrSpec.eq(v), CstrSpec.btw(lo, hi).
+    ///     * fname (str): name of the function under optimization, used for checkpoint file naming
+    ///     * num (int): number of the run, used for checkpoint file naming
+    /// outdir : str, optional
+    ///     Directory to write optimization history and used as search path for warm start doe
+    /// warm_start : bool
+    ///     Start by loading initial doe from <outdir> directory
+    /// hot_start : bool or int >= 0, optional
+    ///     When hot_start>=0 saves optimizer state at each iteration and starts from a previous checkpoint
+    ///     for the given hot_start number of iterations beyond the max_iters nb of iterations.
+    ///     In an unstable environment where there can be crashes it allows to restart the optimization
+    ///     from the last iteration till stopping criterion is reached. Just use hot_start=0 in this case.
+    ///     When True, hot_start behaves like hot_start=0 with no iteration extension.
+    ///     Checkpoint information is stored in .checkpoint or under outdir if outdir is specified.
+    /// seed : int >= 0, optional
+    ///     Random generator seed to allow computation reproducibility.
+    ///     Unlike `GpMix` where seed is given at construction, it is given here at each run.
+    /// timeout : float, optional
+    ///     Timeout in seconds. The optimization is stopped when the elapsed time
+    ///     exceeds this duration. The actual runtime may slightly exceed the specified timeout
+    ///     as the check is performed after each iteration.
+    /// verbose : Verbose or int, optional
+    ///     Logging verbosity level for the optimizer.
+    ///     Can be either an integer or a Verbose enum value:
+    ///     0 or Verbose.ERROR, 1 or Verbose.WARNING, 2 or Verbose.INFO,
+    ///     3 or Verbose.DEBUG, 4 (or greater) or Verbose.TRACE.
+    ///     Default is None which means Verbose.ERROR level and possible control by
+    ///     the EGOBOX_LOG environment variable.
+    ///     Unlike `GpMix` where verbose is given at construction, it is given here at each run.
+    /// stop_on_error : bool
+    ///     If true, terminate optimization when the objective function raises an error.
+    ///     Otherwise, the error is handled according to failsafe_strategy.
     ///
-    ///         Note: CstrSpec.eq and CstrSpec.btw expand to two internal constraints each.
-    ///         When cstr_tol is explicitly provided, ensure its size covers all internal
-    ///         constraints: surrogate constraints + expanded function constraints.
+    /// Returns
+    /// -------
+    /// EgorOptim
+    ///     result (OptimResult) and status (RunStatus) of the optimization, where result holds:
     ///
-    ///     max_iters:
-    ///         the iteration budget, number of fun calls is "n_doe + q_batch * max_iters".
-    ///
-    ///     run_info:
-    ///         Optional information about the run to be passed to the optimizer
-    ///         It should be an object of type RunInfo with the following attributes:
-    ///           - fname (string): name of the function under optimization, used for checkpoint file naming
-    ///           - num (int): number of the run, used for checkpoint file naming
-    ///
-    ///     outdir (String):
-    ///         Directory to write optimization history and used as search path for warm start doe
-    ///
-    ///     warm_start (bool):
-    ///         Start by loading initial doe from <outdir> directory
-    ///
-    ///     hot_start (bool, int >= 0 or None):
-    ///         When hot_start>=0 saves optimizer state at each iteration and starts from a previous checkpoint
-    ///         for the given hot_start number of iterations beyond the max_iters nb of iterations.
-    ///         In an unstable environment were there can be crashes it allows to restart the optimization
-    ///         from the last iteration till stopping criterion is reached. Just use hot_start=0 in this case.
-    ///         When True, hot_start behaves like hot_start=0 with no iteration extension.
-    ///         Checkpoint information is stored in .checkpoint or under outdir if outdir is specified.
-    ///
-    ///     seed (int >= 0):
-    ///         Random generator seed to allow computation reproducibility.
-    ///
-    ///     timeout (float or None):
-    ///         Optional timeout in seconds. The optimization is stopped when the elapsed time
-    ///         exceeds this duration. The actual runtime may slightly exceed the specified timeout
-    ///         as the check is performed after each iteration.
-    ///
-    ///     stop_on_error (bool):
-    ///         If true, terminate optimization when the objective function returns an error.
-    ///         Otherwise, the error is handled according to failsafe_strategy.
-    ///
-    ///     verbose (int, Verbose enum, or None):
-    ///         Logging verbosity level for the optimizer.
-    ///         Can be either an integer or a Verbose enum value:
-    ///         0 or Verbose.ERROR, 1 or Verbose.WARNING, 2 or Verbose.INFO,
-    ///         3 or Verbose.DEBUG, 4 (or greater) or Verbose.TRACE.
-    ///         Default is None which means Verbose.ERROR level and possible control by
-    ///         the EGOBOX_LOG environment variable.
-    ///
-    /// # Returns
-    ///
-    ///     optimization result
-    ///         x_opt (array[nx]): x value where fun is at its minimum subject to constraints
-    ///         y_opt (array[ny]): fun(x_opt) where ny = 1 + n_cstr
+    ///     * x_opt (array[nx]): x value where fun is at its minimum subject to constraints
+    ///     * y_opt (array[ny]): fun(x_opt) where ny = 1 + n_cstr
+    ///     * x_doe (array[ns, nx]): x values of the final DOE
+    ///     * y_doe (array[ns, ny]): y values of the final DOE
     ///
     #[pyo3(signature = (fun, fcstrs=None, fcstr_specs=None, max_iters = 20, run_info = None, outdir = None, warm_start = false, hot_start = None, seed = None, timeout = None, verbose = None, stop_on_error = false))]
     #[allow(clippy::too_many_arguments)]
@@ -564,18 +549,22 @@ impl Egor {
 
     /// This function gives the next best location where to evaluate the function
     /// under optimization wrt to previous evaluations.
-    /// The function returns several point when multi point qEI strategy is used.
+    /// The function returns several points when multi point qEI strategy is used.
     ///
-    /// # Parameters
-    ///     x_doe (array[ns, nx]): ns samples where function has been evaluated
-    ///     y_doe (array[ns, 1 + n_cstr]): ns values of objective and constraints
+    /// Parameters
+    /// ----------
+    /// x_doe : array[ns, nx]
+    ///     ns samples where function has been evaluated
+    /// y_doe : array[ns, 1 + n_cstr]
+    ///     ns values of objective and constraints
+    /// seed : int >= 0, optional
+    ///     Random generator seed to allow computation reproducibility.
     ///
-    ///     seed (int >= 0):
-    ///         Random generator seed to allow computation reproducibility.
-    ///
-    /// # Returns
-    ///     (array[batch, nx]): suggested locations where to evaluate objective and constraints
-    ///         where batch is the qEI batch size (qei_config.batch, 1 by default)
+    /// Returns
+    /// -------
+    /// array[batch, nx]
+    ///     suggested locations where to evaluate objective and constraints
+    ///     where batch is the qEI batch size (qei_config.batch, 1 by default)
     ///
     #[pyo3(signature = (x_doe, y_doe, seed = None))]
     fn suggest(
@@ -624,10 +613,14 @@ impl Egor {
     /// of the function (objective wrt constraints) under minimization.
     /// Caveat: This function does not take into account function constraints values
     ///
-    /// # Parameters
-    ///     y_doe (array[ns, 1 + n_cstr]): ns values of objective and constraints
-    ///     
-    /// # Returns
+    /// Parameters
+    /// ----------
+    /// y_doe : array[ns, 1 + n_cstr]
+    ///     ns values of objective and constraints
+    ///
+    /// Returns
+    /// -------
+    /// int
     ///     index in y_doe of the best evaluation
     ///
     #[pyo3(signature = (y_doe))]
@@ -648,16 +641,20 @@ impl Egor {
     /// of the function (objective wrt constraints) under minimization.
     /// Caveat: This function does not take into account function constraints values
     ///
-    /// # Parameters
-    ///     x_doe (array[ns, nx]): ns samples where function has been evaluated
-    ///     y_doe (array[ns, 1 + n_cstr]): ns values of objective and constraints
-    ///     
-    /// # Returns
-    ///     result
-    ///         x_opt (array[nx]): x value where fun is at its minimum subject to constraints
-    ///         y_opt (array[ny]): fun(x_opt) where ny = 1 + n_cstr
-    ///         x_doe (array[ns, nx]): x values of the final DOE
-    ///         y_doe (array[ns, 1 + n_cstr]): y values of the final DOE
+    /// Parameters
+    /// ----------
+    /// x_doe : array[ns, nx]
+    ///     ns samples where function has been evaluated
+    /// y_doe : array[ns, 1 + n_cstr]
+    ///     ns values of objective and constraints
+    ///
+    /// Returns
+    /// -------
+    /// OptimResult
+    ///     * x_opt (array[nx]): x value where fun is at its minimum subject to constraints
+    ///     * y_opt (array[ny]): fun(x_opt) where ny = 1 + n_cstr
+    ///     * x_doe (array[ns, nx]): the given x_doe
+    ///     * y_doe (array[ns, ny]): the given y_doe
     ///
     #[pyo3(signature = (x_doe, y_doe))]
     fn get_result(
