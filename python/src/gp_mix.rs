@@ -260,6 +260,7 @@ impl GpMix {
                 .theta_tunings(&theta_tunings)
                 .kpls_dim(self.gp_config.kpls_dim)
                 .n_start(n_start)
+                .max_eval(self.gp_config.max_eval)
                 .with_rng(rng)
                 .fit(&dataset)
         });

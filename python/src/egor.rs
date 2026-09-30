@@ -58,30 +58,13 @@ fn parse_trego_config(py: Python, value: Py<PyAny>) -> PyResult<TregoConfigSpec>
 }
 
 fn parse_run_info(py: Python, value: Py<PyAny>) -> PyResult<RunInfo> {
-    if let Ok(info) = value.extract(py) {
-        return Ok(info);
+    let value = value.bind(py);
+    if !value.is_instance_of::<RunInfo>() && !value.is_instance_of::<pyo3::types::PyDict>() {
+        return Err(PyTypeError::new_err(
+            "run_info should be a RunInfo or a dict",
+        ));
     }
-
-    let dict = value
-        .bind(py)
-        .cast::<pyo3::types::PyDict>()
-        .map_err(|_| PyTypeError::new_err("run_info should be a RunInfo or a dict"))?;
-    let mut info = RunInfo::new("fobj".to_string(), 1);
-
-    for key_any in dict.keys().iter() {
-        let key = key_any.extract::<String>()?;
-        match key.as_str() {
-            "fname" => info.fname = dict.get_item("fname")?.unwrap().extract()?,
-            "num" => info.num = dict.get_item("num")?.unwrap().extract()?,
-            _ => {
-                return Err(PyValueError::new_err(format!(
-                    "unknown run_info key '{key}'"
-                )));
-            }
-        }
-    }
-
-    Ok(info)
+    value.extract()
 }
 
 /// Optimizer constructor
@@ -178,8 +161,10 @@ fn parse_run_info(py: Python, value: Py<PyAny>) -> PyResult<RunInfo> {
 ///         partial optimizations using only nx / n_coop components at a time.
 ///         The default value is 0 meaning that the CoEGO algorithm is not used.
 ///   
-///     target (float):
-///         Known optimum used as stopping criterion.
+///     target (float or None):
+///         Known optimum used as stopping criterion: the optimization stops once
+///         an objective value lower than or equal to target is found.
+///         When None (default) no target is used.
 ///
 ///     failsafe_strategy (FailsafeStrategy enum):
 ///         Strategy to handle objective computation failure at a given x point.
@@ -213,7 +198,7 @@ pub(crate) struct Egor {
     pub infill_optimizer: InfillOptimizer,
     pub trego: Option<TregoConfig>,
     pub coego_n_coop: usize,
-    pub target: f64,
+    pub target: Option<f64>,
     pub failsafe_strategy: FailsafeStrategy,
 }
 
@@ -238,7 +223,7 @@ impl Egor {
         infill_optimizer = InfillOptimizer::Cobyla,
         trego = None,
         coego_n_coop = 0,
-        target = f64::MIN,
+        target = None,
         failsafe_strategy = FailsafeStrategy::Rejection,
     ))]
     #[allow(clippy::too_many_arguments)]
@@ -265,7 +250,7 @@ impl Egor {
         #[gen_stub(override_type(type_repr = "TregoConfig | builtins.bool | builtins.dict[builtins.str, typing.Any] | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
         trego: Option<Py<PyAny>>,
         coego_n_coop: usize,
-        target: f64,
+        target: Option<f64>,
         failsafe_strategy: FailsafeStrategy,
     ) -> PyResult<Self> {
         let doe = doe.map(|x| x.to_owned_array());
@@ -526,10 +511,7 @@ impl Egor {
         let py_run_info = if let Some(ri) = run_info {
             parse_run_info(py, ri)?
         } else {
-            RunInfo {
-                fname: "objective_function".to_string(),
-                num: 1,
-            }
+            RunInfo::default()
         };
 
         let mixintegor = mixintegor.run_info(egobox_ego::RunInfo {
@@ -586,13 +568,14 @@ impl Egor {
     ///
     /// # Parameters
     ///     x_doe (array[ns, nx]): ns samples where function has been evaluated
-    ///     y_doe (array[ns, 1 + n_cstr]): ns values of objecctive and constraints
+    ///     y_doe (array[ns, 1 + n_cstr]): ns values of objective and constraints
     ///
     ///     seed (int >= 0):
     ///         Random generator seed to allow computation reproducibility.
     ///
     /// # Returns
-    ///     (array[1, nx]): suggested location where to evaluate objective and constraints
+    ///     (array[batch, nx]): suggested locations where to evaluate objective and constraints
+    ///         where batch is the qEI batch size (qei_config.batch, 1 by default)
     ///
     #[pyo3(signature = (x_doe, y_doe, seed = None))]
     fn suggest(
@@ -883,11 +866,14 @@ impl Egor {
             })
             .infill_optimizer(infill_optimizer)
             .coego(coego_status)
-            .target(self.target)
             .stop_on_error(stop_on_error)
             .warm_start(warm_start)
             .hot_start(hot_start.into())
             .failsafe_strategy(failsafe_strategy);
+
+        if let Some(target) = self.target {
+            config = config.target(target);
+        }
 
         if let Some(timeout) = timeout {
             config = config.timeout(timeout);

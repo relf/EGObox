@@ -91,10 +91,10 @@ optim = egor.minimize(
 ### Result Object
 
 ```python
-optim.result.x_opt   # np.ndarray shape (1, n_dims)        — best input found
-optim.result.y_opt   # np.ndarray shape (1, 1 + n_cstr)    — fun(x_opt): [obj, c1, c2, ...]
-optim.result.x_hist  # np.ndarray shape (n_evals, n_dims)  — all evaluated x
-optim.result.y_hist  # np.ndarray shape (n_evals, 1+n_cstr)— all fun(x) values
+optim.result.x_opt   # np.ndarray shape (n_dims,)          — best input found
+optim.result.y_opt   # np.ndarray shape (1 + n_cstr,)      — fun(x_opt): [obj, c1, c2, ...]
+optim.result.x_doe   # np.ndarray shape (n_evals, n_dims)  — all evaluated x
+optim.result.y_doe   # np.ndarray shape (n_evals, 1+n_cstr)— all fun(x) values
 ```
 
 ---
@@ -315,7 +315,7 @@ rnd = egx.random(xlimits, n_samples=20, seed=42)  # Random
 - **`f_obj` must handle batched inputs**: x shape is `(n_samples, n_dims)`, not `(n_dims,)`.
 - **`n_cstr` vs `cstr_specs`**: use `n_cstr` for plain `≤ 0` constraints; use `cstr_specs` for all other forms. Don't set both at the same time.
 - **`eq` / `btw` expand to 2 internal constraints each**: if you pass `cstr_tol`, size it to the total expanded count.
-- **`y_opt` includes constraint values**: shape is `(1, 1 + n_cstr)` — first column is the objective.
+- **`y_opt` includes constraint values**: shape is `(1 + n_cstr,)` — first element is the objective.
 - **`seed` belongs in `minimize()`**, not in `Egor()` (changed in v0.37.0).
 - **`xtypes` vs `xlimits`**: pass a flat list of `[lo, hi]` for continuous-only; use `XSpec` objects for mixed-integer.
 - **Low `n_doe`**: default is ~`n_dims + 1`. For complex functions, use `n_doe = 3 * n_dims` or more.

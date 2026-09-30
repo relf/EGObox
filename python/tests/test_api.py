@@ -102,6 +102,54 @@ class TestApiImports(unittest.TestCase):
         self.assertEqual(optim.status.info.fname, "fobj")
         self.assertEqual(optim.status.info.num, 7)
 
+    def test_run_info_default_fname(self):
+        import egobox as egx
+
+        def fobj(x: np.ndarray) -> np.ndarray:
+            x = np.atleast_2d(x)
+            return np.sum(x**2, axis=1).reshape(-1, 1)
+
+        self.assertEqual(egx.RunInfo().fname, "objective_function")
+        egor = egx.Egor([[0.0, 1.0]], infill_strategy=1)
+        optim = egor.minimize(fobj, max_iters=1, seed=42)
+        self.assertEqual(optim.status.info.fname, "objective_function")
+        optim = egor.minimize(fobj, max_iters=1, seed=42, run_info={"num": 3})
+        self.assertEqual(optim.status.info.fname, "objective_function")
+        self.assertEqual(optim.status.info.num, 3)
+        with self.assertRaises(TypeError):
+            egor.minimize(fobj, max_iters=1, seed=42, run_info="fobj")
+
+    def test_egor_target(self):
+        import egobox as egx
+
+        def fobj(x: np.ndarray) -> np.ndarray:
+            x = np.atleast_2d(x)
+            return np.sum(x**2, axis=1).reshape(-1, 1)
+
+        optim = egx.Egor([[-1.0, 1.0]], target=None).minimize(
+            fobj, max_iters=2, seed=42
+        )
+        self.assertEqual(optim.status.exit, egx.ExitStatus.MAX_ITERS_REACHED)
+        # any objective value reaches such a target
+        optim = egx.Egor([[-1.0, 1.0]], target=1e9).minimize(fobj, max_iters=2, seed=42)
+        self.assertEqual(optim.status.exit, egx.ExitStatus.TARGET_COST_REACHED)
+
+    def test_gpmix_max_eval_is_used(self):
+        import egobox as egx
+
+        # likelihood evaluations per start: clamp(10 * nx, 25, max_eval)
+        # hence nx = 5 to get 50 evaluations by default, capped to 25 here
+        xt = egx.lhs([[0.0, 4.0]] * 5, 30, seed=42)
+        yt = (np.sin(xt[:, 0]) + np.cos(2 * xt[:, 1]) + xt[:, 2:].sum(axis=1)).reshape(
+            -1, 1
+        )
+
+        def thetas(max_eval):
+            gpx = egx.GpMix(n_start=1, max_eval=max_eval, seed=42).fit(xt, yt)
+            return gpx.thetas()
+
+        self.assertFalse(np.allclose(thetas(25), thetas(1000)))
+
     def test_sampling_accepts_int_method(self):
         import egobox as egx
 

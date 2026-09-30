@@ -12,7 +12,7 @@ The core design is sound:
 
 The main problems are error handling, the stubs, and naming drift. Findings are ordered by user impact.
 
-> **Status:** items 1 (errors) and 2 (stubs) are implemented. Items 3–6 are open.
+> **Status:** items 1 (errors), 2 (stubs) and 3 (silent behaviour) are implemented. Items 4–6 are open.
 
 ---
 
@@ -78,7 +78,7 @@ IDE help and type checking get these wrong:
 - Possible follow-up: `TypedDict`s for the dict forms. pyo3-stub-gen cannot generate them, so they would need a
   hand-maintained stub.
 
-## 3. Silent or misleading behaviour
+## 3. Silent or misleading behaviour — ✅ addressed
 
 - **`max_eval` does nothing in `GpMix`.** It is accepted but never passed on in `GpMix.fit`. Only `Egor`
   forwards it, in `Egor::apply_config`.
@@ -87,6 +87,15 @@ IDE help and type checking get these wrong:
 - **Two defaults for the run name.** `RunInfo()` defaults `fname` to `"fobj"`, but
   `minimize(run_info=None)` uses `"objective_function"`. Pick one.
 - **`target=-1.797e308` shows up as a sentinel in the signature.** `target: float | None = None` would be clearer.
+
+**Fix applied:**
+- `GpMix.fit` now forwards `max_eval`. It caps the likelihood evaluations of each hyperparameter optimization start,
+  whose budget is `clamp(10 * nx, 25, max_eval)`: it only has an effect when `max_eval < 10 * nx`.
+- `x_opt` / `y_opt` are documented as `array[nx]` / `array[ny]`, with `ny = 1 + n_cstr`, in `minimize`,
+  `get_result` and the `egobox` skill. `suggest` is documented as returning `array[batch, nx]`, one row per qEI point.
+- `RunInfo()`, the `run_info` dict form and `minimize(run_info=None)` all default `fname` to `"objective_function"`,
+  the Rust core default.
+- `Egor(target=None)` is the default and means no target. Passing a float works as before.
 
 ## 4. Naming consistency
 
@@ -151,6 +160,6 @@ IDE help and type checking get these wrong:
 
 1. ✅ **Errors:** replace panics with Python exceptions.
 2. ✅ **Stubs:** add `gen_stub_pymethods` to the configs, use real type hints, and set `module="egobox"` with `__repr__`s.
-3. **Silent bugs:** `GpMix` ignoring `max_eval`, the result-shape docs, and the `RunInfo` default.
+3. ✅ **Silent bugs:** `GpMix` ignoring `max_eval`, the result-shape docs, and the `RunInfo` default.
 4. **Additive UX:** aliases, `IntFlag` specs and result forwarding. None of these break existing code.
 5. **Breaking renames:** do these behind deprecation warnings in one release, grouping the constraint settings at the same time.
