@@ -1,3 +1,4 @@
+use crate::deprecation::{resolve_renamed_key, warn_deprecated};
 use egobox_ego::OBJECTIVE_FUNCTION_ERROR;
 use numpy::{PyArray1, PyArray2};
 use pyo3::exceptions::{PyTypeError, PyValueError};
@@ -152,6 +153,23 @@ pub(crate) enum ConstraintStrategy {
     Utb = 2,
 }
 
+#[gen_stub_pymethods]
+#[pymethods]
+impl ConstraintStrategy {
+    /// Long name alias of MC
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn MEAN_CONSTRAINT() -> ConstraintStrategy {
+        Self::Mc
+    }
+    /// Long name alias of UTB
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn UPPER_TRUST_BOUND() -> ConstraintStrategy {
+        Self::Utb
+    }
+}
+
 impl<'a, 'py> FromPyObject<'a, 'py> for ConstraintStrategy {
     type Error = PyErr;
 
@@ -201,6 +219,35 @@ pub(crate) enum QEiStrategy {
     /// value observed in the DOE, which is equivalent to assuming that
     /// the prediction is the current best value
     Clmin = 4,
+}
+
+#[gen_stub_pymethods]
+#[pymethods]
+impl QEiStrategy {
+    /// Long name alias of KB
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn KRIGING_BELIEVER() -> QEiStrategy {
+        Self::Kb
+    }
+    /// Long name alias of KBLB
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn KRIGING_BELIEVER_LOWER_BOUND() -> QEiStrategy {
+        Self::Kblb
+    }
+    /// Long name alias of KBUB
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn KRIGING_BELIEVER_UPPER_BOUND() -> QEiStrategy {
+        Self::Kbub
+    }
+    /// Long name alias of CLMIN
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn CONSTANT_LIAR_MINIMUM() -> QEiStrategy {
+        Self::Clmin
+    }
 }
 
 impl<'a, 'py> FromPyObject<'a, 'py> for QEiStrategy {
@@ -285,6 +332,23 @@ pub(crate) enum FeasibleInfillStrategy {
     /// EFI Feasibility Enhanced (EFI_FE): the criterion is weighted by the probability of viability
     /// to the power 0.3, which is more exploratory than EFI_P
     EfiFe = 3,
+}
+
+#[gen_stub_pymethods]
+#[pymethods]
+impl FeasibleInfillStrategy {
+    /// Long name alias of EFI_P
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn EFI_PROBABILITY() -> FeasibleInfillStrategy {
+        Self::EfiP
+    }
+    /// Long name alias of EFI_FE
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn EFI_FEASIBILITY_ENHANCED() -> FeasibleInfillStrategy {
+        Self::EfiFe
+    }
 }
 
 impl<'a, 'py> FromPyObject<'a, 'py> for FeasibleInfillStrategy {
@@ -513,6 +577,9 @@ impl<'a, 'py> FromPyObject<'a, 'py> for SparseMethod {
 /// Instead of requiring constraints to be formulated as c <= 0,
 /// users can specify constraint bounds directly.
 ///
+/// Each spec can have its own tolerance `tol`: the constraint is considered satisfied
+/// when the violation is below `tol`. It takes precedence over `Egor(cstr_tol=...)`.
+///
 /// # Examples
 ///
 /// ```python
@@ -521,21 +588,30 @@ impl<'a, 'py> FromPyObject<'a, 'py> for SparseMethod {
 /// # c <= 5.0
 /// spec1 = egx.CstrSpec.leq(5.0)
 ///
-/// # c >= 2.0
-/// spec2 = egx.CstrSpec.geq(2.0)
+/// # c >= 2.0 with a tolerance of 1e-2
+/// spec2 = egx.CstrSpec.geq(2.0, tol=1e-2)
 ///
 /// # c = 4.0 (equality constraint, expands to two internal constraints)
 /// spec3 = egx.CstrSpec.eq(4.0)
 ///
 /// # 1.0 <= c <= 3.0 (double-sided, expands to two internal constraints)
-/// spec4 = egx.CstrSpec.btw(1.0, 3.0)
+/// spec4 = egx.CstrSpec.between(1.0, 3.0)
+///
+/// # dict form
+/// spec5 = {"between": (1.0, 3.0), "tol": 1e-2}
 /// ```
 #[gen_stub_pyclass]
 #[pyclass(skip_from_py_object, module = "egobox")]
 #[derive(Debug, Clone)]
 pub(crate) struct CstrSpec {
     pub(crate) inner: egobox_ego::CstrSpec,
+    /// Tolerance of the constraint, None means the `Egor(cstr_tol=...)` value or the default is used
+    #[pyo3(get)]
+    pub(crate) tol: Option<f64>,
 }
+
+/// Renamed `CstrSpec` dict keys as (deprecated, new) pairs
+const CSTR_SPEC_RENAMED: [(&str, &str); 1] = [("btw", "between")];
 
 impl<'a, 'py> FromPyObject<'a, 'py> for CstrSpec {
     type Error = PyErr;
@@ -546,29 +622,36 @@ impl<'a, 'py> FromPyObject<'a, 'py> for CstrSpec {
         }
 
         let dict = obj.cast::<pyo3::types::PyDict>()?;
-        if dict.len() != 1 {
+        let tol = dict
+            .get_item("tol")?
+            .map(|tol| tol.extract::<f64>())
+            .transpose()?;
+        let n_kinds = dict.len() - tol.is_some() as usize;
+        if n_kinds != 1 {
             return Err(PyValueError::new_err(
-                "CstrSpec dict form must contain exactly one key among: leq, geq, eq, btw",
+                "CstrSpec dict form must contain exactly one key among: leq, geq, eq, between (and optionally tol)",
             ));
         }
 
-        if let Some(value) = dict.get_item("leq")? {
-            return Ok(CstrSpec::leq(value.extract()?));
+        for (key, value) in dict.iter() {
+            let key = key.extract::<String>()?;
+            if key == "tol" {
+                continue;
+            }
+            return match resolve_renamed_key(&dict, &key, &CSTR_SPEC_RENAMED)? {
+                "leq" => Ok(CstrSpec::leq(value.extract()?, tol)),
+                "geq" => Ok(CstrSpec::geq(value.extract()?, tol)),
+                "eq" => Ok(CstrSpec::eq(value.extract()?, tol)),
+                "between" => {
+                    let (lower, upper): (f64, f64) = value.extract()?;
+                    Ok(CstrSpec::between(lower, upper, tol))
+                }
+                _ => Err(PyValueError::new_err(format!(
+                    "Unknown CstrSpec dict key '{key}'. Expected one of: leq, geq, eq, between (and optionally tol)"
+                ))),
+            };
         }
-        if let Some(value) = dict.get_item("geq")? {
-            return Ok(CstrSpec::geq(value.extract()?));
-        }
-        if let Some(value) = dict.get_item("eq")? {
-            return Ok(CstrSpec::eq(value.extract()?));
-        }
-        if let Some(value) = dict.get_item("btw")? {
-            let (lower, upper): (f64, f64) = value.extract()?;
-            return Ok(CstrSpec::btw(lower, upper));
-        }
-
-        Err(PyValueError::new_err(
-            "Unknown CstrSpec dict key. Expected one of: leq, geq, eq, btw",
-        ))
+        unreachable!("dict has exactly one constraint kind key")
     }
 }
 
@@ -577,40 +660,59 @@ impl<'a, 'py> FromPyObject<'a, 'py> for CstrSpec {
 impl CstrSpec {
     /// Constraint c <= bound, transformed to c - bound <= 0
     #[staticmethod]
-    pub fn leq(bound: f64) -> Self {
+    #[pyo3(signature = (bound, tol=None))]
+    pub fn leq(bound: f64, tol: Option<f64>) -> Self {
         CstrSpec {
             inner: egobox_ego::CstrSpec::Leq(bound),
+            tol,
         }
     }
 
     /// Constraint c >= bound, transformed to bound - c <= 0
     #[staticmethod]
-    pub fn geq(bound: f64) -> Self {
+    #[pyo3(signature = (bound, tol=None))]
+    pub fn geq(bound: f64, tol: Option<f64>) -> Self {
         CstrSpec {
             inner: egobox_ego::CstrSpec::Geq(bound),
+            tol,
         }
     }
 
     /// Equality constraint c = value, expands to two internal constraints:
     /// c - value <= 0 and value - c <= 0
     #[staticmethod]
-    pub fn eq(value: f64) -> Self {
+    #[pyo3(signature = (value, tol=None))]
+    pub fn eq(value: f64, tol: Option<f64>) -> Self {
         CstrSpec {
             inner: egobox_ego::CstrSpec::Eq(value),
+            tol,
         }
     }
 
     /// Double-sided constraint lower <= c <= upper, expands to two internal constraints:
     /// lower - c <= 0 and c - upper <= 0
     #[staticmethod]
-    pub fn btw(lower: f64, upper: f64) -> Self {
+    #[pyo3(signature = (lower, upper, tol=None))]
+    pub fn between(lower: f64, upper: f64, tol: Option<f64>) -> Self {
         CstrSpec {
             inner: egobox_ego::CstrSpec::Btw(lower, upper),
+            tol,
         }
     }
 
+    /// Deprecated since 0.38.0, use `CstrSpec.between` instead.
+    #[staticmethod]
+    #[pyo3(signature = (lower, upper, tol=None))]
+    pub fn btw(py: Python, lower: f64, upper: f64, tol: Option<f64>) -> PyResult<Self> {
+        warn_deprecated(py, "CstrSpec.btw", "CstrSpec.between")?;
+        Ok(CstrSpec::between(lower, upper, tol))
+    }
+
     fn __repr__(&self) -> String {
-        format!("{:?}", self.inner)
+        match self.tol {
+            Some(tol) => format!("{:?} (tol={tol})", self.inner),
+            None => format!("{:?}", self.inner),
+        }
     }
 }
 

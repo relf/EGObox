@@ -57,7 +57,23 @@ get the new name at the old position. Tests in `python/tests/test_deprecations.p
    `python/tests/*.py`, `python/README.md`, `README.md`, `website/content/{python-api,cookbook}.md`,
    `python/skills/egobox*/SKILL.md`, notebooks if they use the old names.
 
-## MEDIUM — clearer names and ergonomics, still transitional
+## MEDIUM — clearer names and ergonomics, still transitional — ✅ done (except item 8, moved to LOW)
+
+**Implemented:** items 5–7 and 9–12 below. Tests in `python/tests/test_deprecations.py` for the renames, and in the
+`test_egor.py`, `test_gpmix.py`, `test_sgpmix.py` and `test_stubs.py` files for the additions. Differences from the plan:
+- Enum aliases are `#[classattr]`s returning the variant, so they are equal (`==`) to it but not the same object (`is`).
+  The stub declares them as `ALIAS: Enum`.
+- `Egor(doe=..., x_doe=...)` (the old name mixed with a new one) raises `TypeError`, like other renamed kwargs.
+  `y_doe` without `x_doe`, an `x_doe` without nx columns, or a row count mismatch raise `ValueError`.
+- `TregoConfig` dict keys are handled only by `TregoConfig` extraction. The duplicate parsing in `egor.rs`
+  `parse_trego_config` was removed.
+- `sampling`: the old order is supported only when positional, `sampling(M, X, N[, seed])`. With
+  `sampling(M, X, n_samples=N)`, Python binds `n_samples` twice before the function runs, so that call raises
+  `TypeError`. Calls using only keywords are unaffected. The stub shows `method: Sampling | None = None`
+  (None meaning LHS), as a pyo3 signature default cannot be a Python enum instance.
+- `CstrSpec.tol` lives in the Python binding only (the Rust `egobox_ego::CstrSpec` is unchanged). `Egor` builds the full
+  internal `cstr_tol` vector (`Egor::internal_cstr_tol`) from `cstr_tol`, padded with the default, then overwritten by
+  the specs' tolerances. `best_index` / `best_result` keep using `cstr_tol` only.
 
 5. **Long enum aliases** (`types.rs`), additive with no deprecation, short names stay:
    `ConstraintStrategy.MEAN_CONSTRAINT` / `UPPER_TRUST_BOUND`, `QEiStrategy.KRIGING_BELIEVER` /
@@ -72,11 +88,7 @@ get the new name at the old position. Tests in `python/tests/test_deprecations.p
    than the review's `doe_x` / `doe_y`); `doe` warns. `ValueError` if `doe` is mixed with `x_doe`/`y_doe`, or if
    `y_doe` is given without `x_doe`. `x_doe` alone keeps the current "x only" behaviour of `doe` with nx columns (check
    what `apply_config` does today).
-8. **`GpMix(gp_config=...)`** (`gp_mix.rs`, `sparse_gp_mix.rs` for its own subset if it makes sense):
-   - `GpMix(xspecs=None, gp_config=None, seed=None, verbose=None)` plus the flat GP kwargs as deprecated `Option`s
-     defaulting to `None`. Flat kwargs given → warn and build a `GpConfig`. Both given → `TypeError`.
-   - `Gpx.builder(...)` gets the same signature (it forwards to `GpMix`).
-   - Removes the two hand-maintained 12-parameter signatures at removal time.
+8. **`GpMix(gp_config=...)`**: deferred, see item 19 in LOW.
 9. **`Gpx.predict(x, return_std=False)`** and same on `SparseGpx` (`gp_mix.rs`, `sparse_gp_mix.rs`): additive;
    `return_std=True` returns `(mean, std)` with std = `sqrt(predict_var)`. Stub return type is a union/overload.
 10. **`nx` / `ny` properties** on `Gpx` / `SparseGpx`: additive. `dims()` kept for now, not deprecated (low churn).
@@ -104,11 +116,16 @@ get the new name at the old position. Tests in `python/tests/test_deprecations.p
 17. **Full `CstrConfig`** grouping (`n_cstr`, `cstr_tol`, `cstr_specs`, `cstr_infill`, `cstr_strategy`): revisit
     after item 12. Per-spec tolerance may make it unnecessary.
 18. **`TypedDict`s for dict forms**: hand-maintained stub section; optional.
+19. **`GpMix(gp_config=...)`** (was item 8, deferred from MEDIUM): the idea was
+    `GpMix(xspecs=None, gp_config=None, seed=None, verbose=None)`, with the flat GP kwargs deprecated.
+    It is on hold because a one-argument `GpMix(GpConfig(...))` is awkward: unlike `Egor`, which has many other
+    parameters, the `GpMix` args are the `GpConfig` args. It would also touch almost every `GpMix` user. If it is
+    revisited, `gp_config=` would be added without a warning first, with `TypeError` when it is mixed with flat kwargs.
 
 ## Removal release (after 0.38)
 
-Delete the deprecated kwargs, getters, methods, dict keys and the old `sampling` order; do item 16; drop the `Option`
-plumbing in the `GpMix` signature. `test_deprecations.py` becomes "old names raise `TypeError` / `AttributeError`".
+Delete the deprecated kwargs, getters, methods, dict keys and the old `sampling` order (then `sampling` can take
+typed arguments again); do item 16. `test_deprecations.py` becomes "old names raise `TypeError` / `AttributeError`".
 
 ## Docs
 

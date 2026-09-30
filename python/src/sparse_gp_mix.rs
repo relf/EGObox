@@ -31,7 +31,7 @@ const SPARSE_GP_OPTIM_N_START: usize = 10;
 
 /// Sparse Gaussian process builder
 ///
-/// Inducing points are required: give either their number `nz` or their locations `z`.
+/// Inducing points are required: give either their number `n_inducing` or their locations `inducing`.
 ///
 /// Parameters
 /// ----------
@@ -51,11 +51,11 @@ const SPARSE_GP_OPTIM_N_START: usize = 10;
 ///     This is used to address high-dimensional problems typically when nx > 9.
 /// theta_n_start : int >= 0, optional
 ///     Number of internal GP hyperparameters optimization restarts (multistart, default is 10)
-/// nz : int, optional
+/// n_inducing : int, optional
 ///     Number of inducing points, randomly picked among the training inputs.
-///     Used when `z` is not given.
-/// z : array[nz, nx], optional
-///     Locations of the inducing points. Takes precedence over `nz`.
+///     Used when `inducing` is not given.
+/// inducing : array[n_inducing, nx], optional
+///     Locations of the inducing points. Takes precedence over `n_inducing`.
 /// method : SparseMethod
 ///     Sparse method to be used (default is SparseMethod.FITC)
 /// seed : int >= 0, optional
@@ -68,6 +68,10 @@ const SPARSE_GP_OPTIM_N_START: usize = 10;
 /// ----------
 /// n_start : int >= 0, optional
 ///     Deprecated since 0.38.0, use `theta_n_start` instead.
+/// nz : int, optional
+///     Deprecated since 0.38.0, use `n_inducing` instead.
+/// z : array[nz, nx], optional
+///     Deprecated since 0.38.0, use `inducing` instead.
 ///
 /// Returns
 /// -------
@@ -82,8 +86,8 @@ pub(crate) struct SparseGpMix {
     pub theta_bounds: Option<Vec<Vec<f64>>>,
     pub kpls_dim: Option<usize>,
     pub theta_n_start: usize,
-    pub nz: Option<usize>,
-    pub z: Option<Array2<f64>>,
+    pub n_inducing: Option<usize>,
+    pub inducing: Option<Array2<f64>>,
     pub method: SparseMethod,
     pub seed: Option<u64>,
 }
@@ -98,13 +102,15 @@ impl SparseGpMix {
         theta_bounds = None,
         kpls_dim = None,
         theta_n_start = None,
-        nz = None,
-        z = None,
+        n_inducing = None,
+        inducing = None,
         method = SparseMethod::Fitc,
         seed = None,
         verbose = None,
         *,
         n_start = None,
+        nz = None,
+        z = None,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -114,13 +120,15 @@ impl SparseGpMix {
         theta_bounds: Option<Vec<Vec<f64>>>,
         kpls_dim: Option<usize>,
         theta_n_start: Option<usize>,
-        nz: Option<usize>,
-        z: Option<PyReadonlyArray2<f64>>,
+        n_inducing: Option<usize>,
+        inducing: Option<PyReadonlyArray2<f64>>,
         method: SparseMethod,
         seed: Option<u64>,
         #[gen_stub(override_type(type_repr = "Verbose | builtins.int | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
         verbose: Option<Py<PyAny>>,
         n_start: Option<usize>,
+        nz: Option<usize>,
+        z: Option<PyReadonlyArray2<f64>>,
     ) -> PyResult<Self> {
         let theta_n_start = resolve_renamed(
             py,
@@ -130,6 +138,15 @@ impl SparseGpMix {
             theta_n_start,
             SPARSE_GP_OPTIM_N_START,
         )?;
+        let n_inducing = resolve_renamed(
+            py,
+            "nz",
+            nz.map(Some),
+            "n_inducing",
+            n_inducing.map(Some),
+            None,
+        )?;
+        let inducing = resolve_renamed(py, "z", z.map(Some), "inducing", inducing.map(Some), None)?;
         init_logger(py, verbose);
         Ok(SparseGpMix {
             correlation_spec: CorrelationSpec(corr_spec),
@@ -137,8 +154,8 @@ impl SparseGpMix {
             theta_bounds,
             kpls_dim,
             theta_n_start,
-            nz,
-            z: z.map(|z| z.as_array().to_owned()),
+            n_inducing,
+            inducing: inducing.map(|z| z.as_array().to_owned()),
             method,
             seed,
         })
@@ -176,13 +193,13 @@ impl SparseGpMix {
             Xoshiro256Plus::from_entropy()
         };
 
-        let inducings = if let Some(z) = self.z.as_ref() {
-            Inducings::Located(z.clone())
-        } else if let Some(nz) = self.nz {
-            Inducings::Randomized(nz)
+        let inducings = if let Some(inducing) = self.inducing.as_ref() {
+            Inducings::Located(inducing.clone())
+        } else if let Some(n_inducing) = self.n_inducing {
+            Inducings::Randomized(n_inducing)
         } else {
             return Err(PyValueError::new_err(
-                "inducing points should be specified either with nz or z",
+                "inducing points should be specified either with n_inducing or inducing",
             ));
         };
 
@@ -248,13 +265,15 @@ impl SparseGpx {
         theta_bounds = None,
         kpls_dim = None,
         theta_n_start = None,
-        nz = None,
-        z = None,
+        n_inducing = None,
+        inducing = None,
         method = SparseMethod::Fitc,
         seed = None,
         verbose = None,
         *,
         n_start = None,
+        nz = None,
+        z = None,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn builder(
@@ -264,13 +283,15 @@ impl SparseGpx {
         theta_bounds: Option<Vec<Vec<f64>>>,
         kpls_dim: Option<usize>,
         theta_n_start: Option<usize>,
-        nz: Option<usize>,
-        z: Option<PyReadonlyArray2<f64>>,
+        n_inducing: Option<usize>,
+        inducing: Option<PyReadonlyArray2<f64>>,
         method: SparseMethod,
         seed: Option<u64>,
         #[gen_stub(override_type(type_repr = "Verbose | builtins.int | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
         verbose: Option<Py<PyAny>>,
         n_start: Option<usize>,
+        nz: Option<usize>,
+        z: Option<PyReadonlyArray2<f64>>,
     ) -> PyResult<SparseGpMix> {
         SparseGpMix::new(
             py,
@@ -279,12 +300,14 @@ impl SparseGpx {
             theta_bounds,
             kpls_dim,
             theta_n_start,
-            nz,
-            z,
+            n_inducing,
+            inducing,
             method,
             seed,
             verbose,
             n_start,
+            nz,
+            z,
         )
     }
 
@@ -354,19 +377,37 @@ impl SparseGpx {
     /// ----------
     /// x : array[nsamples, nx] or array[nsamples] when nx == 1
     ///     input values
+    /// return_std : bool
+    ///     When True, the standard deviations of the predictions are also returned,
+    ///     computed as sqrt(predict_var(x)) (default is False)
     ///
     /// Returns
     /// -------
-    /// array[nsamples]
-    ///     the output values at the nsamples x points
+    /// array[nsamples] or (array[nsamples], array[nsamples])
+    ///     the output values at the nsamples x points,
+    ///     and their standard deviations when return_std is True
     ///
+    #[pyo3(signature = (x, return_std=false))]
+    #[gen_stub(override_return_type(type_repr = "numpy.typing.NDArray[numpy.float64] | tuple[numpy.typing.NDArray[numpy.float64], numpy.typing.NDArray[numpy.float64]]", imports = ("numpy", "numpy.typing")))]
     fn predict<'py>(
         &self,
         py: Python<'py>,
         x: PyReadonlyArrayDyn<f64>,
-    ) -> PyResult<Bound<'py, PyArray1<f64>>> {
+        return_std: bool,
+    ) -> PyResult<Bound<'py, PyAny>> {
         let x = input_x(x.as_array(), self.0.dims().0)?;
-        Ok(self.0.predict(&x).map_err(moe_err)?.into_pyarray(py))
+        let mean = self.0.predict(&x).map_err(moe_err)?.into_pyarray(py);
+        if return_std {
+            let std = self
+                .0
+                .predict_var(&x)
+                .map_err(moe_err)?
+                .mapv(|v| v.max(0.).sqrt())
+                .into_pyarray(py);
+            Ok((mean, std).into_pyobject(py)?.into_any())
+        } else {
+            Ok(mean.into_any())
+        }
     }
 
     /// Predict variances at nsamples points.
@@ -481,6 +522,18 @@ impl SparseGpx {
     ///
     fn dims(&self) -> (usize, usize) {
         self.0.dims()
+    }
+
+    /// Number of input components
+    #[getter]
+    fn nx(&self) -> usize {
+        self.0.dims().0
+    }
+
+    /// Number of output components
+    #[getter]
+    fn ny(&self) -> usize {
+        self.0.dims().1
     }
 
     /// Get the nt training data points used to fit the surrogate

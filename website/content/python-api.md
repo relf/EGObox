@@ -26,7 +26,8 @@ Egor(
     cstr_specs=None,
     infill_n_start=20,
     n_doe=0,
-    doe=None,
+    x_doe=None,
+    y_doe=None,
     infill_strategy=InfillStrategy.LOG_EI,
     feasible_infill_strategy=FeasibleInfillStrategy.NONE,
     cstr_infill=False,
@@ -45,18 +46,19 @@ Egor(
 | `xspecs` | `[XSpec]` | required | Input variable specifications (`XSpec` list-like), one per dimension. The simplest form is [[lower1, upper1], [lower2, upper2], ...] which supposes a continuous range for each dimension. Otherwise see [XSpecs](#xspecs) for more details. |
 | `gp_config` | `GpConfig` | `GpConfig()` | GP configuration used by the optimizer. |
 | `n_cstr` | `int` | `0` | Number of surrogate-modeled constraints returned by `fun`. |
-| `cstr_tol` | `Optional[Sequence[float]]` | `None` | Per-constraint feasibility tolerances. |
-| `cstr_specs` | `Optional[Sequence[CstrSpec]]` | `None` | Optional constraint semantics for surrogate constraints. Possible values per item: `CstrSpec.leq(bound)`, `CstrSpec.geq(bound)`, `CstrSpec.eq(value)`, `CstrSpec.btw(lower, upper)`. |
+| `cstr_tol` | `Optional[Sequence[float]]` | `None` | Per-constraint feasibility tolerances. A spec `tol` (`CstrSpec.leq(bound, tol=...)`) takes precedence. |
+| `cstr_specs` | `Optional[Sequence[CstrSpec]]` | `None` | Optional constraint semantics for surrogate constraints. Possible values per item: `CstrSpec.leq(bound)`, `CstrSpec.geq(bound)`, `CstrSpec.eq(value)`, `CstrSpec.between(lower, upper)`, each with an optional `tol`. When given, `n_cstr` is inferred. |
 | `infill_n_start` | `int` | `20` | Number of multistart runs for infill optimization (`n_start` is deprecated since 0.38.0). |
 | `n_doe` | `int` | `0` | Initial DOE size (auto-computed when `0`, if DOE not provided). |
-| `doe` | `Optional[NDArray[float64]]` | `None` | Initial DOE matrix (`x` only or concatenated `x,y`). |
+| `x_doe` | `Optional[NDArray[float64]]` | `None` | Initial DOE inputs `(ns, nx)`, evaluated when `y_doe` is not given (`doe` is deprecated since 0.38.0). |
+| `y_doe` | `Optional[NDArray[float64]]` | `None` | Initial DOE outputs `(ns, 1 + n_cstr)` corresponding to `x_doe`. |
 | `infill_strategy` | `InfillStrategy` | `InfillStrategy.LOG_EI` | Infill criterion. Possible values: `InfillStrategy.LOG_EI`, `InfillStrategy.EI`, `InfillStrategy.WB2`, `InfillStrategy.WB2S`. |
-| `feasible_infill_strategy` | `FeasibleInfillStrategy` | `FeasibleInfillStrategy.NONE` | Feasibility-aware infill mode. Possible values: `FeasibleInfillStrategy.NONE`, `FeasibleInfillStrategy.EFI_P`, `FeasibleInfillStrategy.EFI_FE`. |
+| `feasible_infill_strategy` | `FeasibleInfillStrategy` | `FeasibleInfillStrategy.NONE` | Feasibility-aware infill mode. Possible values: `FeasibleInfillStrategy.NONE`, `FeasibleInfillStrategy.EFI_P` (alias `EFI_PROBABILITY`), `FeasibleInfillStrategy.EFI_FE` (alias `EFI_FEASIBILITY_ENHANCED`). |
 | `cstr_infill` | `bool` | `False` | Enables constrained infill with probability-of-feasibility factor. Possible values: `True`, `False`. |
-| `cstr_strategy` | `ConstraintStrategy` | `ConstraintStrategy.MC` | Constraint handling strategy. Possible values: `ConstraintStrategy.MC`, `ConstraintStrategy.UTB`. |
+| `cstr_strategy` | `ConstraintStrategy` | `ConstraintStrategy.MC` | Constraint handling strategy. Possible values: `ConstraintStrategy.MC` (alias `MEAN_CONSTRAINT`), `ConstraintStrategy.UTB` (alias `UPPER_TRUST_BOUND`). |
 | `qei_config` | `QEiConfig` | `QEiConfig()` | Parallel/qEI batch configuration. See [QEiConfig](#qeiconfig) for details. |
 | `infill_optimizer` | `InfillOptimizer` | `InfillOptimizer.COBYLA` | Internal optimizer for infill criterion. Possible values: `InfillOptimizer.COBYLA`, `InfillOptimizer.SLSQP`. |
-| `trego` | `Optional[Any]` | `None` | TREGO toggle/config. Possible values: `None`, `False`, `True` (uses `TregoConfig()` defaults), `TregoConfig(...)`, or a dict with keys `n_gl_steps`, `d`, `alpha`, `beta`, `sigma0`. |
+| `trego` | `Optional[Any]` | `None` | TREGO toggle/config. Possible values: `None`, `False`, `True` (uses `TregoConfig()` defaults), `TregoConfig(...)`, or a dict with keys `n_global_local_steps`, `radius_bounds`, `alpha`, `beta`, `sigma0`. |
 | `coego_n_coop` | `int` | `0` | Number of cooperative groups for CoEGO (high-dimensional mode). |
 | `target` | `float` | `-1.7976931348623157e+308` | Known optimum target used as stopping criterion. |
 | `failsafe_strategy` | `FailsafeStrategy` | `FailsafeStrategy.REJECTION` | Failure handling for NaN objective values. Possible values: `FailsafeStrategy.REJECTION`, `FailsafeStrategy.IMPUTATION`, `FailsafeStrategy.VIABILITY`. |
@@ -80,8 +82,8 @@ Egor(
 | Name | Type | Default value | Description |
 | --- | --- | --- | --- |
 | `batch` | `int` | `1` | One point per iteration (sequential EGO). |
-| `strategy` | `QEiStrategy` | `QEiStrategy.KB` | qEI strategy. Possible values: `QEiStrategy.KB`, `QEiStrategy.KBLB`, `QEiStrategy.KBUB`, `QEiStrategy.CLMIN`. |
-| `optmod` | `int` | `1` | Re-optimize hyperparameters every point. |
+| `strategy` | `QEiStrategy` | `QEiStrategy.KB` | qEI strategy. Possible values: `QEiStrategy.KB`, `QEiStrategy.KBLB`, `QEiStrategy.KBUB`, `QEiStrategy.CLMIN` (long name aliases `KRIGING_BELIEVER`, `KRIGING_BELIEVER_LOWER_BOUND`, `KRIGING_BELIEVER_UPPER_BOUND`, `CONSTANT_LIAR_MINIMUM`). |
+| `optim_every` | `int` | `1` | Re-optimize hyperparameters every point (`optmod` is deprecated since 0.38.0). |
 
 ### TregoConfig
 
@@ -89,8 +91,8 @@ When `trego=True` in `Egor(...)`, the Python binding activates TREGO with `Trego
 
 | Name | Type | Default value | Description |
 | --- | --- | --- | --- |
-| `n_gl_steps` | `tuple[int, int]` | `(1, 4)` | Number of global and local steps `(n_global_steps, n_local_steps)`. |
-| `d` | `tuple[float, float]` | `(1e-6, 1.0)` | Trust-region radius bounds `(dmin, dmax)`. |
+| `n_global_local_steps` | `tuple[int, int]` | `(1, 4)` | Number of global and local steps `(n_global_steps, n_local_steps)` (`n_gl_steps` is deprecated since 0.38.0). |
+| `radius_bounds` | `tuple[float, float]` | `(1e-6, 1.0)` | Trust-region radius bounds `(dmin, dmax)` (`d` is deprecated since 0.38.0). |
 | `alpha` | `float` | `1.0` | Acceptance threshold coefficient in `rho(sigma) = alpha * sigma^2`. |
 | `beta` | `float` | `0.9` | Trust-region contraction factor. |
 | `sigma0` | `float` | `0.1` | Initial trust-region radius. |
@@ -119,7 +121,7 @@ Egor.minimize(
 | --- | --- | --- | --- |
 | `fun` | `typing.Any` | required | Objective/constraint callable evaluated by the optimizer. fun: callable with signature `fun(x: np.ndarray) -> np.ndarray` where `x` is a 2D array of shape `(n_points, n_variables)` and return value is a 2D array with shape `(n_points, 1 + n_constraints)` containing [obj, cstr1, cstr2, ...] evaluations. |
 | `fcstrs` | `Sequence[typing.Any]` | `[]` | Optional function constraints (cheap constraints, not surrogate-modeled). |
-| `fcstr_specs` | `Sequence[CstrSpec]` | `[]` | Optional semantics for `fcstrs` constraints. Possible values per item: `CstrSpec.leq(bound)`, `CstrSpec.geq(bound)`, `CstrSpec.eq(value)`, `CstrSpec.btw(lower, upper)`. |
+| `fcstr_specs` | `Sequence[CstrSpec]` | `[]` | Optional semantics for `fcstrs` constraints. Possible values per item: `CstrSpec.leq(bound)`, `CstrSpec.geq(bound)`, `CstrSpec.eq(value)`, `CstrSpec.between(lower, upper)`. |
 | `max_iters` | `int` | `20` | Iteration budget. |
 | `run_info` | `Optional[Any]` | `None` | Optional run metadata (`RunInfo`) for checkpoint naming/tracking. |
 | `outdir` | `Optional[str]` | `None` | Directory for history/checkpoint artifacts and warm start lookup. |
@@ -185,12 +187,14 @@ def __str__(self) -> str
 def save(self, filename: str) -> bool
 @staticmethod
 def load(filename: str) -> Gpx
-def predict(self, x: NDArray[float64]) -> NDArray[float64]
+def predict(self, x: NDArray[float64], return_std: bool = False) -> NDArray[float64] | tuple[NDArray[float64], NDArray[float64]]
 def predict_var(self, x: NDArray[float64]) -> NDArray[float64]
 def predict_gradients(self, x: NDArray[float64]) -> NDArray[float64]
 def predict_var_gradients(self, x: NDArray[float64]) -> NDArray[float64]
 def sample(self, x: NDArray[float64], n_traj: int) -> NDArray[float64]
 def dims(self) -> tuple[int, int]
+nx: int  # read-only property, number of inputs
+ny: int  # read-only property, number of outputs
 def training_data(self) -> tuple[NDArray[float64], NDArray[float64]]
 def thetas(self) -> NDArray[float64]
 def variances(self) -> NDArray[float64]

@@ -41,7 +41,7 @@ class TestMixintEgx(unittest.TestCase):
         egor = egx.Egor(
             xspecs,
             infill_strategy=egx.InfillStrategy.EI,
-            doe=np.array([[0.0], [7.0], [25.0]]),
+            x_doe=np.array([[0.0], [7.0], [25.0]]),
         )
         optim = egor.minimize(
             xsinx,

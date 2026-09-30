@@ -137,7 +137,7 @@ Use when:
 Suggested setup:
 
 ```python
-qei_cfg = egx.QEiConfig(batch=10, strategy=egx.QEiStrategy.KB, optmod=1)
+qei_cfg = egx.QEiConfig(batch=10, strategy=egx.QEiStrategy.KB, optim_every=1)
 
 optim = egx.Egor(
     xspecs,
@@ -276,7 +276,7 @@ initial_doe = np.load("run01/egor_initial_doe.npy")
 
 optim = egx.Egor(
     xspecs,
-    doe=initial_doe,
+    x_doe=initial_doe,
 )
 res = optim.minimize(fun, max_iters=40, seed=42)
 ```
@@ -334,7 +334,7 @@ res = optim.minimize(fun, max_iters=40, seed=42)
 # Example: constraint in interval [lower, upper]
 optim = egx.Egor(
     xspecs,
-    cstr_specs=[egx.CstrSpec.btw(lower_bound, upper_bound)],
+    cstr_specs=[egx.CstrSpec.between(lower_bound, upper_bound)],
 )
 res = optim.minimize(fun, max_iters=40, seed=42)
 ```
@@ -345,14 +345,14 @@ Why it helps:
 - `CstrSpec.leq(bound)`: constraint `g(x) ≤ bound`
 - `CstrSpec.geq(bound)`: constraint `g(x) ≥ bound`
 - `CstrSpec.eq(value)`: equality constraint `g(x) = value`
-- `CstrSpec.btw(lower, upper)`: interval constraint `lower ≤ g(x) ≤ upper`
+- `CstrSpec.between(lower, upper)`: interval constraint `lower ≤ g(x) ≤ upper`
 
 Note:
 
 - The constraint function `fun` should return raw values; `cstr_specs` interprets feasibility
 - For equality constraints, consider using a small tolerance via `cstr_tol`, or a narrow band
-  `CstrSpec.btw(value - eps, value + eps)`, often easier for the optimizer to satisfy
-- `CstrSpec.eq` and `CstrSpec.btw` each expand to two internal constraints: `cstr_tol` must have
+  `CstrSpec.between(value - eps, value + eps)`, often easier for the optimizer to satisfy
+- `CstrSpec.eq` and `CstrSpec.between` each expand to two internal constraints: `cstr_tol` must have
   one entry per internal constraint
 - Tolerances are absolute (default `1e-4`): scale constraints to order 1 so that the tolerance
   is meaningful
@@ -425,7 +425,7 @@ def fun(x):
 
 optim = egx.Egor(
     xspecs,
-    cstr_specs=[egx.CstrSpec.geq(0.0)] * 3 + [egx.CstrSpec.btw(-EPS, EPS)],
+    cstr_specs=[egx.CstrSpec.geq(0.0)] * 3 + [egx.CstrSpec.between(-EPS, EPS)],
     gp_config=egx.GpConfig(corr_spec=egx.CorrelationSpec.MATERN52),
     infill_strategy=egx.InfillStrategy.LOG_EI,
     infill_optimizer=egx.InfillOptimizer.SLSQP,
@@ -441,7 +441,7 @@ Why it helps:
 - The feasibility tolerance `cstr_tol` is **absolute** (default `1e-4` on every internal constraint):
   scaling each constraint to order 1 makes it meaningful. A constraint in kg with values around
   1000 is almost never considered satisfied.
-- A narrow band `CstrSpec.btw(-eps, eps)` is much easier to satisfy than `CstrSpec.eq(0.0)`
+- A narrow band `CstrSpec.between(-eps, eps)` is much easier to satisfy than `CstrSpec.eq(0.0)`
   while keeping the equality precise enough in practice.
 - The `SLSQP` infill optimizer follows active constraint boundaries more accurately than `COBYLA`.
 - `cstr_infill=True` weights the infill criterion by the probability of feasibility, which drives
@@ -457,9 +457,9 @@ Case study (11 variables, 3 stress constraints, 1 lift = weight equality, 200 it
 |---|---|---|
 | unscaled equality constraint (in kg) | 0 / 124 | none |
 | scaled, `CstrSpec.eq`, `COBYLA` | 5 / 186 | 37.21 |
-| scaled, `CstrSpec.btw` band, `COBYLA` | 8 / 206 | 41.24 |
+| scaled, `CstrSpec.between` band, `COBYLA` | 8 / 206 | 41.24 |
 | as above with `WB2S` infill criterion | 8 / 207 | 32.25 |
-| scaled, `CstrSpec.btw` band, `SLSQP` | 13 / 210 | 41.81 |
+| scaled, `CstrSpec.between` band, `SLSQP` | 13 / 210 | 41.81 |
 
 Across seeds, the last setup reached within 0.5% of the gradient-based reference in about
 60 to 140 iterations, but not always within 0.1%. With `max_iters=200`, it ended within 0.07%

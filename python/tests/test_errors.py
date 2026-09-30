@@ -68,7 +68,7 @@ class TestErrors(unittest.TestCase):
         )
         self.assertRaisesStd(
             ValueError,
-            egx.SparseGpx.builder(nz=3, theta_bounds=[[1.0]]).fit,
+            egx.SparseGpx.builder(n_inducing=3, theta_bounds=[[1.0]]).fit,
             self.xt,
             self.yt,
         )
@@ -88,7 +88,9 @@ class TestErrors(unittest.TestCase):
             self.xt,
             self.yt,
         )
-        self.assertRaisesStd(ValueError, egx.SparseGpx.builder(nz=3).fit, self.xt, yt2)
+        self.assertRaisesStd(
+            ValueError, egx.SparseGpx.builder(n_inducing=3).fit, self.xt, yt2
+        )
 
     def test_sgp_without_inducing_points(self):
         self.assertRaisesStd(ValueError, egx.SparseGpMix().fit, self.xt, self.yt)

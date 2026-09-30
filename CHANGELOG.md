@@ -7,6 +7,16 @@
   `Gpx.save()`/`SparseGpx.save()` raise on failure instead of returning `False`.
 * Python `EgorOptim` forwards `x_opt`, `y_opt`, `x_doe`, `y_doe` from its `result` and unpacks as
   `x_opt, y_opt = egor.minimize(...)`.
+* Python `Egor(x_doe=..., y_doe=...)` gives the initial DOE as two arrays, like `Egor.suggest()`.
+* Python `CstrSpec` takes an optional per-constraint tolerance, e.g. `CstrSpec.leq(bound, tol=1e-3)` or
+  `{"leq": bound, "tol": 1e-3}`, which takes precedence over `Egor(cstr_tol=...)`. When `cstr_specs` is given,
+  `n_cstr` is inferred and a mismatching `n_cstr` raises `ValueError`.
+* Python `Gpx.predict(x, return_std=True)` / `SparseGpx.predict(x, return_std=True)` return `(mean, std)`,
+  and `Gpx.nx`, `Gpx.ny`, `SparseGpx.nx`, `SparseGpx.ny` properties give the dimensions.
+* Python `sampling(xspecs, n_samples, method=Sampling.LHS, seed=None)`: `method` becomes optional (LHS by default).
+* Python enums get long name aliases: `ConstraintStrategy.MEAN_CONSTRAINT` / `UPPER_TRUST_BOUND`,
+  `QEiStrategy.KRIGING_BELIEVER` / `KRIGING_BELIEVER_LOWER_BOUND` / `KRIGING_BELIEVER_UPPER_BOUND` /
+  `CONSTANT_LIAR_MINIMUM`, `FeasibleInfillStrategy.EFI_PROBABILITY` / `EFI_FEASIBILITY_ENHANCED`.
 
 ### Deprecations
 
@@ -21,6 +31,13 @@ Deprecated Python names still work but emit a `DeprecationWarning`; they will be
 | `SparseGpMix` / `SparseGpx.builder(n_start=...)` | `theta_n_start=...` |
 | `Egor.get_result(x_doe, y_doe)` | `Egor.best_result(x_doe, y_doe)` |
 | `Egor.get_result_index(y_doe)` | `Egor.best_index(y_doe)` |
+| `Egor(doe=...)` | `Egor(x_doe=..., y_doe=...)` |
+| `CstrSpec.btw(lower, upper)`, `{"btw": (lower, upper)}` | `CstrSpec.between(lower, upper)`, `{"between": (lower, upper)}` |
+| `QEiConfig(optmod=...)`, `QEiConfig.optmod`, `qei_config={"optmod": ...}` | `optim_every` |
+| `TregoConfig(n_gl_steps=...)`, `TregoConfig.n_gl_steps`, `trego={"n_gl_steps": ...}` | `n_global_local_steps` |
+| `TregoConfig(d=...)`, `TregoConfig.d`, `trego={"d": ...}` | `radius_bounds` |
+| `SparseGpMix` / `SparseGpx.builder(nz=..., z=...)` | `n_inducing=...`, `inducing=...` |
+| `sampling(method, xspecs, n_samples, seed)` (positional) | `sampling(xspecs, n_samples, method=..., seed=...)` |
 
 Passing both a deprecated keyword and its replacement raises `TypeError`.
 

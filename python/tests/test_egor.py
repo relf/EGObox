@@ -190,7 +190,7 @@ class TestEgor(unittest.TestCase):
         doe = egx.lhs(xlimits, 10)
         egor = egx.Egor(
             xlimits,
-            doe=doe,
+            x_doe=doe,
             infill_strategy=egx.InfillStrategy.WB2,
         )
         optim = egor.minimize(xsinx, max_iters=15, outdir="./test_dir", seed=42)
@@ -447,7 +447,9 @@ class TestEgor(unittest.TestCase):
             cstr_tol=np.array([1e-3, 1e-3]),
             n_cstr=n_cstr,
             n_doe=n_doe,
-            qei_config=egx.QEiConfig(batch=3, strategy=egx.QEiStrategy.KBLB, optmod=2),
+            qei_config=egx.QEiConfig(
+                batch=3, strategy=egx.QEiStrategy.KBLB, optim_every=2
+            ),
         )
         start = time.process_time()
         optim = egor.minimize(g24, max_iters=max_iters, seed=42)
@@ -656,6 +658,93 @@ class TestEgor(unittest.TestCase):
 
         self.assertEqual(optim.status.exit, egx.ExitStatus.OBJECTIVE_FUNCTION_ERROR)
         self.assertEqual(optim.status.total_iters, EXPECTED_CALLS_BEFORE_ERROR)
+
+    def test_x_doe_y_doe(self):
+        x_doe = np.array([[0.0], [7.0], [20.0], [25.0]])
+        y_doe = xsinx(x_doe)
+        n_calls = 0
+
+        def counted_xsinx(x):
+            nonlocal n_calls
+            n_calls += x.shape[0]
+            return xsinx(x)
+
+        # x_doe only: the initial doe is evaluated
+        egx.Egor([[0.0, 25.0]], x_doe=x_doe).minimize(counted_xsinx, max_iters=1)
+        self.assertEqual(n_calls, 4 + 1)
+        # x_doe and y_doe: no evaluation of the initial doe
+        n_calls = 0
+        res = egx.Egor([[0.0, 25.0]], x_doe=x_doe, y_doe=y_doe).minimize(
+            counted_xsinx, max_iters=1
+        )
+        self.assertEqual(n_calls, 1)
+        np.testing.assert_array_equal(res.x_doe[:4], x_doe)
+
+    def test_x_doe_y_doe_errors(self):
+        x_doe = np.array([[0.0], [7.0], [25.0]])
+        with self.assertRaises(ValueError):
+            egx.Egor([[0.0, 25.0]], y_doe=xsinx(x_doe))
+        with self.assertRaises(ValueError):
+            egx.Egor([[0.0, 25.0]], x_doe=np.hstack((x_doe, xsinx(x_doe))))
+        with self.assertRaises(ValueError):
+            egx.Egor([[0.0, 25.0]], x_doe=x_doe, y_doe=xsinx(x_doe[:2]))
+
+    def test_n_cstr_inferred_from_cstr_specs(self):
+        specs = [egx.CstrSpec.leq(1.0), egx.CstrSpec.between(0.0, 1.0)]
+        egx.Egor([[0.0, 1.0]], cstr_specs=specs)
+        egx.Egor([[0.0, 1.0]], n_cstr=2, cstr_specs=specs)
+        with self.assertRaises(ValueError):
+            egx.Egor([[0.0, 1.0]], n_cstr=1, cstr_specs=specs)
+
+    def test_cstr_spec_tol(self):
+        spec = egx.CstrSpec.leq(1.0, tol=0.5)
+        self.assertEqual(spec.tol, 0.5)
+        self.assertIsNone(egx.CstrSpec.leq(1.0).tol)
+        self.assertEqual(repr(spec), "Leq(1.0) (tol=0.5)")
+
+        def fun(x):
+            # objective decreases with x, constraint c(x) = x <= 1
+            return np.hstack((-x, x))
+
+        # the only point violating c <= 1 by 0.2 is the best objective:
+        # rejected with the default tolerance, accepted with tol=0.5
+        x_doe = np.array([[0.0], [0.5], [1.2]])
+        y_doe = fun(x_doe)
+        for spec, expected in (
+            ({"leq": 1.0}, 1),
+            ({"leq": 1.0, "tol": 0.5}, 2),
+            (egx.CstrSpec.leq(1.0, tol=0.5), 2),
+        ):
+            with self.subTest(spec=spec):
+                egor = egx.Egor(
+                    [[0.0, 2.0]], cstr_specs=[spec], x_doe=x_doe, y_doe=y_doe
+                )
+                res = egor.minimize(fun, max_iters=0)
+                self.assertEqual(res.x_opt[0], x_doe[expected, 0])
+
+    def test_enum_long_name_aliases(self):
+        self.assertEqual(
+            egx.ConstraintStrategy.MEAN_CONSTRAINT, egx.ConstraintStrategy.MC
+        )
+        self.assertEqual(
+            egx.ConstraintStrategy.UPPER_TRUST_BOUND, egx.ConstraintStrategy.UTB
+        )
+        self.assertEqual(egx.QEiStrategy.KRIGING_BELIEVER, egx.QEiStrategy.KB)
+        self.assertEqual(
+            egx.QEiStrategy.KRIGING_BELIEVER_LOWER_BOUND, egx.QEiStrategy.KBLB
+        )
+        self.assertEqual(
+            egx.QEiStrategy.KRIGING_BELIEVER_UPPER_BOUND, egx.QEiStrategy.KBUB
+        )
+        self.assertEqual(egx.QEiStrategy.CONSTANT_LIAR_MINIMUM, egx.QEiStrategy.CLMIN)
+        self.assertEqual(
+            egx.FeasibleInfillStrategy.EFI_PROBABILITY, egx.FeasibleInfillStrategy.EFI_P
+        )
+        self.assertEqual(
+            egx.FeasibleInfillStrategy.EFI_FEASIBILITY_ENHANCED,
+            egx.FeasibleInfillStrategy.EFI_FE,
+        )
+        self.assertEqual(repr(egx.QEiStrategy.KRIGING_BELIEVER), "QEiStrategy.KB")
 
     def test_feasible_infill_strategy_as_int(self):
         xlimits = [[0.0, 3.0], [0.0, 4.0]]
