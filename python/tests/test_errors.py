@@ -107,9 +107,22 @@ class TestErrors(unittest.TestCase):
             self.assertRaisesStd(ValueError, method, x)
         self.assertRaisesStd(ValueError, gpx.sample, x, 2)
 
+    def test_predict_wrong_shape(self):
+        xt = np.random.default_rng(0).random((10, 3))
+        gpx = egx.Gpx.builder(seed=42).fit(xt, xt.sum(axis=1))
+        # 1D input is only accepted when nx = 1
+        for x in [np.zeros(3), np.zeros((2, 3, 1))]:
+            with self.assertRaisesRegex(TypeError, r"shape \(n, 3\)"):
+                gpx.predict(x)
+            self.assertRaisesStd(TypeError, gpx.sample, x, 2)
+        self.assertRaisesStd(TypeError, gpx.update, np.zeros(3), np.zeros(3))
+
     def test_update_mismatch(self):
         gpx = egx.Gpx.builder(seed=42).fit(self.xt, self.yt)
         self.assertRaisesStd(ValueError, gpx.update, np.zeros((2, 1)), np.zeros(3))
+        self.assertRaisesStd(ValueError, gpx.update, np.zeros((2, 2)), np.zeros(2))
+        with self.assertRaisesRegex(TypeError, r"\(n,\) or \(n, 1\)"):
+            gpx.update(np.zeros((2, 1)), np.zeros((2, 2)))
 
     def test_save_load(self):
         gpx = egx.Gpx.builder(seed=42).fit(self.xt, self.yt)

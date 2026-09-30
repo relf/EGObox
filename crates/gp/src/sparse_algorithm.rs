@@ -292,7 +292,8 @@ impl<F: Float, Corr: CorrelationModel<F>> SparseGaussianProcess<F, Corr> {
 
     /// Retrieve input and output dimensions
     pub fn dims(&self) -> (usize, usize) {
-        (self.training_data.0.ncols(), self.training_data.1.len())
+        // single output: training outputs are stored as a (nt,) array
+        (self.training_data.0.ncols(), 1)
     }
 
     /// Predict gradients of the mean function at n given `x` points of nx components specified as a (n, nx) matrix.
@@ -933,6 +934,7 @@ mod tests {
             .seed(Some(42))
             .fit(&Dataset::new(xt.clone(), yt.clone()))
             .expect("GP fitted");
+        assert_eq!(sgp.dims(), (1, 1));
 
         println!("theta={:?}", sgp.theta());
         println!("variance={:?}", sgp.variance());

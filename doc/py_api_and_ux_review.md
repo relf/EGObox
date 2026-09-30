@@ -13,7 +13,8 @@ The core design is sound:
 The main problems are error handling, the stubs, and naming drift. Findings are ordered by user impact.
 
 > **Status:** items 1 (errors), 2 (stubs), 3 (silent behaviour) and 6 (doc errors) are implemented.
-> Item 4 (naming) is addressed in the docs only: renames are left to the breaking release. Item 5 is open.
+> Item 4 (naming) is addressed in the docs only: renames are left to the breaking release. Item 5 is partially
+> addressed: input shapes and `SparseGpx` parity are fixed, the rest needs new names or breaking changes.
 
 ---
 
@@ -157,6 +158,18 @@ IDE help and type checking get these wrong:
 - **Docstring style is mixed.** Some use Rust-style `# Parameters` blocks, others numpydoc
   `Parameters\n----------` blocks. Pick numpydoc so that Sphinx and IDEs render them.
 
+**Fix applied (non-breaking):**
+- `Gpx` and `SparseGpx` accept the same shapes as `fit`: `predict`, `predict_var`, `predict_gradients`,
+  `predict_var_gradients` and `sample` accept a 1D `x` when nx = 1, and `Gpx.update` accepts `y_new` of shape
+  `(n,)` or `(n, 1)`. A shape that cannot be used still raises `TypeError`, now with a message giving the
+  expected shape instead of `'ndarray' object is not an instance of 'ndarray'`.
+- `SparseGpx` has `dims()` and `training_data()`. This fixed a core bug: the sparse GP `dims()` returned the
+  number of training samples as output dimension. `update` stays unavailable, the core does not support
+  incremental sparse GP updates.
+- Left to the breaking release as they need new names or change return types: `CstrConfig` or per-constraint
+  tolerance, the scipy-like `fcstrs` form, result forwarding on `EgorOptim` and unpacking, `GpMix(gp_config=...)`,
+  `predict(x, return_std=True)`, `nx` / `ny` properties, `thetas()` & co as properties, and the `IntFlag` specs.
+
 ## 6. Doc typos and errors (quick fixes) — ✅ addressed
 
 - **Wrong copy-paste.** The `QEiStrategy` docstring says it is "for handling constraints". The
@@ -187,5 +200,7 @@ IDE help and type checking get these wrong:
 1. ✅ **Errors:** replace panics with Python exceptions.
 2. ✅ **Stubs:** add `gen_stub_pymethods` to the configs, use real type hints, and set `module="egobox"` with `__repr__`s.
 3. ✅ **Silent bugs:** `GpMix` ignoring `max_eval`, the result-shape docs, and the `RunInfo` default.
-4. **Additive UX:** aliases, `IntFlag` specs and result forwarding. None of these break existing code.
-5. **Breaking renames:** do these behind deprecation warnings in one release, grouping the constraint settings at the same time.
+4. ✅ **Additive, without new names:** docs for naming (item 4), input shapes and `SparseGpx` parity (item 5).
+5. **Breaking changes:** in one release, possibly behind deprecation warnings: the renames and aliases of item 4,
+   `IntFlag` specs, result forwarding, `nx` / `ny` properties, `return_std`, `GpMix(gp_config=...)`, the `fcstrs`
+   form, and the grouping of the constraint settings.

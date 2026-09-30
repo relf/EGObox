@@ -136,6 +136,31 @@ class TestGpMix(unittest.TestCase):
 
         self.gpx = egx.Gpx.builder().fit(self.xt1, self.yt1)
 
+    def test_1d_input(self):
+        # with nx = 1, 1D x is accepted as in fit, read as (n, 1)
+        x1d = np.array([0.5, 1.5, 2.5])
+        x2d = x1d[:, None]
+        for method in [
+            self.gpx.predict,
+            self.gpx.predict_var,
+            self.gpx.predict_gradients,
+            self.gpx.predict_var_gradients,
+        ]:
+            np.testing.assert_array_equal(method(x1d), method(x2d))
+        self.assertEqual(self.gpx.sample(x1d, 2).shape, (3, 2))
+
+    def test_update_shapes(self):
+        x_new = np.array([[5.0], [6.0]])
+        y_new = np.array([0.5, 0.2])
+        x_test = np.array([[4.5], [5.5]])
+        expected = self.gpx.update(x_new, y_new).predict(x_test)
+        for x, y in [
+            (x_new, y_new[:, None]),
+            (x_new.ravel(), y_new),
+            (x_new.ravel(), y_new[:, None]),
+        ]:
+            np.testing.assert_array_equal(self.gpx.update(x, y).predict(x_test), expected)
+
     def test_fixed_theta_no_optim(self):
         print(f"gpx.theta = {self.gpx.thetas()}")
         self.assertNotEqual(0.314, self.gpx.thetas().item())

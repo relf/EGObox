@@ -9,11 +9,12 @@
 //!
 //! See the [tutorial notebook](https://github.com/relf/egobox/notebooks/Sgp_Tutorial.ipynb) for usage.
 //!
-use crate::errors::{check_nx, gp_file_format, moe_err, moe_file_err, training_data};
+use crate::errors::{gp_file_format, input_x, moe_err, moe_file_err, training_data};
 use crate::gp_config::{validate_corr_spec, validate_theta};
 use crate::{logging::init_logger, types::*};
 use egobox_moe::{
-    Clustered, GpMixture, GpSurrogate, GpType, Inducings, MixtureGpSurrogate, ThetaTuning,
+    Clustered, GpMetrics, GpMixture, GpSurrogate, GpType, Inducings, MixtureGpSurrogate,
+    ThetaTuning,
 };
 use linfa::{Dataset, traits::Fit};
 use ndarray::{Array1, Array2, Zip, array};
@@ -208,6 +209,8 @@ impl SparseGpMix {
 }
 
 /// A trained sparse Gaussian process
+///
+/// Unlike `Gpx`, it has no `update` method: sparse GPs have to be refitted with the new data.
 #[gen_stub_pyclass]
 #[pyclass(skip_from_py_object, module = "egobox")]
 pub(crate) struct SparseGpx(Box<GpMixture>);
@@ -325,7 +328,7 @@ impl SparseGpx {
     ///
     /// Parameters
     /// ----------
-    /// x : array[nsamples, nx]
+    /// x : array[nsamples, nx] or array[nsamples] when nx == 1
     ///     input values
     ///
     /// Returns
@@ -336,10 +339,9 @@ impl SparseGpx {
     fn predict<'py>(
         &self,
         py: Python<'py>,
-        x: PyReadonlyArray2<f64>,
+        x: PyReadonlyArrayDyn<f64>,
     ) -> PyResult<Bound<'py, PyArray1<f64>>> {
-        let x = x.as_array();
-        check_nx(&x, self.0.dims().0)?;
+        let x = input_x(x.as_array(), self.0.dims().0)?;
         Ok(self.0.predict(&x).map_err(moe_err)?.into_pyarray(py))
     }
 
@@ -347,7 +349,7 @@ impl SparseGpx {
     ///
     /// Parameters
     /// ----------
-    /// x : array[nsamples, nx]
+    /// x : array[nsamples, nx] or array[nsamples] when nx == 1
     ///     input values
     ///
     /// Returns
@@ -358,10 +360,9 @@ impl SparseGpx {
     fn predict_var<'py>(
         &self,
         py: Python<'py>,
-        x: PyReadonlyArray2<f64>,
+        x: PyReadonlyArrayDyn<f64>,
     ) -> PyResult<Bound<'py, PyArray1<f64>>> {
-        let x = x.as_array();
-        check_nx(&x, self.0.dims().0)?;
+        let x = input_x(x.as_array(), self.0.dims().0)?;
         Ok(self.0.predict_var(&x).map_err(moe_err)?.into_pyarray(py))
     }
 
@@ -372,7 +373,7 @@ impl SparseGpx {
     ///
     /// Parameters
     /// ----------
-    /// x : array[nsamples, nx]
+    /// x : array[nsamples, nx] or array[nsamples] when nx == 1
     ///     input values
     ///
     /// Returns
@@ -384,10 +385,9 @@ impl SparseGpx {
     fn predict_gradients<'py>(
         &self,
         py: Python<'py>,
-        x: PyReadonlyArray2<f64>,
+        x: PyReadonlyArrayDyn<f64>,
     ) -> PyResult<Bound<'py, PyArray2<f64>>> {
-        let x = x.as_array();
-        check_nx(&x, self.0.dims().0)?;
+        let x = input_x(x.as_array(), self.0.dims().0)?;
         Ok(self
             .0
             .predict_gradients(&x)
@@ -402,7 +402,7 @@ impl SparseGpx {
     ///
     /// Parameters
     /// ----------
-    /// x : array[nsamples, nx]
+    /// x : array[nsamples, nx] or array[nsamples] when nx == 1
     ///     input values
     ///
     /// Returns
@@ -414,10 +414,9 @@ impl SparseGpx {
     fn predict_var_gradients<'py>(
         &self,
         py: Python<'py>,
-        x: PyReadonlyArray2<f64>,
+        x: PyReadonlyArrayDyn<f64>,
     ) -> PyResult<Bound<'py, PyArray2<f64>>> {
-        let x = x.as_array();
-        check_nx(&x, self.0.dims().0)?;
+        let x = input_x(x.as_array(), self.0.dims().0)?;
         Ok(self
             .0
             .predict_var_gradients(&x)
@@ -429,7 +428,7 @@ impl SparseGpx {
     ///
     /// Parameters
     /// ----------
-    /// x : array[nsamples, nx]
+    /// x : array[nsamples, nx] or array[nsamples] when nx == 1
     ///     locations of the sampled trajectories
     /// n_traj : int
     ///     number of trajectories to generate
@@ -442,12 +441,40 @@ impl SparseGpx {
     fn sample<'py>(
         &self,
         py: Python<'py>,
-        x: PyReadonlyArray2<f64>,
+        x: PyReadonlyArrayDyn<f64>,
         n_traj: usize,
     ) -> PyResult<Bound<'py, PyArray2<f64>>> {
-        let x = x.as_array();
-        check_nx(&x, self.0.dims().0)?;
+        let x = input_x(x.as_array(), self.0.dims().0)?;
         Ok(self.0.sample(&x, n_traj).map_err(moe_err)?.into_pyarray(py))
+    }
+
+    /// Get the input and output dimensions of the surrogate
+    ///
+    /// Returns
+    /// -------
+    /// tuple[int, int]
+    ///     the couple (nx, ny)
+    ///
+    fn dims(&self) -> (usize, usize) {
+        self.0.dims()
+    }
+
+    /// Get the nt training data points used to fit the surrogate
+    ///
+    /// Returns
+    /// -------
+    /// tuple[array[nt, nx], array[nt]]
+    ///     the couple (xt, yt)
+    ///
+    fn training_data<'py>(
+        &self,
+        py: Python<'py>,
+    ) -> (Bound<'py, PyArray2<f64>>, Bound<'py, PyArray1<f64>>) {
+        let (xdata, ydata) = <GpMixture as GpMetrics<_, _, _>>::training_data(&self.0);
+        (
+            xdata.to_owned().into_pyarray(py),
+            ydata.to_owned().into_pyarray(py),
+        )
     }
 
     /// Get optimized thetas hyperparameters (ie once GP experts are fitted)

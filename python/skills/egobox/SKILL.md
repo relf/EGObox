@@ -268,20 +268,21 @@ ytrain = np.array([[0.], [1.], [1.5], [0.9], [1.0]])
 gpx = egx.Gpx.builder().fit(xtrain, ytrain)
 
 xtest = np.linspace(0, 4, 50).reshape(-1, 1)
-y_mean = gpx.predict(xtest)
+y_mean = gpx.predict(xtest)   # shape (50,)
 y_var  = gpx.predict_var(xtest)
 ```
+
+Inputs are `(n, nx)` arrays; when `nx == 1` a 1D `(n,)` array is also accepted by `fit`, `predict*`,
+`sample` and `update`. Outputs `y` may be `(n,)` or `(n, 1)`.
 
 **Builder options:**
 
 ```python
-gpx = (
-    egx.Gpx.builder()
-    .kpls(3)             # PLS dimension reduction (recommended when n_dims >= 9)
-    .regression_spec(egx.RegressionSpec.CONSTANT | egx.RegressionSpec.LINEAR)
-    .correlation_spec(egx.CorrelationSpec.MATERN52)
-    .fit(xtrain, ytrain)
-)
+gpx = egx.Gpx.builder(
+    kpls_dim=3,          # PLS dimension reduction (recommended when n_dims >= 9)
+    regr_spec=egx.RegressionSpec.CONSTANT | egx.RegressionSpec.LINEAR,
+    corr_spec=egx.CorrelationSpec.MATERN52,
+).fit(xtrain, ytrain)
 ```
 
 **RegressionSpec flags:** `CONSTANT`, `LINEAR`, `QUADRATIC`, `ALL`

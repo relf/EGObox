@@ -7,8 +7,8 @@ use std::error::Error;
 use std::path::Path;
 use std::sync::{Mutex, Once};
 
-use ndarray::{Array1, Array2, ArrayViewD, Axis, Ix1, Ix2};
-use pyo3::exceptions::{PyOSError, PyRuntimeError, PyValueError};
+use ndarray::{Array1, Array2, ArrayView1, ArrayView2, ArrayViewD, Axis, Ix1, Ix2};
+use pyo3::exceptions::{PyOSError, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 
 /// Format an error message including its chain of sources
@@ -86,6 +86,57 @@ pub(crate) fn check_nx(x: &ndarray::ArrayView2<f64>, nx: usize) -> PyResult<()> 
     Ok(())
 }
 
+/// View `x` as a 2D array, 1D being read as one column: (n,) -> (n, 1)
+fn to_2d(x: ArrayViewD<'_, f64>) -> Option<ArrayView2<'_, f64>> {
+    match x.ndim() {
+        1 => x
+            .into_dimensionality::<Ix1>()
+            .ok()
+            .map(|x| x.insert_axis(Axis(1))),
+        2 => x.into_dimensionality::<Ix2>().ok(),
+        _ => None,
+    }
+}
+
+/// View `y` as a 1D array, 2D being accepted with one column: (n, 1) -> (n,)
+fn to_1d(y: ArrayViewD<'_, f64>) -> Option<ArrayView1<'_, f64>> {
+    match y.ndim() {
+        1 => y.into_dimensionality::<Ix1>().ok(),
+        2 if y.shape()[1] == 1 => y
+            .into_dimensionality::<Ix2>()
+            .ok()
+            .map(|y| y.remove_axis(Axis(1))),
+        _ => None,
+    }
+}
+
+/// Convert input `x` of a trained model with `nx` inputs into a (n, nx) array,
+/// accepting 1D x (read as (n, 1)) when nx = 1 like `fit` does.
+pub(crate) fn input_x(x: ArrayViewD<'_, f64>, nx: usize) -> PyResult<ArrayView2<'_, f64>> {
+    let shape = x.shape().to_vec();
+    let x = Some(x)
+        .filter(|x| x.ndim() == 2 || (x.ndim() == 1 && nx == 1))
+        .and_then(to_2d)
+        .ok_or_else(|| {
+            let or_1d = if nx == 1 { " or (n,)" } else { "" };
+            PyTypeError::new_err(format!(
+                "input x should be of shape (n, {nx}){or_1d}, got {shape:?}"
+            ))
+        })?;
+    check_nx(&x, nx)?;
+    Ok(x)
+}
+
+/// Convert output `y` into a (n,) array accepting (n,) or (n, 1) like `fit` does.
+pub(crate) fn output_y(y: ArrayViewD<'_, f64>) -> PyResult<ArrayView1<'_, f64>> {
+    let shape = y.shape().to_vec();
+    to_1d(y).ok_or_else(|| {
+        PyTypeError::new_err(format!(
+            "output y should be of shape (n,) or (n, 1), got {shape:?}"
+        ))
+    })
+}
+
 /// Convert training data into (xt[nsamples, nx], yt[nsamples]) accepting
 /// xt as 1D (nx = 1) and yt as 1D or 2D with one column.
 pub(crate) fn training_data(
@@ -93,32 +144,18 @@ pub(crate) fn training_data(
     yt: ArrayViewD<f64>,
 ) -> PyResult<(Array2<f64>, Array1<f64>)> {
     let xshape = xt.shape().to_vec();
-    let xt = match xt.ndim() {
-        1 => xt
-            .into_dimensionality::<Ix1>()
-            .unwrap()
-            .insert_axis(Axis(1)),
-        2 => xt.into_dimensionality::<Ix2>().unwrap(),
-        _ => {
-            return Err(PyValueError::new_err(format!(
-                "training input should be of shape (n, nx) or (n,), got {xshape:?}"
-            )));
-        }
-    };
+    let xt = to_2d(xt).ok_or_else(|| {
+        PyValueError::new_err(format!(
+            "training input should be of shape (n, nx) or (n,), got {xshape:?}"
+        ))
+    })?;
 
     let yshape = yt.shape().to_vec();
-    let yt = match yt.ndim() {
-        1 => yt.into_dimensionality::<Ix1>().unwrap(),
-        2 if yshape[1] == 1 => yt
-            .into_dimensionality::<Ix2>()
-            .unwrap()
-            .remove_axis(Axis(1)),
-        _ => {
-            return Err(PyValueError::new_err(format!(
-                "training output should be of shape (n,) or (n, 1), got {yshape:?}"
-            )));
-        }
-    };
+    let yt = to_1d(yt).ok_or_else(|| {
+        PyValueError::new_err(format!(
+            "training output should be of shape (n,) or (n, 1), got {yshape:?}"
+        ))
+    })?;
 
     if xt.nrows() != yt.len() {
         return Err(PyValueError::new_err(format!(
