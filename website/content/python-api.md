@@ -38,6 +38,8 @@ Egor(
     coego_n_coop=0,
     target=-1.7976931348623157e+308,
     failsafe_strategy=FailsafeStrategy.REJECTION,
+    seed=None,
+    verbose=None,
 )
 ```
 
@@ -62,6 +64,8 @@ Egor(
 | `coego_n_coop` | `int` | `0` | Number of cooperative groups for CoEGO (high-dimensional mode). |
 | `target` | `float` | `-1.7976931348623157e+308` | Known optimum target used as stopping criterion. |
 | `failsafe_strategy` | `FailsafeStrategy` | `FailsafeStrategy.REJECTION` | Failure handling for NaN objective values. Possible values: `FailsafeStrategy.REJECTION`, `FailsafeStrategy.IMPUTATION`, `FailsafeStrategy.VIABILITY`. |
+| `seed` | `Optional[int]` | `None` | Default RNG seed of `minimize()` and `suggest()`, overridden by their own `seed`. |
+| `verbose` | `Optional[Any]` | `None` | Default logging verbosity of `minimize()` and `suggest()`, overridden by the `minimize()` `verbose`. |
 
 ### GpConfig
 
@@ -120,16 +124,16 @@ Egor.minimize(
 | Name | Type | Default value | Description |
 | --- | --- | --- | --- |
 | `fun` | `typing.Any` | required | Objective/constraint callable evaluated by the optimizer. fun: callable with signature `fun(x: np.ndarray) -> np.ndarray` where `x` is a 2D array of shape `(n_points, n_variables)` and return value is a 2D array with shape `(n_points, 1 + n_constraints)` containing [obj, cstr1, cstr2, ...] evaluations. |
-| `fcstrs` | `Sequence[typing.Any]` | `[]` | Optional function constraints (cheap constraints, not surrogate-modeled). |
+| `fcstrs` | `Sequence[typing.Any]` | `[]` | Optional function constraints `g(x) <= 0` (cheap constraints, not surrogate-modeled). Possible values per item: `(g, grad_g)`, `{"fun": g, "jac": grad_g}`, or `g(x, return_grad)`. The gradient is only used with `InfillOptimizer.SLSQP`. |
 | `fcstr_specs` | `Sequence[CstrSpec]` | `[]` | Optional semantics for `fcstrs` constraints. Possible values per item: `CstrSpec.leq(bound)`, `CstrSpec.geq(bound)`, `CstrSpec.eq(value)`, `CstrSpec.between(lower, upper)`. |
 | `max_iters` | `int` | `20` | Iteration budget. |
 | `run_info` | `Optional[Any]` | `None` | Optional run metadata (`RunInfo`) for checkpoint naming/tracking. |
 | `outdir` | `Optional[str]` | `None` | Directory for history/checkpoint artifacts and warm start lookup. |
 | `warm_start` | `bool` | `False` | Loads initial DOE from `outdir`. Possible values: `True`, `False`. |
 | `hot_start` | `Optional[Any]` | `None` | Resume from checkpoint and optionally extend iteration budget. Possible values: `None`, `True` (interpreted as 0), or non-negative integer. |
-| `seed` | `Optional[int]` | `None` | RNG seed for reproducibility. |
+| `seed` | `Optional[int]` | `None` | RNG seed for reproducibility. Defaults to the `Egor(seed=...)` value. |
 | `timeout` | `Optional[float]` | `None` | Optional time limit in seconds. |
-| `verbose` | `Optional[Any]` | `None` | Logging verbosity. Possible values: `None`, integer level, or `Verbose` enum (`ERROR`, `WARNING`, `INFO`, `DEBUG`, `TRACE`). |
+| `verbose` | `Optional[Any]` | `None` | Logging verbosity. Possible values: `None`, integer level, or `Verbose` enum (`ERROR`, `WARNING`, `INFO`, `DEBUG`, `TRACE`). Defaults to the `Egor(verbose=...)` value. |
 
 It returns an `EgorOptim` with `result` (an `OptimResult` holding `x_opt`, `y_opt`, `x_doe`, `y_doe`) and `status`.
 The result fields are also available directly on the returned object, which can be unpacked as `(x_opt, y_opt)`:

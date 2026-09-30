@@ -438,6 +438,73 @@ class TestEgor(unittest.TestCase):
                 seed=42,
             )
 
+    def test_g24_with_fcstrs_fun_jac_forms(self):
+        def c1_grad(x):
+            return np.array([-8.0 * x[0] ** 3 + 24.0 * x[0] ** 2 - 16.0 * x[0], 1.0])
+
+        def c2_grad(x):
+            return np.array(
+                [-16.0 * x[0] ** 3 + 96.0 * x[0] ** 2 - 176.0 * x[0] + 96.0, 1.0]
+            )
+
+        n_grad_calls = [0]
+
+        def counted(grad):
+            def f(x):
+                n_grad_calls[0] += 1
+                return grad(x)
+
+            return f
+
+        fcstrs = [
+            (lambda x: G24_c1(x).item(), counted(c1_grad)),
+            {"fun": lambda x: G24_c2(x).item(), "jac": counted(c2_grad)},
+        ]
+        egor = egx.Egor(
+            [[0.0, 3.0], [0.0, 4.0]],
+            n_doe=5,
+            infill_optimizer=egx.InfillOptimizer.SLSQP,
+        )
+        optim = egor.minimize(g24_bare, max_iters=5, fcstrs=fcstrs, seed=42)
+        self.assertGreater(n_grad_calls[0], 0)
+        self.assertAlmostEqual(-5.5080, optim.result.y_opt[0], delta=1e-2)
+
+    def test_fcstrs_form_errors(self):
+        egor = egx.Egor([[0.0, 3.0], [0.0, 4.0]], n_doe=5)
+        with self.assertRaisesRegex(ValueError, "type"):
+            egor.minimize(
+                g24_bare, fcstrs=[{"type": "ineq", "fun": g24_c1, "jac": g24_c1}]
+            )
+        with self.assertRaisesRegex(ValueError, "jac"):
+            egor.minimize(g24_bare, fcstrs=[{"fun": g24_c1}])
+        with self.assertRaises(ValueError):
+            egor.minimize(g24_bare, fcstrs=[(g24_c1,)])
+        with self.assertRaises(TypeError):
+            egor.minimize(g24_bare, fcstrs=[(g24_c1, 1.0)])
+        with self.assertRaises(TypeError):
+            egor.minimize(g24_bare, fcstrs=[1.0])
+
+    def test_seed_given_to_constructor(self):
+        def run(egor, **kwargs):
+            return egor.minimize(xsinx, max_iters=3, **kwargs).y_doe
+
+        y_call = run(egx.Egor([[0.0, 25.0]], n_doe=3), seed=42)
+        y_ctor = run(egx.Egor([[0.0, 25.0]], n_doe=3, seed=42))
+        np.testing.assert_array_equal(y_call, y_ctor)
+        # the minimize seed takes precedence
+        y_both = run(egx.Egor([[0.0, 25.0]], n_doe=3, seed=0), seed=42)
+        np.testing.assert_array_equal(y_call, y_both)
+
+        x_doe = np.array([[0.0], [7.0], [25.0]])
+        y_doe = xsinx(x_doe)
+        x_call = egx.Egor([[0.0, 25.0]]).suggest(x_doe, y_doe, seed=42)
+        x_ctor = egx.Egor([[0.0, 25.0]], seed=42).suggest(x_doe, y_doe)
+        np.testing.assert_array_equal(x_call, x_ctor)
+
+    def test_verbose_given_to_constructor(self):
+        egor = egx.Egor([[0.0, 25.0]], n_doe=3, verbose=egx.Verbose.ERROR)
+        egor.minimize(xsinx, max_iters=1, seed=42)
+
     def test_g24_with_qei(self):
         n_doe = 5
         max_iters = 20

@@ -102,9 +102,16 @@ get the new name at the old position. Tests in `python/tests/test_deprecations.p
 
 ## LOW — design-heavy or only possible as hard breaks
 
-13. **scipy-like `fcstrs`** (`egor.rs` `minimize`): also accept `(g, grad_g)` tuples and `{"fun": g, "jac": grad_g}`
+**Implemented for 0.38:** items 13 and 14. Item 17 is dropped. Items 15, 18 and 19 are left for later, item 20 goes
+in a follow-up PR, and item 16 goes with the removal release. Differences from the plan:
+- `fcstrs` dicts accept only the `"fun"` and `"jac"` keys, both required. A scipy `"type"` key raises `ValueError`, as
+  scipy `"ineq"` means `g(x) >= 0` while egobox constraints are `g(x) <= 0` (`fcstr_specs` gives other bounds).
+  Tuples must be `(g, grad_g)`. The gradient is only called when the infill optimizer needs it (SLSQP).
+- `Egor(verbose=...)` also initializes the logger in `suggest()`, which has no `verbose` argument.
+
+13. ✅ **scipy-like `fcstrs`** (`egor.rs` `minimize`): also accept `(g, grad_g)` tuples and `{"fun": g, "jac": grad_g}`
     dicts. The current `g(x, return_grad)` form stays without a warning until the new one has proven itself.
-14. **`seed` / `verbose` placement**: add `Egor(seed=, verbose=)` as the defaults used by `minimize`/`suggest` (the
+14. ✅ **`seed` / `verbose` placement**: add `Egor(seed=, verbose=)` as the defaults used by `minimize`/`suggest` (the
     call-time value wins). No deprecation, which avoids churn for a minor gain.
 15. **`RegressionSpec` / `CorrelationSpec` as `enum.IntFlag`**: create them at module init in `lib.rs` with the
     `enum.IntFlag` functional API and register them in place of the pyclasses; keep the `u8` extraction. They stay
@@ -113,14 +120,39 @@ get the new name at the old position. Tests in `python/tests/test_deprecations.p
 16. **`thetas()` / `variances()` / `likelihoods()` as properties**: not possible with a warning transition (a
     property returning an ndarray can't also be callable). Hard break, planned for the removal release only.
     Listed in CHANGELOG as "upcoming".
-17. **Full `CstrConfig`** grouping (`n_cstr`, `cstr_tol`, `cstr_specs`, `cstr_infill`, `cstr_strategy`): revisit
-    after item 12. Per-spec tolerance may make it unnecessary.
+17. ❌ **Full `CstrConfig`** grouping (`n_cstr`, `cstr_tol`, `cstr_specs`, `cstr_infill`, `cstr_strategy`): dropped.
+    With item 12, `n_cstr` is inferred from `cstr_specs` and each spec carries its tolerance, so the constraint
+    settings are already grouped in the specs, and a config class would add a rename for all constrained users.
+    Moving these settings to `minimize()` is rejected too: they describe the `y_doe` layout (`ny = 1 + n_cstr`),
+    also needed by `Egor(x_doe=, y_doe=)`, `suggest`, `best_index` and `best_result`. `fcstrs` / `fcstr_specs` sit
+    in `minimize()` because they are callables, like `fun`. The one misplaced setting is `cstr_tol`, see item 20.
 18. **`TypedDict`s for dict forms**: hand-maintained stub section; optional.
 19. **`GpMix(gp_config=...)`** (was item 8, deferred from MEDIUM): the idea was
     `GpMix(xspecs=None, gp_config=None, seed=None, verbose=None)`, with the flat GP kwargs deprecated.
     It is on hold because a one-argument `GpMix(GpConfig(...))` is awkward: unlike `Egor`, which has many other
     parameters, the `GpMix` args are the `GpConfig` args. It would also touch almost every `GpMix` user. If it is
     revisited, `gp_config=` would be added without a warning first, with `TypeError` when it is mixed with flat kwargs.
+20. **Deprecate `Egor(cstr_tol=...)`** (`egor.rs`), follow-up PR. `cstr_tol` is given to the constructor but must
+    also cover the function constraints passed later to `minimize()` (after `eq` / `between` expansion), which the
+    constructor can't know. Since item 12 a spec `tol` does the same job next to its own constraint, so:
+    - `Egor::new` warns when `cstr_tol` is given (not a rename, so call `warn_deprecated` directly rather than
+      `resolve_renamed`), and still uses the value. The argument keeps its positional slot. The docstring moves it
+      under **Deprecated**, and the `cstr_tol` sentences are removed from the `cstr_specs` / `fcstr_specs` docs.
+    - Migration: `Egor(n_cstr=2, cstr_tol=[1e-3] * 2)` → `Egor(cstr_specs=[CstrSpec.leq(0.0, tol=1e-3)] * 2)`,
+      and for function constraints `minimize(fcstrs=fs, fcstr_specs=[CstrSpec.leq(0.0, tol=1e-3)] * len(fs))`.
+    - Fix `best_index` / `best_result` first, otherwise the migration changes results. They use
+      `Egor::cstr_tol(0)`, which ignores spec `tol`, and they judge raw `y_doe` columns as `c <= 0` even when
+      `cstr_specs` is set (wrong for `geq` / `eq` / `between`). Apply `egobox_ego::transform_constraints` when
+      specs are set, as the core solver does (`solver_impl.rs`), then use `internal_cstr_tol(&[], 0)` with the
+      default tolerance as fallback. `best_result` still returns the raw `y_doe` row. `Egor::cstr_tol()` goes away.
+    - In-repo callers: the 7 `cstr_tol=` uses in `python/tests/test_egor.py`, `python/examples/g24.py` and
+      `g24_fcstr.py` move to spec `tol`. `test_deprecations.py` gets the warning test and a check that the value
+      is still used. Add a `best_index` test with `CstrSpec.geq(b, tol=...)`.
+    - Docs: CHANGELOG deprecations table and a `best_index` / `best_result` fix bullet; `cookbook.md` (equality
+      and scaling tips), `python-api.md`, both skills `SKILL.md`, and `py_api_and_ux_review.md` (constraint
+      settings finding marked resolved).
+    - Rust core `EgorConfig::cstr_tol` is unchanged. The bindings keep feeding it the merged vector from
+      `internal_cstr_tol`. Removal of the Python `cstr_tol` goes with the removal release.
 
 ## Removal release (after 0.38)
 
@@ -129,7 +161,7 @@ typed arguments again); do item 16. `test_deprecations.py` becomes "old names ra
 
 ## Docs
 
-- CHANGELOG 0.38.0: a "Deprecations" section listing old → new, and an "Upcoming breaking changes" section (item 16).
+- ✅ CHANGELOG 0.38.0: a "Deprecations" section listing old → new, and an "Upcoming breaking changes" section (item 16).
 - Update `doc/py_api_and_ux_review.md`: the status line and the step 5 entry, plus a "Fix applied" per tier.
 - Regenerate the stub with `stub_gen`.
 

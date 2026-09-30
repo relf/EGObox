@@ -17,6 +17,11 @@
 * Python enums get long name aliases: `ConstraintStrategy.MEAN_CONSTRAINT` / `UPPER_TRUST_BOUND`,
   `QEiStrategy.KRIGING_BELIEVER` / `KRIGING_BELIEVER_LOWER_BOUND` / `KRIGING_BELIEVER_UPPER_BOUND` /
   `CONSTANT_LIAR_MINIMUM`, `FeasibleInfillStrategy.EFI_PROBABILITY` / `EFI_FEASIBILITY_ENHANCED`.
+* Python `Egor.minimize(fcstrs=...)` also takes each function constraint as a `(g, grad_g)` tuple or a
+  `{"fun": g, "jac": grad_g}` dict, with `g(x)` and `grad_g(x)` one-argument callables. The `g(x, return_grad)` form
+  stays. Constraints stay `g(x) <= 0`: a scipy-like `"type"` key raises `ValueError`, use `fcstr_specs` instead.
+* Python `Egor(seed=..., verbose=...)` gives the defaults used by `minimize()` and `suggest()`; the value given to
+  `minimize()` / `suggest()` takes precedence.
 
 ### Deprecations
 
@@ -40,6 +45,15 @@ Deprecated Python names still work but emit a `DeprecationWarning`; they will be
 | `sampling(method, xspecs, n_samples, seed)` (positional) | `sampling(xspecs, n_samples, method=..., seed=...)` |
 
 Passing both a deprecated keyword and its replacement raises `TypeError`.
+
+### Upcoming breaking changes
+
+These changes cannot go through a deprecation warning and will be made in the release after 0.38:
+
+* Python `Gpx.thetas()`, `Gpx.variances()` and `Gpx.likelihoods()` become read-only properties
+  (`gpx.thetas` instead of `gpx.thetas()`).
+* The deprecated names above are removed, and `sampling` accepts only the `sampling(xspecs, n_samples, method=..., seed=...)`
+  argument order.
 
 ## Version 0.37.7 - unreleased
 

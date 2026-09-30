@@ -29,7 +29,7 @@ use numpy::{
 };
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::PyBool;
+use pyo3::types::{PyBool, PyDict, PyTuple};
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 use std::cmp::Ordering;
 
@@ -156,6 +156,11 @@ fn parse_run_info(py: Python, value: Py<PyAny>) -> PyResult<RunInfo> {
 ///     uses the objective surrogate prediction to fill the missing value.
 ///     In the third case Viability, a surrogate is used to model the failure region
 ///     which is used as a constraint and drive the optimization toward the viable region.
+/// seed : int >= 0, optional
+///     Random generator seed used by `minimize()` and `suggest()` when they are not given one.
+/// verbose : Verbose or int, optional
+///     Logging verbosity level used by `minimize()` and `suggest()` when `minimize()` is not given one.
+///     See `minimize()` for the possible values.
 ///
 /// Deprecated
 /// ----------
@@ -171,7 +176,6 @@ fn parse_run_info(py: Python, value: Py<PyAny>) -> PyResult<RunInfo> {
 /// -------
 /// Egor
 ///     An optimizer which can be used to optimize a function using the minimize method.
-///     Random seed and logging verbosity are given to `minimize()`, not to the constructor.
 ///
 #[gen_stub_pyclass]
 #[pyclass(skip_from_py_object, module = "egobox")]
@@ -194,6 +198,8 @@ pub(crate) struct Egor {
     pub coego_n_coop: usize,
     pub target: Option<f64>,
     pub failsafe_strategy: FailsafeStrategy,
+    pub seed: Option<u64>,
+    pub verbose: Option<Py<PyAny>>,
 }
 
 #[gen_stub_pymethods]
@@ -220,6 +226,8 @@ impl Egor {
         coego_n_coop = 0,
         target = None,
         failsafe_strategy = FailsafeStrategy::Rejection,
+        seed = None,
+        verbose = None,
         *,
         n_start = None,
         doe = None,
@@ -251,6 +259,9 @@ impl Egor {
         coego_n_coop: usize,
         target: Option<f64>,
         failsafe_strategy: FailsafeStrategy,
+        seed: Option<u64>,
+        #[gen_stub(override_type(type_repr = "Verbose | builtins.int | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
+        verbose: Option<Py<PyAny>>,
         n_start: Option<usize>,
         doe: Option<PyReadonlyArray2<f64>>,
     ) -> PyResult<Self> {
@@ -319,6 +330,8 @@ impl Egor {
             coego_n_coop,
             target,
             failsafe_strategy,
+            seed,
+            verbose,
         })
     }
 
@@ -336,12 +349,19 @@ impl Egor {
     ///     cstr functions are expected to be negative (<=0) at the optimum (unless `cstr_specs` is used).
     ///     These constraints will be approximated using surrogates, so
     ///     if constraints are cheap to evaluate better to pass them through `fcstrs`.
-    /// fcstrs : list of callable (array[nx], bool) -> float or array[nx], optional
-    ///     Constraint functions defined as g(x, return_grad).
-    ///     If the given "return_grad" boolean is False the function has to return the constraint float value
-    ///     to be made negative by the optimizer (which drives the input array "x").
-    ///     Otherwise the function has to return the gradient (array[nx]) of the constraint function
-    ///     wrt the nx components of "x".
+    /// fcstrs : list, optional
+    ///     Cheap constraint functions g, evaluated directly (not approximated by surrogates),
+    ///     which have to be made negative (g(x) <= 0, unless `fcstr_specs` is used) by the optimizer.
+    ///     Each item is given in one of the following forms:
+    ///
+    ///     * (g, grad_g): a tuple of two callables, g(x) returns the constraint float value
+    ///       and grad_g(x) returns its gradient (array[nx]) wrt the nx components of x,
+    ///     * {"fun": g, "jac": grad_g}: the same as a dict (a scipy "type" key is rejected,
+    ///       as scipy "ineq" constraints are g(x) >= 0, use `fcstr_specs` instead),
+    ///     * g(x, return_grad): a single callable returning the constraint float value
+    ///       when return_grad is False, its gradient (array[nx]) otherwise.
+    ///
+    ///     The gradient is only computed when the infill optimizer needs it (InfillOptimizer.SLSQP).
     /// fcstr_specs : list of CstrSpec or dict, optional
     ///     One CstrSpec per fcstr specifying how each function constraint should be interpreted.
     ///     Length must be zero (legacy behavior) or equal to len(fcstrs).
@@ -353,7 +373,7 @@ impl Egor {
     ///     constraints: surrogate constraints + expanded function constraints.
     /// max_iters : int
     ///     The iteration budget, number of fun calls is "n_doe + q_batch * max_iters".
-    ///     Not to be confused with `GpConfig(max_eval=...)`, the likelihood evaluations budget.
+    ///     Not to be confused with `GpConfig(theta_max_eval=...)`, the likelihood evaluations budget.
     /// run_info : RunInfo or dict, optional
     ///     Information about the run to be passed to the optimizer with the following attributes:
     ///
@@ -372,7 +392,7 @@ impl Egor {
     ///     Checkpoint information is stored in .checkpoint or under outdir if outdir is specified.
     /// seed : int >= 0, optional
     ///     Random generator seed to allow computation reproducibility.
-    ///     Unlike `GpMix` where seed is given at construction, it is given here at each run.
+    ///     When None, the seed given to the constructor (if any) is used.
     /// timeout : float, optional
     ///     Timeout in seconds. The optimization is stopped when the elapsed time
     ///     exceeds this duration. The actual runtime may slightly exceed the specified timeout
@@ -382,9 +402,8 @@ impl Egor {
     ///     Can be either an integer or a Verbose enum value:
     ///     0 or Verbose.ERROR, 1 or Verbose.WARNING, 2 or Verbose.INFO,
     ///     3 or Verbose.DEBUG, 4 (or greater) or Verbose.TRACE.
-    ///     Default is None which means Verbose.ERROR level and possible control by
-    ///     the EGOBOX_LOG environment variable.
-    ///     Unlike `GpMix` where verbose is given at construction, it is given here at each run.
+    ///     Default is None which means the verbosity given to the constructor if any,
+    ///     otherwise Verbose.ERROR level and possible control by the EGOBOX_LOG environment variable.
     /// stop_on_error : bool
     ///     If true, terminate optimization when the objective function raises an error.
     ///     Otherwise, the error is handled according to failsafe_strategy.
@@ -406,7 +425,7 @@ impl Egor {
         py: Python,
         #[gen_stub(override_type(type_repr = "typing.Callable[[numpy.typing.NDArray[numpy.float64]], numpy.typing.NDArray[numpy.float64]]", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
         fun: Py<PyAny>,
-        #[gen_stub(override_type(type_repr = "typing.Sequence[typing.Callable[[numpy.typing.NDArray[numpy.float64], builtins.bool], builtins.float | numpy.typing.NDArray[numpy.float64]]] | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
+        #[gen_stub(override_type(type_repr = "typing.Sequence[typing.Callable[[numpy.typing.NDArray[numpy.float64], builtins.bool], builtins.float | numpy.typing.NDArray[numpy.float64]] | tuple[typing.Callable[[numpy.typing.NDArray[numpy.float64]], builtins.float], typing.Callable[[numpy.typing.NDArray[numpy.float64]], numpy.typing.NDArray[numpy.float64]]] | builtins.dict[builtins.str, typing.Callable[[numpy.typing.NDArray[numpy.float64]], builtins.float | numpy.typing.NDArray[numpy.float64]]]] | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
         fcstrs: Option<Vec<Py<PyAny>>>,
         #[gen_stub(override_type(type_repr = "typing.Sequence[CstrSpec | builtins.dict[builtins.str, typing.Any]] | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
         fcstr_specs: Option<Vec<CstrSpec>>,
@@ -423,7 +442,11 @@ impl Egor {
         verbose: Option<Py<PyAny>>,
         stop_on_error: bool,
     ) -> PyResult<EgorOptim> {
-        init_logger(py, verbose);
+        init_logger(
+            py,
+            verbose.or_else(|| self.verbose.as_ref().map(|v| v.clone_ref(py))),
+        );
+        let seed = seed.or(self.seed);
 
         let hot_start = normalize_hot_start(py, hot_start)?;
 
@@ -456,7 +479,11 @@ impl Egor {
             })
         };
 
-        let fcstrs = fcstrs.unwrap_or_default();
+        let fcstrs = fcstrs
+            .unwrap_or_default()
+            .iter()
+            .map(|cstr| FcstrFn::parse(cstr.bind(py)))
+            .collect::<PyResult<Vec<_>>>()?;
         let fcstr_specs = fcstr_specs.unwrap_or_default();
         let n_fcstr = fcstrs.len();
         if !fcstr_specs.is_empty() && fcstr_specs.len() != n_fcstr {
@@ -478,19 +505,14 @@ impl Egor {
             .map(|cstr| {
                 |x: &[f64], g: Option<&mut [f64]>, _u: &mut InfillObjData<f64>| -> f64 {
                     Python::attach(|py| {
-                        if let Some(g) = g {
-                            let args = (Array1::from(x.to_vec()).into_pyarray(py), true);
-                            if let Err(e) = cstr
-                                .bind(py)
-                                .call1(args)
+                        if let Some(g) = g
+                            && let Err(e) = cstr
+                                .call(py, x, true)
                                 .and_then(|res| extract_cstr_gradient(&res, g))
-                            {
-                                callback_error.abort(e)
-                            }
+                        {
+                            callback_error.abort(e)
                         }
-                        let args = (Array1::from(x.to_vec()).into_pyarray(py), false);
-                        cstr.bind(py)
-                            .call1(args)
+                        cstr.call(py, x, false)
                             .and_then(|res| extract_cstr_value(&res))
                             .unwrap_or_else(|e| callback_error.abort(e))
                     })
@@ -589,6 +611,7 @@ impl Egor {
     ///     ns values of objective and constraints
     /// seed : int >= 0, optional
     ///     Random generator seed to allow computation reproducibility.
+    ///     When None, the seed given to the constructor (if any) is used.
     ///
     /// Returns
     /// -------
@@ -604,6 +627,8 @@ impl Egor {
         y_doe: PyReadonlyArray2<f64>,
         seed: Option<u64>,
     ) -> PyResult<Py<PyArray2<f64>>> {
+        init_logger(py, self.verbose.as_ref().map(|v| v.clone_ref(py)));
+        let seed = seed.or(self.seed);
         let x_doe = x_doe.as_array();
         let y_doe = y_doe.as_array();
         check_doe(Some(&x_doe), &y_doe)?;
@@ -1026,6 +1051,90 @@ impl Egor {
             config = config.seed(seed);
         };
         config
+    }
+}
+
+/// A function constraint given to `minimize`, either as a single callable `g(x, return_grad)`
+/// or as a value callable `g(x)` and a gradient callable `grad_g(x)`
+enum FcstrFn {
+    WithGradFlag(Py<PyAny>),
+    FunJac { fun: Py<PyAny>, jac: Py<PyAny> },
+}
+
+impl FcstrFn {
+    /// Parse `g(x, return_grad)`, `(g, grad_g)` or `{"fun": g, "jac": grad_g}`
+    fn parse(value: &Bound<'_, PyAny>) -> PyResult<Self> {
+        let callable = |f: Bound<'_, PyAny>, what: &str| -> PyResult<Py<PyAny>> {
+            if f.is_callable() {
+                Ok(f.unbind())
+            } else {
+                Err(PyTypeError::new_err(format!(
+                    "function constraint {what} should be callable, got {}",
+                    f.get_type()
+                )))
+            }
+        };
+        if let Ok(dict) = value.cast::<PyDict>() {
+            if dict.contains("type")? {
+                return Err(PyValueError::new_err(
+                    "function constraint dict does not take a \"type\" key: egobox constraints \
+                     are g(x) <= 0 (unlike scipy \"ineq\" constraints g(x) >= 0), \
+                     use fcstr_specs (e.g. CstrSpec.geq(0.0)) to give other bounds",
+                ));
+            }
+            for key in dict.keys() {
+                let key: String = key.extract()?;
+                if key != "fun" && key != "jac" {
+                    return Err(PyValueError::new_err(format!(
+                        "unknown function constraint dict key \"{key}\", expected \"fun\" and \"jac\""
+                    )));
+                }
+            }
+            let get = |key: &str| -> PyResult<Py<PyAny>> {
+                let f = dict.get_item(key)?.ok_or_else(|| {
+                    PyValueError::new_err(format!(
+                        "function constraint dict requires a \"{key}\" key"
+                    ))
+                })?;
+                callable(f, &format!("\"{key}\""))
+            };
+            return Ok(FcstrFn::FunJac {
+                fun: get("fun")?,
+                jac: get("jac")?,
+            });
+        }
+        if let Ok(tuple) = value.cast::<PyTuple>() {
+            if tuple.len() != 2 {
+                return Err(PyValueError::new_err(format!(
+                    "function constraint tuple should be (g, grad_g), got {} items",
+                    tuple.len()
+                )));
+            }
+            return Ok(FcstrFn::FunJac {
+                fun: callable(tuple.get_item(0)?, "g")?,
+                jac: callable(tuple.get_item(1)?, "gradient")?,
+            });
+        }
+        if value.is_callable() {
+            return Ok(FcstrFn::WithGradFlag(value.clone().unbind()));
+        }
+        Err(PyTypeError::new_err(format!(
+            "function constraint should be a callable g(x, return_grad), a tuple (g, grad_g) \
+             or a dict {{\"fun\": g, \"jac\": grad_g}}, got {}",
+            value.get_type()
+        )))
+    }
+
+    /// Call the constraint value (`grad` false) or gradient (`grad` true) function at x
+    fn call<'py>(&self, py: Python<'py>, x: &[f64], grad: bool) -> PyResult<Bound<'py, PyAny>> {
+        let x = Array1::from(x.to_vec()).into_pyarray(py);
+        match self {
+            FcstrFn::WithGradFlag(g) => g.bind(py).call1((x, grad)),
+            FcstrFn::FunJac { fun, jac } => {
+                let f = if grad { jac } else { fun };
+                f.bind(py).call1((x,))
+            }
+        }
     }
 }
 

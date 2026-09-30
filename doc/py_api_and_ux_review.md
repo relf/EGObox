@@ -13,12 +13,13 @@ The core design is sound:
 The main problems are error handling, the stubs, and naming drift. Findings are ordered by user impact.
 
 > **Status:** items 1 (errors), 2 (stubs), 3 (silent behaviour) and 6 (doc errors) are implemented.
-> Item 4 (naming) is addressed in the docs, and step 5 is in progress following
+> Item 4 (naming) is addressed in the docs, and step 5 is done for 0.38 following
 > [`py_api_deprecation_plan.md`](py_api_deprecation_plan.md): the HIGH tier (`theta_` / `infill_` prefixes,
 > `best_result`, result forwarding on `EgorOptim`) and the MEDIUM tier (abbreviation renames, long enum aliases,
 > `Egor(x_doe=, y_doe=)`, `sampling` argument order, `return_std`, `nx` / `ny`, per-constraint tolerance) are done,
-> with deprecation warnings on the old names. Item 5 is partially addressed: `GpMix(gp_config=...)` is deferred, and
-> the rest (`IntFlag` specs, scipy-like `fcstrs`, properties for `thetas()` & co, `CstrConfig`) is in the LOW tier.
+> with deprecation warnings on the old names, as are the scipy-like `fcstrs` forms and `Egor(seed=, verbose=)`.
+> Item 5 leaves `IntFlag` specs and `GpMix(gp_config=...)` for later, and properties for `thetas()` & co for the
+> removal release. `CstrConfig` is dropped, per-constraint tolerance covers it.
 
 ---
 
@@ -205,6 +206,13 @@ IDE help and type checking get these wrong:
 - `GpMix(gp_config=...)` is deferred. A one-argument `GpMix(GpConfig(...))` is awkward when the `GpMix` args are the
   `GpConfig` args (unlike `Egor`, which has many other parameters).
 
+**Fix applied (deprecation plan, LOW tier):**
+- `fcstrs` items can be `(g, grad_g)` tuples or `{"fun": g, "jac": grad_g}` dicts, besides `g(x, return_grad)`.
+  A scipy `"type"` key raises `ValueError`, since scipy `"ineq"` is `g(x) >= 0`.
+- `CstrConfig` is dropped: per-constraint tolerance and `n_cstr` inferred from `cstr_specs` already group the
+  constraint settings.
+- `thetas()` & co as properties is announced in the CHANGELOG "Upcoming breaking changes" section.
+
 ## 6. Doc typos and errors (quick fixes) — ✅ addressed
 
 - **Wrong copy-paste.** The `QEiStrategy` docstring says it is "for handling constraints". The
@@ -236,8 +244,8 @@ IDE help and type checking get these wrong:
 2. ✅ **Stubs:** add `gen_stub_pymethods` to the configs, use real type hints, and set `module="egobox"` with `__repr__`s.
 3. ✅ **Silent bugs:** `GpMix` ignoring `max_eval`, the result-shape docs, and the `RunInfo` default.
 4. ✅ **Additive, without new names:** docs for naming (item 4), input shapes and `SparseGpx` parity (item 5).
-5. **Breaking changes** (in progress, see [`py_api_deprecation_plan.md`](py_api_deprecation_plan.md), HIGH and
-   MEDIUM tiers ✅):
+5. **Breaking changes** (see [`py_api_deprecation_plan.md`](py_api_deprecation_plan.md), HIGH and MEDIUM tiers ✅,
+   LOW tier items 13, 14 ✅ and 17 dropped, the rest later or in the removal release):
    in one release, possibly behind deprecation warnings: the renames and aliases of item 4,
    `IntFlag` specs, result forwarding, `nx` / `ny` properties, `return_std`, `GpMix(gp_config=...)`, the `fcstrs`
    form, and the grouping of the constraint settings.

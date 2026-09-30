@@ -53,6 +53,7 @@ print(f"f={optim.result.y_opt} at x={optim.result.x_opt}")
 > **API note (≥ 0.37.0):** `seed`, `outdir`, `warm_start`, `hot_start`, and `verbose` moved
 > from the `Egor()` constructor to `minimize()`. `minimize()` now returns an `EgorOptim`
 > object with `.result` (the `OptimResult`) and `.status`.
+> Since 0.38.0, `Egor(seed=..., verbose=...)` can also give defaults, overridden by the `minimize()` / `suggest()` values.
 
 ### Constructor Signature
 
@@ -319,7 +320,8 @@ rnd = egx.random(xlimits, n_samples=20, seed=42)  # Random
 - **`n_cstr` vs `cstr_specs`**: use `n_cstr` for plain `≤ 0` constraints; use `cstr_specs` for all other forms. Don't set both at the same time.
 - **`eq` / `between` expand to 2 internal constraints each**: if you pass `cstr_tol`, size it to the total expanded count.
 - **`y_opt` includes constraint values**: shape is `(1 + n_cstr,)` — first element is the objective.
-- **`seed` belongs in `minimize()`**, not in `Egor()` (changed in v0.37.0). For `GpMix`, `seed` is a constructor argument.
+- **`seed` goes in `minimize()`** (changed in v0.37.0). Since 0.38.0 `Egor(seed=...)` gives a default, and the `minimize()` / `suggest()` value wins. For `GpMix`, `seed` is a constructor argument.
+- **Function constraints** (`minimize(fcstrs=...)`, cheap, not surrogate-modeled) are `g(x) <= 0` and given as `(g, grad_g)`, `{"fun": g, "jac": grad_g}` or `g(x, return_grad)`. Unlike scipy, no `"type"` key: use `fcstr_specs` for other bounds.
 - **Two multistarts**: `Egor(infill_n_start=...)` is the infill criterion multistart, `GpConfig(theta_n_start=...)` the GP hyperparameters multistart
   (`theta_max_eval` its likelihood evaluations budget). The former `n_start` / `max_eval` names are deprecated since 0.38.0.
 - **Best point of a DOE**: `egor.best_result(x_doe, y_doe)` / `egor.best_index(y_doe)` (`get_result` / `get_result_index` are deprecated since 0.38.0).
