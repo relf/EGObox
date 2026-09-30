@@ -63,9 +63,9 @@ egx.Egor(
     n_cstr=0,          # number of ≤ 0 constraints (use cstr_specs instead for other forms)
     cstr_tol=None,     # list of tolerances, one per internal constraint (default 1e-4 each)
     cstr_specs=None,   # list of CstrSpec — use when constraints are not plain ≤ 0
-    n_doe=0,           # initial DoE size (0 = auto: ~n_vars + 1)
+    n_doe=0,           # initial DoE size (0 = auto: max(n_vars + 1, 5))
     doe=None,          # np.ndarray — provide your own initial DoE
-    infill_strategy=egx.InfillStrategy.WB2,
+    infill_strategy=egx.InfillStrategy.LOG_EI,
     trego=None,        # egx.TregoConfig() to activate TREGO variant
     # ... other advanced options
 )
@@ -225,18 +225,15 @@ optim = egx.Egor(xspecs).minimize(f_mixed, max_iters=30, seed=42)
 | `XType.ORD` | `[v1, v2, ...]` | Ordered discrete — one of the listed values |
 | `XType.ENUM` | `[n]` or `tags=[...]` | Unordered categorical with n levels |
 
-> **Shorthand constructors** (convenience aliases):
-> `egx.XType.Float(lo, hi)`, `egx.XType.Int(lo, hi)`, `egx.XType.Ord([...])`, `egx.XType.Enum(n)`
-
 ---
 
 ## 4. Infill Strategies & Advanced Options
 
 ```python
-egx.InfillStrategy.WB2     # Watson & Barnes 2 (default) — balanced
-egx.InfillStrategy.WB2S    # Scaled WB2
+egx.InfillStrategy.LOG_EI  # Log Expected Improvement (default), Ament et al. 2023
 egx.InfillStrategy.EI      # Expected Improvement (classic)
-egx.InfillStrategy.LOG_EI  # Log Expected Improvement
+egx.InfillStrategy.WB2     # Watson & Barnes 2nd criterion — balanced
+egx.InfillStrategy.WB2S    # Scaled WB2
 ```
 
 **TREGO variant** (trust-region, good for high-dimensional problems):
@@ -316,9 +313,11 @@ rnd = egx.random(xlimits, n_samples=20, seed=42)  # Random
 - **`n_cstr` vs `cstr_specs`**: use `n_cstr` for plain `≤ 0` constraints; use `cstr_specs` for all other forms. Don't set both at the same time.
 - **`eq` / `btw` expand to 2 internal constraints each**: if you pass `cstr_tol`, size it to the total expanded count.
 - **`y_opt` includes constraint values**: shape is `(1 + n_cstr,)` — first element is the objective.
-- **`seed` belongs in `minimize()`**, not in `Egor()` (changed in v0.37.0).
+- **`seed` belongs in `minimize()`**, not in `Egor()` (changed in v0.37.0). For `GpMix`, `seed` is a constructor argument.
+- **Two `n_start`**: `Egor(n_start=...)` is the infill criterion multistart, `GpConfig(n_start=...)` the GP hyperparameters multistart.
+- **`cstr_infill` vs `feasible_infill_strategy`**: the former weights the criterion by the probability of feasibility of the `n_cstr` constraints, the latter (`EFI_P`, `EFI_FE`) by the probability of viability, i.e. of `fun` not failing. They are independent.
 - **`xtypes` vs `xlimits`**: pass a flat list of `[lo, hi]` for continuous-only; use `XSpec` objects for mixed-integer.
-- **Low `n_doe`**: default is ~`n_dims + 1`. For complex functions, use `n_doe = 3 * n_dims` or more.
+- **Low `n_doe`**: default is `max(n_dims + 1, 5)`. For complex functions, use `n_doe = 3 * n_dims` or more.
 
 ---
 

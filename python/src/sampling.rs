@@ -6,6 +6,7 @@ use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::{gen_stub_pyclass_enum, gen_stub_pyfunction};
 
+/// Sampling specifies the method used to generate samples, see `sampling()`.
 #[gen_stub_pyclass_enum]
 #[pyclass(
     skip_from_py_object,
@@ -16,12 +17,21 @@ use pyo3_stub_gen::derive::{gen_stub_pyclass_enum, gen_stub_pyfunction};
 )]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Sampling {
+    /// Optimized Latin Hypercube Sampling: sample locations are optimized using the
+    /// Enhanced Stochastic Evolutionary algorithm (ESE), see Jin et al. (2005)
+    /// "An efficient algorithm for constructing optimal design of computer experiments"
     Lhs = 1,
+    /// Full factorial sampling: points of a regular grid
     FullFactorial = 2,
+    /// Uniform random sampling
     Random = 3,
+    /// Classic LHS: each sample is chosen randomly within its latin hypercube interval
     LhsClassic = 4,
+    /// Centered LHS: each sample is the middle of its latin hypercube interval
     LhsCentered = 5,
+    /// Maximin LHS: the minimal distance between samples is maximized
     LhsMaximin = 6,
+    /// Centered maximin LHS: centered samples with the minimal distance between samples maximized
     LhsCenteredMaximin = 7,
 }
 
@@ -52,16 +62,22 @@ impl<'a, 'py> FromPyObject<'a, 'py> for Sampling {
 
 /// Samples generation using given method
 ///
-/// # Parameters
-///     method: LHS, FULL_FACTORIAL, RANDOM,
-///             LHS_CLASSIC, LHS_CENTERED,
-///             LHS_MAXIMIN, LHS_CENTERED_MAXIMIN
-///     xspecs: list of XSpec
-///     n_samples: number of samples
-///     seed: random seed
+/// Parameters
+/// ----------
+/// method : Sampling
+///     Sampling.LHS, FULL_FACTORIAL, RANDOM, LHS_CLASSIC, LHS_CENTERED,
+///     LHS_MAXIMIN or LHS_CENTERED_MAXIMIN. Plain LHS is the optimized (ESE) LHS.
+/// xspecs : list of XSpec, list of [lower, upper] or array[nx, 2]
+///     Specifications of the nx input variables
+/// n_samples : int
+///     number of samples
+/// seed : int >= 0, optional
+///     random seed
 ///
-/// # Returns
-///    ndarray of shape (n_samples, n_variables)
+/// Returns
+/// -------
+/// array[n_samples, nx]
+///     the samples
 ///
 #[gen_stub_pyfunction]
 #[pyfunction]
@@ -98,15 +114,22 @@ pub fn sampling(
     Ok(doe.into_pyarray(py))
 }
 
-/// Samples generation using optimized Latin Hypercube Sampling
+/// Samples generation using optimized Latin Hypercube Sampling,
+/// same as `sampling(Sampling.LHS, xspecs, n_samples, seed)`
 ///
-/// # Parameters
-///     xspecs: list of XSpec
-///     n_samples: number of samples
-///     seed: random seed
+/// Parameters
+/// ----------
+/// xspecs : list of XSpec, list of [lower, upper] or array[nx, 2]
+///     Specifications of the nx input variables
+/// n_samples : int
+///     number of samples
+/// seed : int >= 0, optional
+///     random seed
 ///
-/// # Returns
-///    ndarray of shape (n_samples, n_variables)
+/// Returns
+/// -------
+/// array[n_samples, nx]
+///     the samples
 ///
 #[gen_stub_pyfunction]
 #[pyfunction]

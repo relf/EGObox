@@ -24,45 +24,46 @@ use pyo3::prelude::*;
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 use rand_xoshiro::Xoshiro256Plus;
 
-/// Sparse Gaussian processes mixture builder
+/// Sparse Gaussian process builder
 ///
-///     n_clusters (int >= 0):
-///         Number of clusters used by the mixture of surrogate experts.
-///         When set to 0, the number of cluster is determined automatically and refreshed every
-///         10-points addition (should say 'tentative addition' because addition may fail for some points
-///         but failures are counted anyway).
+/// Inducing points are required: give either their number `nz` or their locations `z`.
 ///
-///     corr_spec (CorrelationSpec flags, an int in [1, 15]):
-///         Specification of correlation models used in mixture.
-///         Can be CorrelationSpec.SQUARED_EXPONENTIAL (1), CorrelationSpec.ABSOLUTE_EXPONENTIAL (2),
-///         CorrelationSpec.MATERN32 (4), CorrelationSpec.MATERN52 (8) or
-///         any bit-wise union of these values (e.g. CorrelationSpec.MATERN32 | CorrelationSpec.MATERN52)
+/// Parameters
+/// ----------
+/// corr_spec : int
+///     CorrelationSpec flags, an int in [1, 15]. Specification of correlation models.
+///     Can be CorrelationSpec.SQUARED_EXPONENTIAL (1), CorrelationSpec.ABSOLUTE_EXPONENTIAL (2),
+///     CorrelationSpec.MATERN32 (4), CorrelationSpec.MATERN52 (8) or
+///     any bit-wise union of these values (e.g. CorrelationSpec.MATERN32 | CorrelationSpec.MATERN52)
+/// theta_init : list of float, optional
+///     Initial guess for GP theta hyperparameters, one value per input component.
+///     When None the default is 1e-1 for all components
+/// theta_bounds : list of [float, float], optional
+///     Search space [[lower_1, upper_1], ..., [lower_nx, upper_nx]] when optimizing theta GP hyperparameters.
+///     When None the default is [1e-2, 1e1] for all components.
+/// kpls_dim : int, optional
+///     Number of components to be used when PLS projection is used (a.k.a KPLS method), 0 < kpls_dim < nx.
+///     This is used to address high-dimensional problems typically when nx > 9.
+/// n_start : int >= 0
+///     Number of internal GP hyperparameters optimization restarts (multistart)
+/// nz : int, optional
+///     Number of inducing points, randomly picked among the training inputs.
+///     Used when `z` is not given.
+/// z : array[nz, nx], optional
+///     Locations of the inducing points. Takes precedence over `nz`.
+/// method : SparseMethod
+///     Sparse method to be used (default is SparseMethod.FITC)
+/// seed : int >= 0, optional
+///     Random generator seed to allow computation reproducibility.
+/// verbose : Verbose or int in [0, 4], optional
+///     Optional verbose level to control logging output (default is 0)
+///     Used mainly for debugging and development purposes
 ///
-///     recombination (Recombination.Smooth or Recombination.Hard):
-///         Specify how the various experts predictions are recombined
-///         * Smooth: prediction is a combination of experts prediction wrt their responsabilities,
-///         the heaviside factor which controls steepness of the change between experts regions is optimized
-///         to get best mixture quality.
-///         * Hard: prediction is taken from the expert with highest responsability
-///         resulting in a model with discontinuities.
+/// Returns
+/// -------
+/// SparseGpMix
+///     A builder which can be fitted to data to get a SparseGpx object (a trained sparse Gaussian process)
 ///
-///     kpls_dim (0 < int < nx where nx is the dimension of inputs x):
-///         Number of components to be used when PLS projection is used (a.k.a KPLS method).
-///         This is used to address high-dimensional problems typically when nx > 9.
-///
-///     n_start (int >= 0):
-///         Number of internal GP hyperpameters optimization restart (multistart)
-///
-///     method (SparseMethod.FITC or SparseMethod.VFE):
-///         Sparse method to be used (default is FITC)
-///
-///     seed (int >= 0):
-///         Random generator seed to allow computation reproducibility.
-///
-///     verbose (Verbose or int in [0, 4]):
-///         Optional verbose level to control logging output (default is 0)
-///         Used mainly for debugging and development purposes
-///         
 #[gen_stub_pyclass]
 #[pyclass(skip_from_py_object, module = "egobox")]
 pub(crate) struct SparseGpMix {
@@ -124,12 +125,17 @@ impl SparseGpMix {
 
     /// Fit the parameters of the model using the training dataset to build a trained model
     ///
-    /// # Parameters
-    ///     xt (array[nsamples, nx]): input samples
-    ///     yt (array[nsamples, 1]): output samples
+    /// Parameters
+    /// ----------
+    /// xt : array[nsamples, nx] or array[nsamples] when nx == 1
+    ///     input samples
+    /// yt : array[nsamples] or array[nsamples, 1]
+    ///     output samples
     ///
-    /// # Returns Sgp object
-    ///     the fitted Gaussian process mixture  
+    /// Returns
+    /// -------
+    /// SparseGpx
+    ///     the fitted sparse Gaussian process
     ///
     fn fit(
         &mut self,
@@ -201,7 +207,7 @@ impl SparseGpMix {
     }
 }
 
-/// A trained Gaussian processes mixture
+/// A trained sparse Gaussian process
 #[gen_stub_pyclass]
 #[pyclass(skip_from_py_object, module = "egobox")]
 pub(crate) struct SparseGpx(Box<GpMixture>);
@@ -209,9 +215,9 @@ pub(crate) struct SparseGpx(Box<GpMixture>);
 #[gen_stub_pymethods]
 #[pymethods]
 impl SparseGpx {
-    /// Get Gaussian processes mixture builder aka `GpSparse`
+    /// Get sparse Gaussian process builder aka `SparseGpMix`
     ///
-    /// See `GpSparse` constructor
+    /// See `SparseGpMix` constructor for parameters description
     #[staticmethod]
     #[pyo3(signature = (
         corr_spec = CorrelationSpec::SQUARED_EXPONENTIAL,
@@ -269,14 +275,20 @@ impl SparseGpx {
     /// If the filename has .json JSON human readable format is used
     /// otherwise an optimized binary format is used.
     ///
-    /// # Parameters
-    ///     filename with .json or .bin extension (string)
-    ///         file generated in the current directory
+    /// Parameters
+    /// ----------
+    /// filename : str
+    ///     file path with .json or .bin extension
     ///
-    /// # Returns True when save succeeds
+    /// Returns
+    /// -------
+    /// bool
+    ///     True when save succeeds
     ///
-    /// # Raises
-    ///     OSError or ValueError when the model can not be saved
+    /// Raises
+    /// ------
+    /// OSError or ValueError
+    ///     when the model can not be saved
     ///
     fn save(&self, filename: String) -> PyResult<bool> {
         self.0
@@ -285,11 +297,22 @@ impl SparseGpx {
         Ok(true)
     }
 
-    /// Load Gaussian processes mixture from a json file.
+    /// Load Gaussian processes mixture from file.
     ///
-    /// # Parameters
-    ///     filename (string)
-    ///         json filepath generated by saving a trained Gaussian processes mixture
+    /// Parameters
+    /// ----------
+    /// filename : str
+    ///     .json or .bin file path generated by saving a trained model
+    ///
+    /// Returns
+    /// -------
+    /// SparseGpx
+    ///     the loaded model
+    ///
+    /// Raises
+    /// ------
+    /// OSError or ValueError
+    ///     when the model can not be loaded
     ///
     #[staticmethod]
     fn load(filename: String) -> PyResult<SparseGpx> {
@@ -300,12 +323,15 @@ impl SparseGpx {
 
     /// Predict output values at nsamples points.
     ///
-    /// # Parameters
-    ///     x (array[nsamples, nx])
-    ///         input values
+    /// Parameters
+    /// ----------
+    /// x : array[nsamples, nx]
+    ///     input values
     ///
     /// Returns
-    ///     the output values at nsamples x points (array[nsamples,])
+    /// -------
+    /// array[nsamples]
+    ///     the output values at the nsamples x points
     ///
     fn predict<'py>(
         &self,
@@ -317,14 +343,17 @@ impl SparseGpx {
         Ok(self.0.predict(&x).map_err(moe_err)?.into_pyarray(py))
     }
 
-    /// Predict variances at nsample points.
+    /// Predict variances at nsamples points.
     ///
-    /// # Parameters
-    ///     x (array[nsamples, nx])
-    ///         input values
+    /// Parameters
+    /// ----------
+    /// x : array[nsamples, nx]
+    ///     input values
     ///
-    /// # Returns
-    ///     the variances of the output values at nsamples input points (array[nsamples,])
+    /// Returns
+    /// -------
+    /// array[nsamples]
+    ///     the variances of the output values at the nsamples x points
     ///
     fn predict_var<'py>(
         &self,
@@ -341,13 +370,16 @@ impl SparseGpx {
     /// Implementation note: central finite difference technique
     /// on `predict()` function is used which may be subject to numerical issues
     ///
-    /// # Parameters
-    ///     x (array[nsamples, nx])
-    ///         input values
+    /// Parameters
+    /// ----------
+    /// x : array[nsamples, nx]
+    ///     input values
     ///
-    /// # Returns
-    ///     the output derivatives at nsamples x points (array[nsamples, nx]) wrt inputs
-    ///     The ith column is the partial derivative value wrt to the ith component of x at the given samples.
+    /// Returns
+    /// -------
+    /// array[nsamples, nx]
+    ///     the output derivatives wrt inputs at the nsamples x points.
+    ///     The ith column is the partial derivative wrt the ith component of x.
     ///
     fn predict_gradients<'py>(
         &self,
@@ -368,13 +400,16 @@ impl SparseGpx {
     /// Implementation note: central finite difference technique
     /// on `predict_var()` function is used which may be subject to numerical issues
     ///
-    /// # Parameters
-    ///     x (array[nsamples, nx])
-    ///         input values
+    /// Parameters
+    /// ----------
+    /// x : array[nsamples, nx]
+    ///     input values
     ///
-    /// # Returns
-    ///     the variance derivatives at nsamples x points (array[nsamples, nx]) wrt inputs
-    ///     The ith column is the partial derivative value wrt to the ith component of x at the given samples.
+    /// Returns
+    /// -------
+    /// array[nsamples, nx]
+    ///     the variance derivatives wrt inputs at the nsamples x points.
+    ///     The ith column is the partial derivative wrt the ith component of x.
     ///
     fn predict_var_gradients<'py>(
         &self,
@@ -392,13 +427,17 @@ impl SparseGpx {
 
     /// Sample gaussian process trajectories.
     ///
-    /// # Parameters
-    ///     x (array[nsamples, nx])
-    ///         locations of the sampled trajectories
-    ///     n_traj number of trajectories to generate
+    /// Parameters
+    /// ----------
+    /// x : array[nsamples, nx]
+    ///     locations of the sampled trajectories
+    /// n_traj : int
+    ///     number of trajectories to generate
     ///
-    /// # Returns
-    ///     the trajectories as an array[nsamples, n_traj]
+    /// Returns
+    /// -------
+    /// array[nsamples, n_traj]
+    ///     the trajectories
     ///
     fn sample<'py>(
         &self,
@@ -413,8 +452,10 @@ impl SparseGpx {
 
     /// Get optimized thetas hyperparameters (ie once GP experts are fitted)
     ///
-    /// # Returns
-    ///     thetas as an array[n_clusters, nx or kpls_dim]
+    /// Returns
+    /// -------
+    /// array[n_clusters, nx or kpls_dim]
+    ///     thetas of each expert
     ///
     fn thetas<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
         let experts = self.0.experts();
@@ -428,8 +469,10 @@ impl SparseGpx {
 
     /// Get GP expert variance (ie posterior GP variance)
     ///
-    /// # Returns
-    ///     variances as an array[n_clusters]
+    /// Returns
+    /// -------
+    /// array[n_clusters]
+    ///     variance of each expert
     ///
     fn variances<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
         let experts = self.0.experts();
@@ -440,12 +483,14 @@ impl SparseGpx {
         variances.into_pyarray(py)
     }
 
-    /// Get reduced likelihood values gotten when fitting the GP experts
+    /// Get reduced likelihood values obtained when fitting the GP experts
     ///
-    /// Maybe used to compare various parameterization
+    /// May be used to compare various parameterizations
     ///
-    /// # Returns
-    ///     likelihood as an array[n_clusters]
+    /// Returns
+    /// -------
+    /// array[n_clusters]
+    ///     likelihood of each expert
     ///
     fn likelihoods<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
         let experts = self.0.experts();

@@ -12,7 +12,8 @@ The core design is sound:
 
 The main problems are error handling, the stubs, and naming drift. Findings are ordered by user impact.
 
-> **Status:** items 1 (errors), 2 (stubs) and 3 (silent behaviour) are implemented. Items 4–6 are open.
+> **Status:** items 1 (errors), 2 (stubs), 3 (silent behaviour) and 6 (doc errors) are implemented.
+> Item 4 (naming) is addressed in the docs only: renames are left to the breaking release. Item 5 is open.
 
 ---
 
@@ -97,7 +98,7 @@ IDE help and type checking get these wrong:
   the Rust core default.
 - `Egor(target=None)` is the default and means no target. Passing a float works as before.
 
-## 4. Naming consistency
+## 4. Naming consistency — ✅ addressed in docs
 
 | Issue | Where | Suggestion |
 |---|---|---|
@@ -110,6 +111,17 @@ IDE help and type checking get these wrong:
 | Enum casing in docstrings | `Recombination.Smooth`; `ConstraintStrategy.MeanValue` / `UpperTrustedBound` in the `Egor` docstring | The real names are `SMOOTH`, `MC`, `UTB` |
 | Cryptic enum names | `ConstraintStrategy.MC/UTB`, `QEiStrategy.KBLB/CLMIN`, `FeasibleInfillStrategy.EFI_FE` | Add long aliases such as `MEAN_CONSTRAINT`, `UPPER_TRUST_BOUND`, `KRIGING_BELIEVER` |
 | Unclear sampling names | `Sampling.LHS` vs `LHS_MAXIMIN` / `LHS_CLASSIC` | Document what plain `LHS` is (optimized?). `lhs(xspecs, n)` and `sampling(method, xspecs, n)` also order their arguments differently; `sampling(xspecs, n, method=Sampling.LHS)` would make `lhs` a thin alias |
+
+**Fix applied (docs only, no new names):**
+- `Egor(n_start)` and `GpConfig(n_start)` docs point to each other. `GpConfig(max_eval)` and `minimize(max_iters)` too.
+- `Egor.minimize` and `GpMix` docs say where `seed` and `verbose` go for each class.
+- `Egor(doe)` doc points to the separate `x_doe` / `y_doe` of `suggest`.
+- Docstrings use the real enum names (`SMOOTH`, `HARD`, `MC`, `UTB`). Each member of `ConstraintStrategy`,
+  `QEiStrategy`, `FeasibleInfillStrategy` and `Sampling` says what its abbreviation stands for.
+- `Sampling.LHS` is documented as the optimized (ESE) LHS, and `lhs(xspecs, n)` as `sampling(Sampling.LHS, xspecs, n)`.
+- Abbreviations are spelled out in parameter docs: `btw` (between), `optmod`, `n_gl_steps`, `d`, `nz`, `z`.
+- Aliases and renames (long enum names, `CstrSpec.between`, `best_result`, `theta_` prefix, `doe_x` / `doe_y`,
+  `sampling` argument order) are left to the breaking release (see Suggested order, step 5).
 
 ## 5. Structural and ergonomic points
 
@@ -145,7 +157,7 @@ IDE help and type checking get these wrong:
 - **Docstring style is mixed.** Some use Rust-style `# Parameters` blocks, others numpydoc
   `Parameters\n----------` blocks. Pick numpydoc so that Sphinx and IDEs render them.
 
-## 6. Doc typos and errors (quick fixes)
+## 6. Doc typos and errors (quick fixes) — ✅ addressed
 
 - **Wrong copy-paste.** The `QEiStrategy` docstring says it is "for handling constraints". The
   `QEiConfig` doc refers to `q_optmod`, but the field is `optmod`.
@@ -153,6 +165,20 @@ IDE help and type checking get these wrong:
   - WB2 is the Watson & Barnes criterion, but the docstring says "Warnes and Barnes (2020)".
   - LogEI is Ament et al. 2023, *Unexpected Improvements to Expected Improvement*. The docstring gives 2020 and a different title.
 - **Spelling:** "responsability", "hyperpameters", "objecctive", "documention", and "peek at the same point twice" (should be "picked").
+
+**Fix applied:**
+- `QEiStrategy` is described as the qEI batch selection strategy; `QEiConfig` refers to `optmod`.
+- WB2 cites Watson & Barnes (1995), LogEI cites Ament et al. (2023).
+- Spelling fixed ("objecctive" was already gone).
+- `SparseGpx.builder` refers to `SparseGpMix`, whose doc lists its real parameters (`theta_init`, `theta_bounds`,
+  `nz`, `z`) and no longer `n_clusters` / `recombination`.
+- The `Egor`, `GpMix`, `Gpx`, `SparseGpMix`, `SparseGpx`, `sampling` and `lhs` docstrings use the numpydoc layout,
+  like the config classes (item 5, last point).
+- `Egor` doc explains that `cstr_infill` and `feasible_infill_strategy` are independent (item 5, third point):
+  the first weights the criterion by the probability of feasibility of the `n_cstr` constraints, the second by
+  the probability of viability, i.e. of `fun` not failing.
+- The `egobox` skill no longer documents nonexistent `XType.Float(lo, hi)` constructors, and gives `LOG_EI`
+  as the default infill strategy.
 
 ---
 

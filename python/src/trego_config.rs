@@ -21,10 +21,10 @@ pub enum TregoConfigSpec {
 /// Parameters
 /// ----------
 /// n_gl_steps : (int, int)
-///     A tuple specifying the number of global and local optimization steps as
-///    (n_global_steps, n_local_steps).
+///     Number of global and local steps (gl): a tuple specifying the number of
+///     global and local optimization steps as (n_global_steps, n_local_steps).
 /// d : tuple of float
-///     Trust region size bounds as (min, max). The trust region radius
+///     Trust region distance (radius) bounds as (dmin, dmax). The trust region radius
 ///     is constrained between these values.
 /// alpha : float
 ///     Factor used within the trust region acceptance criteria defined as:
@@ -37,7 +37,7 @@ pub enum TregoConfigSpec {
 #[pyclass(skip_from_py_object, module = "egobox")]
 #[derive(Clone, Debug)]
 pub(crate) struct TregoConfig {
-    /// Number of global optimization steps
+    /// Number of global and local optimization steps (n_global_steps, n_local_steps)
     #[pyo3(get, set)]
     pub n_gl_steps: (usize, usize),
 

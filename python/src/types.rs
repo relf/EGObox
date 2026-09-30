@@ -14,11 +14,11 @@ use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pyclass_enum, gen_stub_py
 )]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Recombination {
-    /// prediction is taken from the expert with highest responsability
+    /// Prediction is taken from the expert with highest responsibility,
     /// resulting in a model with discontinuities
     Hard = 0,
-    /// Prediction is a combination experts prediction wrt their responsabilities,
-    /// an optional heaviside factor might be used control steepness of the change between
+    /// Prediction is a combination of experts predictions wrt their responsibilities,
+    /// an optional heaviside factor might be used to control steepness of the change between
     /// experts regions.
     Smooth = 1,
 }
@@ -99,14 +99,14 @@ pub(crate) enum InfillStrategy {
     /// Expected Improvement
     /// see Mockus et al. (1978) "The application of Bayesian methods for seeking the extremum"
     Ei = 1,
-    /// Warnes and Barnes 2nd EI improvement, shift EI by the GP mean
+    /// Watson and Barnes 2nd criterion (WB2): EI shifted by the GP mean,
     /// easier to optimize than EI but may not explore as much as EI
-    /// see Warnes and Barnes (2020) "A new acquisition function for batch Bayesian optimization"
+    /// see Watson and Barnes (1995) "Infill sampling criteria to locate extremes"
     Wb2 = 2,
-    /// Warnes and Barnes 2nd scaling to improve exploration
+    /// Scaled version of WB2 (WB2S) to improve exploration
     Wb2s = 3,
-    /// Logarithm of Expected Improvement
-    /// see Ament et al. (2020) "Logarithmic Expected Improvement for Robust and Noisy Bayesian Optimization"
+    /// Logarithm of Expected Improvement (LogEI)
+    /// see Ament et al. (2023) "Unexpected Improvements to Expected Improvement for Bayesian Optimization"
     LogEi = 4,
 }
 
@@ -143,9 +143,11 @@ impl<'a, 'py> FromPyObject<'a, 'py> for InfillStrategy {
 )]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum ConstraintStrategy {
-    /// Mean of the GP is used to evaluate the constraint, which is equivalent to ignoring the uncertainty on the constraint
+    /// Mean Constraint (MC): the mean of the GP is used to evaluate the constraint,
+    /// which is equivalent to ignoring the uncertainty on the constraint
     Mc = 1,
-    /// Upper trusted bound of the GP is used to evaluate the constraint, which takes into account the uncertainty on the constraint
+    /// Upper Trust Bound (UTB): the upper trust bound of the GP is used to evaluate the constraint,
+    /// which takes into account the uncertainty on the constraint
     Utb = 2,
 }
 
@@ -169,8 +171,9 @@ impl<'a, 'py> FromPyObject<'a, 'py> for ConstraintStrategy {
     }
 }
 
-/// QEiStrategy specifies the strategy to use for handling constraints in infill optimization.
-/// see QEI is the multi-point extension of EI, see Chevalier and Ginsbourger (2013)
+/// QEiStrategy specifies how the points of a qEI batch are selected: after each selected point,
+/// the GP is updated with a virtual value given by the strategy, then the next point is selected.
+/// qEI is the multi-point extension of EI, see Chevalier and Ginsbourger (2013)
 /// "Fast Computation of the Multi-Points Expected Improvement with Applications in Batch Selection"
 #[gen_stub_pyclass_enum]
 #[pyclass(
@@ -182,18 +185,18 @@ impl<'a, 'py> FromPyObject<'a, 'py> for ConstraintStrategy {
 )]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum QEiStrategy {
-    /// Kriging Believer, the next point is added to the GP with its predicted mean value,
+    /// Kriging Believer (KB), the next point is added to the GP with its predicted mean value,
     /// which is equivalent to assuming that the prediction is perfect
     Kb = 1,
-    /// Kriging Believer lower bound, the next point is added to the GP with
+    /// Kriging Believer Lower Bound (KBLB), the next point is added to the GP with
     /// its predicted mean value minus a multiple of the predicted standard deviation,
     /// which is equivalent to assuming that the prediction is pessimistic
     Kblb = 2,
-    /// Kriging Believer upper bound, the next point is added to the GP with
+    /// Kriging Believer Upper Bound (KBUB), the next point is added to the GP with
     /// its predicted mean value plus a multiple of the predicted standard deviation,
     /// which is equivalent to assuming that the prediction is optimistic
     Kbub = 3,
-    /// Constant Liar, the next point is added to the GP by using the current minimum
+    /// Constant Liar Minimum (CLMIN), the next point is added to the GP by using the current minimum
     /// value observed in the DOE, which is equivalent to assuming that
     /// the prediction is the current best value
     Clmin = 4,
@@ -258,8 +261,12 @@ impl<'a, 'py> FromPyObject<'a, 'py> for InfillOptimizer {
     }
 }
 
-/// Expected Feasible Improvement (EFI) is an acquisition function that takes into account the feasibility of the points in the optimization process.
-/// It is defined as the product of the Expected Improvement (EI) weighted by the probability of viability
+/// FeasibleInfillStrategy activates the Expected Feasible Improvement (EFI) to handle hidden constraints,
+/// i.e. points where the objective function fails (returns NaN or raises).
+/// The infill criterion is weighted by the probability of viability given by a surrogate trained
+/// on successful and failed points, see Tfaily et al. (2024).
+/// This is independent of `Egor(cstr_infill=True)` which weights the criterion by the probability
+/// of feasibility of the explicit constraints (`n_cstr`), both can be used together.
 #[gen_stub_pyclass_enum]
 #[pyclass(
     skip_from_py_object,
@@ -272,9 +279,10 @@ impl<'a, 'py> FromPyObject<'a, 'py> for InfillOptimizer {
 pub(crate) enum FeasibleInfillStrategy {
     /// Do not use feasibility information
     None = 1,
-    /// Use Expected Feasible Improvement with full probability of feasibility
+    /// EFI with Probability (EFI_P): the criterion is weighted by the probability of viability
     EfiP = 2,
-    /// Use Expected Feasible Improvement with 0.3 weighted probability of feasibility, which is more exploratory than EfiP
+    /// EFI Feasibility Enhanced (EFI_FE): the criterion is weighted by the probability of viability
+    /// to the power 0.3, which is more exploratory than EFI_P
     EfiFe = 3,
 }
 
@@ -710,7 +718,7 @@ pub(crate) enum ExitStatus {
     TargetCostReached = 2,
     /// Algorithm manually interrupted with SIGINT (Ctrl+C), SIGTERM or SIGHUP
     Interrupt = 3,
-    /// Algorithm peek at the same point twice. We consider it is converged.
+    /// Algorithm picked the same point twice. We consider it is converged.
     SolverConverged = 4,
     /// Timeout reached
     Timeout = 5,

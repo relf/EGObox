@@ -25,8 +25,9 @@ use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 ///     * CLMIN (Constant Liar Minimum): Uses the current best value as pseudo-observation
 ///
 /// optmod : int
-///     Interval between two hyperparameter optimizations when computing q points.
-///     For example, with q_optmod=2, hyperparameters are optimized every 2 points.
+///     Optimization modulo: interval between two GP hyperparameter optimizations
+///     when computing the q points of a batch. For example, with optmod=2,
+///     hyperparameters are optimized every 2 points, otherwise they are kept as is.
 ///
 #[gen_stub_pyclass]
 #[pyclass(skip_from_py_object, module = "egobox")]
