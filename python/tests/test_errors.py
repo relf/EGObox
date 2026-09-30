@@ -208,9 +208,9 @@ class TestErrors(unittest.TestCase):
 
     def test_result_empty(self):
         egor = egx.Egor([[0.0, 1.0]])
-        self.assertRaisesStd(ValueError, egor.get_result_index, np.zeros((0, 1)))
+        self.assertRaisesStd(ValueError, egor.best_index, np.zeros((0, 1)))
         self.assertRaisesStd(
-            ValueError, egor.get_result, np.zeros((3, 1)), np.zeros((2, 1))
+            ValueError, egor.best_result, np.zeros((3, 1)), np.zeros((2, 1))
         )
 
 

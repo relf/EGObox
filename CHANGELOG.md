@@ -5,6 +5,24 @@
 * Python API raises standard exceptions (`ValueError`, `TypeError`, `OSError`, `RuntimeError`) instead of
   `PanicException` on invalid input or failure. Errors raised by function constraints are propagated as is.
   `Gpx.save()`/`SparseGpx.save()` raise on failure instead of returning `False`.
+* Python `EgorOptim` forwards `x_opt`, `y_opt`, `x_doe`, `y_doe` from its `result` and unpacks as
+  `x_opt, y_opt = egor.minimize(...)`.
+
+### Deprecations
+
+Deprecated Python names still work but emit a `DeprecationWarning`; they will be removed in the release after 0.38.
+
+| Deprecated | Use instead |
+|---|---|
+| `Egor(n_start=...)` | `Egor(infill_n_start=...)` |
+| `GpConfig(n_start=...)`, `GpConfig.n_start`, `gp_config={"n_start": ...}` | `theta_n_start` |
+| `GpConfig(max_eval=...)`, `GpConfig.max_eval`, `gp_config={"max_eval": ...}` | `theta_max_eval` |
+| `GpMix` / `Gpx.builder(n_start=..., max_eval=...)` | `theta_n_start=...`, `theta_max_eval=...` |
+| `SparseGpMix` / `SparseGpx.builder(n_start=...)` | `theta_n_start=...` |
+| `Egor.get_result(x_doe, y_doe)` | `Egor.best_result(x_doe, y_doe)` |
+| `Egor.get_result_index(y_doe)` | `Egor.best_index(y_doe)` |
+
+Passing both a deprecated keyword and its replacement raises `TypeError`.
 
 ## Version 0.37.7 - unreleased
 

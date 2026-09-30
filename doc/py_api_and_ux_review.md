@@ -13,8 +13,10 @@ The core design is sound:
 The main problems are error handling, the stubs, and naming drift. Findings are ordered by user impact.
 
 > **Status:** items 1 (errors), 2 (stubs), 3 (silent behaviour) and 6 (doc errors) are implemented.
-> Item 4 (naming) is addressed in the docs only: renames are left to the breaking release. Item 5 is partially
-> addressed: input shapes and `SparseGpx` parity are fixed, the rest needs new names or breaking changes.
+> Item 4 (naming) is addressed in the docs, and step 5 is in progress following
+> [`py_api_deprecation_plan.md`](py_api_deprecation_plan.md): the HIGH tier (`theta_` / `infill_` prefixes,
+> `best_result`, result forwarding on `EgorOptim`) is done with deprecation warnings. Item 5 is partially
+> addressed: input shapes, `SparseGpx` parity and result forwarding are fixed, the rest is in the MEDIUM and LOW tiers.
 
 ---
 
@@ -124,6 +126,12 @@ IDE help and type checking get these wrong:
 - Aliases and renames (long enum names, `CstrSpec.between`, `best_result`, `theta_` prefix, `doe_x` / `doe_y`,
   `sampling` argument order) are left to the breaking release (see Suggested order, step 5).
 
+**Fix applied (deprecation plan, HIGH tier):**
+- `Egor(n_start)` → `infill_n_start`; `GpConfig` / `GpMix` / `Gpx.builder` `n_start` → `theta_n_start` and
+  `max_eval` → `theta_max_eval` (kwargs, config attributes and dict keys); `SparseGpMix` / `SparseGpx.builder`
+  `n_start` → `theta_n_start`. Old names are keyword-only and emit a `DeprecationWarning`; giving both raises `TypeError`.
+- `Egor.get_result` / `get_result_index` → `best_result` / `best_index`, the old methods warn and delegate.
+
 ## 5. Structural and ergonomic points
 
 - **`RegressionSpec` / `CorrelationSpec` are bare int holders.** Making them `enum.IntFlag` would give a
@@ -170,6 +178,10 @@ IDE help and type checking get these wrong:
   tolerance, the scipy-like `fcstrs` form, result forwarding on `EgorOptim` and unpacking, `GpMix(gp_config=...)`,
   `predict(x, return_std=True)`, `nx` / `ny` properties, `thetas()` & co as properties, and the `IntFlag` specs.
 
+**Fix applied (deprecation plan, HIGH tier):**
+- `EgorOptim` forwards `x_opt`, `y_opt`, `x_doe` and `y_doe` from `result` as read-only properties, and
+  `__iter__` yields `(x_opt, y_opt)` so that `x_opt, y_opt = egor.minimize(...)` works. `res.result` stays.
+
 ## 6. Doc typos and errors (quick fixes) — ✅ addressed
 
 - **Wrong copy-paste.** The `QEiStrategy` docstring says it is "for handling constraints". The
@@ -201,6 +213,7 @@ IDE help and type checking get these wrong:
 2. ✅ **Stubs:** add `gen_stub_pymethods` to the configs, use real type hints, and set `module="egobox"` with `__repr__`s.
 3. ✅ **Silent bugs:** `GpMix` ignoring `max_eval`, the result-shape docs, and the `RunInfo` default.
 4. ✅ **Additive, without new names:** docs for naming (item 4), input shapes and `SparseGpx` parity (item 5).
-5. **Breaking changes:** in one release, possibly behind deprecation warnings: the renames and aliases of item 4,
+5. **Breaking changes** (in progress, see [`py_api_deprecation_plan.md`](py_api_deprecation_plan.md), HIGH tier ✅):
+   in one release, possibly behind deprecation warnings: the renames and aliases of item 4,
    `IntFlag` specs, result forwarding, `nx` / `ny` properties, `return_std`, `GpMix(gp_config=...)`, the `fcstrs`
    form, and the grouping of the constraint settings.

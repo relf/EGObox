@@ -92,6 +92,50 @@ class TestStubs(unittest.TestCase):
                     node.name,
                 )
 
+    def test_egor_optim_forwards_result(self):
+        cls = _stub_classes()["EgorOptim"]
+        members = {node.name for node in cls.body if isinstance(node, ast.FunctionDef)}
+        for name in (
+            "result",
+            "status",
+            "x_opt",
+            "y_opt",
+            "x_doe",
+            "y_doe",
+            "__iter__",
+        ):
+            self.assertIn(name, members, f"EgorOptim.{name}")
+
+    def test_renamed_parameters_in_stub(self):
+        # new names are documented, deprecated ones are kept as keyword-only until removal
+        classes = _stub_classes()
+        renamed = {
+            ("Egor", "__new__"): [("n_start", "infill_n_start")],
+            ("GpConfig", "__new__"): [
+                ("n_start", "theta_n_start"),
+                ("max_eval", "theta_max_eval"),
+            ],
+            ("GpMix", "__new__"): [
+                ("n_start", "theta_n_start"),
+                ("max_eval", "theta_max_eval"),
+            ],
+            ("Gpx", "builder"): [
+                ("n_start", "theta_n_start"),
+                ("max_eval", "theta_max_eval"),
+            ],
+            ("SparseGpMix", "__new__"): [("n_start", "theta_n_start")],
+            ("SparseGpx", "builder"): [("n_start", "theta_n_start")],
+        }
+        for (name, fname), pairs in renamed.items():
+            fn = _stub_functions(classes[name].body)[fname]
+            kwonly = [a.arg for a in fn.args.kwonlyargs]
+            for old, new in pairs:
+                self.assertIn(new, _param_names(fn), f"{name}.{fname}({new})")
+                self.assertIn(old, kwonly, f"{name}.{fname}(*, {old})")
+        egor = _stub_functions(classes["Egor"].body)
+        for name in ("best_result", "best_index", "get_result", "get_result_index"):
+            self.assertIn(name, egor, f"Egor.{name}")
+
     def test_no_any_in_public_signatures(self):
         tree = ast.parse(STUB_PATH.read_text())
         for node in ast.walk(tree):

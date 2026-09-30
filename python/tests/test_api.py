@@ -137,7 +137,7 @@ class TestApiImports(unittest.TestCase):
     def test_gpmix_max_eval_is_used(self):
         import egobox as egx
 
-        # likelihood evaluations per start: clamp(10 * nx, 25, max_eval)
+        # likelihood evaluations per start: clamp(10 * nx, 25, theta_max_eval)
         # hence nx = 5 to get 50 evaluations by default, capped to 25 here
         xt = egx.lhs([[0.0, 4.0]] * 5, 30, seed=42)
         yt = (np.sin(xt[:, 0]) + np.cos(2 * xt[:, 1]) + xt[:, 2:].sum(axis=1)).reshape(
@@ -145,7 +145,9 @@ class TestApiImports(unittest.TestCase):
         )
 
         def thetas(max_eval):
-            gpx = egx.GpMix(n_start=1, max_eval=max_eval, seed=42).fit(xt, yt)
+            gpx = egx.GpMix(theta_n_start=1, theta_max_eval=max_eval, seed=42).fit(
+                xt, yt
+            )
             return gpx.thetas()
 
         self.assertFalse(np.allclose(thetas(25), thetas(1000)))
@@ -193,7 +195,7 @@ class TestApiImports(unittest.TestCase):
             repr(egx.GpConfig(n_clusters=2, theta_bounds=[[0.1, 1.0]])),
             "GpConfig(regr_spec=1, corr_spec=1, kpls_dim=None, n_clusters=2, "
             "recombination=Recombination.HARD, theta_init=None, "
-            "theta_bounds=[[0.1, 1.0]], n_start=10, max_eval=50)",
+            "theta_bounds=[[0.1, 1.0]], theta_n_start=10, theta_max_eval=50)",
         )
         self.assertEqual(
             repr(egx.QEiConfig(batch=3)),

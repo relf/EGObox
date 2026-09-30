@@ -24,7 +24,7 @@ Egor(
     n_cstr=0,
     cstr_tol=None,
     cstr_specs=None,
-    n_start=20,
+    infill_n_start=20,
     n_doe=0,
     doe=None,
     infill_strategy=InfillStrategy.LOG_EI,
@@ -47,7 +47,7 @@ Egor(
 | `n_cstr` | `int` | `0` | Number of surrogate-modeled constraints returned by `fun`. |
 | `cstr_tol` | `Optional[Sequence[float]]` | `None` | Per-constraint feasibility tolerances. |
 | `cstr_specs` | `Optional[Sequence[CstrSpec]]` | `None` | Optional constraint semantics for surrogate constraints. Possible values per item: `CstrSpec.leq(bound)`, `CstrSpec.geq(bound)`, `CstrSpec.eq(value)`, `CstrSpec.btw(lower, upper)`. |
-| `n_start` | `int` | `20` | Number of multistart runs for infill optimization. |
+| `infill_n_start` | `int` | `20` | Number of multistart runs for infill optimization (`n_start` is deprecated since 0.38.0). |
 | `n_doe` | `int` | `0` | Initial DOE size (auto-computed when `0`, if DOE not provided). |
 | `doe` | `Optional[NDArray[float64]]` | `None` | Initial DOE matrix (`x` only or concatenated `x,y`). |
 | `infill_strategy` | `InfillStrategy` | `InfillStrategy.LOG_EI` | Infill criterion. Possible values: `InfillStrategy.LOG_EI`, `InfillStrategy.EI`, `InfillStrategy.WB2`, `InfillStrategy.WB2S`. |
@@ -72,8 +72,8 @@ Egor(
 | `recombination` | `Recombination` | `Recombination.HARD` | Expert recombination mode. Possible values: `Recombination.HARD`, `Recombination.SMOOTH`. |
 | `theta_init` | `Optional[Sequence[float]]` | `None` | Uses internal default initialization. |
 | `theta_bounds` | `Optional[Sequence[Sequence[float]]]` | `None` | Uses internal default bounds. |
-| `n_start` | `int` | `10` | GP hyperparameter optimization multistart. |
-| `max_eval` | `int` | `50` | Max likelihood evaluations for hyperparameter optimization. |
+| `theta_n_start` | `int` | `10` | GP hyperparameter optimization multistart (`n_start` is deprecated since 0.38.0). |
+| `theta_max_eval` | `int` | `50` | Max likelihood evaluations for hyperparameter optimization (`max_eval` is deprecated since 0.38.0). |
 
 ### QEiConfig
 
@@ -129,6 +129,18 @@ Egor.minimize(
 | `timeout` | `Optional[float]` | `None` | Optional time limit in seconds. |
 | `verbose` | `Optional[Any]` | `None` | Logging verbosity. Possible values: `None`, integer level, or `Verbose` enum (`ERROR`, `WARNING`, `INFO`, `DEBUG`, `TRACE`). |
 
+It returns an `EgorOptim` with `result` (an `OptimResult` holding `x_opt`, `y_opt`, `x_doe`, `y_doe`) and `status`.
+The result fields are also available directly on the returned object, which can be unpacked as `(x_opt, y_opt)`:
+
+```python
+res = egor.minimize(fun, max_iters=20)
+res.x_opt, res.y_opt  # same as res.result.x_opt, res.result.y_opt
+x_opt, y_opt = egor.minimize(fun, max_iters=20)
+```
+
+`Egor.best_result(x_doe, y_doe)` and `Egor.best_index(y_doe)` give the best point of a given DOE
+(`get_result` and `get_result_index` are deprecated since 0.38.0).
+
 ## Gpx.builder
 
 Signature:
@@ -143,8 +155,8 @@ Gpx.builder(
     recombination=Recombination.HARD,
     theta_init=None,
     theta_bounds=None,
-    n_start=10,
-    max_eval=50,
+    theta_n_start=10,
+    theta_max_eval=50,
     seed=None,
     verbose=None,
 )
@@ -160,8 +172,8 @@ Gpx.builder(
 | `recombination` | `Recombination` | `Recombination.HARD` | Expert recombination policy. Possible values: `Recombination.HARD`, `Recombination.SMOOTH`. |
 | `theta_init` | `Optional[Sequence[float]]` | `None` | Initial GP hyperparameter guess. |
 | `theta_bounds` | `Optional[Sequence[Sequence[float]]]` | `None` | Search bounds for GP hyperparameter optimization. |
-| `n_start` | `int` | `10` | Hyperparameter optimization multistart count. |
-| `max_eval` | `int` | `50` | Max likelihood evaluations during hyperparameter optimization. |
+| `theta_n_start` | `int` | `10` | Hyperparameter optimization multistart count (`n_start` is deprecated since 0.38.0). |
+| `theta_max_eval` | `int` | `50` | Max likelihood evaluations during hyperparameter optimization (`max_eval` is deprecated since 0.38.0). |
 | `seed` | `Optional[int]` | `None` | RNG seed for reproducibility. |
 | `verbose` | `Optional[Any]` | `None` | Optional logging verbosity. Possible values: `None`, integer level, or `Verbose` enum (`ERROR`, `WARNING`, `INFO`, `DEBUG`, `TRACE`). |
 
