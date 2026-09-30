@@ -11,7 +11,7 @@
 //!
 use std::cmp::Ordering;
 
-use crate::errors::{check_nx, gp_file_format, moe_err, moe_file_err, training_data};
+use crate::errors::{gp_file_format, input_x, moe_err, moe_file_err, output_y, training_data};
 use crate::logging::init_logger;
 use crate::types::*;
 use crate::{domain::parse, gp_config::GpConfig};
@@ -25,9 +25,7 @@ use egobox_moe::{GpMixture, GpSurrogate, GpSurrogateExt};
 use linfa::{Dataset, traits::Fit};
 use ndarray::{Array1, Array2, Zip, array};
 use ndarray_rand::rand::SeedableRng;
-use numpy::{
-    IntoPyArray, PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2, PyReadonlyArrayDyn,
-};
+use numpy::{IntoPyArray, PyArray1, PyArray2, PyReadonlyArrayDyn};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
@@ -394,7 +392,7 @@ impl Gpx {
     ///
     /// Parameters
     /// ----------
-    /// x : array[nsamples, nx]
+    /// x : array[nsamples, nx] or array[nsamples] when nx == 1
     ///     input values
     ///
     /// Returns
@@ -405,10 +403,9 @@ impl Gpx {
     fn predict<'py>(
         &self,
         py: Python<'py>,
-        x: PyReadonlyArray2<f64>,
+        x: PyReadonlyArrayDyn<f64>,
     ) -> PyResult<Bound<'py, PyArray1<f64>>> {
-        let x = x.as_array();
-        check_nx(&x, self.0.dims().0)?;
+        let x = input_x(x.as_array(), self.0.dims().0)?;
         Ok(self.0.predict(&x).map_err(moe_err)?.into_pyarray(py))
     }
 
@@ -416,7 +413,7 @@ impl Gpx {
     ///
     /// Parameters
     /// ----------
-    /// x : array[nsamples, nx]
+    /// x : array[nsamples, nx] or array[nsamples] when nx == 1
     ///     input values
     ///
     /// Returns
@@ -427,10 +424,9 @@ impl Gpx {
     fn predict_var<'py>(
         &self,
         py: Python<'py>,
-        x: PyReadonlyArray2<f64>,
+        x: PyReadonlyArrayDyn<f64>,
     ) -> PyResult<Bound<'py, PyArray1<f64>>> {
-        let x = x.as_array();
-        check_nx(&x, self.0.dims().0)?;
+        let x = input_x(x.as_array(), self.0.dims().0)?;
         Ok(self.0.predict_var(&x).map_err(moe_err)?.into_pyarray(py))
     }
 
@@ -438,7 +434,7 @@ impl Gpx {
     ///
     /// Parameters
     /// ----------
-    /// x : array[nsamples, nx]
+    /// x : array[nsamples, nx] or array[nsamples] when nx == 1
     ///     input values
     ///
     /// Returns
@@ -450,10 +446,9 @@ impl Gpx {
     fn predict_gradients<'py>(
         &self,
         py: Python<'py>,
-        x: PyReadonlyArray2<f64>,
+        x: PyReadonlyArrayDyn<f64>,
     ) -> PyResult<Bound<'py, PyArray2<f64>>> {
-        let x = x.as_array();
-        check_nx(&x, self.0.dims().0)?;
+        let x = input_x(x.as_array(), self.0.dims().0)?;
         Ok(self
             .0
             .predict_gradients(&x)
@@ -465,7 +460,7 @@ impl Gpx {
     ///
     /// Parameters
     /// ----------
-    /// x : array[nsamples, nx]
+    /// x : array[nsamples, nx] or array[nsamples] when nx == 1
     ///     input values
     ///
     /// Returns
@@ -477,10 +472,9 @@ impl Gpx {
     fn predict_var_gradients<'py>(
         &self,
         py: Python<'py>,
-        x: PyReadonlyArray2<f64>,
+        x: PyReadonlyArrayDyn<f64>,
     ) -> PyResult<Bound<'py, PyArray2<f64>>> {
-        let x = x.as_array();
-        check_nx(&x, self.0.dims().0)?;
+        let x = input_x(x.as_array(), self.0.dims().0)?;
         Ok(self
             .0
             .predict_var_gradients(&x)
@@ -492,7 +486,7 @@ impl Gpx {
     ///
     /// Parameters
     /// ----------
-    /// x : array[nsamples, nx]
+    /// x : array[nsamples, nx] or array[nsamples] when nx == 1
     ///     locations of the sampled trajectories
     /// n_traj : int
     ///     number of trajectories to generate
@@ -505,11 +499,10 @@ impl Gpx {
     fn sample<'py>(
         &self,
         py: Python<'py>,
-        x: PyReadonlyArray2<f64>,
+        x: PyReadonlyArrayDyn<f64>,
         n_traj: usize,
     ) -> PyResult<Bound<'py, PyArray2<f64>>> {
-        let x = x.as_array();
-        check_nx(&x, self.0.dims().0)?;
+        let x = input_x(x.as_array(), self.0.dims().0)?;
         Ok(self.0.sample(&x, n_traj).map_err(moe_err)?.into_pyarray(py))
     }
 
@@ -531,9 +524,9 @@ impl Gpx {
     ///
     /// Parameters
     /// ----------
-    /// x_new : array[n_new, nx]
+    /// x_new : array[n_new, nx] or array[n_new] when nx == 1
     ///     new input data points
-    /// y_new : array[n_new]
+    /// y_new : array[n_new] or array[n_new, 1]
     ///     new output data values
     ///
     /// Returns
@@ -548,10 +541,13 @@ impl Gpx {
     /// >>> gpx = egx.Gpx.builder().fit(np.array([[0.0], [1.0]]), np.array([0.0, 1.0]))
     /// >>> gpx_updated = gpx.update(np.array([[2.0]]), np.array([1.5]))
     ///
-    fn update(&self, x_new: PyReadonlyArray2<f64>, y_new: PyReadonlyArray1<f64>) -> PyResult<Gpx> {
-        let x_arr = x_new.as_array();
-        let y_arr = y_new.as_array();
-        check_nx(&x_arr, self.0.dims().0)?;
+    fn update(
+        &self,
+        x_new: PyReadonlyArrayDyn<f64>,
+        y_new: PyReadonlyArrayDyn<f64>,
+    ) -> PyResult<Gpx> {
+        let x_arr = input_x(x_new.as_array(), self.0.dims().0)?;
+        let y_arr = output_y(y_new.as_array())?;
         if x_arr.nrows() != y_arr.len() {
             return Err(PyValueError::new_err(format!(
                 "x_new and y_new should have the same number of samples, got {} and {}",

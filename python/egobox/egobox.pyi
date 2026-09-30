@@ -713,7 +713,7 @@ class Gpx:
         
         Parameters
         ----------
-        x : array[nsamples, nx]
+        x : array[nsamples, nx] or array[nsamples] when nx == 1
             input values
         
         Returns
@@ -727,7 +727,7 @@ class Gpx:
         
         Parameters
         ----------
-        x : array[nsamples, nx]
+        x : array[nsamples, nx] or array[nsamples] when nx == 1
             input values
         
         Returns
@@ -741,7 +741,7 @@ class Gpx:
         
         Parameters
         ----------
-        x : array[nsamples, nx]
+        x : array[nsamples, nx] or array[nsamples] when nx == 1
             input values
         
         Returns
@@ -756,7 +756,7 @@ class Gpx:
         
         Parameters
         ----------
-        x : array[nsamples, nx]
+        x : array[nsamples, nx] or array[nsamples] when nx == 1
             input values
         
         Returns
@@ -771,7 +771,7 @@ class Gpx:
         
         Parameters
         ----------
-        x : array[nsamples, nx]
+        x : array[nsamples, nx] or array[nsamples] when nx == 1
             locations of the sampled trajectories
         n_traj : int
             number of trajectories to generate
@@ -799,9 +799,9 @@ class Gpx:
         
         Parameters
         ----------
-        x_new : array[n_new, nx]
+        x_new : array[n_new, nx] or array[n_new] when nx == 1
             new input data points
-        y_new : array[n_new]
+        y_new : array[n_new] or array[n_new, 1]
             new output data values
         
         Returns
@@ -1111,6 +1111,8 @@ class SparseGpMix:
 class SparseGpx:
     r"""
     A trained sparse Gaussian process
+    
+    Unlike `Gpx`, it has no `update` method: sparse GPs have to be refitted with the new data.
     """
     @staticmethod
     def builder(corr_spec: builtins.int = 1, theta_init: typing.Optional[typing.Sequence[builtins.float]] = None, theta_bounds: typing.Optional[typing.Sequence[typing.Sequence[builtins.float]]] = None, kpls_dim: typing.Optional[builtins.int] = None, n_start: builtins.int = 10, nz: typing.Optional[builtins.int] = None, z: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, method: SparseMethod = SparseMethod.FITC, seed: typing.Optional[builtins.int] = None, verbose: Verbose | builtins.int | None = None) -> SparseGpMix:
@@ -1174,7 +1176,7 @@ class SparseGpx:
         
         Parameters
         ----------
-        x : array[nsamples, nx]
+        x : array[nsamples, nx] or array[nsamples] when nx == 1
             input values
         
         Returns
@@ -1188,7 +1190,7 @@ class SparseGpx:
         
         Parameters
         ----------
-        x : array[nsamples, nx]
+        x : array[nsamples, nx] or array[nsamples] when nx == 1
             input values
         
         Returns
@@ -1205,7 +1207,7 @@ class SparseGpx:
         
         Parameters
         ----------
-        x : array[nsamples, nx]
+        x : array[nsamples, nx] or array[nsamples] when nx == 1
             input values
         
         Returns
@@ -1223,7 +1225,7 @@ class SparseGpx:
         
         Parameters
         ----------
-        x : array[nsamples, nx]
+        x : array[nsamples, nx] or array[nsamples] when nx == 1
             input values
         
         Returns
@@ -1238,7 +1240,7 @@ class SparseGpx:
         
         Parameters
         ----------
-        x : array[nsamples, nx]
+        x : array[nsamples, nx] or array[nsamples] when nx == 1
             locations of the sampled trajectories
         n_traj : int
             number of trajectories to generate
@@ -1247,6 +1249,24 @@ class SparseGpx:
         -------
         array[nsamples, n_traj]
             the trajectories
+        """
+    def dims(self) -> tuple[builtins.int, builtins.int]:
+        r"""
+        Get the input and output dimensions of the surrogate
+        
+        Returns
+        -------
+        tuple[int, int]
+            the couple (nx, ny)
+        """
+    def training_data(self) -> tuple[numpy.typing.NDArray[numpy.float64], numpy.typing.NDArray[numpy.float64]]:
+        r"""
+        Get the nt training data points used to fit the surrogate
+        
+        Returns
+        -------
+        tuple[array[nt, nx], array[nt]]
+            the couple (xt, yt)
         """
     def thetas(self) -> numpy.typing.NDArray[numpy.float64]:
         r"""
