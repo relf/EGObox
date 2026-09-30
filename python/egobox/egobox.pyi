@@ -218,6 +218,11 @@ class Egor:
         uses the objective surrogate prediction to fill the missing value.
         In the third case Viability, a surrogate is used to model the failure region
         which is used as a constraint and drive the optimization toward the viable region.
+    seed : int >= 0, optional
+        Random generator seed used by `minimize()` and `suggest()` when they are not given one.
+    verbose : Verbose or int, optional
+        Logging verbosity level used by `minimize()` and `suggest()` when `minimize()` is not given one.
+        See `minimize()` for the possible values.
     
     Deprecated
     ----------
@@ -233,10 +238,9 @@ class Egor:
     -------
     Egor
         An optimizer which can be used to optimize a function using the minimize method.
-        Random seed and logging verbosity are given to `minimize()`, not to the constructor.
     """
-    def __new__(cls, xspecs: typing.Sequence[XSpec] | typing.Sequence[typing.Sequence[builtins.float]] | numpy.typing.NDArray[numpy.float64], gp_config: GpConfig | builtins.dict[builtins.str, typing.Any] | None = None, n_cstr: builtins.int = 0, cstr_tol: typing.Optional[typing.Sequence[builtins.float]] = None, cstr_specs: typing.Sequence[CstrSpec | builtins.dict[builtins.str, typing.Any]] | None = None, infill_n_start: typing.Optional[builtins.int] = None, n_doe: builtins.int = 0, x_doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, y_doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, infill_strategy: InfillStrategy = InfillStrategy.LOG_EI, feasible_infill_strategy: FeasibleInfillStrategy = FeasibleInfillStrategy.NONE, cstr_infill: builtins.bool = False, cstr_strategy: ConstraintStrategy = ConstraintStrategy.MC, qei_config: QEiConfig | builtins.dict[builtins.str, typing.Any] | None = None, infill_optimizer: InfillOptimizer = InfillOptimizer.COBYLA, trego: TregoConfig | builtins.bool | builtins.dict[builtins.str, typing.Any] | None = None, coego_n_coop: builtins.int = 0, target: typing.Optional[builtins.float] = None, failsafe_strategy: FailsafeStrategy = FailsafeStrategy.REJECTION, *, n_start: typing.Optional[builtins.int] = None, doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None) -> Egor: ...
-    def minimize(self, fun: typing.Callable[[numpy.typing.NDArray[numpy.float64]], numpy.typing.NDArray[numpy.float64]], fcstrs: typing.Sequence[typing.Callable[[numpy.typing.NDArray[numpy.float64], builtins.bool], builtins.float | numpy.typing.NDArray[numpy.float64]]] | None = None, fcstr_specs: typing.Sequence[CstrSpec | builtins.dict[builtins.str, typing.Any]] | None = None, max_iters: builtins.int = 20, run_info: RunInfo | builtins.dict[builtins.str, typing.Any] | None = None, outdir: typing.Optional[builtins.str] = None, warm_start: builtins.bool = False, hot_start: builtins.bool | builtins.int | None = None, seed: typing.Optional[builtins.int] = None, timeout: typing.Optional[builtins.float] = None, verbose: Verbose | builtins.int | None = None, stop_on_error: builtins.bool = False) -> EgorOptim:
+    def __new__(cls, xspecs: typing.Sequence[XSpec] | typing.Sequence[typing.Sequence[builtins.float]] | numpy.typing.NDArray[numpy.float64], gp_config: GpConfig | builtins.dict[builtins.str, typing.Any] | None = None, n_cstr: builtins.int = 0, cstr_tol: typing.Optional[typing.Sequence[builtins.float]] = None, cstr_specs: typing.Sequence[CstrSpec | builtins.dict[builtins.str, typing.Any]] | None = None, infill_n_start: typing.Optional[builtins.int] = None, n_doe: builtins.int = 0, x_doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, y_doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, infill_strategy: InfillStrategy = InfillStrategy.LOG_EI, feasible_infill_strategy: FeasibleInfillStrategy = FeasibleInfillStrategy.NONE, cstr_infill: builtins.bool = False, cstr_strategy: ConstraintStrategy = ConstraintStrategy.MC, qei_config: QEiConfig | builtins.dict[builtins.str, typing.Any] | None = None, infill_optimizer: InfillOptimizer = InfillOptimizer.COBYLA, trego: TregoConfig | builtins.bool | builtins.dict[builtins.str, typing.Any] | None = None, coego_n_coop: builtins.int = 0, target: typing.Optional[builtins.float] = None, failsafe_strategy: FailsafeStrategy = FailsafeStrategy.REJECTION, seed: typing.Optional[builtins.int] = None, verbose: Verbose | builtins.int | None = None, *, n_start: typing.Optional[builtins.int] = None, doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None) -> Egor: ...
+    def minimize(self, fun: typing.Callable[[numpy.typing.NDArray[numpy.float64]], numpy.typing.NDArray[numpy.float64]], fcstrs: typing.Sequence[typing.Callable[[numpy.typing.NDArray[numpy.float64], builtins.bool], builtins.float | numpy.typing.NDArray[numpy.float64]] | tuple[typing.Callable[[numpy.typing.NDArray[numpy.float64]], builtins.float], typing.Callable[[numpy.typing.NDArray[numpy.float64]], numpy.typing.NDArray[numpy.float64]]] | builtins.dict[builtins.str, typing.Callable[[numpy.typing.NDArray[numpy.float64]], builtins.float | numpy.typing.NDArray[numpy.float64]]]] | None = None, fcstr_specs: typing.Sequence[CstrSpec | builtins.dict[builtins.str, typing.Any]] | None = None, max_iters: builtins.int = 20, run_info: RunInfo | builtins.dict[builtins.str, typing.Any] | None = None, outdir: typing.Optional[builtins.str] = None, warm_start: builtins.bool = False, hot_start: builtins.bool | builtins.int | None = None, seed: typing.Optional[builtins.int] = None, timeout: typing.Optional[builtins.float] = None, verbose: Verbose | builtins.int | None = None, stop_on_error: builtins.bool = False) -> EgorOptim:
         r"""
         This function finds the minimum of a given function "fun"
         
@@ -252,12 +256,19 @@ class Egor:
             cstr functions are expected to be negative (<=0) at the optimum (unless `cstr_specs` is used).
             These constraints will be approximated using surrogates, so
             if constraints are cheap to evaluate better to pass them through `fcstrs`.
-        fcstrs : list of callable (array[nx], bool) -> float or array[nx], optional
-            Constraint functions defined as g(x, return_grad).
-            If the given "return_grad" boolean is False the function has to return the constraint float value
-            to be made negative by the optimizer (which drives the input array "x").
-            Otherwise the function has to return the gradient (array[nx]) of the constraint function
-            wrt the nx components of "x".
+        fcstrs : list, optional
+            Cheap constraint functions g, evaluated directly (not approximated by surrogates),
+            which have to be made negative (g(x) <= 0, unless `fcstr_specs` is used) by the optimizer.
+            Each item is given in one of the following forms:
+        
+            * (g, grad_g): a tuple of two callables, g(x) returns the constraint float value
+              and grad_g(x) returns its gradient (array[nx]) wrt the nx components of x,
+            * {"fun": g, "jac": grad_g}: the same as a dict (a scipy "type" key is rejected,
+              as scipy "ineq" constraints are g(x) >= 0, use `fcstr_specs` instead),
+            * g(x, return_grad): a single callable returning the constraint float value
+              when return_grad is False, its gradient (array[nx]) otherwise.
+        
+            The gradient is only computed when the infill optimizer needs it (InfillOptimizer.SLSQP).
         fcstr_specs : list of CstrSpec or dict, optional
             One CstrSpec per fcstr specifying how each function constraint should be interpreted.
             Length must be zero (legacy behavior) or equal to len(fcstrs).
@@ -269,7 +280,7 @@ class Egor:
             constraints: surrogate constraints + expanded function constraints.
         max_iters : int
             The iteration budget, number of fun calls is "n_doe + q_batch * max_iters".
-            Not to be confused with `GpConfig(max_eval=...)`, the likelihood evaluations budget.
+            Not to be confused with `GpConfig(theta_max_eval=...)`, the likelihood evaluations budget.
         run_info : RunInfo or dict, optional
             Information about the run to be passed to the optimizer with the following attributes:
         
@@ -288,7 +299,7 @@ class Egor:
             Checkpoint information is stored in .checkpoint or under outdir if outdir is specified.
         seed : int >= 0, optional
             Random generator seed to allow computation reproducibility.
-            Unlike `GpMix` where seed is given at construction, it is given here at each run.
+            When None, the seed given to the constructor (if any) is used.
         timeout : float, optional
             Timeout in seconds. The optimization is stopped when the elapsed time
             exceeds this duration. The actual runtime may slightly exceed the specified timeout
@@ -298,9 +309,8 @@ class Egor:
             Can be either an integer or a Verbose enum value:
             0 or Verbose.ERROR, 1 or Verbose.WARNING, 2 or Verbose.INFO,
             3 or Verbose.DEBUG, 4 (or greater) or Verbose.TRACE.
-            Default is None which means Verbose.ERROR level and possible control by
-            the EGOBOX_LOG environment variable.
-            Unlike `GpMix` where verbose is given at construction, it is given here at each run.
+            Default is None which means the verbosity given to the constructor if any,
+            otherwise Verbose.ERROR level and possible control by the EGOBOX_LOG environment variable.
         stop_on_error : bool
             If true, terminate optimization when the objective function raises an error.
             Otherwise, the error is handled according to failsafe_strategy.
@@ -329,6 +339,7 @@ class Egor:
             ns values of objective and constraints
         seed : int >= 0, optional
             Random generator seed to allow computation reproducibility.
+            When None, the seed given to the constructor (if any) is used.
         
         Returns
         -------

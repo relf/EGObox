@@ -102,9 +102,16 @@ get the new name at the old position. Tests in `python/tests/test_deprecations.p
 
 ## LOW — design-heavy or only possible as hard breaks
 
-13. **scipy-like `fcstrs`** (`egor.rs` `minimize`): also accept `(g, grad_g)` tuples and `{"fun": g, "jac": grad_g}`
+**Implemented for 0.38:** items 13 and 14. Item 17 is dropped. Items 15, 18 and 19 are left for later, and item 16
+goes with the removal release. Differences from the plan:
+- `fcstrs` dicts accept only the `"fun"` and `"jac"` keys, both required. A scipy `"type"` key raises `ValueError`, as
+  scipy `"ineq"` means `g(x) >= 0` while egobox constraints are `g(x) <= 0` (`fcstr_specs` gives other bounds).
+  Tuples must be `(g, grad_g)`. The gradient is only called when the infill optimizer needs it (SLSQP).
+- `Egor(verbose=...)` also initializes the logger in `suggest()`, which has no `verbose` argument.
+
+13. ✅ **scipy-like `fcstrs`** (`egor.rs` `minimize`): also accept `(g, grad_g)` tuples and `{"fun": g, "jac": grad_g}`
     dicts. The current `g(x, return_grad)` form stays without a warning until the new one has proven itself.
-14. **`seed` / `verbose` placement**: add `Egor(seed=, verbose=)` as the defaults used by `minimize`/`suggest` (the
+14. ✅ **`seed` / `verbose` placement**: add `Egor(seed=, verbose=)` as the defaults used by `minimize`/`suggest` (the
     call-time value wins). No deprecation, which avoids churn for a minor gain.
 15. **`RegressionSpec` / `CorrelationSpec` as `enum.IntFlag`**: create them at module init in `lib.rs` with the
     `enum.IntFlag` functional API and register them in place of the pyclasses; keep the `u8` extraction. They stay
@@ -113,8 +120,9 @@ get the new name at the old position. Tests in `python/tests/test_deprecations.p
 16. **`thetas()` / `variances()` / `likelihoods()` as properties**: not possible with a warning transition (a
     property returning an ndarray can't also be callable). Hard break, planned for the removal release only.
     Listed in CHANGELOG as "upcoming".
-17. **Full `CstrConfig`** grouping (`n_cstr`, `cstr_tol`, `cstr_specs`, `cstr_infill`, `cstr_strategy`): revisit
-    after item 12. Per-spec tolerance may make it unnecessary.
+17. ❌ **Full `CstrConfig`** grouping (`n_cstr`, `cstr_tol`, `cstr_specs`, `cstr_infill`, `cstr_strategy`): dropped.
+    With item 12, `n_cstr` is inferred from `cstr_specs` and each spec carries its tolerance, so the constraint
+    settings are already grouped in the specs, and a config class would add a rename for all constrained users.
 18. **`TypedDict`s for dict forms**: hand-maintained stub section; optional.
 19. **`GpMix(gp_config=...)`** (was item 8, deferred from MEDIUM): the idea was
     `GpMix(xspecs=None, gp_config=None, seed=None, verbose=None)`, with the flat GP kwargs deprecated.
@@ -129,7 +137,7 @@ typed arguments again); do item 16. `test_deprecations.py` becomes "old names ra
 
 ## Docs
 
-- CHANGELOG 0.38.0: a "Deprecations" section listing old → new, and an "Upcoming breaking changes" section (item 16).
+- ✅ CHANGELOG 0.38.0: a "Deprecations" section listing old → new, and an "Upcoming breaking changes" section (item 16).
 - Update `doc/py_api_and_ux_review.md`: the status line and the step 5 entry, plus a "Fix applied" per tier.
 - Regenerate the stub with `stub_gen`.
 

@@ -370,17 +370,20 @@ Suggested setup:
 ```python
 import egobox as egx
 
-# Example: constraint g(x) <= 0 that is cheap to evaluate
+# Example: constraint g(x) <= 1 that is cheap to evaluate (x has shape (nx,))
 def cheap_constraint(x):
     # Cheap computation based only on x
     return x[0] ** 2 + x[1] ** 2  # Circle constraint
+
+def cheap_constraint_grad(x):
+    return 2.0 * x[:2]  # Gradient wrt x (only used with InfillOptimizer.SLSQP)
 
 optim = egx.Egor(
     xspecs,
 )
 res = optim.minimize(
     fun,
-    fcstrs=[cheap_constraint],  # List of cheap constraint functions
+    fcstrs=[(cheap_constraint, cheap_constraint_grad)],  # List of cheap constraint functions
     fcstr_specs=[egx.CstrSpec.leq(1.0)],  # Constraint semantics
     max_iters=40,
     seed=42,
@@ -399,6 +402,8 @@ Note:
 - Use `fcstrs` for cheap constraints; use `cstr_specs` for expensive constraints that need surrogate modeling
 - The `fun` callable should return `(objective, *constraint_values)` when using surrogate constraints, but for `fcstrs`, constraints are passed separately
 - Multiple cheap constraints can be provided as a list to `fcstrs`
+- Each constraint is given as `(g, grad_g)`, `{"fun": g, "jac": grad_g}`, or a single `g(x, return_grad)` callable.
+  Unlike scipy, there is no `"type"` key: constraints are `g(x) <= 0`, use `fcstr_specs` for other bounds
 
 ## Recipe 12: Constrained Engineering Problem With Active Constraints
 
