@@ -350,10 +350,10 @@ Why it helps:
 Note:
 
 - The constraint function `fun` should return raw values; `cstr_specs` interprets feasibility
-- For equality constraints, consider using a small tolerance via `cstr_tol`, or a narrow band
+- For equality constraints, consider using a small tolerance via `CstrSpec.eq(value, tol=...)`, or a narrow band
   `CstrSpec.between(value - eps, value + eps)`, often easier for the optimizer to satisfy
-- `CstrSpec.eq` and `CstrSpec.between` each expand to two internal constraints: `cstr_tol` must have
-  one entry per internal constraint
+- `CstrSpec.eq` and `CstrSpec.between` each expand to two internal constraints, both using the spec `tol`
+- `Egor(cstr_tol=...)` is deprecated since 0.38.0: give a `tol` to each spec instead
 - Tolerances are absolute (default `1e-4`): scale constraints to order 1 so that the tolerance
   is meaningful
 
@@ -443,7 +443,7 @@ res = optim.minimize(fun, max_iters=200, outdir="run_s42", seed=42, timeout=3200
 
 Why it helps:
 
-- The feasibility tolerance `cstr_tol` is **absolute** (default `1e-4` on every internal constraint):
+- The feasibility tolerance (spec `tol`) is **absolute** (default `1e-4` on every internal constraint):
   scaling each constraint to order 1 makes it meaningful. A constraint in kg with values around
   1000 is almost never considered satisfied.
 - A narrow band `CstrSpec.between(-eps, eps)` is much easier to satisfy than `CstrSpec.eq(0.0)`

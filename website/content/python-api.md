@@ -22,7 +22,7 @@ Egor(
     xspecs,
     gp_config=GpConfig(),
     n_cstr=0,
-    cstr_tol=None,
+    cstr_tol=None,  # deprecated since 0.38.0
     cstr_specs=None,
     infill_n_start=20,
     n_doe=0,
@@ -48,8 +48,8 @@ Egor(
 | `xspecs` | `[XSpec]` | required | Input variable specifications (`XSpec` list-like), one per dimension. The simplest form is [[lower1, upper1], [lower2, upper2], ...] which supposes a continuous range for each dimension. Otherwise see [XSpecs](#xspecs) for more details. |
 | `gp_config` | `GpConfig` | `GpConfig()` | GP configuration used by the optimizer. |
 | `n_cstr` | `int` | `0` | Number of surrogate-modeled constraints returned by `fun`. |
-| `cstr_tol` | `Optional[Sequence[float]]` | `None` | Per-constraint feasibility tolerances. A spec `tol` (`CstrSpec.leq(bound, tol=...)`) takes precedence. |
-| `cstr_specs` | `Optional[Sequence[CstrSpec]]` | `None` | Optional constraint semantics for surrogate constraints. Possible values per item: `CstrSpec.leq(bound)`, `CstrSpec.geq(bound)`, `CstrSpec.eq(value)`, `CstrSpec.between(lower, upper)`, each with an optional `tol`. When given, `n_cstr` is inferred. |
+| `cstr_tol` | `Optional[Sequence[float]]` | `None` | Deprecated since 0.38.0: give a `tol` to each spec instead, e.g. `cstr_specs=[CstrSpec.leq(0.0, tol=1e-3)]` (and `fcstr_specs` for function constraints). |
+| `cstr_specs` | `Optional[Sequence[CstrSpec]]` | `None` | Optional constraint semantics for surrogate constraints. Possible values per item: `CstrSpec.leq(bound)`, `CstrSpec.geq(bound)`, `CstrSpec.eq(value)`, `CstrSpec.between(lower, upper)`, each with an optional `tol`, the absolute feasibility tolerance (default `1e-4`). When given, `n_cstr` is inferred. |
 | `infill_n_start` | `int` | `20` | Number of multistart runs for infill optimization (`n_start` is deprecated since 0.38.0). |
 | `n_doe` | `int` | `0` | Initial DOE size (auto-computed when `0`, if DOE not provided). |
 | `x_doe` | `Optional[NDArray[float64]]` | `None` | Initial DOE inputs `(ns, nx)`, evaluated when `y_doe` is not given (`doe` is deprecated since 0.38.0). |

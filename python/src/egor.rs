@@ -78,13 +78,6 @@ fn parse_run_info(py: Python, value: Py<PyAny>) -> PyResult<RunInfo> {
 /// n_cstr : int
 ///     Number of constraints returned by `fun` (see `minimize`) which will be approximated by surrogates.
 ///     Can be omitted when `cstr_specs` is given.
-/// cstr_tol : list of float, optional
-///     Tolerances for constraints to be satisfied (cstr < tol).
-///     The list must cover all internal constraints: the `n_cstr` surrogate constraints
-///     (after `cstr_specs` expansion, see below) followed by the function constraints
-///     `fcstrs` given to `minimize` (after `fcstr_specs` expansion).
-///     When None, tolerances default to DEFAULT_CSTR_TOL=1e-4.
-///     A tolerance given by a spec (`CstrSpec.leq(bound, tol=...)`) takes precedence over `cstr_tol`.
 /// cstr_specs : list of CstrSpec or dict, optional
 ///     Describe how each surrogate-modeled constraint (returned by `fun`) should be interpreted.
 ///     This allows users to define bounds directly instead of manually rewriting
@@ -95,7 +88,8 @@ fn parse_run_info(py: Python, value: Py<PyAny>) -> PyResult<RunInfo> {
 ///     * CstrSpec.eq(value): c == value (expands to two internal constraints)
 ///     * CstrSpec.between(lower, upper): lower <= c <= upper (expands to two internal constraints)
 ///
-///     Each spec accepts an optional `tol` argument, the tolerance of that constraint.
+///     Each spec accepts an optional `tol` argument, the tolerance of that constraint
+///     (cstr < tol after the rewriting in `c <= 0` form, default is DEFAULT_CSTR_TOL=1e-4).
 ///     When set, `n_cstr` is inferred from `len(cstr_specs)` (`n_cstr` can be omitted,
 ///     otherwise it must match, ValueError is raised).
 /// infill_n_start : int > 0, optional
@@ -164,6 +158,13 @@ fn parse_run_info(py: Python, value: Py<PyAny>) -> PyResult<RunInfo> {
 ///
 /// Deprecated
 /// ----------
+/// cstr_tol : list of float, optional
+///     Deprecated since 0.38.0, give a `tol` to each spec of `cstr_specs` / `fcstr_specs` instead
+///     (e.g. `CstrSpec.leq(0.0, tol=1e-3)`).
+///     Tolerances for constraints to be satisfied (cstr < tol), covering all internal constraints:
+///     the `n_cstr` surrogate constraints (after `cstr_specs` expansion) followed by the function
+///     constraints `fcstrs` given to `minimize` (after `fcstr_specs` expansion).
+///     A spec `tol` takes precedence over `cstr_tol`.
 /// n_start : int > 0, optional
 ///     Deprecated since 0.38.0, use `infill_n_start` instead.
 /// doe : array[ns, nt], optional
@@ -265,6 +266,9 @@ impl Egor {
         n_start: Option<usize>,
         doe: Option<PyReadonlyArray2<f64>>,
     ) -> PyResult<Self> {
+        if cstr_tol.is_some() {
+            warn_deprecated(py, "cstr_tol", "CstrSpec(..., tol=...)")?;
+        }
         let infill_n_start = resolve_renamed(
             py,
             "n_start",
@@ -369,8 +373,6 @@ impl Egor {
     ///     CstrSpec.leq(b), CstrSpec.geq(b), CstrSpec.eq(v), CstrSpec.between(lo, hi).
     ///     Note: CstrSpec.eq and CstrSpec.between expand to two internal constraints each.
     ///     A spec `tol` (e.g. CstrSpec.leq(b, tol=1e-3)) gives the tolerance of that constraint.
-    ///     Otherwise, when `cstr_tol` is explicitly provided, ensure its size covers all internal
-    ///     constraints: surrogate constraints + expanded function constraints.
     /// max_iters : int
     ///     The iteration budget, number of fun calls is "n_doe + q_batch * max_iters".
     ///     Not to be confused with `GpConfig(theta_max_eval=...)`, the likelihood evaluations budget.
@@ -671,7 +673,8 @@ impl Egor {
     /// Parameters
     /// ----------
     /// y_doe : array[ns, 1 + n_cstr]
-    ///     ns values of objective and constraints
+    ///     ns values of objective and constraints as returned by `fun` (see `minimize`),
+    ///     constraints are interpreted with `cstr_specs` and their tolerances if given
     ///
     /// Returns
     /// -------
@@ -682,14 +685,7 @@ impl Egor {
     fn best_index(&self, y_doe: PyReadonlyArray2<f64>) -> PyResult<usize> {
         let y_doe = y_doe.as_array();
         check_doe(None, &y_doe)?;
-        // TODO: Make c_doe an optional argument ?
-        let n_fcstrs = 0;
-        let c_doe = Array2::zeros((y_doe.nrows(), n_fcstrs));
-        Ok(find_best_result_index(
-            &y_doe,
-            &c_doe,
-            &self.cstr_tol(n_fcstrs),
-        ))
+        self.best_row_index(&y_doe)
     }
 
     /// This function gives the best result given inputs and outputs
@@ -701,7 +697,8 @@ impl Egor {
     /// x_doe : array[ns, nx]
     ///     ns samples where function has been evaluated
     /// y_doe : array[ns, 1 + n_cstr]
-    ///     ns values of objective and constraints
+    ///     ns values of objective and constraints as returned by `fun` (see `minimize`),
+    ///     constraints are interpreted with `cstr_specs` and their tolerances if given
     ///
     /// Returns
     /// -------
@@ -721,10 +718,7 @@ impl Egor {
         let x_doe = x_doe.as_array();
         let y_doe = y_doe.as_array();
         check_doe(Some(&x_doe), &y_doe)?;
-        // TODO: Make c_doe an optional argument ?
-        let n_fcstrs = 0;
-        let c_doe = Array2::zeros((y_doe.nrows(), n_fcstrs));
-        let idx = find_best_result_index(&y_doe, &c_doe, &self.cstr_tol(n_fcstrs));
+        let idx = self.best_row_index(&y_doe)?;
         let x_opt = x_doe.row(idx).to_pyarray(py).into();
         let y_opt = y_doe.row(idx).to_pyarray(py).into();
         let x_doe = x_doe.to_pyarray(py).into();
@@ -877,14 +871,28 @@ impl Egor {
         }
     }
 
-    /// Either use user defined cstr_tol or else use default tolerance for all constraints
-    /// n_fcstr is the number of function constraints
-    fn cstr_tol(&self, n_fcstr: usize) -> Array1<f64> {
-        let cstr_tol = self
-            .cstr_tol
-            .clone()
-            .unwrap_or(vec![egobox_ego::DEFAULT_CSTR_TOL; self.n_cstr + n_fcstr]);
-        Array1::from_vec(cstr_tol)
+    /// Index of the best row of `y_doe` [obj, cstr_1, ... cstr_n_cstr] holding raw constraint values,
+    /// interpreted with `cstr_specs` (if any) and their tolerances, as the optimizer does.
+    fn best_row_index(&self, y_doe: &ArrayView2<f64>) -> PyResult<usize> {
+        let ny = 1 + self.n_cstr;
+        if y_doe.ncols() != ny {
+            return Err(PyValueError::new_err(format!(
+                "y_doe should be of shape (ns, 1 + n_cstr) = (ns, {ny}), got {:?}",
+                y_doe.shape()
+            )));
+        }
+        let y_doe = match self.cstr_specs.as_ref() {
+            Some(specs) => {
+                let specs = specs.iter().map(|s| s.inner.clone()).collect::<Vec<_>>();
+                egobox_ego::transform_constraints(&y_doe.to_owned(), &specs)
+            }
+            None => y_doe.to_owned(),
+        };
+        let cstr_tol = self.internal_cstr_tol(&[], 0).unwrap_or_else(|| {
+            Array1::from_elem(y_doe.ncols() - 1, egobox_ego::DEFAULT_CSTR_TOL)
+        });
+        let c_doe = Array2::zeros((y_doe.nrows(), 0));
+        Ok(find_best_result_index(&y_doe, &c_doe, &cstr_tol))
     }
 
     /// Tolerances of all internal constraints (surrogate constraints then function constraints,

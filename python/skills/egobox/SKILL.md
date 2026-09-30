@@ -62,7 +62,6 @@ egx.Egor(
     xspecs,            # list of [lo, hi] bounds (continuous) OR list of XSpec/XType for mixed-integer
     gp_config=None,    # GpConfig — GP kernel/regression options
     n_cstr=0,          # number of ≤ 0 constraints (use cstr_specs instead for other forms)
-    cstr_tol=None,     # list of tolerances, one per internal constraint (default 1e-4 each)
     cstr_specs=None,   # list of CstrSpec — use when constraints are not plain ≤ 0
     n_doe=0,           # initial DoE size (0 = auto: max(n_vars + 1, 5))
     x_doe=None,        # np.ndarray (n, n_dims) — provide your own initial DoE inputs
@@ -131,11 +130,10 @@ When `cstr_specs` is given, **`n_cstr` is inferred automatically** and should be
 | `egx.CstrSpec.eq(v)` | `c = v` | 2 internal constraints: `c - v ≤ 0` and `v - c ≤ 0` |
 | `egx.CstrSpec.between(lo, hi)` | `lo ≤ c ≤ hi` | 2 internal constraints: `lo - c ≤ 0` and `c - hi ≤ 0` |
 
-> **`eq` and `between` expand to two internal constraints each.** If you also pass `cstr_tol`,
-> its length must match the total number of *internal* constraints after expansion.
->
-> Simpler: give each spec its own tolerance, e.g. `egx.CstrSpec.leq(b, tol=1e-3)` or `{"leq": b, "tol": 1e-3}`.
-> A spec `tol` takes precedence over `cstr_tol` and applies to all its internal constraints.
+> **Tolerance per constraint**: give each spec its own absolute tolerance (default `1e-4`), e.g.
+> `egx.CstrSpec.leq(b, tol=1e-3)` or `{"leq": b, "tol": 1e-3}`; it applies to all its internal constraints.
+> `Egor(cstr_tol=[...])` is deprecated since 0.38.0: for plain `≤ 0` constraints use
+> `cstr_specs=[egx.CstrSpec.leq(0.0, tol=1e-3)] * n` instead of `n_cstr=n, cstr_tol=[1e-3] * n`.
 
 #### Example — inequality bounds (leq / geq)
 
@@ -318,7 +316,7 @@ rnd = egx.random(xlimits, n_samples=20, seed=42)  # Random
 
 - **`f_obj` must handle batched inputs**: x shape is `(n_samples, n_dims)`, not `(n_dims,)`.
 - **`n_cstr` vs `cstr_specs`**: use `n_cstr` for plain `≤ 0` constraints; use `cstr_specs` for all other forms. Don't set both at the same time.
-- **`eq` / `between` expand to 2 internal constraints each**: if you pass `cstr_tol`, size it to the total expanded count.
+- **Constraint tolerances**: give them per spec (`CstrSpec.leq(b, tol=...)`, also in `fcstr_specs`); `Egor(cstr_tol=...)` is deprecated since 0.38.0.
 - **`y_opt` includes constraint values**: shape is `(1 + n_cstr,)` — first element is the objective.
 - **`seed` goes in `minimize()`** (changed in v0.37.0). Since 0.38.0 `Egor(seed=...)` gives a default, and the `minimize()` / `suggest()` value wins. For `GpMix`, `seed` is a constructor argument.
 - **Function constraints** (`minimize(fcstrs=...)`, cheap, not surrogate-modeled) are `g(x) <= 0` and given as `(g, grad_g)`, `{"fun": g, "jac": grad_g}` or `g(x, return_grad)`. Unlike scipy, no `"type"` key: use `fcstr_specs` for other bounds.
