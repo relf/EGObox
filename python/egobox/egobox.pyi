@@ -197,8 +197,10 @@ class Egor:
             partial optimizations using only nx / n_coop components at a time.
             The default value is 0 meaning that the CoEGO algorithm is not used.
     
-        target (float):
-            Known optimum used as stopping criterion.
+        target (float or None):
+            Known optimum used as stopping criterion: the optimization stops once
+            an objective value lower than or equal to target is found.
+            When None (default) no target is used.
     
         failsafe_strategy (FailsafeStrategy enum):
             Strategy to handle objective computation failure at a given x point.
@@ -213,7 +215,7 @@ class Egor:
     
         Egor object which can be used to optimize a function using the minimize method.
     """
-    def __new__(cls, xspecs: typing.Sequence[XSpec] | typing.Sequence[typing.Sequence[builtins.float]] | numpy.typing.NDArray[numpy.float64], gp_config: GpConfig | builtins.dict[builtins.str, typing.Any] | None = None, n_cstr: builtins.int = 0, cstr_tol: typing.Optional[typing.Sequence[builtins.float]] = None, cstr_specs: typing.Sequence[CstrSpec | builtins.dict[builtins.str, typing.Any]] | None = None, n_start: builtins.int = 20, n_doe: builtins.int = 0, doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, infill_strategy: InfillStrategy = InfillStrategy.LOG_EI, feasible_infill_strategy: FeasibleInfillStrategy = FeasibleInfillStrategy.NONE, cstr_infill: builtins.bool = False, cstr_strategy: ConstraintStrategy = ConstraintStrategy.MC, qei_config: QEiConfig | builtins.dict[builtins.str, typing.Any] | None = None, infill_optimizer: InfillOptimizer = InfillOptimizer.COBYLA, trego: TregoConfig | builtins.bool | builtins.dict[builtins.str, typing.Any] | None = None, coego_n_coop: builtins.int = 0, target: builtins.float = -1.7976931348623157e+308, failsafe_strategy: FailsafeStrategy = FailsafeStrategy.REJECTION) -> Egor: ...
+    def __new__(cls, xspecs: typing.Sequence[XSpec] | typing.Sequence[typing.Sequence[builtins.float]] | numpy.typing.NDArray[numpy.float64], gp_config: GpConfig | builtins.dict[builtins.str, typing.Any] | None = None, n_cstr: builtins.int = 0, cstr_tol: typing.Optional[typing.Sequence[builtins.float]] = None, cstr_specs: typing.Sequence[CstrSpec | builtins.dict[builtins.str, typing.Any]] | None = None, n_start: builtins.int = 20, n_doe: builtins.int = 0, doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, infill_strategy: InfillStrategy = InfillStrategy.LOG_EI, feasible_infill_strategy: FeasibleInfillStrategy = FeasibleInfillStrategy.NONE, cstr_infill: builtins.bool = False, cstr_strategy: ConstraintStrategy = ConstraintStrategy.MC, qei_config: QEiConfig | builtins.dict[builtins.str, typing.Any] | None = None, infill_optimizer: InfillOptimizer = InfillOptimizer.COBYLA, trego: TregoConfig | builtins.bool | builtins.dict[builtins.str, typing.Any] | None = None, coego_n_coop: builtins.int = 0, target: typing.Optional[builtins.float] = None, failsafe_strategy: FailsafeStrategy = FailsafeStrategy.REJECTION) -> Egor: ...
     def minimize(self, fun: typing.Callable[[numpy.typing.NDArray[numpy.float64]], numpy.typing.NDArray[numpy.float64]], fcstrs: typing.Sequence[typing.Callable[[numpy.typing.NDArray[numpy.float64], builtins.bool], builtins.float | numpy.typing.NDArray[numpy.float64]]] | None = None, fcstr_specs: typing.Sequence[CstrSpec | builtins.dict[builtins.str, typing.Any]] | None = None, max_iters: builtins.int = 20, run_info: RunInfo | builtins.dict[builtins.str, typing.Any] | None = None, outdir: typing.Optional[builtins.str] = None, warm_start: builtins.bool = False, hot_start: builtins.bool | builtins.int | None = None, seed: typing.Optional[builtins.int] = None, timeout: typing.Optional[builtins.float] = None, verbose: Verbose | builtins.int | None = None, stop_on_error: builtins.bool = False) -> EgorOptim:
         r"""
         This function finds the minimum of a given function "fun"
@@ -306,13 +308,14 @@ class Egor:
         
         # Parameters
             x_doe (array[ns, nx]): ns samples where function has been evaluated
-            y_doe (array[ns, 1 + n_cstr]): ns values of objecctive and constraints
+            y_doe (array[ns, 1 + n_cstr]): ns values of objective and constraints
         
             seed (int >= 0):
                 Random generator seed to allow computation reproducibility.
         
         # Returns
-            (array[1, nx]): suggested location where to evaluate objective and constraints
+            (array[batch, nx]): suggested locations where to evaluate objective and constraints
+                where batch is the qEI batch size (qei_config.batch, 1 by default)
         """
     def get_result_index(self, y_doe: numpy.typing.NDArray[numpy.float64]) -> builtins.int:
         r"""
@@ -947,7 +950,7 @@ class RunInfo:
         r"""
         A number for the run, used for logging and saving results
         """
-    def __new__(cls, fname: builtins.str = 'fobj', num: builtins.int = 1) -> RunInfo: ...
+    def __new__(cls, fname: builtins.str = 'objective_function', num: builtins.int = 1) -> RunInfo: ...
     def __repr__(self) -> builtins.str: ...
 
 @typing.final

@@ -631,6 +631,20 @@ pub(crate) struct RunInfo {
     pub(crate) num: usize,
 }
 
+impl RunInfo {
+    /// Default function name, the same as the one used by the Rust `egobox_ego::RunInfo`
+    pub(crate) const DEFAULT_FNAME: &'static str = "objective_function";
+}
+
+impl Default for RunInfo {
+    fn default() -> Self {
+        RunInfo {
+            fname: Self::DEFAULT_FNAME.to_string(),
+            num: 1,
+        }
+    }
+}
+
 impl<'a, 'py> FromPyObject<'a, 'py> for RunInfo {
     type Error = PyErr;
 
@@ -640,10 +654,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for RunInfo {
         }
 
         let dict = obj.cast::<pyo3::types::PyDict>()?;
-        let mut info = RunInfo {
-            fname: "fobj".to_string(),
-            num: 1,
-        };
+        let mut info = RunInfo::default();
 
         for key_any in dict.keys().iter() {
             let key = key_any.extract::<String>()?;
@@ -666,7 +677,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for RunInfo {
 #[pymethods]
 impl RunInfo {
     #[new]
-    #[pyo3(signature = (fname="fobj".to_string(), num = 1))]
+    #[pyo3(signature = (fname=RunInfo::DEFAULT_FNAME.to_string(), num = 1))]
     pub fn new(fname: String, num: usize) -> Self {
         RunInfo { fname, num }
     }
