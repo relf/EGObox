@@ -2,6 +2,7 @@ use egobox_ego::OBJECTIVE_FUNCTION_ERROR;
 use numpy::{PyArray1, PyArray2};
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
+use pyo3::types::{PyIterator, PyTuple};
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pyclass_enum, gen_stub_pymethods};
 
 #[gen_stub_pyclass_enum]
@@ -840,6 +841,8 @@ impl OptimResult {
 
 /// Egor optimization output
 ///
+/// The optimization result fields are also available directly (`x_opt`, `y_opt`, `x_doe`, `y_doe`)
+/// and the output can be unpacked as `x_opt, y_opt = egor.minimize(...)`.
 #[gen_stub_pyclass]
 #[pyclass(skip_from_py_object, module = "egobox")]
 #[derive(Debug)]
@@ -855,6 +858,44 @@ pub(crate) struct EgorOptim {
 #[gen_stub_pymethods]
 #[pymethods]
 impl EgorOptim {
+    /// Optimal x point found by the optimization algorithm, same as `result.x_opt`
+    #[getter]
+    fn x_opt(&self, py: Python) -> Py<PyArray1<f64>> {
+        self.result.borrow(py).x_opt.clone_ref(py)
+    }
+
+    /// Optimal y point found by the optimization algorithm, same as `result.y_opt`
+    #[getter]
+    fn y_opt(&self, py: Python) -> Py<PyArray1<f64>> {
+        self.result.borrow(py).y_opt.clone_ref(py)
+    }
+
+    /// DOE x points, including initial points and optimization history, same as `result.x_doe`
+    #[getter]
+    fn x_doe(&self, py: Python) -> Py<PyArray2<f64>> {
+        self.result.borrow(py).x_doe.clone_ref(py)
+    }
+
+    /// DOE y points, including initial points and optimization history, same as `result.y_doe`
+    #[getter]
+    fn y_doe(&self, py: Python) -> Py<PyArray2<f64>> {
+        self.result.borrow(py).y_doe.clone_ref(py)
+    }
+
+    /// Iterate over (x_opt, y_opt) to allow `x_opt, y_opt = egor.minimize(...)`
+    #[gen_stub(override_return_type(type_repr = "typing.Iterator[numpy.typing.NDArray[numpy.float64]]", imports = ("typing", "numpy", "numpy.typing")))]
+    fn __iter__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyIterator>> {
+        let result = self.result.borrow(py);
+        PyTuple::new(
+            py,
+            [
+                result.x_opt.bind(py).as_any(),
+                result.y_opt.bind(py).as_any(),
+            ],
+        )?
+        .try_iter()
+    }
+
     fn __repr__(&self, py: Python) -> PyResult<String> {
         repr_kwargs(
             "EgorOptim",

@@ -11,6 +11,7 @@
 //!
 use std::cmp::Ordering;
 
+use crate::deprecation::resolve_renamed;
 use crate::errors::{gp_file_format, input_x, moe_err, moe_file_err, output_y, training_data};
 use crate::logging::init_logger;
 use crate::types::*;
@@ -83,12 +84,12 @@ use rand_xoshiro::Xoshiro256Plus;
 /// theta_bounds : list of [float, float], optional
 ///     Search space [[lower_1, upper_1], ..., [lower_nx, upper_nx]] when optimizing theta GP hyperparameters.
 ///     When None the default is [1e-2, 1e1] for all components.
-/// n_start : int >= 0
-///     Number of internal GP hyperparameters optimization restarts (multistart).
+/// theta_n_start : int >= 0, optional
+///     Number of internal GP hyperparameters optimization restarts (multistart, default is 10).
 ///     When zero, optimization is disabled and theta init value is used as is.
-/// max_eval : int >= 0
-///     Max number of likelihood evaluations of each GP hyperparameters optimization start.
-///     This is an upper limit: each start gets clamp(10 * nx, 25, max_eval) evaluations.
+/// theta_max_eval : int >= 0, optional
+///     Max number of likelihood evaluations of each GP hyperparameters optimization start (default is 50).
+///     This is an upper limit: each start gets clamp(10 * nx, 25, theta_max_eval) evaluations.
 /// seed : int >= 0, optional
 ///     Random generator seed to allow computation reproducibility.
 ///     Unlike `Egor` where seed is given to `minimize()`, it is given here at construction.
@@ -96,6 +97,13 @@ use rand_xoshiro::Xoshiro256Plus;
 ///     Optional verbose level to control logging output (default is 0)
 ///     Used mainly for debugging and development purposes.
 ///     Unlike `Egor` where verbose is given to `minimize()`, it is given here at construction.
+///
+/// Deprecated
+/// ----------
+/// n_start : int >= 0, optional
+///     Deprecated since 0.38.0, use `theta_n_start` instead.
+/// max_eval : int >= 0, optional
+///     Deprecated since 0.38.0, use `theta_max_eval` instead.
 ///
 /// Returns
 /// -------
@@ -123,10 +131,13 @@ impl GpMix {
         recombination=Recombination::Hard,
         theta_init=None,
         theta_bounds=None,
-        n_start=EGO_GP_OPTIM_N_START,
-        max_eval=EGO_GP_OPTIM_MAX_EVAL,
+        theta_n_start=None,
+        theta_max_eval=None,
         seed=None,
-        verbose=None
+        verbose=None,
+        *,
+        n_start=None,
+        max_eval=None,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -140,19 +151,37 @@ impl GpMix {
         recombination: Recombination,
         theta_init: Option<Vec<f64>>,
         theta_bounds: Option<Vec<Vec<f64>>>,
-        n_start: usize,
-        max_eval: usize,
+        theta_n_start: Option<usize>,
+        theta_max_eval: Option<usize>,
         seed: Option<u64>,
         #[gen_stub(override_type(type_repr = "Verbose | builtins.int | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
         verbose: Option<Py<PyAny>>,
+        n_start: Option<usize>,
+        max_eval: Option<usize>,
     ) -> PyResult<Self> {
+        let theta_n_start = resolve_renamed(
+            py,
+            "n_start",
+            n_start,
+            "theta_n_start",
+            theta_n_start,
+            EGO_GP_OPTIM_N_START,
+        )?;
+        let theta_max_eval = resolve_renamed(
+            py,
+            "max_eval",
+            max_eval,
+            "theta_max_eval",
+            theta_max_eval,
+            EGO_GP_OPTIM_MAX_EVAL,
+        )?;
         init_logger(py, verbose);
         let xtypes = xspecs
             .as_ref()
             .map(|xspecs| parse(py, xspecs.clone_ref(py)))
             .transpose()?;
         Ok(GpMix {
-            gp_config: GpConfig::new(
+            gp_config: GpConfig::from_values(
                 regr_spec,
                 corr_spec,
                 kpls_dim,
@@ -160,8 +189,8 @@ impl GpMix {
                 recombination,
                 theta_init,
                 theta_bounds,
-                n_start,
-                max_eval,
+                theta_n_start,
+                theta_max_eval,
             ),
             xtypes,
             seed,
@@ -230,12 +259,12 @@ impl GpMix {
             Ordering::Equal => NbClusters::auto(),
             Ordering::Less => NbClusters::automax(-self.gp_config.n_clusters as usize),
         };
-        let n_start: usize = if self.gp_config.n_start == 0 {
+        let n_start: usize = if self.gp_config.theta_n_start == 0 {
             // no multistart, use theta_init as is
             theta_tuning = ThetaTuning::Fixed(theta_tuning.init().to_owned());
             0 // no multistart, value not used
         } else {
-            self.gp_config.n_start
+            self.gp_config.theta_n_start
         };
 
         let theta_tunings = if let NbClusters::Fixed { nb } = n_clusters {
@@ -258,7 +287,7 @@ impl GpMix {
                 .theta_tunings(&theta_tunings)
                 .kpls_dim(self.gp_config.kpls_dim)
                 .n_start(n_start)
-                .max_eval(self.gp_config.max_eval)
+                .max_eval(self.gp_config.theta_max_eval)
                 .with_rng(rng)
                 .fit(&dataset)
         });
@@ -288,10 +317,13 @@ impl Gpx {
         recombination=GpConfig::default().recombination,
         theta_init=GpConfig::default().theta_init,
         theta_bounds=GpConfig::default().theta_bounds,
-        n_start=GpConfig::default().n_start,
-        max_eval=GpConfig::default().max_eval,
-        seed = None,
-        verbose=None
+        theta_n_start=None,
+        theta_max_eval=None,
+        seed=None,
+        verbose=None,
+        *,
+        n_start=None,
+        max_eval=None,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn builder(
@@ -305,11 +337,13 @@ impl Gpx {
         recombination: Recombination,
         theta_init: Option<Vec<f64>>,
         theta_bounds: Option<Vec<Vec<f64>>>,
-        n_start: usize,
-        max_eval: usize,
+        theta_n_start: Option<usize>,
+        theta_max_eval: Option<usize>,
         seed: Option<u64>,
         #[gen_stub(override_type(type_repr = "Verbose | builtins.int | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
         verbose: Option<Py<PyAny>>,
+        n_start: Option<usize>,
+        max_eval: Option<usize>,
     ) -> PyResult<GpMix> {
         GpMix::new(
             py,
@@ -321,10 +355,12 @@ impl Gpx {
             recombination,
             theta_init,
             theta_bounds,
-            n_start,
-            max_eval,
+            theta_n_start,
+            theta_max_eval,
             seed,
             verbose,
+            n_start,
+            max_eval,
         )
     }
 

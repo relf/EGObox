@@ -9,6 +9,7 @@
 //!
 //! See the [tutorial notebook](https://github.com/relf/egobox/notebooks/Sgp_Tutorial.ipynb) for usage.
 //!
+use crate::deprecation::resolve_renamed;
 use crate::errors::{gp_file_format, input_x, moe_err, moe_file_err, training_data};
 use crate::gp_config::{validate_corr_spec, validate_theta};
 use crate::{logging::init_logger, types::*};
@@ -24,6 +25,9 @@ use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 use rand_xoshiro::Xoshiro256Plus;
+
+/// Default number of GP hyperparameters optimization restarts of sparse GP
+const SPARSE_GP_OPTIM_N_START: usize = 10;
 
 /// Sparse Gaussian process builder
 ///
@@ -45,8 +49,8 @@ use rand_xoshiro::Xoshiro256Plus;
 /// kpls_dim : int, optional
 ///     Number of components to be used when PLS projection is used (a.k.a KPLS method), 0 < kpls_dim < nx.
 ///     This is used to address high-dimensional problems typically when nx > 9.
-/// n_start : int >= 0
-///     Number of internal GP hyperparameters optimization restarts (multistart)
+/// theta_n_start : int >= 0, optional
+///     Number of internal GP hyperparameters optimization restarts (multistart, default is 10)
 /// nz : int, optional
 ///     Number of inducing points, randomly picked among the training inputs.
 ///     Used when `z` is not given.
@@ -60,6 +64,11 @@ use rand_xoshiro::Xoshiro256Plus;
 ///     Optional verbose level to control logging output (default is 0)
 ///     Used mainly for debugging and development purposes
 ///
+/// Deprecated
+/// ----------
+/// n_start : int >= 0, optional
+///     Deprecated since 0.38.0, use `theta_n_start` instead.
+///
 /// Returns
 /// -------
 /// SparseGpMix
@@ -72,7 +81,7 @@ pub(crate) struct SparseGpMix {
     pub theta_init: Option<Vec<f64>>,
     pub theta_bounds: Option<Vec<Vec<f64>>>,
     pub kpls_dim: Option<usize>,
-    pub n_start: usize,
+    pub theta_n_start: usize,
     pub nz: Option<usize>,
     pub z: Option<Array2<f64>>,
     pub method: SparseMethod,
@@ -88,12 +97,14 @@ impl SparseGpMix {
         theta_init = None,
         theta_bounds = None,
         kpls_dim = None,
-        n_start = 10,
+        theta_n_start = None,
         nz = None,
         z = None,
         method = SparseMethod::Fitc,
         seed = None,
-        verbose = None
+        verbose = None,
+        *,
+        n_start = None,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -102,26 +113,35 @@ impl SparseGpMix {
         theta_init: Option<Vec<f64>>,
         theta_bounds: Option<Vec<Vec<f64>>>,
         kpls_dim: Option<usize>,
-        n_start: usize,
+        theta_n_start: Option<usize>,
         nz: Option<usize>,
         z: Option<PyReadonlyArray2<f64>>,
         method: SparseMethod,
         seed: Option<u64>,
         #[gen_stub(override_type(type_repr = "Verbose | builtins.int | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
         verbose: Option<Py<PyAny>>,
-    ) -> Self {
+        n_start: Option<usize>,
+    ) -> PyResult<Self> {
+        let theta_n_start = resolve_renamed(
+            py,
+            "n_start",
+            n_start,
+            "theta_n_start",
+            theta_n_start,
+            SPARSE_GP_OPTIM_N_START,
+        )?;
         init_logger(py, verbose);
-        SparseGpMix {
+        Ok(SparseGpMix {
             correlation_spec: CorrelationSpec(corr_spec),
             theta_init,
             theta_bounds,
             kpls_dim,
-            n_start,
+            theta_n_start,
             nz,
             z: z.map(|z| z.as_array().to_owned()),
             method,
             seed,
-        }
+        })
     }
 
     /// Fit the parameters of the model using the training dataset to build a trained model
@@ -200,7 +220,7 @@ impl SparseGpMix {
                 )
                 .theta_tunings(&theta_tunings)
                 .kpls_dim(self.kpls_dim)
-                .n_start(self.n_start)
+                .n_start(self.theta_n_start)
                 .with_rng(rng)
                 .fit(&dataset)
         });
@@ -227,12 +247,14 @@ impl SparseGpx {
         theta_init = None,
         theta_bounds = None,
         kpls_dim = None,
-        n_start = 10,
+        theta_n_start = None,
         nz = None,
         z = None,
         method = SparseMethod::Fitc,
         seed = None,
-        verbose = None
+        verbose = None,
+        *,
+        n_start = None,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn builder(
@@ -241,26 +263,28 @@ impl SparseGpx {
         theta_init: Option<Vec<f64>>,
         theta_bounds: Option<Vec<Vec<f64>>>,
         kpls_dim: Option<usize>,
-        n_start: usize,
+        theta_n_start: Option<usize>,
         nz: Option<usize>,
         z: Option<PyReadonlyArray2<f64>>,
         method: SparseMethod,
         seed: Option<u64>,
         #[gen_stub(override_type(type_repr = "Verbose | builtins.int | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
         verbose: Option<Py<PyAny>>,
-    ) -> SparseGpMix {
+        n_start: Option<usize>,
+    ) -> PyResult<SparseGpMix> {
         SparseGpMix::new(
             py,
             corr_spec,
             theta_init,
             theta_bounds,
             kpls_dim,
-            n_start,
+            theta_n_start,
             nz,
             z,
             method,
             seed,
             verbose,
+            n_start,
         )
     }
 

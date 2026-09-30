@@ -86,7 +86,8 @@ optim = egor.minimize(
 ```
 
 - `fun(x: np.ndarray) -> np.ndarray` — x shape `(n_samples, n_dims)`, returns `(n_samples, 1 + n_cstr)`
-- Returns `EgorOptim` with `.result` (`OptimResult`) and `.status`
+- Returns `EgorOptim` with `.result` (`OptimResult`) and `.status`; result fields are forwarded
+  (`optim.x_opt`, `optim.y_opt`, ...) and it unpacks as `x_opt, y_opt = egor.minimize(...)`
 
 ### Result Object
 
@@ -315,7 +316,9 @@ rnd = egx.random(xlimits, n_samples=20, seed=42)  # Random
 - **`eq` / `btw` expand to 2 internal constraints each**: if you pass `cstr_tol`, size it to the total expanded count.
 - **`y_opt` includes constraint values**: shape is `(1 + n_cstr,)` — first element is the objective.
 - **`seed` belongs in `minimize()`**, not in `Egor()` (changed in v0.37.0). For `GpMix`, `seed` is a constructor argument.
-- **Two `n_start`**: `Egor(n_start=...)` is the infill criterion multistart, `GpConfig(n_start=...)` the GP hyperparameters multistart.
+- **Two multistarts**: `Egor(infill_n_start=...)` is the infill criterion multistart, `GpConfig(theta_n_start=...)` the GP hyperparameters multistart
+  (`theta_max_eval` its likelihood evaluations budget). The former `n_start` / `max_eval` names are deprecated since 0.38.0.
+- **Best point of a DOE**: `egor.best_result(x_doe, y_doe)` / `egor.best_index(y_doe)` (`get_result` / `get_result_index` are deprecated since 0.38.0).
 - **`cstr_infill` vs `feasible_infill_strategy`**: the former weights the criterion by the probability of feasibility of the `n_cstr` constraints, the latter (`EFI_P`, `EFI_FE`) by the probability of viability, i.e. of `fun` not failing. They are independent.
 - **`xtypes` vs `xlimits`**: pass a flat list of `[lo, hi]` for continuous-only; use `XSpec` objects for mixed-integer.
 - **Low `n_doe`**: default is `max(n_dims + 1, 5)`. For complex functions, use `n_doe = 3 * n_dims` or more.

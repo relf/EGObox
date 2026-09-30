@@ -1,3 +1,4 @@
+use crate::deprecation::{resolve_renamed, resolve_renamed_key, warn_deprecated};
 use crate::types::*;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -66,17 +67,21 @@ pub(crate) struct GpConfig {
     /// (int >= 0)
     ///   Number of internal GP hyperparameters optimization restarts (multistart).
     ///   When zero, optimization is disabled and theta init value is used as is.
-    ///   Not to be confused with `Egor(n_start=...)`, the infill criterion optimization multistart.
+    ///   Not to be confused with `Egor(infill_n_start=...)`, the infill criterion optimization multistart.
     #[pyo3(get, set)]
-    pub n_start: usize,
+    pub theta_n_start: usize,
 
     /// (int >= 0)
     ///   Max number of likelihood evaluations of each GP hyperparameters optimization start.
-    ///   This is an upper limit: each start gets clamp(10 * nx, 25, max_eval) evaluations.
+    ///   This is an upper limit: each start gets clamp(10 * nx, 25, theta_max_eval) evaluations.
     ///   Not to be confused with `Egor.minimize(max_iters=...)`, the optimization iteration budget.
     #[pyo3(get, set)]
-    pub max_eval: usize,
+    pub theta_max_eval: usize,
 }
+
+/// Deprecated GP configuration names (old, new)
+pub(crate) const GP_CONFIG_RENAMED: [(&str, &str); 2] =
+    [("n_start", "theta_n_start"), ("max_eval", "theta_max_eval")];
 
 impl<'a, 'py> FromPyObject<'a, 'py> for GpConfig {
     type Error = PyErr;
@@ -89,22 +94,18 @@ impl<'a, 'py> FromPyObject<'a, 'py> for GpConfig {
         let dict = obj.cast::<PyDict>()?;
         let mut cfg = GpConfig::default();
 
-        for key_any in dict.keys().iter() {
-            let key = key_any.extract::<String>()?;
-            match key.as_str() {
-                "regr_spec" => cfg.regr_spec = dict.get_item("regr_spec")?.unwrap().extract()?,
-                "corr_spec" => cfg.corr_spec = dict.get_item("corr_spec")?.unwrap().extract()?,
-                "kpls_dim" => cfg.kpls_dim = dict.get_item("kpls_dim")?.unwrap().extract()?,
-                "n_clusters" => cfg.n_clusters = dict.get_item("n_clusters")?.unwrap().extract()?,
-                "recombination" => {
-                    cfg.recombination = dict.get_item("recombination")?.unwrap().extract()?
-                }
-                "theta_init" => cfg.theta_init = dict.get_item("theta_init")?.unwrap().extract()?,
-                "theta_bounds" => {
-                    cfg.theta_bounds = dict.get_item("theta_bounds")?.unwrap().extract()?
-                }
-                "n_start" => cfg.n_start = dict.get_item("n_start")?.unwrap().extract()?,
-                "max_eval" => cfg.max_eval = dict.get_item("max_eval")?.unwrap().extract()?,
+        for (key, value) in dict.iter() {
+            let key = key.extract::<String>()?;
+            match resolve_renamed_key(&dict, &key, &GP_CONFIG_RENAMED)? {
+                "regr_spec" => cfg.regr_spec = value.extract()?,
+                "corr_spec" => cfg.corr_spec = value.extract()?,
+                "kpls_dim" => cfg.kpls_dim = value.extract()?,
+                "n_clusters" => cfg.n_clusters = value.extract()?,
+                "recombination" => cfg.recombination = value.extract()?,
+                "theta_init" => cfg.theta_init = value.extract()?,
+                "theta_bounds" => cfg.theta_bounds = value.extract()?,
+                "theta_n_start" => cfg.theta_n_start = value.extract()?,
+                "theta_max_eval" => cfg.theta_max_eval = value.extract()?,
                 _ => {
                     return Err(PyValueError::new_err(format!(
                         "unknown gp_config key '{key}'"
@@ -151,6 +152,31 @@ pub(crate) fn validate_theta(
 }
 
 impl GpConfig {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn from_values(
+        regr_spec: u8,
+        corr_spec: u8,
+        kpls_dim: Option<usize>,
+        n_clusters: isize,
+        recombination: Recombination,
+        theta_init: Option<Vec<f64>>,
+        theta_bounds: Option<Vec<Vec<f64>>>,
+        theta_n_start: usize,
+        theta_max_eval: usize,
+    ) -> Self {
+        GpConfig {
+            regr_spec,
+            corr_spec,
+            kpls_dim,
+            n_clusters,
+            recombination,
+            theta_init,
+            theta_bounds,
+            theta_n_start,
+            theta_max_eval,
+        }
+    }
+
     /// Check the configuration consistency
     pub(crate) fn validate(&self) -> PyResult<()> {
         if egobox_moe::RegressionSpec::from_bits(self.regr_spec).is_none_or(|spec| spec.is_empty())
@@ -167,7 +193,7 @@ impl GpConfig {
 
 impl Default for GpConfig {
     fn default() -> Self {
-        GpConfig::new(
+        GpConfig::from_values(
             RegressionSpec::CONSTANT,
             CorrelationSpec::SQUARED_EXPONENTIAL,
             None,
@@ -202,12 +228,19 @@ impl GpConfig {
     ///     Initial guess for GP theta hyperparameters (default: None, 1e-1 for all components)
     /// theta_bounds : list of [float, float], optional
     ///     Search space of GP theta hyperparameters (default: None, [1e-2, 1e1] for all components)
-    /// n_start : int, optional
+    /// theta_n_start : int, optional
     ///     Number of GP hyperparameters optimization restarts, 0 to disable optimization (default: 10).
-    ///     Not to be confused with `Egor(n_start=...)`, the infill criterion optimization multistart.
-    /// max_eval : int, optional
+    ///     Not to be confused with `Egor(infill_n_start=...)`, the infill criterion optimization multistart.
+    /// theta_max_eval : int, optional
     ///     Max number of likelihood evaluations of each GP hyperparameters optimization start (default: 50).
-    ///     Upper limit: each start gets clamp(10 * nx, 25, max_eval) evaluations.
+    ///     Upper limit: each start gets clamp(10 * nx, 25, theta_max_eval) evaluations.
+    ///
+    /// Deprecated
+    /// ----------
+    /// n_start : int, optional
+    ///     Deprecated since 0.38.0, use `theta_n_start` instead.
+    /// max_eval : int, optional
+    ///     Deprecated since 0.38.0, use `theta_max_eval` instead.
     ///
     /// Returns
     /// -------
@@ -222,11 +255,15 @@ impl GpConfig {
         recombination=GpConfig::default().recombination,
         theta_init=GpConfig::default().theta_init,
         theta_bounds=GpConfig::default().theta_bounds,
-        n_start=GpConfig::default().n_start,
-        max_eval=GpConfig::default().max_eval,
+        theta_n_start=None,
+        theta_max_eval=None,
+        *,
+        n_start=None,
+        max_eval=None,
 ))]
     #[allow(clippy::too_many_arguments)]
     pub fn new(
+        py: Python,
         regr_spec: u8,
         corr_spec: u8,
         kpls_dim: Option<usize>,
@@ -234,10 +271,13 @@ impl GpConfig {
         recombination: Recombination,
         theta_init: Option<Vec<f64>>,
         theta_bounds: Option<Vec<Vec<f64>>>,
-        n_start: usize,
-        max_eval: usize,
-    ) -> Self {
-        GpConfig {
+        theta_n_start: Option<usize>,
+        theta_max_eval: Option<usize>,
+        n_start: Option<usize>,
+        max_eval: Option<usize>,
+    ) -> PyResult<Self> {
+        let default = GpConfig::default();
+        Ok(GpConfig::from_values(
             regr_spec,
             corr_spec,
             kpls_dim,
@@ -245,9 +285,53 @@ impl GpConfig {
             recombination,
             theta_init,
             theta_bounds,
-            n_start,
-            max_eval,
-        }
+            resolve_renamed(
+                py,
+                "n_start",
+                n_start,
+                "theta_n_start",
+                theta_n_start,
+                default.theta_n_start,
+            )?,
+            resolve_renamed(
+                py,
+                "max_eval",
+                max_eval,
+                "theta_max_eval",
+                theta_max_eval,
+                default.theta_max_eval,
+            )?,
+        ))
+    }
+
+    /// Deprecated since 0.38.0, use `theta_n_start` instead.
+    #[getter(n_start)]
+    fn get_n_start(&self, py: Python) -> PyResult<usize> {
+        warn_deprecated(py, "GpConfig.n_start", "GpConfig.theta_n_start")?;
+        Ok(self.theta_n_start)
+    }
+
+    #[setter(n_start)]
+    fn set_n_start(&mut self, value: usize) -> PyResult<()> {
+        // no `py` argument as pyo3-stub-gen does not support it on setters
+        Python::attach(|py| warn_deprecated(py, "GpConfig.n_start", "GpConfig.theta_n_start"))?;
+        self.theta_n_start = value;
+        Ok(())
+    }
+
+    /// Deprecated since 0.38.0, use `theta_max_eval` instead.
+    #[getter(max_eval)]
+    fn get_max_eval(&self, py: Python) -> PyResult<usize> {
+        warn_deprecated(py, "GpConfig.max_eval", "GpConfig.theta_max_eval")?;
+        Ok(self.theta_max_eval)
+    }
+
+    #[setter(max_eval)]
+    fn set_max_eval(&mut self, value: usize) -> PyResult<()> {
+        // no `py` argument as pyo3-stub-gen does not support it on setters
+        Python::attach(|py| warn_deprecated(py, "GpConfig.max_eval", "GpConfig.theta_max_eval"))?;
+        self.theta_max_eval = value;
+        Ok(())
     }
 
     fn __repr__(&self, py: Python) -> PyResult<String> {
@@ -270,8 +354,14 @@ impl GpConfig {
                     "theta_bounds",
                     self.theta_bounds.clone().into_pyobject(py)?.into_any(),
                 ),
-                ("n_start", self.n_start.into_pyobject(py)?.into_any()),
-                ("max_eval", self.max_eval.into_pyobject(py)?.into_any()),
+                (
+                    "theta_n_start",
+                    self.theta_n_start.into_pyobject(py)?.into_any(),
+                ),
+                (
+                    "theta_max_eval",
+                    self.theta_max_eval.into_pyobject(py)?.into_any(),
+                ),
             ],
         )
     }

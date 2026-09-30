@@ -11,6 +11,7 @@
 //! See the [tutorial notebook](https://github.com/relf/egobox/notebooks/Egor_Tutorial.ipynb) for usage.
 //!
 
+use crate::deprecation::{resolve_renamed, warn_deprecated};
 use crate::domain::*;
 use crate::errors::{CallbackError, ego_err, install_panic_hook};
 use crate::gp_config::*;
@@ -19,7 +20,7 @@ use crate::qei_config::*;
 use crate::trego_config::{TregoConfig, TregoConfigSpec};
 use crate::types::*;
 
-use egobox_ego::{CoegoStatus, InfillObjData, find_best_result_index};
+use egobox_ego::{CoegoStatus, EGO_DEFAULT_N_START, InfillObjData, find_best_result_index};
 use egobox_gp::ThetaTuning;
 use egobox_moe::NbClusters;
 use ndarray::{Array1, Array2, ArrayView2, Axis, array, concatenate};
@@ -106,9 +107,9 @@ fn parse_run_info(py: Python, value: Py<PyAny>) -> PyResult<RunInfo> {
 ///
 ///     When set, `n_cstr` is inferred from `len(cstr_specs)` (`n_cstr` is ignored if set to zero,
 ///     or must match otherwise).
-/// n_start : int > 0
-///     Number of starts of the multistart optimization of the infill criterion (best result taken).
-///     Not to be confused with `GpConfig(n_start=...)`, the GP hyperparameters optimization multistart.
+/// infill_n_start : int > 0, optional
+///     Number of starts of the multistart optimization of the infill criterion (best result taken, default is 20).
+///     Not to be confused with `GpConfig(theta_n_start=...)`, the GP hyperparameters optimization multistart.
 /// n_doe : int >= 0
 ///     Number of samples of initial LHS sampling (used when DOE not provided by the user).
 ///     When 0 a number of points is computed automatically regarding the number of input variables
@@ -164,6 +165,11 @@ fn parse_run_info(py: Python, value: Py<PyAny>) -> PyResult<RunInfo> {
 ///     In the third case Viability, a surrogate is used to model the failure region
 ///     which is used as a constraint and drive the optimization toward the viable region.
 ///
+/// Deprecated
+/// ----------
+/// n_start : int > 0, optional
+///     Deprecated since 0.38.0, use `infill_n_start` instead.
+///
 /// Returns
 /// -------
 /// Egor
@@ -178,7 +184,7 @@ pub(crate) struct Egor {
     pub n_cstr: usize,
     pub cstr_tol: Option<Vec<f64>>,
     pub cstr_specs: Option<Vec<egobox_ego::CstrSpec>>,
-    pub n_start: usize,
+    pub infill_n_start: usize,
     pub n_doe: usize,
     pub doe: Option<Array2<f64>>,
     pub infill_strategy: InfillStrategy,
@@ -203,7 +209,7 @@ impl Egor {
         n_cstr = 0,
         cstr_tol = None,
         cstr_specs = None,
-        n_start = 20,
+        infill_n_start = None,
         n_doe = 0,
         doe = None,
         infill_strategy = InfillStrategy::LogEi,
@@ -216,6 +222,8 @@ impl Egor {
         coego_n_coop = 0,
         target = None,
         failsafe_strategy = FailsafeStrategy::Rejection,
+        *,
+        n_start = None,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -228,7 +236,7 @@ impl Egor {
         cstr_tol: Option<Vec<f64>>,
         #[gen_stub(override_type(type_repr = "typing.Sequence[CstrSpec | builtins.dict[builtins.str, typing.Any]] | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
         cstr_specs: Option<Vec<CstrSpec>>,
-        n_start: usize,
+        infill_n_start: Option<usize>,
         n_doe: usize,
         doe: Option<PyReadonlyArray2<f64>>,
         infill_strategy: InfillStrategy,
@@ -243,7 +251,16 @@ impl Egor {
         coego_n_coop: usize,
         target: Option<f64>,
         failsafe_strategy: FailsafeStrategy,
+        n_start: Option<usize>,
     ) -> PyResult<Self> {
+        let infill_n_start = resolve_renamed(
+            py,
+            "n_start",
+            n_start,
+            "infill_n_start",
+            infill_n_start,
+            EGO_DEFAULT_N_START,
+        )?;
         let doe = doe.map(|x| x.to_owned_array());
         let xtypes = parse(py, xspecs.clone_ref(py))?;
         let gp_config = gp_config.unwrap_or_default();
@@ -278,7 +295,7 @@ impl Egor {
             n_cstr,
             cstr_tol,
             cstr_specs: cstr_specs.map(|specs| specs.into_iter().map(|s| s.inner).collect()),
-            n_start,
+            infill_n_start,
             n_doe,
             doe,
             infill_strategy,
@@ -624,7 +641,7 @@ impl Egor {
     ///     index in y_doe of the best evaluation
     ///
     #[pyo3(signature = (y_doe))]
-    fn get_result_index(&self, y_doe: PyReadonlyArray2<f64>) -> PyResult<usize> {
+    fn best_index(&self, y_doe: PyReadonlyArray2<f64>) -> PyResult<usize> {
         let y_doe = y_doe.as_array();
         check_doe(None, &y_doe)?;
         // TODO: Make c_doe an optional argument ?
@@ -657,7 +674,7 @@ impl Egor {
     ///     * y_doe (array[ns, ny]): the given y_doe
     ///
     #[pyo3(signature = (x_doe, y_doe))]
-    fn get_result(
+    fn best_result(
         &self,
         py: Python,
         x_doe: PyReadonlyArray2<f64>,
@@ -680,6 +697,25 @@ impl Egor {
             x_doe,
             y_doe,
         })
+    }
+
+    /// Deprecated since 0.38.0, use `best_index` instead.
+    #[pyo3(signature = (y_doe))]
+    fn get_result_index(&self, py: Python, y_doe: PyReadonlyArray2<f64>) -> PyResult<usize> {
+        warn_deprecated(py, "Egor.get_result_index", "Egor.best_index")?;
+        self.best_index(y_doe)
+    }
+
+    /// Deprecated since 0.38.0, use `best_result` instead.
+    #[pyo3(signature = (x_doe, y_doe))]
+    fn get_result(
+        &self,
+        py: Python,
+        x_doe: PyReadonlyArray2<f64>,
+        y_doe: PyReadonlyArray2<f64>,
+    ) -> PyResult<OptimResult> {
+        warn_deprecated(py, "Egor.get_result", "Egor.best_result")?;
+        self.best_result(py, x_doe, y_doe)
     }
 }
 
@@ -823,7 +859,7 @@ impl Egor {
         let mut config = config
             .n_cstr(self.n_cstr)
             .max_iters(max_iters.unwrap_or(1))
-            .n_start(self.n_start)
+            .n_start(self.infill_n_start)
             .n_doe(self.n_doe);
 
         // Only set cstr_tol explicitly when user provided it.
@@ -848,8 +884,8 @@ impl Egor {
                     .n_clusters(self.n_clusters())
                     .recombination(self.recombination())
                     .theta_tuning(self.theta_tuning())
-                    .n_start(self.gp_config.n_start)
-                    .max_eval(self.gp_config.max_eval)
+                    .n_start(self.gp_config.theta_n_start)
+                    .max_eval(self.gp_config.theta_max_eval)
             })
             .infill_strategy(infill_strategy)
             .feasible_infill_strategy(feasible_infill_strategy)

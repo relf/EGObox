@@ -142,9 +142,9 @@ class Egor:
     
         When set, `n_cstr` is inferred from `len(cstr_specs)` (`n_cstr` is ignored if set to zero,
         or must match otherwise).
-    n_start : int > 0
-        Number of starts of the multistart optimization of the infill criterion (best result taken).
-        Not to be confused with `GpConfig(n_start=...)`, the GP hyperparameters optimization multistart.
+    infill_n_start : int > 0, optional
+        Number of starts of the multistart optimization of the infill criterion (best result taken, default is 20).
+        Not to be confused with `GpConfig(theta_n_start=...)`, the GP hyperparameters optimization multistart.
     n_doe : int >= 0
         Number of samples of initial LHS sampling (used when DOE not provided by the user).
         When 0 a number of points is computed automatically regarding the number of input variables
@@ -200,13 +200,18 @@ class Egor:
         In the third case Viability, a surrogate is used to model the failure region
         which is used as a constraint and drive the optimization toward the viable region.
     
+    Deprecated
+    ----------
+    n_start : int > 0, optional
+        Deprecated since 0.38.0, use `infill_n_start` instead.
+    
     Returns
     -------
     Egor
         An optimizer which can be used to optimize a function using the minimize method.
         Random seed and logging verbosity are given to `minimize()`, not to the constructor.
     """
-    def __new__(cls, xspecs: typing.Sequence[XSpec] | typing.Sequence[typing.Sequence[builtins.float]] | numpy.typing.NDArray[numpy.float64], gp_config: GpConfig | builtins.dict[builtins.str, typing.Any] | None = None, n_cstr: builtins.int = 0, cstr_tol: typing.Optional[typing.Sequence[builtins.float]] = None, cstr_specs: typing.Sequence[CstrSpec | builtins.dict[builtins.str, typing.Any]] | None = None, n_start: builtins.int = 20, n_doe: builtins.int = 0, doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, infill_strategy: InfillStrategy = InfillStrategy.LOG_EI, feasible_infill_strategy: FeasibleInfillStrategy = FeasibleInfillStrategy.NONE, cstr_infill: builtins.bool = False, cstr_strategy: ConstraintStrategy = ConstraintStrategy.MC, qei_config: QEiConfig | builtins.dict[builtins.str, typing.Any] | None = None, infill_optimizer: InfillOptimizer = InfillOptimizer.COBYLA, trego: TregoConfig | builtins.bool | builtins.dict[builtins.str, typing.Any] | None = None, coego_n_coop: builtins.int = 0, target: typing.Optional[builtins.float] = None, failsafe_strategy: FailsafeStrategy = FailsafeStrategy.REJECTION) -> Egor: ...
+    def __new__(cls, xspecs: typing.Sequence[XSpec] | typing.Sequence[typing.Sequence[builtins.float]] | numpy.typing.NDArray[numpy.float64], gp_config: GpConfig | builtins.dict[builtins.str, typing.Any] | None = None, n_cstr: builtins.int = 0, cstr_tol: typing.Optional[typing.Sequence[builtins.float]] = None, cstr_specs: typing.Sequence[CstrSpec | builtins.dict[builtins.str, typing.Any]] | None = None, infill_n_start: typing.Optional[builtins.int] = None, n_doe: builtins.int = 0, doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, infill_strategy: InfillStrategy = InfillStrategy.LOG_EI, feasible_infill_strategy: FeasibleInfillStrategy = FeasibleInfillStrategy.NONE, cstr_infill: builtins.bool = False, cstr_strategy: ConstraintStrategy = ConstraintStrategy.MC, qei_config: QEiConfig | builtins.dict[builtins.str, typing.Any] | None = None, infill_optimizer: InfillOptimizer = InfillOptimizer.COBYLA, trego: TregoConfig | builtins.bool | builtins.dict[builtins.str, typing.Any] | None = None, coego_n_coop: builtins.int = 0, target: typing.Optional[builtins.float] = None, failsafe_strategy: FailsafeStrategy = FailsafeStrategy.REJECTION, *, n_start: typing.Optional[builtins.int] = None) -> Egor: ...
     def minimize(self, fun: typing.Callable[[numpy.typing.NDArray[numpy.float64]], numpy.typing.NDArray[numpy.float64]], fcstrs: typing.Sequence[typing.Callable[[numpy.typing.NDArray[numpy.float64], builtins.bool], builtins.float | numpy.typing.NDArray[numpy.float64]]] | None = None, fcstr_specs: typing.Sequence[CstrSpec | builtins.dict[builtins.str, typing.Any]] | None = None, max_iters: builtins.int = 20, run_info: RunInfo | builtins.dict[builtins.str, typing.Any] | None = None, outdir: typing.Optional[builtins.str] = None, warm_start: builtins.bool = False, hot_start: builtins.bool | builtins.int | None = None, seed: typing.Optional[builtins.int] = None, timeout: typing.Optional[builtins.float] = None, verbose: Verbose | builtins.int | None = None, stop_on_error: builtins.bool = False) -> EgorOptim:
         r"""
         This function finds the minimum of a given function "fun"
@@ -306,7 +311,7 @@ class Egor:
             suggested locations where to evaluate objective and constraints
             where batch is the qEI batch size (qei_config.batch, 1 by default)
         """
-    def get_result_index(self, y_doe: numpy.typing.NDArray[numpy.float64]) -> builtins.int:
+    def best_index(self, y_doe: numpy.typing.NDArray[numpy.float64]) -> builtins.int:
         r"""
         This function gives the best evaluation index given the outputs
         of the function (objective wrt constraints) under minimization.
@@ -322,7 +327,7 @@ class Egor:
         int
             index in y_doe of the best evaluation
         """
-    def get_result(self, x_doe: numpy.typing.NDArray[numpy.float64], y_doe: numpy.typing.NDArray[numpy.float64]) -> OptimResult:
+    def best_result(self, x_doe: numpy.typing.NDArray[numpy.float64], y_doe: numpy.typing.NDArray[numpy.float64]) -> OptimResult:
         r"""
         This function gives the best result given inputs and outputs
         of the function (objective wrt constraints) under minimization.
@@ -343,11 +348,22 @@ class Egor:
             * x_doe (array[ns, nx]): the given x_doe
             * y_doe (array[ns, ny]): the given y_doe
         """
+    def get_result_index(self, y_doe: numpy.typing.NDArray[numpy.float64]) -> builtins.int:
+        r"""
+        Deprecated since 0.38.0, use `best_index` instead.
+        """
+    def get_result(self, x_doe: numpy.typing.NDArray[numpy.float64], y_doe: numpy.typing.NDArray[numpy.float64]) -> OptimResult:
+        r"""
+        Deprecated since 0.38.0, use `best_result` instead.
+        """
 
 @typing.final
 class EgorOptim:
     r"""
     Egor optimization output
+    
+    The optimization result fields are also available directly (`x_opt`, `y_opt`, `x_doe`, `y_doe`)
+    and the output can be unpacked as `x_opt, y_opt = egor.minimize(...)`.
     """
     @property
     def result(self) -> OptimResult:
@@ -358,6 +374,30 @@ class EgorOptim:
     def status(self) -> RunStatus:
         r"""
         Status of optimization run
+        """
+    @property
+    def x_opt(self) -> numpy.typing.NDArray[numpy.float64]:
+        r"""
+        Optimal x point found by the optimization algorithm, same as `result.x_opt`
+        """
+    @property
+    def y_opt(self) -> numpy.typing.NDArray[numpy.float64]:
+        r"""
+        Optimal y point found by the optimization algorithm, same as `result.y_opt`
+        """
+    @property
+    def x_doe(self) -> numpy.typing.NDArray[numpy.float64]:
+        r"""
+        DOE x points, including initial points and optimization history, same as `result.x_doe`
+        """
+    @property
+    def y_doe(self) -> numpy.typing.NDArray[numpy.float64]:
+        r"""
+        DOE y points, including initial points and optimization history, same as `result.y_doe`
+        """
+    def __iter__(self) -> typing.Iterator[numpy.typing.NDArray[numpy.float64]]:
+        r"""
+        Iterate over (x_opt, y_opt) to allow `x_opt, y_opt = egor.minimize(...)`
         """
     def __repr__(self) -> builtins.str: ...
 
@@ -489,38 +529,52 @@ class GpConfig:
         Note: `Egor` may adapt these bounds automatically for high-dimensional inputs.
         """
     @property
+    def theta_n_start(self) -> builtins.int:
+        r"""
+        (int >= 0)
+        Number of internal GP hyperparameters optimization restarts (multistart).
+        When zero, optimization is disabled and theta init value is used as is.
+        Not to be confused with `Egor(infill_n_start=...)`, the infill criterion optimization multistart.
+        """
+    @theta_n_start.setter
+    def theta_n_start(self, value: builtins.int) -> None:
+        r"""
+        (int >= 0)
+        Number of internal GP hyperparameters optimization restarts (multistart).
+        When zero, optimization is disabled and theta init value is used as is.
+        Not to be confused with `Egor(infill_n_start=...)`, the infill criterion optimization multistart.
+        """
+    @property
+    def theta_max_eval(self) -> builtins.int:
+        r"""
+        (int >= 0)
+        Max number of likelihood evaluations of each GP hyperparameters optimization start.
+        This is an upper limit: each start gets clamp(10 * nx, 25, theta_max_eval) evaluations.
+        Not to be confused with `Egor.minimize(max_iters=...)`, the optimization iteration budget.
+        """
+    @theta_max_eval.setter
+    def theta_max_eval(self, value: builtins.int) -> None:
+        r"""
+        (int >= 0)
+        Max number of likelihood evaluations of each GP hyperparameters optimization start.
+        This is an upper limit: each start gets clamp(10 * nx, 25, theta_max_eval) evaluations.
+        Not to be confused with `Egor.minimize(max_iters=...)`, the optimization iteration budget.
+        """
+    @property
     def n_start(self) -> builtins.int:
         r"""
-        (int >= 0)
-        Number of internal GP hyperparameters optimization restarts (multistart).
-        When zero, optimization is disabled and theta init value is used as is.
-        Not to be confused with `Egor(n_start=...)`, the infill criterion optimization multistart.
+        Deprecated since 0.38.0, use `theta_n_start` instead.
         """
     @n_start.setter
-    def n_start(self, value: builtins.int) -> None:
-        r"""
-        (int >= 0)
-        Number of internal GP hyperparameters optimization restarts (multistart).
-        When zero, optimization is disabled and theta init value is used as is.
-        Not to be confused with `Egor(n_start=...)`, the infill criterion optimization multistart.
-        """
+    def n_start(self, value: builtins.int) -> None: ...
     @property
     def max_eval(self) -> builtins.int:
         r"""
-        (int >= 0)
-        Max number of likelihood evaluations of each GP hyperparameters optimization start.
-        This is an upper limit: each start gets clamp(10 * nx, 25, max_eval) evaluations.
-        Not to be confused with `Egor.minimize(max_iters=...)`, the optimization iteration budget.
+        Deprecated since 0.38.0, use `theta_max_eval` instead.
         """
     @max_eval.setter
-    def max_eval(self, value: builtins.int) -> None:
-        r"""
-        (int >= 0)
-        Max number of likelihood evaluations of each GP hyperparameters optimization start.
-        This is an upper limit: each start gets clamp(10 * nx, 25, max_eval) evaluations.
-        Not to be confused with `Egor.minimize(max_iters=...)`, the optimization iteration budget.
-        """
-    def __new__(cls, regr_spec: builtins.int = 1, corr_spec: builtins.int = 1, kpls_dim: typing.Optional[builtins.int] = None, n_clusters: builtins.int = 1, recombination: Recombination = Recombination.HARD, theta_init: typing.Optional[typing.Sequence[builtins.float]] = None, theta_bounds: typing.Optional[typing.Sequence[typing.Sequence[builtins.float]]] = None, n_start: builtins.int = 10, max_eval: builtins.int = 50) -> GpConfig:
+    def max_eval(self, value: builtins.int) -> None: ...
+    def __new__(cls, regr_spec: builtins.int = 1, corr_spec: builtins.int = 1, kpls_dim: typing.Optional[builtins.int] = None, n_clusters: builtins.int = 1, recombination: Recombination = Recombination.HARD, theta_init: typing.Optional[typing.Sequence[builtins.float]] = None, theta_bounds: typing.Optional[typing.Sequence[typing.Sequence[builtins.float]]] = None, theta_n_start: typing.Optional[builtins.int] = None, theta_max_eval: typing.Optional[builtins.int] = None, *, n_start: typing.Optional[builtins.int] = None, max_eval: typing.Optional[builtins.int] = None) -> GpConfig:
         r"""
         Create a new GP configuration.
         
@@ -540,12 +594,19 @@ class GpConfig:
             Initial guess for GP theta hyperparameters (default: None, 1e-1 for all components)
         theta_bounds : list of [float, float], optional
             Search space of GP theta hyperparameters (default: None, [1e-2, 1e1] for all components)
-        n_start : int, optional
+        theta_n_start : int, optional
             Number of GP hyperparameters optimization restarts, 0 to disable optimization (default: 10).
-            Not to be confused with `Egor(n_start=...)`, the infill criterion optimization multistart.
-        max_eval : int, optional
+            Not to be confused with `Egor(infill_n_start=...)`, the infill criterion optimization multistart.
+        theta_max_eval : int, optional
             Max number of likelihood evaluations of each GP hyperparameters optimization start (default: 50).
-            Upper limit: each start gets clamp(10 * nx, 25, max_eval) evaluations.
+            Upper limit: each start gets clamp(10 * nx, 25, theta_max_eval) evaluations.
+        
+        Deprecated
+        ----------
+        n_start : int, optional
+            Deprecated since 0.38.0, use `theta_n_start` instead.
+        max_eval : int, optional
+            Deprecated since 0.38.0, use `theta_max_eval` instead.
         
         Returns
         -------
@@ -609,12 +670,12 @@ class GpMix:
     theta_bounds : list of [float, float], optional
         Search space [[lower_1, upper_1], ..., [lower_nx, upper_nx]] when optimizing theta GP hyperparameters.
         When None the default is [1e-2, 1e1] for all components.
-    n_start : int >= 0
-        Number of internal GP hyperparameters optimization restarts (multistart).
+    theta_n_start : int >= 0, optional
+        Number of internal GP hyperparameters optimization restarts (multistart, default is 10).
         When zero, optimization is disabled and theta init value is used as is.
-    max_eval : int >= 0
-        Max number of likelihood evaluations of each GP hyperparameters optimization start.
-        This is an upper limit: each start gets clamp(10 * nx, 25, max_eval) evaluations.
+    theta_max_eval : int >= 0, optional
+        Max number of likelihood evaluations of each GP hyperparameters optimization start (default is 50).
+        This is an upper limit: each start gets clamp(10 * nx, 25, theta_max_eval) evaluations.
     seed : int >= 0, optional
         Random generator seed to allow computation reproducibility.
         Unlike `Egor` where seed is given to `minimize()`, it is given here at construction.
@@ -623,12 +684,19 @@ class GpMix:
         Used mainly for debugging and development purposes.
         Unlike `Egor` where verbose is given to `minimize()`, it is given here at construction.
     
+    Deprecated
+    ----------
+    n_start : int >= 0, optional
+        Deprecated since 0.38.0, use `theta_n_start` instead.
+    max_eval : int >= 0, optional
+        Deprecated since 0.38.0, use `theta_max_eval` instead.
+    
     Returns
     -------
     GpMix
         A builder which can be fitted to data to get a Gpx object (a trained Gaussian processes mixture)
     """
-    def __new__(cls, xspecs: typing.Sequence[XSpec] | typing.Sequence[typing.Sequence[builtins.float]] | numpy.typing.NDArray[numpy.float64] | None = None, regr_spec: builtins.int = 1, corr_spec: builtins.int = 1, kpls_dim: typing.Optional[builtins.int] = None, n_clusters: builtins.int = 1, recombination: Recombination = Recombination.HARD, theta_init: typing.Optional[typing.Sequence[builtins.float]] = None, theta_bounds: typing.Optional[typing.Sequence[typing.Sequence[builtins.float]]] = None, n_start: builtins.int = 10, max_eval: builtins.int = 50, seed: typing.Optional[builtins.int] = None, verbose: Verbose | builtins.int | None = None) -> GpMix: ...
+    def __new__(cls, xspecs: typing.Sequence[XSpec] | typing.Sequence[typing.Sequence[builtins.float]] | numpy.typing.NDArray[numpy.float64] | None = None, regr_spec: builtins.int = 1, corr_spec: builtins.int = 1, kpls_dim: typing.Optional[builtins.int] = None, n_clusters: builtins.int = 1, recombination: Recombination = Recombination.HARD, theta_init: typing.Optional[typing.Sequence[builtins.float]] = None, theta_bounds: typing.Optional[typing.Sequence[typing.Sequence[builtins.float]]] = None, theta_n_start: typing.Optional[builtins.int] = None, theta_max_eval: typing.Optional[builtins.int] = None, seed: typing.Optional[builtins.int] = None, verbose: Verbose | builtins.int | None = None, *, n_start: typing.Optional[builtins.int] = None, max_eval: typing.Optional[builtins.int] = None) -> GpMix: ...
     def fit(self, xt: numpy.typing.NDArray[numpy.float64], yt: numpy.typing.NDArray[numpy.float64]) -> Gpx:
         r"""
         Fit the parameters of the model using the training dataset to build a trained model
@@ -652,7 +720,7 @@ class Gpx:
     A trained Gaussian processes mixture
     """
     @staticmethod
-    def builder(xspecs: typing.Sequence[XSpec] | typing.Sequence[typing.Sequence[builtins.float]] | numpy.typing.NDArray[numpy.float64] | None = None, regr_spec: builtins.int = 1, corr_spec: builtins.int = 1, kpls_dim: typing.Optional[builtins.int] = None, n_clusters: builtins.int = 1, recombination: Recombination = Recombination.HARD, theta_init: typing.Optional[typing.Sequence[builtins.float]] = None, theta_bounds: typing.Optional[typing.Sequence[typing.Sequence[builtins.float]]] = None, n_start: builtins.int = 10, max_eval: builtins.int = 50, seed: typing.Optional[builtins.int] = None, verbose: Verbose | builtins.int | None = None) -> GpMix:
+    def builder(xspecs: typing.Sequence[XSpec] | typing.Sequence[typing.Sequence[builtins.float]] | numpy.typing.NDArray[numpy.float64] | None = None, regr_spec: builtins.int = 1, corr_spec: builtins.int = 1, kpls_dim: typing.Optional[builtins.int] = None, n_clusters: builtins.int = 1, recombination: Recombination = Recombination.HARD, theta_init: typing.Optional[typing.Sequence[builtins.float]] = None, theta_bounds: typing.Optional[typing.Sequence[typing.Sequence[builtins.float]]] = None, theta_n_start: typing.Optional[builtins.int] = None, theta_max_eval: typing.Optional[builtins.int] = None, seed: typing.Optional[builtins.int] = None, verbose: Verbose | builtins.int | None = None, *, n_start: typing.Optional[builtins.int] = None, max_eval: typing.Optional[builtins.int] = None) -> GpMix:
         r"""
         Get Gaussian processes mixture builder aka `GpMix`
         
@@ -1069,8 +1137,8 @@ class SparseGpMix:
     kpls_dim : int, optional
         Number of components to be used when PLS projection is used (a.k.a KPLS method), 0 < kpls_dim < nx.
         This is used to address high-dimensional problems typically when nx > 9.
-    n_start : int >= 0
-        Number of internal GP hyperparameters optimization restarts (multistart)
+    theta_n_start : int >= 0, optional
+        Number of internal GP hyperparameters optimization restarts (multistart, default is 10)
     nz : int, optional
         Number of inducing points, randomly picked among the training inputs.
         Used when `z` is not given.
@@ -1084,12 +1152,17 @@ class SparseGpMix:
         Optional verbose level to control logging output (default is 0)
         Used mainly for debugging and development purposes
     
+    Deprecated
+    ----------
+    n_start : int >= 0, optional
+        Deprecated since 0.38.0, use `theta_n_start` instead.
+    
     Returns
     -------
     SparseGpMix
         A builder which can be fitted to data to get a SparseGpx object (a trained sparse Gaussian process)
     """
-    def __new__(cls, corr_spec: builtins.int = 1, theta_init: typing.Optional[typing.Sequence[builtins.float]] = None, theta_bounds: typing.Optional[typing.Sequence[typing.Sequence[builtins.float]]] = None, kpls_dim: typing.Optional[builtins.int] = None, n_start: builtins.int = 10, nz: typing.Optional[builtins.int] = None, z: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, method: SparseMethod = SparseMethod.FITC, seed: typing.Optional[builtins.int] = None, verbose: Verbose | builtins.int | None = None) -> SparseGpMix: ...
+    def __new__(cls, corr_spec: builtins.int = 1, theta_init: typing.Optional[typing.Sequence[builtins.float]] = None, theta_bounds: typing.Optional[typing.Sequence[typing.Sequence[builtins.float]]] = None, kpls_dim: typing.Optional[builtins.int] = None, theta_n_start: typing.Optional[builtins.int] = None, nz: typing.Optional[builtins.int] = None, z: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, method: SparseMethod = SparseMethod.FITC, seed: typing.Optional[builtins.int] = None, verbose: Verbose | builtins.int | None = None, *, n_start: typing.Optional[builtins.int] = None) -> SparseGpMix: ...
     def fit(self, xt: numpy.typing.NDArray[numpy.float64], yt: numpy.typing.NDArray[numpy.float64]) -> SparseGpx:
         r"""
         Fit the parameters of the model using the training dataset to build a trained model
@@ -1115,7 +1188,7 @@ class SparseGpx:
     Unlike `Gpx`, it has no `update` method: sparse GPs have to be refitted with the new data.
     """
     @staticmethod
-    def builder(corr_spec: builtins.int = 1, theta_init: typing.Optional[typing.Sequence[builtins.float]] = None, theta_bounds: typing.Optional[typing.Sequence[typing.Sequence[builtins.float]]] = None, kpls_dim: typing.Optional[builtins.int] = None, n_start: builtins.int = 10, nz: typing.Optional[builtins.int] = None, z: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, method: SparseMethod = SparseMethod.FITC, seed: typing.Optional[builtins.int] = None, verbose: Verbose | builtins.int | None = None) -> SparseGpMix:
+    def builder(corr_spec: builtins.int = 1, theta_init: typing.Optional[typing.Sequence[builtins.float]] = None, theta_bounds: typing.Optional[typing.Sequence[typing.Sequence[builtins.float]]] = None, kpls_dim: typing.Optional[builtins.int] = None, theta_n_start: typing.Optional[builtins.int] = None, nz: typing.Optional[builtins.int] = None, z: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, method: SparseMethod = SparseMethod.FITC, seed: typing.Optional[builtins.int] = None, verbose: Verbose | builtins.int | None = None, *, n_start: typing.Optional[builtins.int] = None) -> SparseGpMix:
         r"""
         Get sparse Gaussian process builder aka `SparseGpMix`
         

@@ -360,7 +360,7 @@ class TestEgor(unittest.TestCase):
             x = egor.suggest(x_doe, y_doe, seed=42)
             x_doe = np.concatenate((x_doe, x))
             y_doe = np.concatenate((y_doe, xsinx(x)))
-        result = egor.get_result(x_doe, y_doe)
+        result = egor.best_result(x_doe, y_doe)
         self.assertAlmostEqual(-15.125, result.y_opt[0], delta=1e-3)
         self.assertAlmostEqual(18.935, result.x_opt[0], delta=1e-3)
 
@@ -473,8 +473,8 @@ class TestEgor(unittest.TestCase):
             x = egor.suggest(x_doe, y_doe, seed=42)
             x_doe = np.concatenate((x_doe, x))
             y_doe = np.concatenate((y_doe, g24(x)))
-        res_idx = egor.get_result_index(y_doe)
-        result = egor.get_result(x_doe, y_doe)
+        res_idx = egor.best_index(y_doe)
+        result = egor.best_result(x_doe, y_doe)
         for xi, xii in zip(result.x_opt, x_doe[res_idx]):
             self.assertEqual(xi, xii)
         self.assertAlmostEqual(-5.5080, result.y_opt[0], delta=1e-2)

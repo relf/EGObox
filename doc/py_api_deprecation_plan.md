@@ -35,7 +35,11 @@ same result as the new name, `pytest.raises(TypeError)` when both are given, and
 
 ---
 
-## HIGH — frequent friction, cheap, non-breaking
+## HIGH — frequent friction, cheap, non-breaking — ✅ done
+
+**Implemented:** `python/src/deprecation.rs` (`warn_deprecated`, `resolve_renamed`, `resolve_renamed_key`) and
+items 1–4 below. Deprecated kwargs are keyword-only (after `*`) at the end of the signatures, so positional callers
+get the new name at the old position. Tests in `python/tests/test_deprecations.py` and `tests/test_stubs.py`.
 
 1. **Result forwarding on `EgorOptim`** (`python/src/types.rs`, `EgorOptim`)
    - Add read-only getters `x_opt`, `y_opt`, `x_doe`, `y_doe` delegating to `self.result`.
