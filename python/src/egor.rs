@@ -888,9 +888,9 @@ impl Egor {
             }
             None => y_doe.to_owned(),
         };
-        let cstr_tol = self.internal_cstr_tol(&[], 0).unwrap_or_else(|| {
-            Array1::from_elem(y_doe.ncols() - 1, egobox_ego::DEFAULT_CSTR_TOL)
-        });
+        let cstr_tol = self
+            .internal_cstr_tol(&[], 0)
+            .unwrap_or_else(|| Array1::from_elem(y_doe.ncols() - 1, egobox_ego::DEFAULT_CSTR_TOL));
         let c_doe = Array2::zeros((y_doe.nrows(), 0));
         Ok(find_best_result_index(&y_doe, &c_doe, &cstr_tol))
     }
