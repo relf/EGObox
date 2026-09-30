@@ -132,6 +132,54 @@ class TestApiImports(unittest.TestCase):
         optim = egor.minimize(fobj, max_iters=1, seed=42)
         self.assertEqual(optim.status.total_iters, 1)
 
+    def test_classes_module_is_egobox(self):
+        import egobox as egx
+
+        for cls in (egx.GpConfig, egx.Egor, egx.Gpx, egx.SparseMethod, egx.XSpec):
+            self.assertEqual(cls.__module__, "egobox")
+
+    def test_configs_repr(self):
+        import egobox as egx
+
+        self.assertEqual(
+            repr(egx.GpConfig(n_clusters=2, theta_bounds=[[0.1, 1.0]])),
+            "GpConfig(regr_spec=1, corr_spec=1, kpls_dim=None, n_clusters=2, "
+            "recombination=Recombination.HARD, theta_init=None, "
+            "theta_bounds=[[0.1, 1.0]], n_start=10, max_eval=50)",
+        )
+        self.assertEqual(
+            repr(egx.QEiConfig(batch=3)),
+            "QEiConfig(batch=3, strategy=QEiStrategy.KB, optmod=1)",
+        )
+        self.assertEqual(
+            repr(egx.TregoConfig()),
+            "TregoConfig(n_gl_steps=(1, 4), d=(1e-06, 1.0), alpha=1.0, beta=0.9, sigma0=0.1)",
+        )
+        self.assertEqual(repr(egx.RunInfo("f", 2)), "RunInfo(fname='f', num=2)")
+
+    def test_optim_result_repr(self):
+        import egobox as egx
+
+        def fobj(x: np.ndarray) -> np.ndarray:
+            return (x - 0.3) ** 2
+
+        optim = egx.Egor([[0.0, 1.0]]).minimize(fobj, max_iters=1, seed=42)
+        self.assertTrue(
+            repr(optim).startswith("EgorOptim(result=OptimResult(x_opt=array(")
+        )
+        self.assertIn("n_doe=", repr(optim.result))
+        self.assertIn("exit=ExitStatus.MAX_ITERS_REACHED", repr(optim.status))
+
+    def test_egor_config_arguments_accept_none(self):
+        import egobox as egx
+
+        def fobj(x: np.ndarray) -> np.ndarray:
+            return (x - 0.3) ** 2
+
+        egor = egx.Egor([[0.0, 1.0]], gp_config=None, qei_config=None)
+        optim = egor.minimize(fobj, fcstrs=None, fcstr_specs=None, max_iters=1, seed=42)
+        self.assertEqual(optim.status.total_iters, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -5,7 +5,13 @@ use pyo3::prelude::*;
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pyclass_enum, gen_stub_pymethods};
 
 #[gen_stub_pyclass_enum]
-#[pyclass(skip_from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
+#[pyclass(
+    skip_from_py_object,
+    module = "egobox",
+    eq,
+    eq_int,
+    rename_all = "SCREAMING_SNAKE_CASE"
+)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Recombination {
     /// prediction is taken from the expert with highest responsability
@@ -39,7 +45,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for Recombination {
 
 /// RegressionSpec is a bitfield that specifies which regression terms to include in the model.
 #[gen_stub_pyclass]
-#[pyclass(skip_from_py_object)]
+#[pyclass(skip_from_py_object, module = "egobox")]
 #[derive(Clone, Default, Debug)]
 pub(crate) struct RegressionSpec(pub(crate) u8);
 
@@ -58,7 +64,7 @@ impl RegressionSpec {
 
 /// CorrelationSpec is a bitfield that specifies which correlation terms to include in the model.
 #[gen_stub_pyclass]
-#[pyclass(skip_from_py_object)]
+#[pyclass(skip_from_py_object, module = "egobox")]
 #[derive(Clone, Default, Debug)]
 pub(crate) struct CorrelationSpec(pub(crate) u8);
 
@@ -81,7 +87,13 @@ impl CorrelationSpec {
 
 /// InfillStrategy specifies the acquisition function to use for infill optimization.
 #[gen_stub_pyclass_enum]
-#[pyclass(skip_from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
+#[pyclass(
+    skip_from_py_object,
+    module = "egobox",
+    eq,
+    eq_int,
+    rename_all = "SCREAMING_SNAKE_CASE"
+)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum InfillStrategy {
     /// Expected Improvement
@@ -122,7 +134,13 @@ impl<'a, 'py> FromPyObject<'a, 'py> for InfillStrategy {
 
 /// ConstraintStrategy specifies the strategy to use for handling constraints in infill optimization.
 #[gen_stub_pyclass_enum]
-#[pyclass(skip_from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
+#[pyclass(
+    skip_from_py_object,
+    module = "egobox",
+    eq,
+    eq_int,
+    rename_all = "SCREAMING_SNAKE_CASE"
+)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum ConstraintStrategy {
     /// Mean of the GP is used to evaluate the constraint, which is equivalent to ignoring the uncertainty on the constraint
@@ -155,7 +173,13 @@ impl<'a, 'py> FromPyObject<'a, 'py> for ConstraintStrategy {
 /// see QEI is the multi-point extension of EI, see Chevalier and Ginsbourger (2013)
 /// "Fast Computation of the Multi-Points Expected Improvement with Applications in Batch Selection"
 #[gen_stub_pyclass_enum]
-#[pyclass(skip_from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
+#[pyclass(
+    skip_from_py_object,
+    module = "egobox",
+    eq,
+    eq_int,
+    rename_all = "SCREAMING_SNAKE_CASE"
+)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum QEiStrategy {
     /// Kriging Believer, the next point is added to the GP with its predicted mean value,
@@ -199,7 +223,13 @@ impl<'a, 'py> FromPyObject<'a, 'py> for QEiStrategy {
 
 /// InfillOptimizer specifies the optimization algorithm to use for infill optimization.
 #[gen_stub_pyclass_enum]
-#[pyclass(skip_from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
+#[pyclass(
+    skip_from_py_object,
+    module = "egobox",
+    eq,
+    eq_int,
+    rename_all = "SCREAMING_SNAKE_CASE"
+)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum InfillOptimizer {
     /// Gradient free optimization algorithm that uses a simplex of n+1 points for n-dimensional optimization
@@ -231,7 +261,13 @@ impl<'a, 'py> FromPyObject<'a, 'py> for InfillOptimizer {
 /// Expected Feasible Improvement (EFI) is an acquisition function that takes into account the feasibility of the points in the optimization process.
 /// It is defined as the product of the Expected Improvement (EI) weighted by the probability of viability
 #[gen_stub_pyclass_enum]
-#[pyclass(skip_from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
+#[pyclass(
+    skip_from_py_object,
+    module = "egobox",
+    eq,
+    eq_int,
+    rename_all = "SCREAMING_SNAKE_CASE"
+)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 pub(crate) enum FeasibleInfillStrategy {
     /// Do not use feasibility information
@@ -265,7 +301,13 @@ impl<'a, 'py> FromPyObject<'a, 'py> for FeasibleInfillStrategy {
 
 /// FailsafeStrategy specifies the strategy to use for handling failures during infill optimization.
 #[gen_stub_pyclass_enum]
-#[pyclass(skip_from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
+#[pyclass(
+    skip_from_py_object,
+    module = "egobox",
+    eq,
+    eq_int,
+    rename_all = "SCREAMING_SNAKE_CASE"
+)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 pub(crate) enum FailsafeStrategy {
     /// The point is ignored, the optimization continues but may fail to explore
@@ -302,7 +344,13 @@ impl<'a, 'py> FromPyObject<'a, 'py> for FailsafeStrategy {
 
 /// Verbose specifies the level of verbosity for logging.
 #[gen_stub_pyclass_enum]
-#[pyclass(skip_from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
+#[pyclass(
+    skip_from_py_object,
+    module = "egobox",
+    eq,
+    eq_int,
+    rename_all = "SCREAMING_SNAKE_CASE"
+)]
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub(crate) enum Verbose {
     Error = 0,
@@ -349,7 +397,13 @@ impl From<Verbose> for log::LevelFilter {
 
 /// XType specifies the type of the input variables.
 #[gen_stub_pyclass_enum]
-#[pyclass(skip_from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
+#[pyclass(
+    skip_from_py_object,
+    module = "egobox",
+    eq,
+    eq_int,
+    rename_all = "SCREAMING_SNAKE_CASE"
+)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum XType {
     Float = 1,
@@ -382,7 +436,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for XType {
 
 /// XSpec specifies the type and limits of the input variables (aka design space).
 #[gen_stub_pyclass]
-#[pyclass(skip_from_py_object)]
+#[pyclass(skip_from_py_object, module = "egobox")]
 #[derive(FromPyObject, Debug)]
 pub(crate) struct XSpec {
     #[pyo3(get)]
@@ -409,8 +463,14 @@ impl XSpec {
 
 /// SparseMethod specifies the method to use for sparse Gaussian process regression.
 /// See "Sparse Gaussian Process Regression for Big Data" by V. Vanhatalo, J. Riihimäki, J. Hartikainen, and A. Vehtari (2010)
-#[pyclass(skip_from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
 #[gen_stub_pyclass_enum]
+#[pyclass(
+    skip_from_py_object,
+    module = "egobox",
+    eq,
+    eq_int,
+    rename_all = "SCREAMING_SNAKE_CASE"
+)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum SparseMethod {
     /// FITC (Fully Independent Training Conditional) method, which uses a subset of the training data to make predictions, resulting in a faster but less accurate model
@@ -462,7 +522,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for SparseMethod {
 /// spec4 = egx.CstrSpec.btw(1.0, 3.0)
 /// ```
 #[gen_stub_pyclass]
-#[pyclass(skip_from_py_object)]
+#[pyclass(skip_from_py_object, module = "egobox")]
 #[derive(Debug, Clone)]
 pub(crate) struct CstrSpec {
     pub(crate) inner: egobox_ego::CstrSpec,
@@ -545,13 +605,22 @@ impl CstrSpec {
     }
 }
 
+/// Format `Name(key1=repr1, key2=repr2, ...)` using the Python repr of each value
+pub(crate) fn repr_kwargs(name: &str, fields: &[(&str, Bound<'_, PyAny>)]) -> PyResult<String> {
+    let args = fields
+        .iter()
+        .map(|(key, value)| Ok(format!("{key}={}", value.repr()?)))
+        .collect::<PyResult<Vec<_>>>()?;
+    Ok(format!("{name}({})", args.join(", ")))
+}
+
 /// RunInfo contains information about a single run of the optimization algorithm,
 /// the name of the function being optimized and the run number (useful for logging and saving results).
 /// This is given by the user when calling the optimization function and is used for logging and saving results.
 /// This information is also returned in the RunStatus to allow the user to correlate the results
 /// with the function and run number.
 #[gen_stub_pyclass]
-#[pyclass(skip_from_py_object)]
+#[pyclass(skip_from_py_object, module = "egobox")]
 #[derive(Debug, Clone)]
 pub(crate) struct RunInfo {
     /// A name for the function being optimized, used for logging and saving results
@@ -601,11 +670,27 @@ impl RunInfo {
     pub fn new(fname: String, num: usize) -> Self {
         RunInfo { fname, num }
     }
+
+    fn __repr__(&self, py: Python) -> PyResult<String> {
+        repr_kwargs(
+            "RunInfo",
+            &[
+                ("fname", self.fname.as_str().into_pyobject(py)?.into_any()),
+                ("num", self.num.into_pyobject(py)?.into_any()),
+            ],
+        )
+    }
 }
 
 /// ExitStatus specifies the reason for the termination of the optimization algorithm.
 #[gen_stub_pyclass_enum]
-#[pyclass(skip_from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
+#[pyclass(
+    skip_from_py_object,
+    module = "egobox",
+    eq,
+    eq_int,
+    rename_all = "SCREAMING_SNAKE_CASE"
+)]
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum ExitStatus {
     /// Reached maximum number of iterations
@@ -647,7 +732,7 @@ impl From<egobox_ego::TerminationStatus> for ExitStatus {
 /// RunStatus contains information about the status of a run of the optimization algorithm
 /// It is returned by the optimizer together with the optimization results.
 #[gen_stub_pyclass]
-#[pyclass(skip_from_py_object)]
+#[pyclass(skip_from_py_object, module = "egobox")]
 #[derive(Debug, Clone)]
 pub(crate) struct RunStatus {
     /// Information about the run, provided by the user when calling the optimization function
@@ -670,11 +755,38 @@ pub(crate) struct RunStatus {
     pub(crate) elapsed_time: f64,
 }
 
+#[gen_stub_pymethods]
+#[pymethods]
+impl RunStatus {
+    fn __repr__(&self, py: Python) -> PyResult<String> {
+        repr_kwargs(
+            "RunStatus",
+            &[
+                ("info", self.info.clone().into_pyobject(py)?.into_any()),
+                ("exit", self.exit.clone().into_pyobject(py)?.into_any()),
+                (
+                    "init_doe_size",
+                    self.init_doe_size.into_pyobject(py)?.into_any(),
+                ),
+                ("best_iter", self.best_iter.into_pyobject(py)?.into_any()),
+                (
+                    "total_iters",
+                    self.total_iters.into_pyobject(py)?.into_any(),
+                ),
+                (
+                    "elapsed_time",
+                    self.elapsed_time.into_pyobject(py)?.into_any(),
+                ),
+            ],
+        )
+    }
+}
+
 /// OptimResult contains the results of a run of the optimization algorithm,
 /// including the optimal point and value found, the DOE points and values which
 /// includes initial points and the optimization history.
 #[gen_stub_pyclass]
-#[pyclass(skip_from_py_object)]
+#[pyclass(skip_from_py_object, module = "egobox")]
 #[derive(Debug)]
 pub(crate) struct OptimResult {
     /// Optimal x point found by the optimization algorithm
@@ -691,10 +803,26 @@ pub(crate) struct OptimResult {
     pub(crate) y_doe: Py<PyArray2<f64>>,
 }
 
+#[gen_stub_pymethods]
+#[pymethods]
+impl OptimResult {
+    fn __repr__(&self, py: Python) -> PyResult<String> {
+        let n_doe = self.x_doe.bind(py).len()?;
+        repr_kwargs(
+            "OptimResult",
+            &[
+                ("x_opt", self.x_opt.bind(py).clone().into_any()),
+                ("y_opt", self.y_opt.bind(py).clone().into_any()),
+                ("n_doe", n_doe.into_pyobject(py)?.into_any()),
+            ],
+        )
+    }
+}
+
 /// Egor optimization output
 ///
 #[gen_stub_pyclass]
-#[pyclass(skip_from_py_object)]
+#[pyclass(skip_from_py_object, module = "egobox")]
 #[derive(Debug)]
 pub(crate) struct EgorOptim {
     /// Result of optimization run
@@ -703,4 +831,18 @@ pub(crate) struct EgorOptim {
     /// Status of optimization run
     #[pyo3(get)]
     pub(crate) status: RunStatus,
+}
+
+#[gen_stub_pymethods]
+#[pymethods]
+impl EgorOptim {
+    fn __repr__(&self, py: Python) -> PyResult<String> {
+        repr_kwargs(
+            "EgorOptim",
+            &[
+                ("result", self.result.bind(py).clone().into_any()),
+                ("status", self.status.clone().into_pyobject(py)?.into_any()),
+            ],
+        )
+    }
 }

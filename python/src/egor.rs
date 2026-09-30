@@ -195,7 +195,7 @@ fn parse_run_info(py: Python, value: Py<PyAny>) -> PyResult<RunInfo> {
 ///     Egor object which can be used to optimize a function using the minimize method.
 ///      
 #[gen_stub_pyclass]
-#[pyclass(skip_from_py_object)]
+#[pyclass(skip_from_py_object, module = "egobox")]
 pub(crate) struct Egor {
     pub xtypes: Vec<egobox_moe::XType>,
     pub gp_config: GpConfig,
@@ -223,7 +223,7 @@ impl Egor {
     #[new]
     #[pyo3(signature = (
         xspecs,
-        gp_config = GpConfig::default(),
+        gp_config = None,
         n_cstr = 0,
         cstr_tol = None,
         cstr_specs = None,
@@ -234,7 +234,7 @@ impl Egor {
         feasible_infill_strategy = FeasibleInfillStrategy::None,
         cstr_infill = false,
         cstr_strategy = ConstraintStrategy::Mc,
-        qei_config = QEiConfig::default(),
+        qei_config = None,
         infill_optimizer = InfillOptimizer::Cobyla,
         trego = None,
         coego_n_coop = 0,
@@ -244,10 +244,13 @@ impl Egor {
     #[allow(clippy::too_many_arguments)]
     fn new(
         py: Python,
+        #[gen_stub(override_type(type_repr = "typing.Sequence[XSpec] | typing.Sequence[typing.Sequence[builtins.float]] | numpy.typing.NDArray[numpy.float64]", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
         xspecs: Py<PyAny>,
-        gp_config: GpConfig,
+        #[gen_stub(override_type(type_repr = "GpConfig | builtins.dict[builtins.str, typing.Any] | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
+        gp_config: Option<GpConfig>,
         n_cstr: usize,
         cstr_tol: Option<Vec<f64>>,
+        #[gen_stub(override_type(type_repr = "typing.Sequence[CstrSpec | builtins.dict[builtins.str, typing.Any]] | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
         cstr_specs: Option<Vec<CstrSpec>>,
         n_start: usize,
         n_doe: usize,
@@ -256,8 +259,10 @@ impl Egor {
         feasible_infill_strategy: FeasibleInfillStrategy,
         cstr_infill: bool,
         cstr_strategy: ConstraintStrategy,
-        qei_config: QEiConfig,
+        #[gen_stub(override_type(type_repr = "QEiConfig | builtins.dict[builtins.str, typing.Any] | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
+        qei_config: Option<QEiConfig>,
         infill_optimizer: InfillOptimizer,
+        #[gen_stub(override_type(type_repr = "TregoConfig | builtins.bool | builtins.dict[builtins.str, typing.Any] | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
         trego: Option<Py<PyAny>>,
         coego_n_coop: usize,
         target: f64,
@@ -265,7 +270,9 @@ impl Egor {
     ) -> PyResult<Self> {
         let doe = doe.map(|x| x.to_owned_array());
         let xtypes = parse(py, xspecs.clone_ref(py))?;
+        let gp_config = gp_config.unwrap_or_default();
         gp_config.validate()?;
+        let qei_config = qei_config.unwrap_or_default();
 
         // Parse trego configuration: boolean or custom configuration
         let trego = match trego {
@@ -390,24 +397,30 @@ impl Egor {
     /// # Returns
     ///
     ///     optimization result
-    ///         x_opt (array[1, nx]): x value where fun is at its minimum subject to constraints
-    ///         y_opt (array[1, nx]): fun(x_opt)
+    ///         x_opt (array[nx]): x value where fun is at its minimum subject to constraints
+    ///         y_opt (array[ny]): fun(x_opt) where ny = 1 + n_cstr
     ///
-    #[pyo3(signature = (fun, fcstrs=vec![], fcstr_specs=vec![], max_iters = 20, run_info = None, outdir = None, warm_start = false, hot_start = None, seed = None, timeout = None, verbose = None, stop_on_error = false))]
+    #[pyo3(signature = (fun, fcstrs=None, fcstr_specs=None, max_iters = 20, run_info = None, outdir = None, warm_start = false, hot_start = None, seed = None, timeout = None, verbose = None, stop_on_error = false))]
     #[allow(clippy::too_many_arguments)]
     fn minimize(
         &self,
         py: Python,
+        #[gen_stub(override_type(type_repr = "typing.Callable[[numpy.typing.NDArray[numpy.float64]], numpy.typing.NDArray[numpy.float64]]", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
         fun: Py<PyAny>,
-        fcstrs: Vec<Py<PyAny>>,
-        fcstr_specs: Vec<CstrSpec>,
+        #[gen_stub(override_type(type_repr = "typing.Sequence[typing.Callable[[numpy.typing.NDArray[numpy.float64], builtins.bool], builtins.float | numpy.typing.NDArray[numpy.float64]]] | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
+        fcstrs: Option<Vec<Py<PyAny>>>,
+        #[gen_stub(override_type(type_repr = "typing.Sequence[CstrSpec | builtins.dict[builtins.str, typing.Any]] | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
+        fcstr_specs: Option<Vec<CstrSpec>>,
         max_iters: usize,
+        #[gen_stub(override_type(type_repr = "RunInfo | builtins.dict[builtins.str, typing.Any] | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
         run_info: Option<Py<PyAny>>,
         outdir: Option<String>,
         warm_start: bool,
+        #[gen_stub(override_type(type_repr = "builtins.bool | builtins.int | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
         hot_start: Option<Py<PyAny>>,
         seed: Option<u64>,
         timeout: Option<f64>,
+        #[gen_stub(override_type(type_repr = "Verbose | builtins.int | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
         verbose: Option<Py<PyAny>>,
         stop_on_error: bool,
     ) -> PyResult<EgorOptim> {
@@ -444,6 +457,8 @@ impl Egor {
             })
         };
 
+        let fcstrs = fcstrs.unwrap_or_default();
+        let fcstr_specs = fcstr_specs.unwrap_or_default();
         let n_fcstr = fcstrs.len();
         if !fcstr_specs.is_empty() && fcstr_specs.len() != n_fcstr {
             return Err(PyValueError::new_err(format!(
@@ -656,8 +671,8 @@ impl Egor {
     ///     
     /// # Returns
     ///     result
-    ///         x_opt (array[1, nx]): x value where fun is at its minimum subject to constraints
-    ///         y_opt (array[1, nx]): fun(x_opt)
+    ///         x_opt (array[nx]): x value where fun is at its minimum subject to constraints
+    ///         y_opt (array[ny]): fun(x_opt) where ny = 1 + n_cstr
     ///         x_doe (array[ns, nx]): x values of the final DOE
     ///         y_doe (array[ns, 1 + n_cstr]): y values of the final DOE
     ///

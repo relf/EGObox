@@ -7,7 +7,13 @@ use pyo3::prelude::*;
 use pyo3_stub_gen::derive::{gen_stub_pyclass_enum, gen_stub_pyfunction};
 
 #[gen_stub_pyclass_enum]
-#[pyclass(skip_from_py_object, eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
+#[pyclass(
+    skip_from_py_object,
+    module = "egobox",
+    eq,
+    eq_int,
+    rename_all = "SCREAMING_SNAKE_CASE"
+)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Sampling {
     Lhs = 1,
@@ -63,6 +69,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for Sampling {
 pub fn sampling(
     py: Python<'_>,
     method: Sampling,
+    #[gen_stub(override_type(type_repr = "typing.Sequence[XSpec] | typing.Sequence[typing.Sequence[builtins.float]] | numpy.typing.NDArray[numpy.float64]", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
     xspecs: Py<PyAny>,
     n_samples: usize,
     seed: Option<u64>,
@@ -106,6 +113,7 @@ pub fn sampling(
 #[pyo3(signature = (xspecs, n_samples, seed=None))]
 pub(crate) fn lhs(
     py: Python,
+    #[gen_stub(override_type(type_repr = "typing.Sequence[XSpec] | typing.Sequence[typing.Sequence[builtins.float]] | numpy.typing.NDArray[numpy.float64]", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
     xspecs: Py<PyAny>,
     n_samples: usize,
     seed: Option<u64>,

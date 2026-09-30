@@ -64,7 +64,7 @@ use rand_xoshiro::Xoshiro256Plus;
 ///         Used mainly for debugging and development purposes
 ///         
 #[gen_stub_pyclass]
-#[pyclass(skip_from_py_object)]
+#[pyclass(skip_from_py_object, module = "egobox")]
 pub(crate) struct SparseGpMix {
     pub correlation_spec: CorrelationSpec,
     pub theta_init: Option<Vec<f64>>,
@@ -105,6 +105,7 @@ impl SparseGpMix {
         z: Option<PyReadonlyArray2<f64>>,
         method: SparseMethod,
         seed: Option<u64>,
+        #[gen_stub(override_type(type_repr = "Verbose | builtins.int | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
         verbose: Option<Py<PyAny>>,
     ) -> Self {
         init_logger(py, verbose);
@@ -202,7 +203,7 @@ impl SparseGpMix {
 
 /// A trained Gaussian processes mixture
 #[gen_stub_pyclass]
-#[pyclass(skip_from_py_object)]
+#[pyclass(skip_from_py_object, module = "egobox")]
 pub(crate) struct SparseGpx(Box<GpMixture>);
 
 #[gen_stub_pymethods]
@@ -236,6 +237,7 @@ impl SparseGpx {
         z: Option<PyReadonlyArray2<f64>>,
         method: SparseMethod,
         seed: Option<u64>,
+        #[gen_stub(override_type(type_repr = "Verbose | builtins.int | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
         verbose: Option<Py<PyAny>>,
     ) -> SparseGpMix {
         SparseGpMix::new(
