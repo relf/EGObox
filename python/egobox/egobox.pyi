@@ -58,6 +58,9 @@ class CstrSpec:
     Instead of requiring constraints to be formulated as c <= 0,
     users can specify constraint bounds directly.
     
+    Each spec can have its own tolerance `tol`: the constraint is considered satisfied
+    when the violation is below `tol`. It takes precedence over `Egor(cstr_tol=...)`.
+    
     # Examples
     
     ```python
@@ -66,37 +69,50 @@ class CstrSpec:
     # c <= 5.0
     spec1 = egx.CstrSpec.leq(5.0)
     
-    # c >= 2.0
-    spec2 = egx.CstrSpec.geq(2.0)
+    # c >= 2.0 with a tolerance of 1e-2
+    spec2 = egx.CstrSpec.geq(2.0, tol=1e-2)
     
     # c = 4.0 (equality constraint, expands to two internal constraints)
     spec3 = egx.CstrSpec.eq(4.0)
     
     # 1.0 <= c <= 3.0 (double-sided, expands to two internal constraints)
-    spec4 = egx.CstrSpec.btw(1.0, 3.0)
+    spec4 = egx.CstrSpec.between(1.0, 3.0)
+    
+    # dict form
+    spec5 = {"between": (1.0, 3.0), "tol": 1e-2}
     ```
     """
+    @property
+    def tol(self) -> typing.Optional[builtins.float]:
+        r"""
+        Tolerance of the constraint, None means the `Egor(cstr_tol=...)` value or the default is used
+        """
     @staticmethod
-    def leq(bound: builtins.float) -> CstrSpec:
+    def leq(bound: builtins.float, tol: typing.Optional[builtins.float] = None) -> CstrSpec:
         r"""
         Constraint c <= bound, transformed to c - bound <= 0
         """
     @staticmethod
-    def geq(bound: builtins.float) -> CstrSpec:
+    def geq(bound: builtins.float, tol: typing.Optional[builtins.float] = None) -> CstrSpec:
         r"""
         Constraint c >= bound, transformed to bound - c <= 0
         """
     @staticmethod
-    def eq(value: builtins.float) -> CstrSpec:
+    def eq(value: builtins.float, tol: typing.Optional[builtins.float] = None) -> CstrSpec:
         r"""
         Equality constraint c = value, expands to two internal constraints:
         c - value <= 0 and value - c <= 0
         """
     @staticmethod
-    def btw(lower: builtins.float, upper: builtins.float) -> CstrSpec:
+    def between(lower: builtins.float, upper: builtins.float, tol: typing.Optional[builtins.float] = None) -> CstrSpec:
         r"""
         Double-sided constraint lower <= c <= upper, expands to two internal constraints:
         lower - c <= 0 and c - upper <= 0
+        """
+    @staticmethod
+    def btw(lower: builtins.float, upper: builtins.float, tol: typing.Optional[builtins.float] = None) -> CstrSpec:
+        r"""
+        Deprecated since 0.38.0, use `CstrSpec.between` instead.
         """
     def __repr__(self) -> builtins.str: ...
 
@@ -130,6 +146,7 @@ class Egor:
         (after `cstr_specs` expansion, see below) followed by the function constraints
         `fcstrs` given to `minimize` (after `fcstr_specs` expansion).
         When None, tolerances default to DEFAULT_CSTR_TOL=1e-4.
+        A tolerance given by a spec (`CstrSpec.leq(bound, tol=...)`) takes precedence over `cstr_tol`.
     cstr_specs : list of CstrSpec or dict, optional
         Describe how each surrogate-modeled constraint (returned by `fun`) should be interpreted.
         This allows users to define bounds directly instead of manually rewriting
@@ -138,10 +155,11 @@ class Egor:
         * CstrSpec.leq(bound): c <= bound (less or equal)
         * CstrSpec.geq(bound): c >= bound (greater or equal)
         * CstrSpec.eq(value): c == value (expands to two internal constraints)
-        * CstrSpec.btw(lower, upper): lower <= c <= upper (between, expands to two internal constraints)
+        * CstrSpec.between(lower, upper): lower <= c <= upper (expands to two internal constraints)
     
-        When set, `n_cstr` is inferred from `len(cstr_specs)` (`n_cstr` is ignored if set to zero,
-        or must match otherwise).
+        Each spec accepts an optional `tol` argument, the tolerance of that constraint.
+        When set, `n_cstr` is inferred from `len(cstr_specs)` (`n_cstr` can be omitted,
+        otherwise it must match, ValueError is raised).
     infill_n_start : int > 0, optional
         Number of starts of the multistart optimization of the infill criterion (best result taken, default is 20).
         Not to be confused with `GpConfig(theta_n_start=...)`, the GP hyperparameters optimization multistart.
@@ -149,11 +167,12 @@ class Egor:
         Number of samples of initial LHS sampling (used when DOE not provided by the user).
         When 0 a number of points is computed automatically regarding the number of input variables
         of the function under optimization.
-    doe : array[ns, nt], optional
-        Initial DOE containing ns samples:
-        either nt = nx then only x are specified and ns evals are done to get y doe values,
-        or nt = nx + ny then x = doe[:, :nx] and y = doe[:, nx:] are specified.
-        Note that `suggest` takes x and y as two separate arrays `x_doe` and `y_doe`.
+    x_doe : array[ns, nx], optional
+        Initial DOE inputs containing ns samples. When `y_doe` is not given,
+        ns evaluations are done to get the output values.
+    y_doe : array[ns, ny], optional
+        Initial DOE outputs [obj, cstr_1, ... cstr_k] (ny = 1 + n_cstr) corresponding to `x_doe`,
+        requires `x_doe`.
     infill_strategy : InfillStrategy
         Infill criterion to decide best next promising point.
         Can be either InfillStrategy.LOG_EI (default), InfillStrategy.EI, InfillStrategy.WB2, InfillStrategy.WB2S
@@ -204,6 +223,11 @@ class Egor:
     ----------
     n_start : int > 0, optional
         Deprecated since 0.38.0, use `infill_n_start` instead.
+    doe : array[ns, nt], optional
+        Deprecated since 0.38.0, use `x_doe` and `y_doe` instead.
+        Initial DOE containing ns samples:
+        either nt = nx then only x are specified and ns evals are done to get y doe values,
+        or nt = nx + ny then x = doe[:, :nx] and y = doe[:, nx:] are specified.
     
     Returns
     -------
@@ -211,7 +235,7 @@ class Egor:
         An optimizer which can be used to optimize a function using the minimize method.
         Random seed and logging verbosity are given to `minimize()`, not to the constructor.
     """
-    def __new__(cls, xspecs: typing.Sequence[XSpec] | typing.Sequence[typing.Sequence[builtins.float]] | numpy.typing.NDArray[numpy.float64], gp_config: GpConfig | builtins.dict[builtins.str, typing.Any] | None = None, n_cstr: builtins.int = 0, cstr_tol: typing.Optional[typing.Sequence[builtins.float]] = None, cstr_specs: typing.Sequence[CstrSpec | builtins.dict[builtins.str, typing.Any]] | None = None, infill_n_start: typing.Optional[builtins.int] = None, n_doe: builtins.int = 0, doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, infill_strategy: InfillStrategy = InfillStrategy.LOG_EI, feasible_infill_strategy: FeasibleInfillStrategy = FeasibleInfillStrategy.NONE, cstr_infill: builtins.bool = False, cstr_strategy: ConstraintStrategy = ConstraintStrategy.MC, qei_config: QEiConfig | builtins.dict[builtins.str, typing.Any] | None = None, infill_optimizer: InfillOptimizer = InfillOptimizer.COBYLA, trego: TregoConfig | builtins.bool | builtins.dict[builtins.str, typing.Any] | None = None, coego_n_coop: builtins.int = 0, target: typing.Optional[builtins.float] = None, failsafe_strategy: FailsafeStrategy = FailsafeStrategy.REJECTION, *, n_start: typing.Optional[builtins.int] = None) -> Egor: ...
+    def __new__(cls, xspecs: typing.Sequence[XSpec] | typing.Sequence[typing.Sequence[builtins.float]] | numpy.typing.NDArray[numpy.float64], gp_config: GpConfig | builtins.dict[builtins.str, typing.Any] | None = None, n_cstr: builtins.int = 0, cstr_tol: typing.Optional[typing.Sequence[builtins.float]] = None, cstr_specs: typing.Sequence[CstrSpec | builtins.dict[builtins.str, typing.Any]] | None = None, infill_n_start: typing.Optional[builtins.int] = None, n_doe: builtins.int = 0, x_doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, y_doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, infill_strategy: InfillStrategy = InfillStrategy.LOG_EI, feasible_infill_strategy: FeasibleInfillStrategy = FeasibleInfillStrategy.NONE, cstr_infill: builtins.bool = False, cstr_strategy: ConstraintStrategy = ConstraintStrategy.MC, qei_config: QEiConfig | builtins.dict[builtins.str, typing.Any] | None = None, infill_optimizer: InfillOptimizer = InfillOptimizer.COBYLA, trego: TregoConfig | builtins.bool | builtins.dict[builtins.str, typing.Any] | None = None, coego_n_coop: builtins.int = 0, target: typing.Optional[builtins.float] = None, failsafe_strategy: FailsafeStrategy = FailsafeStrategy.REJECTION, *, n_start: typing.Optional[builtins.int] = None, doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None) -> Egor: ...
     def minimize(self, fun: typing.Callable[[numpy.typing.NDArray[numpy.float64]], numpy.typing.NDArray[numpy.float64]], fcstrs: typing.Sequence[typing.Callable[[numpy.typing.NDArray[numpy.float64], builtins.bool], builtins.float | numpy.typing.NDArray[numpy.float64]]] | None = None, fcstr_specs: typing.Sequence[CstrSpec | builtins.dict[builtins.str, typing.Any]] | None = None, max_iters: builtins.int = 20, run_info: RunInfo | builtins.dict[builtins.str, typing.Any] | None = None, outdir: typing.Optional[builtins.str] = None, warm_start: builtins.bool = False, hot_start: builtins.bool | builtins.int | None = None, seed: typing.Optional[builtins.int] = None, timeout: typing.Optional[builtins.float] = None, verbose: Verbose | builtins.int | None = None, stop_on_error: builtins.bool = False) -> EgorOptim:
         r"""
         This function finds the minimum of a given function "fun"
@@ -238,9 +262,10 @@ class Egor:
             One CstrSpec per fcstr specifying how each function constraint should be interpreted.
             Length must be zero (legacy behavior) or equal to len(fcstrs).
             This allows raw constraints not written as c <= 0, for example:
-            CstrSpec.leq(b), CstrSpec.geq(b), CstrSpec.eq(v), CstrSpec.btw(lo, hi).
-            Note: CstrSpec.eq and CstrSpec.btw expand to two internal constraints each.
-            When `cstr_tol` is explicitly provided, ensure its size covers all internal
+            CstrSpec.leq(b), CstrSpec.geq(b), CstrSpec.eq(v), CstrSpec.between(lo, hi).
+            Note: CstrSpec.eq and CstrSpec.between expand to two internal constraints each.
+            A spec `tol` (e.g. CstrSpec.leq(b, tol=1e-3)) gives the tolerance of that constraint.
+            Otherwise, when `cstr_tol` is explicitly provided, ensure its size covers all internal
             constraints: surrogate constraints + expanded function constraints.
         max_iters : int
             The iteration budget, number of fun calls is "n_doe + q_batch * max_iters".
@@ -719,6 +744,16 @@ class Gpx:
     r"""
     A trained Gaussian processes mixture
     """
+    @property
+    def nx(self) -> builtins.int:
+        r"""
+        Number of input components
+        """
+    @property
+    def ny(self) -> builtins.int:
+        r"""
+        Number of output components
+        """
     @staticmethod
     def builder(xspecs: typing.Sequence[XSpec] | typing.Sequence[typing.Sequence[builtins.float]] | numpy.typing.NDArray[numpy.float64] | None = None, regr_spec: builtins.int = 1, corr_spec: builtins.int = 1, kpls_dim: typing.Optional[builtins.int] = None, n_clusters: builtins.int = 1, recombination: Recombination = Recombination.HARD, theta_init: typing.Optional[typing.Sequence[builtins.float]] = None, theta_bounds: typing.Optional[typing.Sequence[typing.Sequence[builtins.float]]] = None, theta_n_start: typing.Optional[builtins.int] = None, theta_max_eval: typing.Optional[builtins.int] = None, seed: typing.Optional[builtins.int] = None, verbose: Verbose | builtins.int | None = None, *, n_start: typing.Optional[builtins.int] = None, max_eval: typing.Optional[builtins.int] = None) -> GpMix:
         r"""
@@ -775,7 +810,7 @@ class Gpx:
         OSError or ValueError
             when the model can not be loaded
         """
-    def predict(self, x: numpy.typing.NDArray[numpy.float64]) -> numpy.typing.NDArray[numpy.float64]:
+    def predict(self, x: numpy.typing.NDArray[numpy.float64], return_std: builtins.bool = False) -> numpy.typing.NDArray[numpy.float64] | tuple[numpy.typing.NDArray[numpy.float64], numpy.typing.NDArray[numpy.float64]]:
         r"""
         Predict output values at nsamples points.
         
@@ -783,11 +818,15 @@ class Gpx:
         ----------
         x : array[nsamples, nx] or array[nsamples] when nx == 1
             input values
+        return_std : bool
+            When True, the standard deviations of the predictions are also returned,
+            computed as sqrt(predict_var(x)) (default is False)
         
         Returns
         -------
-        array[nsamples]
-            the output values at the nsamples x points
+        array[nsamples] or (array[nsamples], array[nsamples])
+            the output values at the nsamples x points,
+            and their standard deviations when return_std is True
         """
     def predict_var(self, x: numpy.typing.NDArray[numpy.float64]) -> numpy.typing.NDArray[numpy.float64]:
         r"""
@@ -975,10 +1014,10 @@ class QEiConfig:
         * KBUB (Kriging Believer Upper Bound): Uses GP mean + std as pseudo-observation
         * CLMIN (Constant Liar Minimum): Uses the current best value as pseudo-observation
     
-    optmod : int
-        Optimization modulo: interval between two GP hyperparameter optimizations
-        when computing the q points of a batch. For example, with optmod=2,
-        hyperparameters are optimized every 2 points, otherwise they are kept as is.
+    optim_every : int
+        Interval between two GP hyperparameter optimizations when computing the q points of a batch.
+        For example, with optim_every=2, hyperparameters are optimized every 2 points,
+        otherwise they are kept as is.
     """
     @property
     def batch(self) -> builtins.int:
@@ -1001,16 +1040,23 @@ class QEiConfig:
         Strategy for selecting multiple points in parallel
         """
     @property
+    def optim_every(self) -> builtins.int:
+        r"""
+        Interval between hyperparameter optimizations
+        """
+    @optim_every.setter
+    def optim_every(self, value: builtins.int) -> None:
+        r"""
+        Interval between hyperparameter optimizations
+        """
+    @property
     def optmod(self) -> builtins.int:
         r"""
-        Interval between hyperparameter optimizations
+        Deprecated since 0.38.0, use `optim_every` instead.
         """
     @optmod.setter
-    def optmod(self, value: builtins.int) -> None:
-        r"""
-        Interval between hyperparameter optimizations
-        """
-    def __new__(cls, batch: builtins.int = 1, strategy: QEiStrategy = QEiStrategy.KB, optmod: builtins.int = 1) -> QEiConfig:
+    def optmod(self, value: builtins.int) -> None: ...
+    def __new__(cls, batch: builtins.int = 1, strategy: QEiStrategy = QEiStrategy.KB, optim_every: typing.Optional[builtins.int] = None, *, optmod: typing.Optional[builtins.int] = None) -> QEiConfig:
         r"""
         Create a new parallel evaluation configuration.
         
@@ -1023,8 +1069,13 @@ class QEiConfig:
         strategy : QEiStrategy, optional
             Strategy for parallel point selection (default: QEiStrategy.KB)
         
-        optmod : int, optional
+        optim_every : int, optional
             Interval between hyperparameter optimizations (default: 1)
+        
+        Deprecated
+        ----------
+        optmod : int, optional
+            Deprecated since 0.38.0, use `optim_every` instead.
         
         Returns
         -------
@@ -1119,7 +1170,7 @@ class SparseGpMix:
     r"""
     Sparse Gaussian process builder
     
-    Inducing points are required: give either their number `nz` or their locations `z`.
+    Inducing points are required: give either their number `n_inducing` or their locations `inducing`.
     
     Parameters
     ----------
@@ -1139,11 +1190,11 @@ class SparseGpMix:
         This is used to address high-dimensional problems typically when nx > 9.
     theta_n_start : int >= 0, optional
         Number of internal GP hyperparameters optimization restarts (multistart, default is 10)
-    nz : int, optional
+    n_inducing : int, optional
         Number of inducing points, randomly picked among the training inputs.
-        Used when `z` is not given.
-    z : array[nz, nx], optional
-        Locations of the inducing points. Takes precedence over `nz`.
+        Used when `inducing` is not given.
+    inducing : array[n_inducing, nx], optional
+        Locations of the inducing points. Takes precedence over `n_inducing`.
     method : SparseMethod
         Sparse method to be used (default is SparseMethod.FITC)
     seed : int >= 0, optional
@@ -1156,13 +1207,17 @@ class SparseGpMix:
     ----------
     n_start : int >= 0, optional
         Deprecated since 0.38.0, use `theta_n_start` instead.
+    nz : int, optional
+        Deprecated since 0.38.0, use `n_inducing` instead.
+    z : array[nz, nx], optional
+        Deprecated since 0.38.0, use `inducing` instead.
     
     Returns
     -------
     SparseGpMix
         A builder which can be fitted to data to get a SparseGpx object (a trained sparse Gaussian process)
     """
-    def __new__(cls, corr_spec: builtins.int = 1, theta_init: typing.Optional[typing.Sequence[builtins.float]] = None, theta_bounds: typing.Optional[typing.Sequence[typing.Sequence[builtins.float]]] = None, kpls_dim: typing.Optional[builtins.int] = None, theta_n_start: typing.Optional[builtins.int] = None, nz: typing.Optional[builtins.int] = None, z: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, method: SparseMethod = SparseMethod.FITC, seed: typing.Optional[builtins.int] = None, verbose: Verbose | builtins.int | None = None, *, n_start: typing.Optional[builtins.int] = None) -> SparseGpMix: ...
+    def __new__(cls, corr_spec: builtins.int = 1, theta_init: typing.Optional[typing.Sequence[builtins.float]] = None, theta_bounds: typing.Optional[typing.Sequence[typing.Sequence[builtins.float]]] = None, kpls_dim: typing.Optional[builtins.int] = None, theta_n_start: typing.Optional[builtins.int] = None, n_inducing: typing.Optional[builtins.int] = None, inducing: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, method: SparseMethod = SparseMethod.FITC, seed: typing.Optional[builtins.int] = None, verbose: Verbose | builtins.int | None = None, *, n_start: typing.Optional[builtins.int] = None, nz: typing.Optional[builtins.int] = None, z: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None) -> SparseGpMix: ...
     def fit(self, xt: numpy.typing.NDArray[numpy.float64], yt: numpy.typing.NDArray[numpy.float64]) -> SparseGpx:
         r"""
         Fit the parameters of the model using the training dataset to build a trained model
@@ -1187,8 +1242,18 @@ class SparseGpx:
     
     Unlike `Gpx`, it has no `update` method: sparse GPs have to be refitted with the new data.
     """
+    @property
+    def nx(self) -> builtins.int:
+        r"""
+        Number of input components
+        """
+    @property
+    def ny(self) -> builtins.int:
+        r"""
+        Number of output components
+        """
     @staticmethod
-    def builder(corr_spec: builtins.int = 1, theta_init: typing.Optional[typing.Sequence[builtins.float]] = None, theta_bounds: typing.Optional[typing.Sequence[typing.Sequence[builtins.float]]] = None, kpls_dim: typing.Optional[builtins.int] = None, theta_n_start: typing.Optional[builtins.int] = None, nz: typing.Optional[builtins.int] = None, z: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, method: SparseMethod = SparseMethod.FITC, seed: typing.Optional[builtins.int] = None, verbose: Verbose | builtins.int | None = None, *, n_start: typing.Optional[builtins.int] = None) -> SparseGpMix:
+    def builder(corr_spec: builtins.int = 1, theta_init: typing.Optional[typing.Sequence[builtins.float]] = None, theta_bounds: typing.Optional[typing.Sequence[typing.Sequence[builtins.float]]] = None, kpls_dim: typing.Optional[builtins.int] = None, theta_n_start: typing.Optional[builtins.int] = None, n_inducing: typing.Optional[builtins.int] = None, inducing: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, method: SparseMethod = SparseMethod.FITC, seed: typing.Optional[builtins.int] = None, verbose: Verbose | builtins.int | None = None, *, n_start: typing.Optional[builtins.int] = None, nz: typing.Optional[builtins.int] = None, z: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None) -> SparseGpMix:
         r"""
         Get sparse Gaussian process builder aka `SparseGpMix`
         
@@ -1243,7 +1308,7 @@ class SparseGpx:
         OSError or ValueError
             when the model can not be loaded
         """
-    def predict(self, x: numpy.typing.NDArray[numpy.float64]) -> numpy.typing.NDArray[numpy.float64]:
+    def predict(self, x: numpy.typing.NDArray[numpy.float64], return_std: builtins.bool = False) -> numpy.typing.NDArray[numpy.float64] | tuple[numpy.typing.NDArray[numpy.float64], numpy.typing.NDArray[numpy.float64]]:
         r"""
         Predict output values at nsamples points.
         
@@ -1251,11 +1316,15 @@ class SparseGpx:
         ----------
         x : array[nsamples, nx] or array[nsamples] when nx == 1
             input values
+        return_std : bool
+            When True, the standard deviations of the predictions are also returned,
+            computed as sqrt(predict_var(x)) (default is False)
         
         Returns
         -------
-        array[nsamples]
-            the output values at the nsamples x points
+        array[nsamples] or (array[nsamples], array[nsamples])
+            the output values at the nsamples x points,
+            and their standard deviations when return_std is True
         """
     def predict_var(self, x: numpy.typing.NDArray[numpy.float64]) -> numpy.typing.NDArray[numpy.float64]:
         r"""
@@ -1381,11 +1450,11 @@ class TregoConfig:
     
     Parameters
     ----------
-    n_gl_steps : (int, int)
-        Number of global and local steps (gl): a tuple specifying the number of
+    n_global_local_steps : (int, int)
+        Number of global and local steps: a tuple specifying the number of
         global and local optimization steps as (n_global_steps, n_local_steps).
-    d : tuple of float
-        Trust region distance (radius) bounds as (dmin, dmax). The trust region radius
+    radius_bounds : tuple of float
+        Trust region radius bounds as (dmin, dmax). The trust region radius
         is constrained between these values.
     alpha : float
         Factor used within the trust region acceptance criteria defined as:
@@ -1396,24 +1465,24 @@ class TregoConfig:
         Initial trust region radius.
     """
     @property
-    def n_gl_steps(self) -> tuple[builtins.int, builtins.int]:
+    def n_global_local_steps(self) -> tuple[builtins.int, builtins.int]:
         r"""
         Number of global and local optimization steps (n_global_steps, n_local_steps)
         """
-    @n_gl_steps.setter
-    def n_gl_steps(self, value: tuple[builtins.int, builtins.int]) -> None:
+    @n_global_local_steps.setter
+    def n_global_local_steps(self, value: tuple[builtins.int, builtins.int]) -> None:
         r"""
         Number of global and local optimization steps (n_global_steps, n_local_steps)
         """
     @property
-    def d(self) -> tuple[builtins.float, builtins.float]:
+    def radius_bounds(self) -> tuple[builtins.float, builtins.float]:
         r"""
-        Trust region size bounds (dmin, dmax) with 0 < dmin < dmax
+        Trust region radius bounds (dmin, dmax) with 0 < dmin < dmax
         """
-    @d.setter
-    def d(self, value: tuple[builtins.float, builtins.float]) -> None:
+    @radius_bounds.setter
+    def radius_bounds(self, value: tuple[builtins.float, builtins.float]) -> None:
         r"""
-        Trust region size bounds (dmin, dmax) with 0 < dmin < dmax
+        Trust region radius bounds (dmin, dmax) with 0 < dmin < dmax
         """
     @property
     def alpha(self) -> builtins.float:
@@ -1447,22 +1516,43 @@ class TregoConfig:
         r"""
         Initial trust region radius
         """
-    def __new__(cls, n_gl_steps: tuple[builtins.int, builtins.int] = (1, 4), d: tuple[builtins.float, builtins.float] = (1e-06, 1.0), alpha: builtins.float = 1.0, beta: builtins.float = 0.9, sigma0: builtins.float = 0.1) -> TregoConfig:
+    @property
+    def n_gl_steps(self) -> tuple[builtins.int, builtins.int]:
+        r"""
+        Deprecated since 0.38.0, use `n_global_local_steps` instead.
+        """
+    @n_gl_steps.setter
+    def n_gl_steps(self, value: tuple[builtins.int, builtins.int]) -> None: ...
+    @property
+    def d(self) -> tuple[builtins.float, builtins.float]:
+        r"""
+        Deprecated since 0.38.0, use `radius_bounds` instead.
+        """
+    @d.setter
+    def d(self, value: tuple[builtins.float, builtins.float]) -> None: ...
+    def __new__(cls, n_global_local_steps: typing.Optional[tuple[builtins.int, builtins.int]] = None, radius_bounds: typing.Optional[tuple[builtins.float, builtins.float]] = None, alpha: builtins.float = 1.0, beta: builtins.float = 0.9, sigma0: builtins.float = 0.1, *, n_gl_steps: typing.Optional[tuple[builtins.int, builtins.int]] = None, d: typing.Optional[tuple[builtins.float, builtins.float]] = None) -> TregoConfig:
         r"""
         Create a new TReGO configuration.
         
         Parameters
         ----------
-        n_gl_steps : (int, int), optional
+        n_global_local_steps : (int, int), optional
             Number of global/local steps (default: (1, 4))
-        d : tuple of float, optional
-            Trust region size bounds (default: (1e-6, 1.0))
+        radius_bounds : tuple of float, optional
+            Trust region radius bounds (default: (1e-6, 1.0))
         alpha : float, optional
             Threshold ratio for iteration acceptance (default: 1.0)
         beta : float, optional
             Trust region contraction factor (default: 0.9)
         sigma0 : float, optional
             Initial trust region radius (default: 0.1)
+        
+        Deprecated
+        ----------
+        n_gl_steps : (int, int), optional
+            Deprecated since 0.38.0, use `n_global_local_steps` instead.
+        d : tuple of float, optional
+            Deprecated since 0.38.0, use `radius_bounds` instead.
         
         Returns
         -------
@@ -1498,6 +1588,15 @@ class ConstraintStrategy(enum.Enum):
     r"""
     Upper Trust Bound (UTB): the upper trust bound of the GP is used to evaluate the constraint,
     which takes into account the uncertainty on the constraint
+    """
+
+    MEAN_CONSTRAINT: ConstraintStrategy
+    r"""
+    Long name alias of MC
+    """
+    UPPER_TRUST_BOUND: ConstraintStrategy
+    r"""
+    Long name alias of UTB
     """
 
 @typing.final
@@ -1579,6 +1678,15 @@ class FeasibleInfillStrategy(enum.Enum):
     to the power 0.3, which is more exploratory than EFI_P
     """
 
+    EFI_PROBABILITY: FeasibleInfillStrategy
+    r"""
+    Long name alias of EFI_P
+    """
+    EFI_FEASIBILITY_ENHANCED: FeasibleInfillStrategy
+    r"""
+    Long name alias of EFI_FE
+    """
+
 @typing.final
 class InfillOptimizer(enum.Enum):
     r"""
@@ -1649,6 +1757,23 @@ class QEiStrategy(enum.Enum):
     Constant Liar Minimum (CLMIN), the next point is added to the GP by using the current minimum
     value observed in the DOE, which is equivalent to assuming that
     the prediction is the current best value
+    """
+
+    KRIGING_BELIEVER: QEiStrategy
+    r"""
+    Long name alias of KB
+    """
+    KRIGING_BELIEVER_LOWER_BOUND: QEiStrategy
+    r"""
+    Long name alias of KBLB
+    """
+    KRIGING_BELIEVER_UPPER_BOUND: QEiStrategy
+    r"""
+    Long name alias of KBUB
+    """
+    CONSTANT_LIAR_MINIMUM: QEiStrategy
+    r"""
+    Long name alias of CLMIN
     """
 
 @typing.final
@@ -1740,7 +1865,7 @@ class XType(enum.Enum):
 def lhs(xspecs: typing.Sequence[XSpec] | typing.Sequence[typing.Sequence[builtins.float]] | numpy.typing.NDArray[numpy.float64], n_samples: builtins.int, seed: typing.Optional[builtins.int] = None) -> numpy.typing.NDArray[numpy.float64]:
     r"""
     Samples generation using optimized Latin Hypercube Sampling,
-    same as `sampling(Sampling.LHS, xspecs, n_samples, seed)`
+    same as `sampling(xspecs, n_samples, method=Sampling.LHS, seed=seed)`
     
     Parameters
     ----------
@@ -1757,19 +1882,19 @@ def lhs(xspecs: typing.Sequence[XSpec] | typing.Sequence[typing.Sequence[builtin
         the samples
     """
 
-def sampling(method: Sampling, xspecs: typing.Sequence[XSpec] | typing.Sequence[typing.Sequence[builtins.float]] | numpy.typing.NDArray[numpy.float64], n_samples: builtins.int, seed: typing.Optional[builtins.int] = None) -> numpy.typing.NDArray[numpy.float64]:
+def sampling(xspecs: typing.Sequence[XSpec] | typing.Sequence[typing.Sequence[builtins.float]] | numpy.typing.NDArray[numpy.float64], n_samples: builtins.int, method: Sampling | None = None, seed: typing.Optional[builtins.int] = None) -> numpy.typing.NDArray[numpy.float64]:
     r"""
     Samples generation using given method
     
     Parameters
     ----------
-    method : Sampling
-        Sampling.LHS, FULL_FACTORIAL, RANDOM, LHS_CLASSIC, LHS_CENTERED,
-        LHS_MAXIMIN or LHS_CENTERED_MAXIMIN. Plain LHS is the optimized (ESE) LHS.
     xspecs : list of XSpec, list of [lower, upper] or array[nx, 2]
         Specifications of the nx input variables
     n_samples : int
         number of samples
+    method : Sampling, optional
+        Sampling.LHS (default when None), FULL_FACTORIAL, RANDOM, LHS_CLASSIC, LHS_CENTERED,
+        LHS_MAXIMIN or LHS_CENTERED_MAXIMIN. Plain LHS is the optimized (ESE) LHS.
     seed : int >= 0, optional
         random seed
     
@@ -1777,5 +1902,10 @@ def sampling(method: Sampling, xspecs: typing.Sequence[XSpec] | typing.Sequence[
     -------
     array[n_samples, nx]
         the samples
+    
+    Deprecated
+    ----------
+    The former argument order `sampling(method, xspecs, n_samples, seed=None)` is deprecated
+    since 0.38.0, use `sampling(xspecs, n_samples, method=..., seed=None)` instead.
     """
 

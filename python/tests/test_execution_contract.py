@@ -34,7 +34,7 @@ def test_zero_iteration_budget():
 
 def test_initial_doe_reaches_target():
     result = egx.Egor(
-        [[0.0, 25.0]], doe=np.array([[0.0], [7.0], [25.0]]), target=100.0
+        [[0.0, 25.0]], x_doe=np.array([[0.0], [7.0], [25.0]]), target=100.0
     ).minimize(xsinx, max_iters=5, seed=42)
     assert result.status.exit == egx.ExitStatus.TARGET_COST_REACHED
     assert result.status.total_iters == 0

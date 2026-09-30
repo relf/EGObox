@@ -40,14 +40,14 @@ class TestSgp(unittest.TestCase):
         Z = self.xt[random_idx].copy()
 
         start = time.time()
-        sgp = egx.SparseGpMix(z=Z).fit(self.xt, self.yt)
+        sgp = egx.SparseGpMix(inducing=Z).fit(self.xt, self.yt)
         elapsed = time.time() - start
         print(elapsed)
         sgp.save("sgp.json")
 
     def test_sgp_random(self):
         start = time.time()
-        sgp = egx.SparseGpMix(nz=self.n_inducing, seed=0).fit(self.xt, self.yt)
+        sgp = egx.SparseGpMix(n_inducing=self.n_inducing, seed=0).fit(self.xt, self.yt)
         elapsed = time.time() - start
         print(elapsed)
         print(sgp)
@@ -56,24 +56,29 @@ class TestSgp(unittest.TestCase):
         yt = np.hstack((self.yt, self.yt))
 
         with self.assertRaises(ValueError):
-            egx.SparseGpx.builder(nz=self.n_inducing, seed=0).fit(self.xt, yt)
+            egx.SparseGpx.builder(n_inducing=self.n_inducing, seed=0).fit(self.xt, yt)
 
     def test_1d_training_data(self):
         xt1 = self.xt.ravel()
         yt1 = self.yt.ravel()
 
-        sgpx = egx.SparseGpx.builder(nz=self.n_inducing, seed=0).fit(xt1, yt1)
+        sgpx = egx.SparseGpx.builder(n_inducing=self.n_inducing, seed=0).fit(xt1, yt1)
         self.assertEqual(sgpx.dims(), (1, 1))
 
     def test_dims_and_training_data(self):
-        sgpx = egx.SparseGpx.builder(nz=self.n_inducing, seed=0).fit(self.xt, self.yt)
+        sgpx = egx.SparseGpx.builder(n_inducing=self.n_inducing, seed=0).fit(
+            self.xt, self.yt
+        )
         self.assertEqual(sgpx.dims(), (1, 1))
+        self.assertEqual((sgpx.nx, sgpx.ny), (1, 1))
         xdata, ydata = sgpx.training_data()
         np.testing.assert_array_equal(xdata, self.xt)
         np.testing.assert_array_equal(ydata, self.yt.ravel())
 
     def test_1d_input(self):
-        sgpx = egx.SparseGpx.builder(nz=self.n_inducing, seed=0).fit(self.xt, self.yt)
+        sgpx = egx.SparseGpx.builder(n_inducing=self.n_inducing, seed=0).fit(
+            self.xt, self.yt
+        )
         x1d = np.array([-0.5, 0.0, 0.5])
         x2d = x1d[:, None]
         for method in [
@@ -84,6 +89,15 @@ class TestSgp(unittest.TestCase):
         ]:
             np.testing.assert_array_equal(method(x1d), method(x2d))
         self.assertEqual(sgpx.sample(x1d, 2).shape, (3, 2))
+
+    def test_predict_return_std(self):
+        sgpx = egx.SparseGpx.builder(n_inducing=self.n_inducing, seed=0).fit(
+            self.xt, self.yt
+        )
+        x = np.array([[-0.5], [0.0], [0.5]])
+        mean, std = sgpx.predict(x, return_std=True)
+        np.testing.assert_array_equal(mean, sgpx.predict(x))
+        np.testing.assert_allclose(std, np.sqrt(sgpx.predict_var(x)))
 
 
 if __name__ == "__main__":

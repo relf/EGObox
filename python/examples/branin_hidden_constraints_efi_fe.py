@@ -95,7 +95,7 @@ def run_egor(
 ) -> RunHistory:
     egor = egx.Egor(
         BOUNDS.tolist(),
-        doe=x_doe,
+        x_doe=x_doe,
         infill_strategy=egx.InfillStrategy.EI,
         feasible_infill_strategy=feasible_strategy,
     )

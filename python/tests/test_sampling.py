@@ -46,7 +46,7 @@ class TestSampling(unittest.TestCase):
             egx.Sampling.LHS_CENTERED_MAXIMIN,
             egx.Sampling.LHS,
         ]:
-            lhs = egx.sampling(kind, xtypes, 10, seed=42)
+            lhs = egx.sampling(xtypes, 10, method=kind, seed=42)
             print(lhs)
 
     def test_ffact(self):
@@ -55,7 +55,7 @@ class TestSampling(unittest.TestCase):
             egx.XSpec(egx.XType.INT, [-10, 10]),
         ]
 
-        actual = egx.sampling(egx.Sampling.FULL_FACTORIAL, xtypes, 10, seed=42)
+        actual = egx.sampling(xtypes, 10, method=egx.Sampling.FULL_FACTORIAL, seed=42)
 
         expected = np.array(
             [
@@ -81,7 +81,7 @@ class TestSampling(unittest.TestCase):
             egx.XSpec(egx.XType.ORD, [0, 2, 3]),
         ]
 
-        actual = egx.sampling(egx.Sampling.RANDOM, xtypes, 10, seed=42)
+        actual = egx.sampling(xtypes, 10, method=egx.Sampling.RANDOM, seed=42)
         expected = np.array(
             [
                 [-4.14244405, 0.0, 0.0, 0.0],

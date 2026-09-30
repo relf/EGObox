@@ -1,3 +1,4 @@
+use crate::deprecation::warn_deprecated;
 use crate::domain;
 use egobox_doe::{LhsKind, SamplingMethod};
 use egobox_moe::MixintContext;
@@ -64,13 +65,13 @@ impl<'a, 'py> FromPyObject<'a, 'py> for Sampling {
 ///
 /// Parameters
 /// ----------
-/// method : Sampling
-///     Sampling.LHS, FULL_FACTORIAL, RANDOM, LHS_CLASSIC, LHS_CENTERED,
-///     LHS_MAXIMIN or LHS_CENTERED_MAXIMIN. Plain LHS is the optimized (ESE) LHS.
 /// xspecs : list of XSpec, list of [lower, upper] or array[nx, 2]
 ///     Specifications of the nx input variables
 /// n_samples : int
 ///     number of samples
+/// method : Sampling, optional
+///     Sampling.LHS (default when None), FULL_FACTORIAL, RANDOM, LHS_CLASSIC, LHS_CENTERED,
+///     LHS_MAXIMIN or LHS_CENTERED_MAXIMIN. Plain LHS is the optimized (ESE) LHS.
 /// seed : int >= 0, optional
 ///     random seed
 ///
@@ -79,13 +80,52 @@ impl<'a, 'py> FromPyObject<'a, 'py> for Sampling {
 /// array[n_samples, nx]
 ///     the samples
 ///
+/// Deprecated
+/// ----------
+/// The former argument order `sampling(method, xspecs, n_samples, seed=None)` is deprecated
+/// since 0.38.0, use `sampling(xspecs, n_samples, method=..., seed=None)` instead.
+///
 #[gen_stub_pyfunction]
 #[pyfunction]
-#[pyo3(signature = (method, xspecs, n_samples, seed=None))]
-pub fn sampling(
+#[pyo3(signature = (xspecs, n_samples, method=None, seed=None))]
+pub fn sampling<'py>(
+    py: Python<'py>,
+    #[gen_stub(override_type(type_repr = "typing.Sequence[XSpec] | typing.Sequence[typing.Sequence[builtins.float]] | numpy.typing.NDArray[numpy.float64]", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
+    xspecs: Py<PyAny>,
+    #[gen_stub(override_type(type_repr = "builtins.int", imports = ("builtins")))] n_samples: Py<
+        PyAny,
+    >,
+    #[gen_stub(override_type(type_repr = "Sampling | None", imports = ()))] method: Option<
+        Py<PyAny>,
+    >,
+    seed: Option<u64>,
+) -> PyResult<Bound<'py, PyArray2<f64>>> {
+    let (method, xspecs, n_samples) = if let Ok(old_method) = xspecs.extract::<Sampling>(py) {
+        // Former positional order sampling(M, X, N) detected by a Sampling first argument,
+        // received as (xspecs=M, n_samples=X, method=N)
+        warn_deprecated(
+            py,
+            "sampling(method, xspecs, n_samples)",
+            "sampling(xspecs, n_samples, method=...)",
+        )?;
+        let old_n_samples = method.ok_or_else(|| {
+            PyTypeError::new_err("sampling() missing required argument: 'n_samples'")
+        })?;
+        (old_method, n_samples, old_n_samples.extract::<usize>(py)?)
+    } else {
+        let method = match method {
+            Some(method) => method.extract::<Sampling>(py)?,
+            None => Sampling::Lhs,
+        };
+        (method, xspecs, n_samples.extract::<usize>(py)?)
+    };
+    sample(py, method, xspecs, n_samples, seed)
+}
+
+/// Generate `n_samples` samples of the `xspecs` domain with the given `method`
+fn sample(
     py: Python<'_>,
     method: Sampling,
-    #[gen_stub(override_type(type_repr = "typing.Sequence[XSpec] | typing.Sequence[typing.Sequence[builtins.float]] | numpy.typing.NDArray[numpy.float64]", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
     xspecs: Py<PyAny>,
     n_samples: usize,
     seed: Option<u64>,
@@ -115,7 +155,7 @@ pub fn sampling(
 }
 
 /// Samples generation using optimized Latin Hypercube Sampling,
-/// same as `sampling(Sampling.LHS, xspecs, n_samples, seed)`
+/// same as `sampling(xspecs, n_samples, method=Sampling.LHS, seed=seed)`
 ///
 /// Parameters
 /// ----------
@@ -141,5 +181,5 @@ pub(crate) fn lhs(
     n_samples: usize,
     seed: Option<u64>,
 ) -> PyResult<Bound<PyArray2<f64>>> {
-    sampling(py, Sampling::Lhs, xspecs, n_samples, seed)
+    sample(py, Sampling::Lhs, xspecs, n_samples, seed)
 }

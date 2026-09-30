@@ -34,28 +34,17 @@ use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 use std::cmp::Ordering;
 
 fn parse_trego_config(py: Python, value: Py<PyAny>) -> PyResult<TregoConfigSpec> {
-    if let Ok(spec) = value.extract(py) {
-        return Ok(spec);
+    let value = value.bind(py);
+    if let Ok(active) = value.cast::<PyBool>() {
+        return Ok(TregoConfigSpec::Activated(active.is_true()));
     }
-
-    let dict = value.bind(py).cast::<pyo3::types::PyDict>().map_err(|_| {
-        PyTypeError::new_err("trego should be a TregoConfig, a dict, a bool or None")
-    })?;
-    let mut cfg = TregoConfig::default();
-
-    for key_any in dict.keys().iter() {
-        let key = key_any.extract::<String>()?;
-        match key.as_str() {
-            "n_gl_steps" => cfg.n_gl_steps = dict.get_item("n_gl_steps")?.unwrap().extract()?,
-            "d" => cfg.d = dict.get_item("d")?.unwrap().extract()?,
-            "alpha" => cfg.alpha = dict.get_item("alpha")?.unwrap().extract()?,
-            "beta" => cfg.beta = dict.get_item("beta")?.unwrap().extract()?,
-            "sigma0" => cfg.sigma0 = dict.get_item("sigma0")?.unwrap().extract()?,
-            _ => return Err(PyValueError::new_err(format!("unknown trego key '{key}'"))),
-        }
+    if value.is_instance_of::<TregoConfig>() || value.is_instance_of::<pyo3::types::PyDict>() {
+        // dict keys are checked by TregoConfig extraction
+        return Ok(TregoConfigSpec::Custom(value.extract()?));
     }
-
-    Ok(TregoConfigSpec::Custom(cfg))
+    Err(PyTypeError::new_err(
+        "trego should be a TregoConfig, a dict, a bool or None",
+    ))
 }
 
 fn parse_run_info(py: Python, value: Py<PyAny>) -> PyResult<RunInfo> {
@@ -95,6 +84,7 @@ fn parse_run_info(py: Python, value: Py<PyAny>) -> PyResult<RunInfo> {
 ///     (after `cstr_specs` expansion, see below) followed by the function constraints
 ///     `fcstrs` given to `minimize` (after `fcstr_specs` expansion).
 ///     When None, tolerances default to DEFAULT_CSTR_TOL=1e-4.
+///     A tolerance given by a spec (`CstrSpec.leq(bound, tol=...)`) takes precedence over `cstr_tol`.
 /// cstr_specs : list of CstrSpec or dict, optional
 ///     Describe how each surrogate-modeled constraint (returned by `fun`) should be interpreted.
 ///     This allows users to define bounds directly instead of manually rewriting
@@ -103,10 +93,11 @@ fn parse_run_info(py: Python, value: Py<PyAny>) -> PyResult<RunInfo> {
 ///     * CstrSpec.leq(bound): c <= bound (less or equal)
 ///     * CstrSpec.geq(bound): c >= bound (greater or equal)
 ///     * CstrSpec.eq(value): c == value (expands to two internal constraints)
-///     * CstrSpec.btw(lower, upper): lower <= c <= upper (between, expands to two internal constraints)
+///     * CstrSpec.between(lower, upper): lower <= c <= upper (expands to two internal constraints)
 ///
-///     When set, `n_cstr` is inferred from `len(cstr_specs)` (`n_cstr` is ignored if set to zero,
-///     or must match otherwise).
+///     Each spec accepts an optional `tol` argument, the tolerance of that constraint.
+///     When set, `n_cstr` is inferred from `len(cstr_specs)` (`n_cstr` can be omitted,
+///     otherwise it must match, ValueError is raised).
 /// infill_n_start : int > 0, optional
 ///     Number of starts of the multistart optimization of the infill criterion (best result taken, default is 20).
 ///     Not to be confused with `GpConfig(theta_n_start=...)`, the GP hyperparameters optimization multistart.
@@ -114,11 +105,12 @@ fn parse_run_info(py: Python, value: Py<PyAny>) -> PyResult<RunInfo> {
 ///     Number of samples of initial LHS sampling (used when DOE not provided by the user).
 ///     When 0 a number of points is computed automatically regarding the number of input variables
 ///     of the function under optimization.
-/// doe : array[ns, nt], optional
-///     Initial DOE containing ns samples:
-///     either nt = nx then only x are specified and ns evals are done to get y doe values,
-///     or nt = nx + ny then x = doe[:, :nx] and y = doe[:, nx:] are specified.
-///     Note that `suggest` takes x and y as two separate arrays `x_doe` and `y_doe`.
+/// x_doe : array[ns, nx], optional
+///     Initial DOE inputs containing ns samples. When `y_doe` is not given,
+///     ns evaluations are done to get the output values.
+/// y_doe : array[ns, ny], optional
+///     Initial DOE outputs [obj, cstr_1, ... cstr_k] (ny = 1 + n_cstr) corresponding to `x_doe`,
+///     requires `x_doe`.
 /// infill_strategy : InfillStrategy
 ///     Infill criterion to decide best next promising point.
 ///     Can be either InfillStrategy.LOG_EI (default), InfillStrategy.EI, InfillStrategy.WB2, InfillStrategy.WB2S
@@ -169,6 +161,11 @@ fn parse_run_info(py: Python, value: Py<PyAny>) -> PyResult<RunInfo> {
 /// ----------
 /// n_start : int > 0, optional
 ///     Deprecated since 0.38.0, use `infill_n_start` instead.
+/// doe : array[ns, nt], optional
+///     Deprecated since 0.38.0, use `x_doe` and `y_doe` instead.
+///     Initial DOE containing ns samples:
+///     either nt = nx then only x are specified and ns evals are done to get y doe values,
+///     or nt = nx + ny then x = doe[:, :nx] and y = doe[:, nx:] are specified.
 ///
 /// Returns
 /// -------
@@ -183,7 +180,7 @@ pub(crate) struct Egor {
     pub gp_config: GpConfig,
     pub n_cstr: usize,
     pub cstr_tol: Option<Vec<f64>>,
-    pub cstr_specs: Option<Vec<egobox_ego::CstrSpec>>,
+    pub cstr_specs: Option<Vec<CstrSpec>>,
     pub infill_n_start: usize,
     pub n_doe: usize,
     pub doe: Option<Array2<f64>>,
@@ -211,7 +208,8 @@ impl Egor {
         cstr_specs = None,
         infill_n_start = None,
         n_doe = 0,
-        doe = None,
+        x_doe = None,
+        y_doe = None,
         infill_strategy = InfillStrategy::LogEi,
         feasible_infill_strategy = FeasibleInfillStrategy::None,
         cstr_infill = false,
@@ -224,6 +222,7 @@ impl Egor {
         failsafe_strategy = FailsafeStrategy::Rejection,
         *,
         n_start = None,
+        doe = None,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -238,7 +237,8 @@ impl Egor {
         cstr_specs: Option<Vec<CstrSpec>>,
         infill_n_start: Option<usize>,
         n_doe: usize,
-        doe: Option<PyReadonlyArray2<f64>>,
+        x_doe: Option<PyReadonlyArray2<f64>>,
+        y_doe: Option<PyReadonlyArray2<f64>>,
         infill_strategy: InfillStrategy,
         feasible_infill_strategy: FeasibleInfillStrategy,
         cstr_infill: bool,
@@ -252,6 +252,7 @@ impl Egor {
         target: Option<f64>,
         failsafe_strategy: FailsafeStrategy,
         n_start: Option<usize>,
+        doe: Option<PyReadonlyArray2<f64>>,
     ) -> PyResult<Self> {
         let infill_n_start = resolve_renamed(
             py,
@@ -261,8 +262,18 @@ impl Egor {
             infill_n_start,
             EGO_DEFAULT_N_START,
         )?;
-        let doe = doe.map(|x| x.to_owned_array());
         let xtypes = parse(py, xspecs.clone_ref(py))?;
+        let doe = initial_doe(py, xtypes.len(), doe, x_doe, y_doe)?;
+        let n_cstr = match cstr_specs.as_ref() {
+            Some(specs) if n_cstr != 0 && n_cstr != specs.len() => {
+                return Err(PyValueError::new_err(format!(
+                    "n_cstr ({n_cstr}) must match cstr_specs length ({}), n_cstr can be omitted",
+                    specs.len()
+                )));
+            }
+            Some(specs) => specs.len(),
+            None => n_cstr,
+        };
         let gp_config = gp_config.unwrap_or_default();
         gp_config.validate()?;
         let qei_config = qei_config.unwrap_or_default();
@@ -294,7 +305,7 @@ impl Egor {
             gp_config,
             n_cstr,
             cstr_tol,
-            cstr_specs: cstr_specs.map(|specs| specs.into_iter().map(|s| s.inner).collect()),
+            cstr_specs,
             infill_n_start,
             n_doe,
             doe,
@@ -335,9 +346,10 @@ impl Egor {
     ///     One CstrSpec per fcstr specifying how each function constraint should be interpreted.
     ///     Length must be zero (legacy behavior) or equal to len(fcstrs).
     ///     This allows raw constraints not written as c <= 0, for example:
-    ///     CstrSpec.leq(b), CstrSpec.geq(b), CstrSpec.eq(v), CstrSpec.btw(lo, hi).
-    ///     Note: CstrSpec.eq and CstrSpec.btw expand to two internal constraints each.
-    ///     When `cstr_tol` is explicitly provided, ensure its size covers all internal
+    ///     CstrSpec.leq(b), CstrSpec.geq(b), CstrSpec.eq(v), CstrSpec.between(lo, hi).
+    ///     Note: CstrSpec.eq and CstrSpec.between expand to two internal constraints each.
+    ///     A spec `tol` (e.g. CstrSpec.leq(b, tol=1e-3)) gives the tolerance of that constraint.
+    ///     Otherwise, when `cstr_tol` is explicitly provided, ensure its size covers all internal
     ///     constraints: surrogate constraints + expanded function constraints.
     /// max_iters : int
     ///     The iteration budget, number of fun calls is "n_doe + q_batch * max_iters".
@@ -455,6 +467,7 @@ impl Egor {
             )));
         }
 
+        let cstr_tol = self.internal_cstr_tol(&fcstr_specs, n_fcstr);
         let fcstr_specs = fcstr_specs
             .into_iter()
             .map(|spec| spec.inner)
@@ -497,7 +510,7 @@ impl Egor {
                 self.apply_config(
                     config,
                     Some(max_iters),
-                    n_fcstr,
+                    cstr_tol,
                     self.doe.as_ref(),
                     outdir,
                     warm_start,
@@ -607,16 +620,16 @@ impl Egor {
         let mixintegor = egobox_ego::EgorServiceBuilder::optimize()
             .configure(|config| {
                 self.apply_config(
-                    config,     // config
-                    Some(1),    // max_iters
-                    0,          // n_fcstr
-                    Some(&doe), // doe
-                    None,       // outdir
-                    false,      // warm_start
-                    None,       // hot_start
-                    seed,       // seed
-                    None,       // timeout
-                    true,       // stop_on_error
+                    config,                         // config
+                    Some(1),                        // max_iters
+                    self.internal_cstr_tol(&[], 0), // cstr_tol
+                    Some(&doe),                     // doe
+                    None,                           // outdir
+                    false,                          // warm_start
+                    None,                           // hot_start
+                    seed,                           // seed
+                    None,                           // timeout
+                    true,                           // stop_on_error
                 )
             })
             .min_within_mixint_space(&self.xtypes)
@@ -719,6 +732,49 @@ impl Egor {
     }
 }
 
+/// Build the initial DOE given either with the deprecated `doe` or with `x_doe` and optional `y_doe`
+fn initial_doe(
+    py: Python,
+    nx: usize,
+    doe: Option<PyReadonlyArray2<f64>>,
+    x_doe: Option<PyReadonlyArray2<f64>>,
+    y_doe: Option<PyReadonlyArray2<f64>>,
+) -> PyResult<Option<Array2<f64>>> {
+    if let Some(doe) = doe {
+        if x_doe.is_some() || y_doe.is_some() {
+            return Err(PyTypeError::new_err(
+                "`doe` and `x_doe`/`y_doe` cannot be both given, `doe` is deprecated, use `x_doe`/`y_doe` only",
+            ));
+        }
+        warn_deprecated(py, "doe", "x_doe` and `y_doe")?;
+        return Ok(Some(doe.to_owned_array()));
+    }
+    let Some(x_doe) = x_doe else {
+        if y_doe.is_some() {
+            return Err(PyValueError::new_err("y_doe requires x_doe to be given"));
+        }
+        return Ok(None);
+    };
+    let x_doe = x_doe.as_array();
+    if x_doe.ncols() != nx {
+        return Err(PyValueError::new_err(format!(
+            "x_doe should be of shape (ns, {nx}), got {:?}",
+            x_doe.shape()
+        )));
+    }
+    match y_doe {
+        Some(y_doe) => {
+            let y_doe = y_doe.as_array();
+            check_doe(Some(&x_doe), &y_doe)?;
+            Ok(Some(
+                concatenate(Axis(1), &[x_doe, y_doe])
+                    .map_err(|e| PyValueError::new_err(e.to_string()))?,
+            ))
+        }
+        None => Ok(Some(x_doe.to_owned())),
+    }
+}
+
 /// Check (x_doe, y_doe) are non empty with the same number of rows
 fn check_doe(x_doe: Option<&ArrayView2<f64>>, y_doe: &ArrayView2<f64>) -> PyResult<()> {
     if y_doe.nrows() == 0 || y_doe.ncols() == 0 {
@@ -806,6 +862,49 @@ impl Egor {
         Array1::from_vec(cstr_tol)
     }
 
+    /// Tolerances of all internal constraints (surrogate constraints then function constraints,
+    /// after specs expansion) when given by the user either with `cstr_tol` or with specs `tol`
+    /// (which take precedence), None otherwise to let the optimizer use its defaults.
+    /// `fcstr_specs` is either empty or one spec per function constraint.
+    fn internal_cstr_tol(&self, fcstr_specs: &[CstrSpec], n_fcstr: usize) -> Option<Array1<f64>> {
+        let cstr_specs = self.cstr_specs.as_deref().unwrap_or(&[]);
+        let has_spec_tol = cstr_specs
+            .iter()
+            .chain(fcstr_specs)
+            .any(|s| s.tol.is_some());
+        if self.cstr_tol.is_none() && !has_spec_tol {
+            return None;
+        }
+        // (number of internal constraints, spec tolerance) for each user constraint
+        let expansion = |specs: &[CstrSpec], n: usize| -> Vec<(usize, Option<f64>)> {
+            if specs.is_empty() {
+                vec![(1, None); n]
+            } else {
+                specs
+                    .iter()
+                    .map(|s| (s.inner.n_internal(), s.tol))
+                    .collect()
+            }
+        };
+        let mut tol = self.cstr_tol.clone().unwrap_or_default();
+        let mut i = 0;
+        for (n, spec_tol) in expansion(cstr_specs, self.n_cstr)
+            .into_iter()
+            .chain(expansion(fcstr_specs, n_fcstr))
+        {
+            for _ in 0..n {
+                if i == tol.len() {
+                    tol.push(egobox_ego::DEFAULT_CSTR_TOL);
+                }
+                if let Some(spec_tol) = spec_tol {
+                    tol[i] = spec_tol;
+                }
+                i += 1;
+            }
+        }
+        Some(Array1::from_vec(tol))
+    }
+
     fn recombination(&self) -> egobox_moe::Recombination<f64> {
         match self.gp_config.recombination {
             Recombination::Hard => egobox_moe::Recombination::Hard,
@@ -835,7 +934,7 @@ impl Egor {
         &self,
         config: egobox_ego::EgorConfig,
         max_iters: Option<usize>,
-        n_fcstr: usize,
+        cstr_tol: Option<Array1<f64>>,
         doe: Option<&Array2<f64>>,
         outdir: Option<String>,
         warm_start: bool,
@@ -865,13 +964,12 @@ impl Egor {
         // Only set cstr_tol explicitly when user provided it.
         // Otherwise let Rust infer the correct total length, including
         // expanded constraints and function constraints.
-        if self.cstr_tol.is_some() {
-            let cstr_tol = self.cstr_tol(n_fcstr);
+        if let Some(cstr_tol) = cstr_tol {
             config = config.cstr_tol(cstr_tol);
         }
 
         if let Some(ref cstr_specs) = self.cstr_specs {
-            config = config.cstr_specs(cstr_specs.clone());
+            config = config.cstr_specs(cstr_specs.iter().map(|s| s.inner.clone()).collect());
         }
 
         let mut config = config
@@ -895,7 +993,7 @@ impl Egor {
                 qei_config
                     .batch(self.qei_config.batch)
                     .strategy(qei_strategy)
-                    .optmod(self.qei_config.optmod)
+                    .optmod(self.qei_config.optim_every)
             })
             .infill_optimizer(infill_optimizer)
             .coego(coego_status)

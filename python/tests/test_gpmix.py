@@ -80,8 +80,16 @@ class TestGpMix(unittest.TestCase):
                 0.0, gpx2.predict_var(np.array([[1.1]])).item(), delta=1e-3
             )
 
+    def test_predict_return_std(self):
+        x = np.array([[0.5], [1.1], [2.5]])
+        mean, std = self.gpx.predict(x, return_std=True)
+        np.testing.assert_array_equal(mean, self.gpx.predict(x))
+        np.testing.assert_allclose(std, np.sqrt(self.gpx.predict_var(x)))
+        self.assertIsInstance(self.gpx.predict(x, return_std=False), np.ndarray)
+
     def test_training_params(self):
         self.assertEqual(self.gpx.dims(), (1, 1))
+        self.assertEqual((self.gpx.nx, self.gpx.ny), (1, 1))
         (xdata, ydata) = self.gpx.training_data()
         np.testing.assert_array_equal(xdata, self.xt)
         np.testing.assert_array_equal(np.atleast_2d(ydata).T, self.yt)

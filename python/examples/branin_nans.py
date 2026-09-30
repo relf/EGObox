@@ -282,7 +282,7 @@ def main():
     # Create optimizer with constraint handling
     egor = egx.Egor(
         xspecs,
-        doe=initial_doe,
+        x_doe=initial_doe,
         failsafe_strategy=FAILSAFE_STRATEGY,
         trego=True,  # To improve convergence
         gp_config=egx.GpConfig(corr_spec=egx.CorrelationSpec.MATERN52),

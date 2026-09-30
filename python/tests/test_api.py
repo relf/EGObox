@@ -79,7 +79,7 @@ class TestApiImports(unittest.TestCase):
         egor = egx.Egor(
             [[0.0, 1.0]],
             gp_config={"n_clusters": 0, "recombination": 1},
-            qei_config={"batch": 2, "strategy": 2, "optmod": 1},
+            qei_config={"batch": 2, "strategy": 2, "optim_every": 1},
             infill_strategy=4,
             cstr_strategy=1,
             infill_optimizer=2,
@@ -155,7 +155,7 @@ class TestApiImports(unittest.TestCase):
     def test_sampling_accepts_int_method(self):
         import egobox as egx
 
-        doe = egx.sampling(1, [[0.0, 1.0]], 4, seed=1)
+        doe = egx.sampling([[0.0, 1.0]], 4, method=1, seed=1)
         self.assertEqual(doe.shape, (4, 1))
 
     def test_xspec_and_sparse_method_accept_int(self):
@@ -164,7 +164,7 @@ class TestApiImports(unittest.TestCase):
         xspec = egx.XSpec(1, [0.0, 1.0])
         self.assertEqual(xspec.xtype, egx.XType.FLOAT)
 
-        sgp = egx.SparseGpMix(nz=3, method=2)
+        sgp = egx.SparseGpMix(n_inducing=3, method=2)
         self.assertIsNotNone(sgp)
 
     def test_cstr_spec_accepts_dict_form(self):
@@ -199,11 +199,11 @@ class TestApiImports(unittest.TestCase):
         )
         self.assertEqual(
             repr(egx.QEiConfig(batch=3)),
-            "QEiConfig(batch=3, strategy=QEiStrategy.KB, optmod=1)",
+            "QEiConfig(batch=3, strategy=QEiStrategy.KB, optim_every=1)",
         )
         self.assertEqual(
             repr(egx.TregoConfig()),
-            "TregoConfig(n_gl_steps=(1, 4), d=(1e-06, 1.0), alpha=1.0, beta=0.9, sigma0=0.1)",
+            "TregoConfig(n_global_local_steps=(1, 4), radius_bounds=(1e-06, 1.0), alpha=1.0, beta=0.9, sigma0=0.1)",
         )
         self.assertEqual(repr(egx.RunInfo("f", 2)), "RunInfo(fname='f', num=2)")
 

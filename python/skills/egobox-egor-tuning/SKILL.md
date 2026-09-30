@@ -65,8 +65,8 @@ If optimization stagnates:
 ### Constraints
 
 - `cstr_tol` is absolute (default `1e-4` per internal constraint): scale constraints to order 1
-- `CstrSpec.eq` / `CstrSpec.btw` expand to two internal constraints (size `cstr_tol` accordingly)
-- Prefer a narrow band `CstrSpec.btw(-eps, eps)` to `CstrSpec.eq(0.0)` for equality constraints
+- `CstrSpec.eq` / `CstrSpec.between` expand to two internal constraints (size `cstr_tol` accordingly)
+- Prefer a narrow band `CstrSpec.between(-eps, eps)` to `CstrSpec.eq(0.0)` for equality constraints
 - Keep `cstr_infill=True`, in particular when no initial DOE point is feasible
 - Use `InfillOptimizer.SLSQP` when constraints are expected to be active at the optimum
 
@@ -102,7 +102,7 @@ Run with `verbose=egx.Verbose.INFO` and an `outdir`, then check in order:
 
 `egor_doe.npy` rows are `[x (nx), objective, internal constraints]`, where the internal
 constraints are in `c <= 0` form after expansion of the `cstr_specs` (two columns for each
-`eq` or `btw` constraint).
+`eq` or `between` constraint).
 
 ---
 

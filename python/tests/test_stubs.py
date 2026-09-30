@@ -46,11 +46,14 @@ class TestStubs(unittest.TestCase):
         for name, cls in _stub_classes().items():
             if not _is_enum(cls):
                 continue
+            # members are `MEMBER = ...`, long name aliases are `ALIAS: Enum` class attributes
             stub_members = {
                 target.id
                 for node in cls.body
-                if isinstance(node, ast.Assign)
-                for target in node.targets
+                if isinstance(node, (ast.Assign, ast.AnnAssign))
+                for target in (
+                    node.targets if isinstance(node, ast.Assign) else [node.target]
+                )
                 if isinstance(target, ast.Name)
             }
             runtime_cls = getattr(egx, name)
@@ -110,7 +113,7 @@ class TestStubs(unittest.TestCase):
         # new names are documented, deprecated ones are kept as keyword-only until removal
         classes = _stub_classes()
         renamed = {
-            ("Egor", "__new__"): [("n_start", "infill_n_start")],
+            ("Egor", "__new__"): [("n_start", "infill_n_start"), ("doe", "x_doe")],
             ("GpConfig", "__new__"): [
                 ("n_start", "theta_n_start"),
                 ("max_eval", "theta_max_eval"),
@@ -123,8 +126,21 @@ class TestStubs(unittest.TestCase):
                 ("n_start", "theta_n_start"),
                 ("max_eval", "theta_max_eval"),
             ],
-            ("SparseGpMix", "__new__"): [("n_start", "theta_n_start")],
-            ("SparseGpx", "builder"): [("n_start", "theta_n_start")],
+            ("SparseGpMix", "__new__"): [
+                ("n_start", "theta_n_start"),
+                ("nz", "n_inducing"),
+                ("z", "inducing"),
+            ],
+            ("SparseGpx", "builder"): [
+                ("n_start", "theta_n_start"),
+                ("nz", "n_inducing"),
+                ("z", "inducing"),
+            ],
+            ("QEiConfig", "__new__"): [("optmod", "optim_every")],
+            ("TregoConfig", "__new__"): [
+                ("n_gl_steps", "n_global_local_steps"),
+                ("d", "radius_bounds"),
+            ],
         }
         for (name, fname), pairs in renamed.items():
             fn = _stub_functions(classes[name].body)[fname]
@@ -135,6 +151,33 @@ class TestStubs(unittest.TestCase):
         egor = _stub_functions(classes["Egor"].body)
         for name in ("best_result", "best_index", "get_result", "get_result_index"):
             self.assertIn(name, egor, f"Egor.{name}")
+        cstr_spec = _stub_functions(classes["CstrSpec"].body)
+        for name in ("between", "btw"):
+            self.assertIn("tol", _param_names(cstr_spec[name]), f"CstrSpec.{name}")
+        tree = ast.parse(STUB_PATH.read_text())
+        sampling = next(
+            n
+            for n in tree.body
+            if isinstance(n, ast.FunctionDef) and n.name == "sampling"
+        )
+        self.assertEqual(
+            _param_names(sampling), ["xspecs", "n_samples", "method", "seed"]
+        )
+
+    def test_gpx_additions_in_stub(self):
+        classes = _stub_classes()
+        for name in ("Gpx", "SparseGpx"):
+            body = classes[name].body
+            props = {
+                node.name
+                for node in body
+                if isinstance(node, ast.FunctionDef)
+                and any(ast.unparse(d) == "property" for d in node.decorator_list)
+            }
+            self.assertLessEqual({"nx", "ny"}, props, name)
+            predict = _stub_functions(body)["predict"]
+            self.assertIn("return_std", _param_names(predict), name)
+            self.assertIn("tuple", ast.unparse(predict.returns), name)
 
     def test_no_any_in_public_signatures(self):
         tree = ast.parse(STUB_PATH.read_text())

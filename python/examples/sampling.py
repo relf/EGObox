@@ -29,7 +29,7 @@ plt.suptitle(
 for idx, method in enumerate(sampling_methods.items()):
     print(f"Generating samples using: {method}")
     # Generate samples using the sampling function
-    samples = egx.sampling(method[1], xlimits, n_samples)
+    samples = egx.sampling(xlimits, n_samples, method=method[1])
 
     # Plot
     ax = axes[idx]

@@ -64,7 +64,8 @@ egx.Egor(
     cstr_tol=None,     # list of tolerances, one per internal constraint (default 1e-4 each)
     cstr_specs=None,   # list of CstrSpec — use when constraints are not plain ≤ 0
     n_doe=0,           # initial DoE size (0 = auto: max(n_vars + 1, 5))
-    doe=None,          # np.ndarray — provide your own initial DoE
+    x_doe=None,        # np.ndarray (n, n_dims) — provide your own initial DoE inputs
+    y_doe=None,        # np.ndarray (n, 1 + n_cstr) — and optionally their known outputs
     infill_strategy=egx.InfillStrategy.LOG_EI,
     trego=None,        # egx.TregoConfig() to activate TREGO variant
     # ... other advanced options
@@ -127,10 +128,13 @@ When `cstr_specs` is given, **`n_cstr` is inferred automatically** and should be
 | `egx.CstrSpec.leq(b)` | `c ≤ b` | 1 internal constraint: `c - b ≤ 0` |
 | `egx.CstrSpec.geq(b)` | `c ≥ b` | 1 internal constraint: `b - c ≤ 0` |
 | `egx.CstrSpec.eq(v)` | `c = v` | 2 internal constraints: `c - v ≤ 0` and `v - c ≤ 0` |
-| `egx.CstrSpec.btw(lo, hi)` | `lo ≤ c ≤ hi` | 2 internal constraints: `lo - c ≤ 0` and `c - hi ≤ 0` |
+| `egx.CstrSpec.between(lo, hi)` | `lo ≤ c ≤ hi` | 2 internal constraints: `lo - c ≤ 0` and `c - hi ≤ 0` |
 
-> **`eq` and `btw` expand to two internal constraints each.** If you also pass `cstr_tol`,
+> **`eq` and `between` expand to two internal constraints each.** If you also pass `cstr_tol`,
 > its length must match the total number of *internal* constraints after expansion.
+>
+> Simpler: give each spec its own tolerance, e.g. `egx.CstrSpec.leq(b, tol=1e-3)` or `{"leq": b, "tol": 1e-3}`.
+> A spec `tol` takes precedence over `cstr_tol` and applies to all its internal constraints.
 
 #### Example — inequality bounds (leq / geq)
 
@@ -175,7 +179,7 @@ def f(x):
 
 optim = egx.Egor(
     [[0.0, 5.0], [0.0, 5.0]],
-    cstr_specs=[egx.CstrSpec.btw(2.0, 4.0)],   # expands to 2 internal constraints
+    cstr_specs=[egx.CstrSpec.between(2.0, 4.0)],   # expands to 2 internal constraints
 ).minimize(f, max_iters=30, seed=42)
 ```
 
@@ -313,7 +317,7 @@ rnd = egx.random(xlimits, n_samples=20, seed=42)  # Random
 
 - **`f_obj` must handle batched inputs**: x shape is `(n_samples, n_dims)`, not `(n_dims,)`.
 - **`n_cstr` vs `cstr_specs`**: use `n_cstr` for plain `≤ 0` constraints; use `cstr_specs` for all other forms. Don't set both at the same time.
-- **`eq` / `btw` expand to 2 internal constraints each**: if you pass `cstr_tol`, size it to the total expanded count.
+- **`eq` / `between` expand to 2 internal constraints each**: if you pass `cstr_tol`, size it to the total expanded count.
 - **`y_opt` includes constraint values**: shape is `(1 + n_cstr,)` — first element is the objective.
 - **`seed` belongs in `minimize()`**, not in `Egor()` (changed in v0.37.0). For `GpMix`, `seed` is a constructor argument.
 - **Two multistarts**: `Egor(infill_n_start=...)` is the infill criterion multistart, `GpConfig(theta_n_start=...)` the GP hyperparameters multistart

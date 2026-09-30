@@ -430,19 +430,37 @@ impl Gpx {
     /// ----------
     /// x : array[nsamples, nx] or array[nsamples] when nx == 1
     ///     input values
+    /// return_std : bool
+    ///     When True, the standard deviations of the predictions are also returned,
+    ///     computed as sqrt(predict_var(x)) (default is False)
     ///
     /// Returns
     /// -------
-    /// array[nsamples]
-    ///     the output values at the nsamples x points
+    /// array[nsamples] or (array[nsamples], array[nsamples])
+    ///     the output values at the nsamples x points,
+    ///     and their standard deviations when return_std is True
     ///
+    #[pyo3(signature = (x, return_std=false))]
+    #[gen_stub(override_return_type(type_repr = "numpy.typing.NDArray[numpy.float64] | tuple[numpy.typing.NDArray[numpy.float64], numpy.typing.NDArray[numpy.float64]]", imports = ("numpy", "numpy.typing")))]
     fn predict<'py>(
         &self,
         py: Python<'py>,
         x: PyReadonlyArrayDyn<f64>,
-    ) -> PyResult<Bound<'py, PyArray1<f64>>> {
+        return_std: bool,
+    ) -> PyResult<Bound<'py, PyAny>> {
         let x = input_x(x.as_array(), self.0.dims().0)?;
-        Ok(self.0.predict(&x).map_err(moe_err)?.into_pyarray(py))
+        let mean = self.0.predict(&x).map_err(moe_err)?.into_pyarray(py);
+        if return_std {
+            let std = self
+                .0
+                .predict_var(&x)
+                .map_err(moe_err)?
+                .mapv(|v| v.max(0.).sqrt())
+                .into_pyarray(py);
+            Ok((mean, std).into_pyobject(py)?.into_any())
+        } else {
+            Ok(mean.into_any())
+        }
     }
 
     /// Predict variances at nsamples points.
@@ -551,6 +569,18 @@ impl Gpx {
     ///
     fn dims(&self) -> (usize, usize) {
         self.0.dims()
+    }
+
+    /// Number of input components
+    #[getter]
+    fn nx(&self) -> usize {
+        self.0.dims().0
+    }
+
+    /// Number of output components
+    #[getter]
+    fn ny(&self) -> usize {
+        self.0.dims().1
     }
 
     /// Update the mixture of experts with new data points.

@@ -162,11 +162,31 @@ class TestGpMixRenamed(DeprecationTestCase):
         for builder in (egx.SparseGpMix, egx.SparseGpx.builder):
             with self.subTest(builder=builder):
                 self.assertDeprecated(
-                    "n_start", "theta_n_start", builder, n_start=3, nz=2
+                    "n_start", "theta_n_start", builder, n_start=3, n_inducing=2
                 )
-                self.assertNoWarning(builder, theta_n_start=3, nz=2)
+                self.assertNoWarning(builder, theta_n_start=3, n_inducing=2)
                 with self.assertRaises(TypeError):
-                    builder(n_start=3, theta_n_start=3, nz=2)
+                    builder(n_start=3, theta_n_start=3, n_inducing=2)
+
+    def test_sparse_gpmix_inducing(self):
+        z = np.array([[1.0], [3.0]])
+        for builder in (egx.SparseGpMix, egx.SparseGpx.builder):
+            with self.subTest(builder=builder):
+                self.assertDeprecated("nz", "n_inducing", builder, nz=2)
+                self.assertDeprecated("z", "inducing", builder, z=z)
+                self.assertNoWarning(builder, n_inducing=2)
+                self.assertNoWarning(builder, inducing=z)
+                with self.assertRaises(TypeError):
+                    builder(nz=2, n_inducing=2)
+                with self.assertRaises(TypeError):
+                    builder(z=z, inducing=z)
+
+    def test_sparse_gpmix_same_result(self):
+        z = np.array([[1.0], [3.0]])
+        new = egx.SparseGpMix(inducing=z, seed=42).fit(self.xt, self.yt)
+        with self.assertWarns(DeprecationWarning):
+            old = egx.SparseGpMix(z=z, seed=42).fit(self.xt, self.yt)
+        np.testing.assert_array_equal(new.predict(self.xtest), old.predict(self.xtest))
 
 
 class TestEgorBestResult(DeprecationTestCase):
@@ -190,6 +210,158 @@ class TestEgorBestResult(DeprecationTestCase):
         )
         np.testing.assert_array_equal(new.x_opt, old.x_opt)
         np.testing.assert_array_equal(new.y_opt, old.y_opt)
+
+
+class TestCstrSpecBetween(DeprecationTestCase):
+    def test_btw(self):
+        old = self.assertDeprecated("btw", "between", egx.CstrSpec.btw, 1.0, 3.0)
+        new = self.assertNoWarning(egx.CstrSpec.between, 1.0, 3.0)
+        self.assertEqual(repr(old), repr(new))
+
+    def test_dict_key(self):
+        with self.assertWarns(DeprecationWarning):
+            egx.Egor([[0.0, 25.0]], cstr_specs=[{"btw": (1.0, 3.0)}])
+        self.assertNoWarning(
+            egx.Egor, [[0.0, 25.0]], cstr_specs=[{"between": (1.0, 3.0)}]
+        )
+        with self.assertRaises((TypeError, ValueError)):
+            egx.Egor(
+                [[0.0, 25.0]], cstr_specs=[{"btw": (1.0, 3.0), "between": (1.0, 3.0)}]
+            )
+
+
+class TestQEiConfigRenamed(DeprecationTestCase):
+    def test_kwarg(self):
+        cfg = self.assertDeprecated("optmod", "optim_every", egx.QEiConfig, optmod=2)
+        self.assertEqual(cfg.optim_every, 2)
+        cfg = self.assertNoWarning(egx.QEiConfig, optim_every=2)
+        self.assertEqual(cfg.optim_every, 2)
+        with self.assertRaises(TypeError):
+            egx.QEiConfig(optmod=2, optim_every=2)
+
+    def test_getter_setter(self):
+        cfg = egx.QEiConfig(optim_every=2)
+        self.assertEqual(
+            self.assertDeprecated("optmod", "optim_every", getattr, cfg, "optmod"), 2
+        )
+        with self.assertWarns(DeprecationWarning):
+            cfg.optmod = 3
+        self.assertEqual(cfg.optim_every, 3)
+
+    def test_dict_key(self):
+        with self.assertWarns(DeprecationWarning):
+            egx.Egor([[0.0, 25.0]], qei_config={"optmod": 2})
+        self.assertNoWarning(egx.Egor, [[0.0, 25.0]], qei_config={"optim_every": 2})
+        with self.assertRaises(TypeError):
+            egx.Egor([[0.0, 25.0]], qei_config={"optmod": 2, "optim_every": 2})
+
+
+class TestTregoConfigRenamed(DeprecationTestCase):
+    RENAMED = (
+        ("n_gl_steps", "n_global_local_steps", (2, 3)),
+        ("d", "radius_bounds", (1e-5, 0.5)),
+    )
+
+    def test_kwargs(self):
+        for old, new, value in self.RENAMED:
+            with self.subTest(old=old):
+                cfg = self.assertDeprecated(old, new, egx.TregoConfig, **{old: value})
+                self.assertEqual(getattr(cfg, new), value)
+                cfg = self.assertNoWarning(egx.TregoConfig, **{new: value})
+                self.assertEqual(getattr(cfg, new), value)
+                with self.assertRaises(TypeError):
+                    egx.TregoConfig(**{old: value, new: value})
+
+    def test_getters_setters(self):
+        for old, new, value in self.RENAMED:
+            with self.subTest(old=old):
+                cfg = egx.TregoConfig(**{new: value})
+                self.assertEqual(
+                    self.assertDeprecated(old, new, getattr, cfg, old), value
+                )
+                with self.assertWarns(DeprecationWarning):
+                    setattr(cfg, old, value)
+
+    def test_dict_keys(self):
+        for old, new, value in self.RENAMED:
+            with self.subTest(old=old):
+                with self.assertWarns(DeprecationWarning):
+                    egx.Egor([[0.0, 25.0]], trego={old: value})
+                self.assertNoWarning(egx.Egor, [[0.0, 25.0]], trego={new: value})
+                with self.assertRaises(TypeError):
+                    egx.Egor([[0.0, 25.0]], trego={old: value, new: value})
+
+
+class TestEgorDoe(DeprecationTestCase):
+    def test_doe(self):
+        x_doe = np.array([[0.0], [7.0], [25.0]])
+        egor = self.assertDeprecated("doe", "x_doe", egx.Egor, [[0.0, 25.0]], doe=x_doe)
+        self.assertIsInstance(egor, egx.Egor)
+        self.assertNoWarning(egx.Egor, [[0.0, 25.0]], x_doe=x_doe)
+
+    def test_both(self):
+        x_doe = np.array([[0.0], [7.0], [25.0]])
+        with self.assertRaises(TypeError):
+            egx.Egor([[0.0, 25.0]], doe=x_doe, x_doe=x_doe)
+        with self.assertRaises(TypeError):
+            egx.Egor([[0.0, 25.0]], doe=x_doe, y_doe=xsinx(x_doe))
+
+    def test_same_result(self):
+        x_doe = np.array([[0.0], [7.0], [25.0]])
+        y_doe = xsinx(x_doe)
+
+        def run(**kwargs):
+            egor = egx.Egor([[0.0, 25.0]], **kwargs)
+            return egor.minimize(xsinx, max_iters=3, seed=42).result
+
+        new = run(x_doe=x_doe, y_doe=y_doe)
+        with self.assertWarns(DeprecationWarning):
+            old = run(doe=np.hstack((x_doe, y_doe)))
+        np.testing.assert_array_equal(new.x_doe, old.x_doe)
+        np.testing.assert_array_equal(new.y_doe, old.y_doe)
+
+
+class TestSamplingOrder(DeprecationTestCase):
+    XSPECS = [[0.0, 1.0], [-1.0, 1.0]]
+
+    def test_old_order(self):
+        new = egx.sampling(self.XSPECS, 5, method=egx.Sampling.RANDOM, seed=42)
+        msg = "sampling(xspecs, n_samples, method=...)"
+        for args, kwargs in (
+            ((egx.Sampling.RANDOM, self.XSPECS, 5), {"seed": 42}),
+            ((egx.Sampling.RANDOM, self.XSPECS, 5, 42), {}),
+            ((3, self.XSPECS, 5), {"seed": 42}),
+        ):
+            with self.subTest(args=args, kwargs=kwargs):
+                old = self.assertDeprecated(
+                    "sampling(method", msg, egx.sampling, *args, **kwargs
+                )
+                np.testing.assert_array_equal(new, old)
+
+    def test_keywords(self):
+        # keywords only calls are not concerned by the order change
+        np.testing.assert_array_equal(
+            self.assertNoWarning(
+                egx.sampling,
+                method=egx.Sampling.RANDOM,
+                xspecs=self.XSPECS,
+                n_samples=5,
+                seed=42,
+            ),
+            egx.sampling(self.XSPECS, 5, method=egx.Sampling.RANDOM, seed=42),
+        )
+
+    def test_new_order(self):
+        new = self.assertNoWarning(
+            egx.sampling, self.XSPECS, 5, egx.Sampling.RANDOM, 42
+        )
+        np.testing.assert_array_equal(
+            new, egx.sampling(self.XSPECS, 5, method=egx.Sampling.RANDOM, seed=42)
+        )
+        np.testing.assert_array_equal(
+            self.assertNoWarning(egx.sampling, self.XSPECS, 5, seed=42),
+            egx.lhs(self.XSPECS, 5, seed=42),
+        )
 
 
 if __name__ == "__main__":

@@ -10,7 +10,7 @@ optimum: on variable bounds, with active constraints
 recommendation:
   constraints:
     scaling: divide each constraint by its order of magnitude (cstr_tol is absolute, 1e-4)
-    equality: CstrSpec.btw(-eps, eps) rather than CstrSpec.eq
+    equality: CstrSpec.between(-eps, eps) rather than CstrSpec.eq
   cstr_infill: true
   infill_strategy: LOG_EI
   infill_optimizer: SLSQP
