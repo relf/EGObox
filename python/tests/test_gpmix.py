@@ -159,7 +159,9 @@ class TestGpMix(unittest.TestCase):
             (x_new.ravel(), y_new),
             (x_new.ravel(), y_new[:, None]),
         ]:
-            np.testing.assert_array_equal(self.gpx.update(x, y).predict(x_test), expected)
+            np.testing.assert_array_equal(
+                self.gpx.update(x, y).predict(x_test), expected
+            )
 
     def test_fixed_theta_no_optim(self):
         print(f"gpx.theta = {self.gpx.thetas()}")
