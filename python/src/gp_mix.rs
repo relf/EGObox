@@ -110,7 +110,7 @@ use rand_xoshiro::Xoshiro256Plus;
 ///     GpMix object which can be fitted to data to get a Gpx object (a trained Gaussian processes mixture)
 ///         
 #[gen_stub_pyclass]
-#[pyclass(skip_from_py_object)]
+#[pyclass(skip_from_py_object, module = "egobox")]
 pub(crate) struct GpMix {
     gp_config: GpConfig,
     xtypes: Option<Vec<egobox_moe::XType>>,
@@ -138,6 +138,7 @@ impl GpMix {
     #[allow(clippy::too_many_arguments)]
     fn new(
         py: Python,
+        #[gen_stub(override_type(type_repr = "typing.Sequence[XSpec] | typing.Sequence[typing.Sequence[builtins.float]] | numpy.typing.NDArray[numpy.float64] | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
         xspecs: Option<Py<PyAny>>,
         regr_spec: u8,
         corr_spec: u8,
@@ -149,6 +150,7 @@ impl GpMix {
         n_start: usize,
         max_eval: usize,
         seed: Option<u64>,
+        #[gen_stub(override_type(type_repr = "Verbose | builtins.int | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
         verbose: Option<Py<PyAny>>,
     ) -> PyResult<Self> {
         init_logger(py, verbose);
@@ -268,7 +270,7 @@ impl GpMix {
 
 /// A trained Gaussian processes mixture
 #[gen_stub_pyclass]
-#[pyclass(skip_from_py_object)]
+#[pyclass(skip_from_py_object, module = "egobox")]
 pub(crate) struct Gpx(MixintGpMixture);
 
 #[gen_stub_pymethods]
@@ -295,6 +297,7 @@ impl Gpx {
     #[allow(clippy::too_many_arguments)]
     fn builder(
         py: Python,
+        #[gen_stub(override_type(type_repr = "typing.Sequence[XSpec] | typing.Sequence[typing.Sequence[builtins.float]] | numpy.typing.NDArray[numpy.float64] | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
         xspecs: Option<Py<PyAny>>,
         regr_spec: u8,
         corr_spec: u8,
@@ -306,6 +309,7 @@ impl Gpx {
         n_start: usize,
         max_eval: usize,
         seed: Option<u64>,
+        #[gen_stub(override_type(type_repr = "Verbose | builtins.int | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
         verbose: Option<Py<PyAny>>,
     ) -> PyResult<GpMix> {
         GpMix::new(

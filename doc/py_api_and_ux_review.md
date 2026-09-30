@@ -12,8 +12,7 @@ The core design is sound:
 
 The main problems are error handling, the stubs, and naming drift. Findings are ordered by user impact.
 
-> **Status:** item 1 (errors) is implemented. See "Raise standard Python exceptions instead of
-> `PanicException`". Items 2–6 are open.
+> **Status:** items 1 (errors) and 2 (stubs) are implemented. Items 3–6 are open.
 
 ---
 
@@ -45,7 +44,7 @@ Sources of the panics:
 - An exception raised inside an `fcstrs` callback is re-raised unchanged.
 - `save()` raises on failure and still returns `True` on success.
 
-## 2. The stubs are incomplete or out of sync with the runtime
+## 2. The stubs are incomplete or out of sync with the runtime — ✅ addressed
 
 IDE help and type checking get these wrong:
 
@@ -61,6 +60,23 @@ IDE help and type checking get these wrong:
   dicts. This is useful but invisible; expose it in the type hints, e.g. `GpConfig | GpConfigDict` with a `TypedDict`.
 - **Unhelpful repr.** Classes print as `<builtins.GpConfig object at …>`. Add
   `#[pyclass(module = "egobox")]`, and a `__repr__` on the configs, `OptimResult`, `EgorOptim` and `RunStatus`.
+
+**Fix applied:**
+- `GpConfig`, `QEiConfig` and `TregoConfig` constructors, with their defaults, are in the stub.
+- The `SparseMethod` members are `FITC` / `VFE` in the stub. The fix was attribute order: `#[gen_stub_pyclass_enum]`
+  must come before `#[pyclass(rename_all = ...)]`.
+- `typing.Any` is gone from public signatures, except as the value type in `dict[str, Any]`. The stub types come from
+  `#[gen_stub(override_type(...))]`: the domain union for `xspecs`, `TregoConfig | bool | dict | None` for `trego`,
+  `Verbose | int | None` for `verbose`, and so on, plus callable types for `fun` and `fcstrs`.
+- `gp_config`, `qei_config`, `fcstrs` and `fcstr_specs` now default to `None`, so the stub shows no
+  unrepresentable default and no mutable `[]`. Passing `None` explicitly now works too.
+- All classes report `__module__ == "egobox"`. The configs, `RunInfo`, `RunStatus`, `OptimResult` and `EgorOptim`
+  now have a constructor-style `__repr__`.
+- Checks: `tests/test_stubs.py` compares the stub's enum members and parameter names with the runtime, and forbids
+  `typing.Any`. `python -m mypy.stubtest egobox.egobox --allowlist stubtest_allowlist.txt` passes; the allowlist
+  covers only pyo3 artefacts.
+- Possible follow-up: `TypedDict`s for the dict forms. pyo3-stub-gen cannot generate them, so they would need a
+  hand-maintained stub.
 
 ## 3. Silent or misleading behaviour
 
@@ -134,7 +150,7 @@ IDE help and type checking get these wrong:
 ## Suggested order
 
 1. ✅ **Errors:** replace panics with Python exceptions.
-2. **Stubs:** add `gen_stub_pymethods` to the configs, use real type hints, and set `module="egobox"` with `__repr__`s.
+2. ✅ **Stubs:** add `gen_stub_pymethods` to the configs, use real type hints, and set `module="egobox"` with `__repr__`s.
 3. **Silent bugs:** `GpMix` ignoring `max_eval`, the result-shape docs, and the `RunInfo` default.
 4. **Additive UX:** aliases, `IntFlag` specs and result forwarding. None of these break existing code.
 5. **Breaking renames:** do these behind deprecation warnings in one release, grouping the constraint settings at the same time.

@@ -1,7 +1,8 @@
+use crate::types::repr_kwargs;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict};
-use pyo3_stub_gen::derive::gen_stub_pyclass;
+use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 
 /// TREGO configuration specification which can be either
 /// a boolean to activate/deactivate the TREGO strategy
@@ -33,7 +34,7 @@ pub enum TregoConfigSpec {
 /// sigma0 : float
 ///     Initial trust region radius.
 #[gen_stub_pyclass]
-#[pyclass(skip_from_py_object)]
+#[pyclass(skip_from_py_object, module = "egobox")]
 #[derive(Clone, Debug)]
 pub(crate) struct TregoConfig {
     /// Number of global optimization steps
@@ -91,6 +92,7 @@ impl Default for TregoConfig {
     }
 }
 
+#[gen_stub_pymethods]
 #[pymethods]
 impl TregoConfig {
     /// Create a new TReGO configuration.
@@ -135,6 +137,19 @@ impl TregoConfig {
             beta,
             sigma0,
         }
+    }
+
+    fn __repr__(&self, py: Python) -> PyResult<String> {
+        repr_kwargs(
+            "TregoConfig",
+            &[
+                ("n_gl_steps", self.n_gl_steps.into_pyobject(py)?.into_any()),
+                ("d", self.d.into_pyobject(py)?.into_any()),
+                ("alpha", self.alpha.into_pyobject(py)?.into_any()),
+                ("beta", self.beta.into_pyobject(py)?.into_any()),
+                ("sigma0", self.sigma0.into_pyobject(py)?.into_any()),
+            ],
+        )
     }
 }
 

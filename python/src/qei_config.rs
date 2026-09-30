@@ -2,7 +2,7 @@ use crate::types::*;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict};
-use pyo3_stub_gen::derive::gen_stub_pyclass;
+use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 
 /// Configuration for parallel (qEI) infill criterion evaluation.
 ///
@@ -29,7 +29,7 @@ use pyo3_stub_gen::derive::gen_stub_pyclass;
 ///     For example, with q_optmod=2, hyperparameters are optimized every 2 points.
 ///
 #[gen_stub_pyclass]
-#[pyclass(skip_from_py_object)]
+#[pyclass(skip_from_py_object, module = "egobox")]
 #[derive(Clone, Debug)]
 pub(crate) struct QEiConfig {
     /// Number of points to evaluate in parallel
@@ -80,6 +80,7 @@ impl Default for QEiConfig {
     }
 }
 
+#[gen_stub_pymethods]
 #[pymethods]
 impl QEiConfig {
     /// Create a new parallel evaluation configuration.
@@ -114,5 +115,16 @@ impl QEiConfig {
             strategy,
             optmod,
         }
+    }
+
+    fn __repr__(&self, py: Python) -> PyResult<String> {
+        repr_kwargs(
+            "QEiConfig",
+            &[
+                ("batch", self.batch.into_pyobject(py)?.into_any()),
+                ("strategy", self.strategy.into_pyobject(py)?.into_any()),
+                ("optmod", self.optmod.into_pyobject(py)?.into_any()),
+            ],
+        )
     }
 }

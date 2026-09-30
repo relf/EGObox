@@ -2,11 +2,11 @@ use crate::types::*;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict};
-use pyo3_stub_gen::derive::gen_stub_pyclass;
+use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 
 /// GP configuration used by `Egor` and `GpMix`
 #[gen_stub_pyclass]
-#[pyclass(skip_from_py_object)]
+#[pyclass(skip_from_py_object, module = "egobox")]
 #[derive(Clone, Debug)]
 pub(crate) struct GpConfig {
     /// (RegressionSpec flags, an int in [1, 7])
@@ -178,8 +178,36 @@ impl Default for GpConfig {
     }
 }
 
+#[gen_stub_pymethods]
 #[pymethods]
 impl GpConfig {
+    /// Create a new GP configuration.
+    ///
+    /// Parameters
+    /// ----------
+    /// regr_spec : int, optional
+    ///     RegressionSpec flags, an int in [1, 7] (default: RegressionSpec.CONSTANT)
+    /// corr_spec : int, optional
+    ///     CorrelationSpec flags, an int in [1, 15] (default: CorrelationSpec.SQUARED_EXPONENTIAL)
+    /// kpls_dim : int, optional
+    ///     Number of PLS components, 0 < kpls_dim < nx (default: None, no PLS reduction)
+    /// n_clusters : int, optional
+    ///     Number of clusters of the mixture of experts; 0 or -n for automatic selection (default: 1)
+    /// recombination : Recombination, optional
+    ///     How the experts predictions are recombined (default: Recombination.HARD)
+    /// theta_init : list of float, optional
+    ///     Initial guess for GP theta hyperparameters (default: None, 1e-1 for all components)
+    /// theta_bounds : list of [float, float], optional
+    ///     Search space of GP theta hyperparameters (default: None, [1e-2, 1e1] for all components)
+    /// n_start : int, optional
+    ///     Number of GP hyperparameters optimization restarts, 0 to disable optimization (default: 10)
+    /// max_eval : int, optional
+    ///     Max number of likelihood evaluations during GP hyperparameters optimization (default: 50)
+    ///
+    /// Returns
+    /// -------
+    /// GpConfig
+    ///     A new GP configuration object
     #[new]
     #[pyo3(signature = (
         regr_spec=GpConfig::default().regr_spec,
@@ -215,5 +243,31 @@ impl GpConfig {
             n_start,
             max_eval,
         }
+    }
+
+    fn __repr__(&self, py: Python) -> PyResult<String> {
+        repr_kwargs(
+            "GpConfig",
+            &[
+                ("regr_spec", self.regr_spec.into_pyobject(py)?.into_any()),
+                ("corr_spec", self.corr_spec.into_pyobject(py)?.into_any()),
+                ("kpls_dim", self.kpls_dim.into_pyobject(py)?.into_any()),
+                ("n_clusters", self.n_clusters.into_pyobject(py)?.into_any()),
+                (
+                    "recombination",
+                    self.recombination.clone().into_pyobject(py)?.into_any(),
+                ),
+                (
+                    "theta_init",
+                    self.theta_init.clone().into_pyobject(py)?.into_any(),
+                ),
+                (
+                    "theta_bounds",
+                    self.theta_bounds.clone().into_pyobject(py)?.into_any(),
+                ),
+                ("n_start", self.n_start.into_pyobject(py)?.into_any()),
+                ("max_eval", self.max_eval.into_pyobject(py)?.into_any()),
+            ],
+        )
     }
 }
