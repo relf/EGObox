@@ -907,6 +907,8 @@ impl RunStatus {
 /// OptimResult contains the results of a run of the optimization algorithm,
 /// including the optimal point and value found, the DOE points and values which
 /// includes initial points and the optimization history.
+/// y values hold the objective and the raw constraint values as returned by the objective
+/// function (ny = 1 + n_cstr columns, even when `cstr_specs` is used).
 #[gen_stub_pyclass]
 #[pyclass(skip_from_py_object, module = "egobox")]
 #[derive(Debug)]

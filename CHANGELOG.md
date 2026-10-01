@@ -14,6 +14,10 @@
 * Python `Egor.best_index()` / `Egor.best_result()` interpret the raw constraint values of `y_doe` with `cstr_specs`
   and their tolerances, as the optimizer does (they used to judge them as `c <= 0` with `cstr_tol` only).
   A `y_doe` which is not of shape `(ns, 1 + n_cstr)` raises `ValueError`.
+* With `cstr_specs`, the optimization results `OptimResult.y_opt` / `OptimResult.y_doe` (Rust and Python `minimize()`)
+  hold the raw constraint values as returned by the objective function, i.e. `1 + n_cstr` columns, instead of the
+  internal `<= 0` form (sign-flipped for `geq`, two columns for `eq` / `between`). They can now be given back to
+  `best_result()` or `Egor(x_doe=..., y_doe=...)`. The DOE files saved in `outdir` keep the internal form.
 * Python `Gpx.predict(x, return_std=True)` / `SparseGpx.predict(x, return_std=True)` return `(mean, std)`,
   and `Gpx.nx`, `Gpx.ny`, `SparseGpx.nx`, `SparseGpx.ny` properties give the dimensions.
 * Python `sampling(xspecs, n_samples, method=Sampling.LHS, seed=None)`: `method` becomes optional (LHS by default).

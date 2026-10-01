@@ -215,8 +215,8 @@ IDE help and type checking get these wrong:
 - `Egor(cstr_tol=...)` is deprecated (warns, still used): a spec `tol` gives each constraint, surrogate or function
   one, its tolerance, which resolves the "constraint settings spread across constructor and call" point.
   `best_index` / `best_result` now interpret `y_doe` with `cstr_specs` and their tolerances, as the optimizer does.
-  Still open: with `cstr_specs`, `minimize()` returns `y_doe` / `y_opt` in the internal (transformed) constraint
-  layout, whereas `suggest`, `best_index` and `best_result` take the raw `(ns, 1 + n_cstr)` layout.
+  `minimize()` returns `y_doe` / `y_opt` in the same raw `(ns, 1 + n_cstr)` layout that `suggest`, `best_index`
+  and `best_result` take, also with `cstr_specs`.
 
 ## 6. Doc typos and errors (quick fixes) — ✅ addressed
 

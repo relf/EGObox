@@ -641,11 +641,9 @@ class TestEgor(unittest.TestCase):
         # Check the actual constraint value computed from x coordinates
         constraint_value_from_x = optim.result.x_opt[0] + optim.result.x_opt[1]
         self.assertAlmostEqual(1.0, constraint_value_from_x, delta=1e-3)
-        # Also check that the constraint violation (y_opt[1] and y_opt[2]) is close to 0
-        constraint_violation = optim.result.y_opt[1]
-        self.assertAlmostEqual(0.0, constraint_violation, delta=1e-3)
-        constraint_violation = optim.result.y_opt[2]
-        self.assertAlmostEqual(0.0, constraint_violation, delta=1e-3)
+        # y_opt holds the raw constraint value returned by the function
+        self.assertEqual((2,), optim.result.y_opt.shape)
+        self.assertAlmostEqual(1.0, optim.result.y_opt[1], delta=1e-3)
 
     def test_constrained_branin_with_nans(self):
         def branin_constrained_with_nans(x):
@@ -819,6 +817,37 @@ class TestEgor(unittest.TestCase):
             egor.best_index(x_doe)
         with self.assertRaises(ValueError):
             egor.best_result(x_doe, np.hstack((y_doe, y_doe)))
+
+    def test_minimize_results_in_raw_constraint_layout(self):
+        def fun(x):
+            # raw constraints: c1 = x1 >= 0.5, c2 = x1 + x2 == 1
+            return np.hstack(
+                (
+                    np.sum(x**2, axis=1, keepdims=True),
+                    x[:, [0]],
+                    x[:, [0]] + x[:, [1]],
+                )
+            )
+
+        xspecs = [[0.0, 1.0], [0.0, 1.0]]
+        cstr_specs = [egx.CstrSpec.geq(0.5), egx.CstrSpec.eq(1.0, tol=1e-2)]
+        egor = egx.Egor(xspecs, cstr_specs=cstr_specs, n_doe=8)
+        res = egor.minimize(fun, max_iters=3, seed=42)
+
+        self.assertEqual((3,), res.y_opt.shape)
+        np.testing.assert_allclose(res.y_doe, fun(res.x_doe), atol=1e-9)
+        np.testing.assert_allclose(
+            res.y_opt, fun(np.atleast_2d(res.x_opt))[0], atol=1e-9
+        )
+        # minimize() output can be fed back to best_result and Egor(y_doe=)
+        best = egor.best_result(res.x_doe, res.y_doe)
+        np.testing.assert_allclose(best.x_opt, res.x_opt)
+        np.testing.assert_allclose(best.y_opt, res.y_opt)
+        egor = egx.Egor(
+            xspecs, cstr_specs=cstr_specs, x_doe=res.x_doe, y_doe=res.y_doe
+        )
+        restarted = egor.minimize(fun, max_iters=0)
+        np.testing.assert_allclose(restarted.x_opt, res.x_opt)
 
     def test_enum_long_name_aliases(self):
         self.assertEqual(

@@ -8,6 +8,11 @@ pub use egobox_moe::SurrogateBuilder;
 pub use egobox_moe::XType;
 
 /// Optimization result
+///
+/// `y_opt` and `y_doe` hold the objective and the raw constraint values as returned by
+/// the objective function, i.e. `1 + n_cstr` columns, even when `cstr_specs` is set.
+/// The solver `state` (as the DOE files saved in `outdir`) keeps the internal `<= 0`
+/// constraint layout (see [`transform_constraints`]).
 #[derive(Clone, Debug)]
 pub struct OptimResult<F: Float> {
     /// Optimum x value
@@ -278,6 +283,37 @@ pub fn transform_constraints(y: &Array2<f64>, specs: &[CstrSpec]) -> Array2<f64>
     result
 }
 
+/// Inverse of [`transform_constraints`]: recover raw constraint columns from internal ones.
+///
+/// Input `y` has shape `(nrows, 1 + n_internal_cstrs)` where column 0 is the objective
+/// and columns `1..` are the internal `<= 0` constraint values.
+///
+/// Returns a new array with shape `(nrows, 1 + n_user_cstrs)`. For Equal/Between specs,
+/// the raw value is recovered from the first of the two internal columns.
+pub fn untransform_constraints(y: &Array2<f64>, specs: &[CstrSpec]) -> Array2<f64> {
+    assert_eq!(
+        y.ncols(),
+        1 + n_internal_cstrs(specs),
+        "untransform_constraints: y should have 1 + n_internal_cstrs columns"
+    );
+    let nrows = y.nrows();
+    let mut result = Array2::zeros((nrows, 1 + specs.len()));
+
+    // Copy objective column
+    result.column_mut(0).assign(&y.column(0));
+
+    // Invert first internal term of each spec: raw = (v - offset) / scale
+    let mut col = 1usize;
+    for (i, spec) in specs.iter().enumerate() {
+        let (scale, offset) = spec.terms()[0];
+        result
+            .column_mut(1 + i)
+            .assign(&y.column(col).mapv(|v| (v - offset) / scale));
+        col += spec.n_internal();
+    }
+    result
+}
+
 /// Transform raw function-constraint columns in `c_data` according to `specs`.
 ///
 /// Input `c_data` has shape `(nrows, n_user_fcstrs)` with one column per user
@@ -527,5 +563,27 @@ impl<F: Float> std::fmt::Debug for InfillObjData<F> {
             .field("feasibility", &self.feasibility)
             .field("sigma_weight", &self.sigma_weight)
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use approx::assert_abs_diff_eq;
+    use ndarray::array;
+
+    #[test]
+    fn test_untransform_constraints_round_trip() {
+        let specs = vec![
+            CstrSpec::Leq(2.0),
+            CstrSpec::Geq(-1.5),
+            CstrSpec::Eq(4.0),
+            CstrSpec::Btw(1.0, 3.0),
+        ];
+        let y = array![[0.5, 1.0, 2.0, 3.0, 4.0], [-1.0, 3.5, -2.0, 4.5, 0.0]];
+        let internal = transform_constraints(&y, &specs);
+        assert_eq!(internal.ncols(), 7);
+        let raw = untransform_constraints(&internal, &specs);
+        assert_abs_diff_eq!(y, raw, epsilon = 1e-12);
     }
 }

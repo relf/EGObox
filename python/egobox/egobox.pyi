@@ -323,6 +323,9 @@ class Egor:
             * y_opt (array[ny]): fun(x_opt) where ny = 1 + n_cstr
             * x_doe (array[ns, nx]): x values of the final DOE
             * y_doe (array[ns, ny]): y values of the final DOE
+        
+            y values hold the raw constraint values as returned by `fun` (not transformed
+            by `cstr_specs`), so `y_doe` can be given to `best_result` or to `Egor(y_doe=...)`.
         """
     def suggest(self, x_doe: numpy.typing.NDArray[numpy.float64], y_doe: numpy.typing.NDArray[numpy.float64], seed: typing.Optional[builtins.int] = None) -> numpy.typing.NDArray[numpy.float64]:
         r"""
@@ -980,6 +983,8 @@ class OptimResult:
     OptimResult contains the results of a run of the optimization algorithm,
     including the optimal point and value found, the DOE points and values which
     includes initial points and the optimization history.
+    y values hold the objective and the raw constraint values as returned by the objective
+    function (ny = 1 + n_cstr columns, even when `cstr_specs` is used).
     """
     @property
     def x_opt(self) -> numpy.typing.NDArray[numpy.float64]:
