@@ -362,7 +362,9 @@ class TestEgorCstrTol(DeprecationTestCase):
 
 
 class TestSamplingOrder(DeprecationTestCase):
-    XSPECS = [[0.0, 1.0], [-1.0, 1.0]]
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.XSPECS = [[0.0, 1.0], [-1.0, 1.0]]
 
     def test_old_order(self):
         new = egx.sampling(self.XSPECS, 5, method=egx.Sampling.RANDOM, seed=42)

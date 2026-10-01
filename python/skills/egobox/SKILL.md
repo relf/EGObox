@@ -42,8 +42,10 @@ pip install egobox
 import numpy as np
 import egobox as egx
 
+
 def f_obj(x: np.ndarray) -> np.ndarray:
     return (x - 3.5) * np.sin((x - 3.5) / np.pi)
+
 
 # Minimize in [0, 25] with 20 function evaluations
 optim = egx.Egor([[0.0, 25.0]]).minimize(f_obj, max_iters=20, seed=42)
@@ -59,15 +61,15 @@ print(f"f={optim.result.y_opt} at x={optim.result.x_opt}")
 
 ```python
 egx.Egor(
-    xspecs,            # list of [lo, hi] bounds (continuous) OR list of XSpec/XType for mixed-integer
-    gp_config=None,    # GpConfig — GP kernel/regression options
-    n_cstr=0,          # number of ≤ 0 constraints (use cstr_specs instead for other forms)
-    cstr_specs=None,   # list of CstrSpec — use when constraints are not plain ≤ 0
-    n_doe=0,           # initial DoE size (0 = auto: max(n_vars + 1, 5))
-    x_doe=None,        # np.ndarray (n, n_dims) — provide your own initial DoE inputs
-    y_doe=None,        # np.ndarray (n, 1 + n_cstr) — and optionally their known outputs
+    xspecs,  # list of [lo, hi] bounds (continuous) OR list of XSpec/XType for mixed-integer
+    gp_config=None,  # GpConfig — GP kernel/regression options
+    n_cstr=0,  # number of ≤ 0 constraints (use cstr_specs instead for other forms)
+    cstr_specs=None,  # list of CstrSpec — use when constraints are not plain ≤ 0
+    n_doe=0,  # initial DoE size (0 = auto: max(n_vars + 1, 5))
+    x_doe=None,  # np.ndarray (n, n_dims) — provide your own initial DoE inputs
+    y_doe=None,  # np.ndarray (n, 1 + n_cstr) — and optionally their known outputs
     infill_strategy=egx.InfillStrategy.LOG_EI,
-    trego=None,        # egx.TregoConfig() to activate TREGO variant
+    trego=None,  # egx.TregoConfig() to activate TREGO variant
     # ... other advanced options
 )
 ```
@@ -76,13 +78,13 @@ egx.Egor(
 
 ```python
 optim = egor.minimize(
-    fun,               # objective (+ constraint) function
-    max_iters=20,      # iteration budget
-    seed=None,         # int — for reproducibility
-    outdir=None,       # str path — save intermediate results
+    fun,  # objective (+ constraint) function
+    max_iters=20,  # iteration budget
+    seed=None,  # int — for reproducibility
+    outdir=None,  # str path — save intermediate results
     warm_start=False,  # resume from saved outdir doe
-    timeout=None,      # float — stop after N seconds
-    verbose=None,      # 0=ERROR … 4=TRACE, or egx.Verbose enum
+    timeout=None,  # float — stop after N seconds
+    verbose=None,  # 0=ERROR … 4=TRACE, or egx.Verbose enum
 )
 ```
 
@@ -93,10 +95,10 @@ optim = egor.minimize(
 ### Result Object
 
 ```python
-optim.result.x_opt   # np.ndarray shape (n_dims,)          — best input found
-optim.result.y_opt   # np.ndarray shape (1 + n_cstr,)      — fun(x_opt): [obj, c1, c2, ...]
-optim.result.x_doe   # np.ndarray shape (n_evals, n_dims)  — all evaluated x
-optim.result.y_doe   # np.ndarray shape (n_evals, 1+n_cstr)— all fun(x) values
+optim.result.x_opt  # np.ndarray shape (n_dims,)          — best input found
+optim.result.y_opt  # np.ndarray shape (1 + n_cstr,)      — fun(x_opt): [obj, c1, c2, ...]
+optim.result.x_doe  # np.ndarray shape (n_evals, n_dims)  — all evaluated x
+optim.result.y_doe  # np.ndarray shape (n_evals, 1+n_cstr)— all fun(x) values
 ```
 
 ---
@@ -110,9 +112,10 @@ The function returns `[objective, c1, c2, ...]` column-wise.
 
 ```python
 def f(x):
-    obj  = (x[:, [0]] - 3.5) * np.sin((x[:, [0]] - 3.5) / np.pi)
-    cstr = x[:, [0]] - 10.0   # satisfied when x ≤ 10
+    obj = (x[:, [0]] - 3.5) * np.sin((x[:, [0]] - 3.5) / np.pi)
+    cstr = x[:, [0]] - 10.0  # satisfied when x ≤ 10
     return np.hstack([obj, cstr])
+
 
 optim = egx.Egor([[0.0, 25.0]], n_cstr=1).minimize(f, max_iters=20, seed=42)
 ```
@@ -141,11 +144,13 @@ When `cstr_specs` is given, **`n_cstr` is inferred automatically** and should be
 import numpy as np
 import egobox as egx
 
+
 def f(x):
     obj = (x[:, [0]] - 3.5) * np.sin((x[:, [0]] - 3.5) / np.pi)
-    c1  = x[:, [0]]   # raw value — we want c1 ≤ 20
-    c2  = x[:, [0]]   # raw value — we want c2 ≥ 5
+    c1 = x[:, [0]]  # raw value — we want c1 ≤ 20
+    c2 = x[:, [0]]  # raw value — we want c2 ≥ 5
     return np.hstack([obj, c1, c2])
+
 
 optim = egx.Egor(
     [[0.0, 25.0]],
@@ -159,12 +164,13 @@ print(optim.result.x_opt, optim.result.y_opt)
 ```python
 def f(x):
     obj = (x[:, [0]] - 3.5) ** 2
-    c   = x[:, [0]] * x[:, [1]]   # we want c = 10
+    c = x[:, [0]] * x[:, [1]]  # we want c = 10
     return np.hstack([obj, c])
+
 
 optim = egx.Egor(
     [[0.0, 10.0], [0.0, 10.0]],
-    cstr_specs=[egx.CstrSpec.eq(10.0)],   # expands to 2 internal constraints
+    cstr_specs=[egx.CstrSpec.eq(10.0)],  # expands to 2 internal constraints
 ).minimize(f, max_iters=30, seed=42)
 ```
 
@@ -173,12 +179,13 @@ optim = egx.Egor(
 ```python
 def f(x):
     obj = x[:, [0]] ** 2 + x[:, [1]] ** 2
-    c   = x[:, [0]] + x[:, [1]]   # we want 2 ≤ c ≤ 4
+    c = x[:, [0]] + x[:, [1]]  # we want 2 ≤ c ≤ 4
     return np.hstack([obj, c])
+
 
 optim = egx.Egor(
     [[0.0, 5.0], [0.0, 5.0]],
-    cstr_specs=[egx.CstrSpec.between(2.0, 4.0)],   # expands to 2 internal constraints
+    cstr_specs=[egx.CstrSpec.between(2.0, 4.0)],  # expands to 2 internal constraints
 ).minimize(f, max_iters=30, seed=42)
 ```
 
@@ -187,9 +194,10 @@ optim = egx.Egor(
 ```python
 def f(x):
     obj = x[:, [0]] ** 2 + x[:, [1]] ** 2
-    c1  = x[:, [0]] + x[:, [1]]   # want = 3  (equality)
-    c2  = x[:, [0]] - x[:, [1]]   # want ≥ 0  (geq)
+    c1 = x[:, [0]] + x[:, [1]]  # want = 3  (equality)
+    c2 = x[:, [0]] - x[:, [1]]  # want ≥ 0  (geq)
     return np.hstack([obj, c1, c2])
+
 
 optim = egx.Egor(
     [[-5.0, 5.0], [-5.0, 5.0]],
@@ -208,14 +216,16 @@ import numpy as np
 import egobox as egx
 
 xspecs = [
-    egx.XSpec(egx.XType.FLOAT, [0.0, 10.0]),   # continuous in [0, 10]
-    egx.XSpec(egx.XType.INT,   [0, 5]),          # integer in {0,1,2,3,4,5}
-    egx.XSpec(egx.XType.ORD,   [1.0, 2.5, 5.0]),# ordinal — one of given values
-    egx.XSpec(egx.XType.ENUM,  [4]),             # categorical, 4 unordered levels
+    egx.XSpec(egx.XType.FLOAT, [0.0, 10.0]),  # continuous in [0, 10]
+    egx.XSpec(egx.XType.INT, [0, 5]),  # integer in {0,1,2,3,4,5}
+    egx.XSpec(egx.XType.ORD, [1.0, 2.5, 5.0]),  # ordinal — one of given values
+    egx.XSpec(egx.XType.ENUM, [4]),  # categorical, 4 unordered levels
 ]
+
 
 def f_mixed(x: np.ndarray) -> np.ndarray:
     return x[:, [0]] ** 2 + x[:, [1]]
+
 
 optim = egx.Egor(xspecs).minimize(f_mixed, max_iters=30, seed=42)
 ```
@@ -235,16 +245,16 @@ optim = egx.Egor(xspecs).minimize(f_mixed, max_iters=30, seed=42)
 
 ```python
 egx.InfillStrategy.LOG_EI  # Log Expected Improvement (default), Ament et al. 2023
-egx.InfillStrategy.EI      # Expected Improvement (classic)
-egx.InfillStrategy.WB2     # Watson & Barnes 2nd criterion — balanced
-egx.InfillStrategy.WB2S    # Scaled WB2
+egx.InfillStrategy.EI  # Expected Improvement (classic)
+egx.InfillStrategy.WB2  # Watson & Barnes 2nd criterion — balanced
+egx.InfillStrategy.WB2S  # Scaled WB2
 ```
 
 **TREGO variant** (trust-region, good for high-dimensional problems):
 
 ```python
 optim = egx.Egor(
-    [[0., 1.]] * 10,
+    [[0.0, 1.0]] * 10,
     trego=egx.TregoConfig(),
 ).minimize(f_obj, max_iters=50, seed=42)
 ```
@@ -252,8 +262,10 @@ optim = egx.Egor(
 **Warm restart** (continue from saved DOE):
 
 ```python
-egx.Egor([[0., 25.]]).minimize(f_obj, max_iters=10, outdir="./.run", seed=42)
-egx.Egor([[0., 25.]]).minimize(f_obj, max_iters=10, outdir="./.run", warm_start=True, seed=42)
+egx.Egor([[0.0, 25.0]]).minimize(f_obj, max_iters=10, outdir="./.run", seed=42)
+egx.Egor([[0.0, 25.0]]).minimize(
+    f_obj, max_iters=10, outdir="./.run", warm_start=True, seed=42
+)
 ```
 
 ---
@@ -266,14 +278,14 @@ egx.Egor([[0., 25.]]).minimize(f_obj, max_iters=10, outdir="./.run", warm_start=
 import numpy as np
 import egobox as egx
 
-xtrain = np.array([[0.], [1.], [2.], [3.], [4.]])
-ytrain = np.array([[0.], [1.], [1.5], [0.9], [1.0]])
+xtrain = np.array([[0.0], [1.0], [2.0], [3.0], [4.0]])
+ytrain = np.array([[0.0], [1.0], [1.5], [0.9], [1.0]])
 
 gpx = egx.Gpx.builder().fit(xtrain, ytrain)
 
 xtest = np.linspace(0, 4, 50).reshape(-1, 1)
-y_mean = gpx.predict(xtest)   # shape (50,)
-y_var  = gpx.predict_var(xtest)
+y_mean = gpx.predict(xtest)  # shape (50,)
+y_var = gpx.predict_var(xtest)
 ```
 
 Inputs are `(n, nx)` arrays; when `nx == 1` a 1D `(n,)` array is also accepted by `fit`, `predict*`,
@@ -283,7 +295,7 @@ Inputs are `(n, nx)` arrays; when `nx == 1` a 1D `(n,)` array is also accepted b
 
 ```python
 gpx = egx.Gpx.builder(
-    kpls_dim=3,          # PLS dimension reduction (recommended when n_dims >= 9)
+    kpls_dim=3,  # PLS dimension reduction (recommended when n_dims >= 9)
     regr_spec=egx.RegressionSpec.CONSTANT | egx.RegressionSpec.LINEAR,
     corr_spec=egx.CorrelationSpec.MATERN52,
 ).fit(xtrain, ytrain)
@@ -304,9 +316,9 @@ gpx_loaded = egx.Gpx.load("model.json")
 ## 6. Sampling (DOE)
 
 ```python
-xlimits = np.array([[0., 1.], [0., 1.], [0., 1.]])
-lhs = egx.lhs(xlimits, n_samples=20, seed=42)    # Latin Hypercube, shape (20, 3)
-ff  = egx.full_factorial(xlimits, n_samples=27)   # Full factorial
+xlimits = np.array([[0.0, 1.0], [0.0, 1.0], [0.0, 1.0]])
+lhs = egx.lhs(xlimits, n_samples=20, seed=42)  # Latin Hypercube, shape (20, 3)
+ff = egx.full_factorial(xlimits, n_samples=27)  # Full factorial
 rnd = egx.random(xlimits, n_samples=20, seed=42)  # Random
 ```
 
