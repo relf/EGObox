@@ -368,12 +368,24 @@ impl<O: ObjFn, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> E
                 .map_or("None".to_string(), |t| format!("{t:?}")),
         );
         let (x_data, y_data, c_data) = state.clone().take_data().unwrap();
+        let y_opt = state.get_full_best_cost().unwrap().to_owned();
+        // Results are given back in the raw constraint layout (as returned by the objective function)
+        // while the state keeps the internal one
+        let (y_data, y_opt) = if let Some(specs) = self.solver.config.cstr_specs.as_ref() {
+            let y_opt = untransform_constraints(&y_opt.insert_axis(Axis(0)), specs);
+            (
+                untransform_constraints(&y_data, specs),
+                y_opt.row(0).to_owned(),
+            )
+        } else {
+            (y_data, y_opt)
+        };
 
         let res = if !self.solver.config.discrete() {
             info!("Data: \n{}", concatenate![Axis(1), x_data, y_data, c_data]);
             OptimResult {
                 x_opt: state.get_best_param().unwrap().to_owned(),
-                y_opt: state.get_full_best_cost().unwrap().to_owned(),
+                y_opt,
                 x_doe: x_data,
                 y_doe: y_data,
                 state,
@@ -390,7 +402,7 @@ impl<O: ObjFn, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> E
             let x_opt = to_discrete_space(&xtypes, &x_opt.view());
             OptimResult {
                 x_opt: x_opt.row(0).to_owned(),
-                y_opt: state.get_full_best_cost().unwrap().to_owned(),
+                y_opt,
                 x_doe: x_data,
                 y_doe: y_data,
                 state,
@@ -1127,11 +1139,50 @@ mod tests {
         let expected = array![2.3295, 3.1785];
         assert_abs_diff_eq!(expected, res.x_opt, epsilon = 3e-2);
 
-        let expected_initial_y = f_g24(&doe.view());
+        // results are given in the raw constraint layout
+        let expected_initial_y = f_g24_geq(&doe.view());
         assert_abs_diff_eq!(
             expected_initial_y,
             res.y_doe.slice(s![..doe.nrows(), ..]),
             epsilon = 1e-12
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn test_egor_results_in_raw_constraint_layout() {
+        let xlimits = array![[0., 3.], [0., 4.]];
+        let doe = Lhs::new(&xlimits)
+            .with_rng(Xoshiro256Plus::seed_from_u64(0))
+            .sample(5);
+        let specs = vec![CstrSpec::Btw(-10.0, 2.0), CstrSpec::Eq(36.0)];
+        let res = EgorBuilder::optimize(f_g24)
+            .configure(|config| {
+                config
+                    .cstr_specs(specs.clone())
+                    .doe(&doe)
+                    .max_iters(3)
+                    .seed(42)
+            })
+            .min_within(&xlimits)
+            .expect("Egor configured")
+            .run()
+            .expect("Minimize failure");
+
+        assert_eq!(res.y_opt.len(), 3);
+        assert_eq!(res.y_doe.ncols(), 3);
+        assert_abs_diff_eq!(f_g24(&res.x_doe.view()), res.y_doe, epsilon = 1e-9);
+        assert_abs_diff_eq!(
+            f_g24(&res.x_opt.view().insert_axis(Axis(0))).row(0),
+            res.y_opt.view(),
+            epsilon = 1e-9
+        );
+        // the state keeps the internal layout
+        let (_, y_internal, _) = res.state.clone().take_data().unwrap();
+        assert_abs_diff_eq!(
+            transform_constraints(&res.y_doe, &specs),
+            y_internal,
+            epsilon = 1e-9
         );
     }
 

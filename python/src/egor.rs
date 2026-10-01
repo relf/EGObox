@@ -420,6 +420,9 @@ impl Egor {
     ///     * x_doe (array[ns, nx]): x values of the final DOE
     ///     * y_doe (array[ns, ny]): y values of the final DOE
     ///
+    ///     y values hold the raw constraint values as returned by `fun` (not transformed
+    ///     by `cstr_specs`), so `y_doe` can be given to `best_result` or to `Egor(y_doe=...)`.
+    ///
     #[pyo3(signature = (fun, fcstrs=None, fcstr_specs=None, max_iters = 20, run_info = None, outdir = None, warm_start = false, hot_start = None, seed = None, timeout = None, verbose = None, stop_on_error = false))]
     #[allow(clippy::too_many_arguments)]
     fn minimize(
