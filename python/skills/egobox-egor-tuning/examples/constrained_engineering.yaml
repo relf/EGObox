@@ -9,7 +9,7 @@ optimum: on variable bounds, with active constraints
 
 recommendation:
   constraints:
-    scaling: divide each constraint by its order of magnitude (cstr_tol is absolute, 1e-4)
+    scaling: divide each constraint by its order of magnitude (tolerances are absolute, default 1e-4)
     equality: CstrSpec.between(-eps, eps) rather than CstrSpec.eq
   cstr_infill: true
   infill_strategy: LOG_EI

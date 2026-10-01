@@ -212,6 +212,11 @@ IDE help and type checking get these wrong:
 - `CstrConfig` is dropped: per-constraint tolerance and `n_cstr` inferred from `cstr_specs` already group the
   constraint settings.
 - `thetas()` & co as properties is announced in the CHANGELOG "Upcoming breaking changes" section.
+- `Egor(cstr_tol=...)` is deprecated (warns, still used): a spec `tol` gives each constraint, surrogate or function
+  one, its tolerance, which resolves the "constraint settings spread across constructor and call" point.
+  `best_index` / `best_result` now interpret `y_doe` with `cstr_specs` and their tolerances, as the optimizer does.
+  Still open: with `cstr_specs`, `minimize()` returns `y_doe` / `y_opt` in the internal (transformed) constraint
+  layout, whereas `suggest`, `best_index` and `best_result` take the raw `(ns, 1 + n_cstr)` layout.
 
 ## 6. Doc typos and errors (quick fixes) — ✅ addressed
 

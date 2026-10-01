@@ -9,8 +9,11 @@
   `x_opt, y_opt = egor.minimize(...)`.
 * Python `Egor(x_doe=..., y_doe=...)` gives the initial DOE as two arrays, like `Egor.suggest()`.
 * Python `CstrSpec` takes an optional per-constraint tolerance, e.g. `CstrSpec.leq(bound, tol=1e-3)` or
-  `{"leq": bound, "tol": 1e-3}`, which takes precedence over `Egor(cstr_tol=...)`. When `cstr_specs` is given,
-  `n_cstr` is inferred and a mismatching `n_cstr` raises `ValueError`.
+  `{"leq": bound, "tol": 1e-3}`, which replaces `Egor(cstr_tol=...)` (deprecated, see below). When `cstr_specs` is
+  given, `n_cstr` is inferred and a mismatching `n_cstr` raises `ValueError`.
+* Python `Egor.best_index()` / `Egor.best_result()` interpret the raw constraint values of `y_doe` with `cstr_specs`
+  and their tolerances, as the optimizer does (they used to judge them as `c <= 0` with `cstr_tol` only).
+  A `y_doe` which is not of shape `(ns, 1 + n_cstr)` raises `ValueError`.
 * Python `Gpx.predict(x, return_std=True)` / `SparseGpx.predict(x, return_std=True)` return `(mean, std)`,
   and `Gpx.nx`, `Gpx.ny`, `SparseGpx.nx`, `SparseGpx.ny` properties give the dimensions.
 * Python `sampling(xspecs, n_samples, method=Sampling.LHS, seed=None)`: `method` becomes optional (LHS by default).
@@ -42,6 +45,7 @@ Deprecated Python names still work but emit a `DeprecationWarning`; they will be
 | `TregoConfig(n_gl_steps=...)`, `TregoConfig.n_gl_steps`, `trego={"n_gl_steps": ...}` | `n_global_local_steps` |
 | `TregoConfig(d=...)`, `TregoConfig.d`, `trego={"d": ...}` | `radius_bounds` |
 | `SparseGpMix` / `SparseGpx.builder(nz=..., z=...)` | `n_inducing=...`, `inducing=...` |
+| `Egor(cstr_tol=[...])` | a tolerance per spec: `Egor(cstr_specs=[CstrSpec.leq(0.0, tol=...)])`, `minimize(fcstr_specs=[...])` |
 | `sampling(method, xspecs, n_samples, seed)` (positional) | `sampling(xspecs, n_samples, method=..., seed=...)` |
 
 Passing both a deprecated keyword and its replacement raises `TypeError`.

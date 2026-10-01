@@ -55,8 +55,8 @@ def g24(point):
 egor = egx.Egor(
     xspecs_g24,
     n_doe=10,
-    n_cstr=n_cstr_g24,
-    cstr_tol=[1e-3] * n_cstr_g24,
+    # constraints c(x) <= 0 with a tolerance of 1e-3
+    cstr_specs=[egx.CstrSpec.leq(0.0, tol=1e-3)] * n_cstr_g24,
     infill_strategy=egx.InfillStrategy.WB2,
     target=-5.50,  # known reference objective value
 )

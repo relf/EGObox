@@ -102,8 +102,8 @@ get the new name at the old position. Tests in `python/tests/test_deprecations.p
 
 ## LOW — design-heavy or only possible as hard breaks
 
-**Implemented for 0.38:** items 13 and 14. Item 17 is dropped. Items 15, 18 and 19 are left for later, item 20 goes
-in a follow-up PR, and item 16 goes with the removal release. Differences from the plan:
+**Implemented for 0.38:** items 13, 14 and 20 (follow-up PR). Item 17 is dropped. Items 15, 18 and 19 are left
+for later, and item 16 goes with the removal release. Differences from the plan:
 - `fcstrs` dicts accept only the `"fun"` and `"jac"` keys, both required. A scipy `"type"` key raises `ValueError`, as
   scipy `"ineq"` means `g(x) >= 0` while egobox constraints are `g(x) <= 0` (`fcstr_specs` gives other bounds).
   Tuples must be `(g, grad_g)`. The gradient is only called when the infill optimizer needs it (SLSQP).
@@ -132,7 +132,11 @@ in a follow-up PR, and item 16 goes with the removal release. Differences from t
     It is on hold because a one-argument `GpMix(GpConfig(...))` is awkward: unlike `Egor`, which has many other
     parameters, the `GpMix` args are the `GpConfig` args. It would also touch almost every `GpMix` user. If it is
     revisited, `gp_config=` would be added without a warning first, with `TypeError` when it is mixed with flat kwargs.
-20. **Deprecate `Egor(cstr_tol=...)`** (`egor.rs`), follow-up PR. `cstr_tol` is given to the constructor but must
+20. ✅ **Deprecate `Egor(cstr_tol=...)`** (`egor.rs`), follow-up PR. Differences from the plan: `best_index` /
+    `best_result` raise `ValueError` when `y_doe` is not `(ns, 1 + n_cstr)` (raw layout, as `suggest`); the warning
+    names `CstrSpec(..., tol=...)` as replacement; `notebooks/Egor_Tutorial.ipynb` was migrated too. Left open:
+    with `cstr_specs`, `minimize()` returns `y_doe` / `y_opt` in the internal transformed layout, so `best_result`
+    can't be fed a `minimize()` output in that case. `cstr_tol` is given to the constructor but must
     also cover the function constraints passed later to `minimize()` (after `eq` / `between` expansion), which the
     constructor can't know. Since item 12 a spec `tol` does the same job next to its own constraint, so:
     - `Egor::new` warns when `cstr_tol` is given (not a rename, so call `warn_deprecated` directly rather than

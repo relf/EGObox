@@ -235,8 +235,7 @@ class TestEgor(unittest.TestCase):
         n_cstr = 2
         egor = egx.Egor(
             [[0.0, 3.0], [0.0, 4.0]],
-            cstr_tol=np.array([1e-3, 1e-3]),
-            n_cstr=n_cstr,
+            cstr_specs=[egx.CstrSpec.leq(0.0, tol=1e-3)] * n_cstr,
             n_doe=n_doe,
             cstr_strategy=egx.ConstraintStrategy.UTB,
         )
@@ -258,8 +257,10 @@ class TestEgor(unittest.TestCase):
         n_doe = 15
         egor = egx.Egor(
             [[0.0, 3.0], [0.0, 4.0]],
-            cstr_specs=[egx.CstrSpec.geq(0.0), egx.CstrSpec.geq(0.0)],
-            cstr_tol=np.array([1e-3, 1e-3]),
+            cstr_specs=[
+                egx.CstrSpec.geq(0.0, tol=1e-3),
+                egx.CstrSpec.geq(0.0, tol=1e-3),
+            ],
             n_doe=n_doe,
             cstr_strategy=egx.ConstraintStrategy.UTB,
         )
@@ -285,8 +286,7 @@ class TestEgor(unittest.TestCase):
         egor = egx.Egor(
             [[0.0, 3.0], [0.0, 4.0]],
             infill_strategy=egx.InfillStrategy.WB2,
-            n_cstr=2,
-            cstr_tol=np.array([5e-3, 5e-3]),
+            cstr_specs=[egx.CstrSpec.leq(0.0, tol=5e-3)] * 2,
             gp_config=egx.GpConfig(
                 regr_spec=egx.RegressionSpec.CONSTANT,
                 corr_spec=egx.CorrelationSpec.SQUARED_EXPONENTIAL,
@@ -307,8 +307,7 @@ class TestEgor(unittest.TestCase):
         n_cstr = 2
         egor = egx.Egor(
             [[0.0, 3.0], [0.0, 4.0]],
-            cstr_tol=np.array([1e-3, 1e-3]),
-            n_cstr=n_cstr,
+            cstr_specs=[egx.CstrSpec.leq(0.0, tol=1e-3)] * n_cstr,
             n_doe=n_doe,
             trego=egx.TregoConfig((4, 1)),
         )
@@ -325,8 +324,7 @@ class TestEgor(unittest.TestCase):
         # Test with default TREGO parameters
         egor = egx.Egor(
             [[0.0, 3.0], [0.0, 4.0]],
-            cstr_tol=np.array([1e-3, 1e-3]),
-            n_cstr=n_cstr,
+            cstr_specs=[egx.CstrSpec.leq(0.0, tol=1e-3)] * n_cstr,
             n_doe=n_doe,
             trego=True,
         )
@@ -511,8 +509,7 @@ class TestEgor(unittest.TestCase):
         n_cstr = 2
         egor = egx.Egor(
             [[0.0, 3.0], [0.0, 4.0]],
-            cstr_tol=np.array([1e-3, 1e-3]),
-            n_cstr=n_cstr,
+            cstr_specs=[egx.CstrSpec.leq(0.0, tol=1e-3)] * n_cstr,
             n_doe=n_doe,
             qei_config=egx.QEiConfig(
                 batch=3, strategy=egx.QEiStrategy.KBLB, optim_every=2
@@ -533,8 +530,7 @@ class TestEgor(unittest.TestCase):
         egor = egx.Egor(
             xlimits,
             infill_strategy=egx.InfillStrategy.WB2,
-            cstr_tol=np.array([1e-2, 1e-2]),
-            n_cstr=2,
+            cstr_specs=[egx.CstrSpec.leq(0.0, tol=1e-2)] * 2,
         )
         x_doe = egx.lhs(xlimits, 5, seed=42)
         y_doe = g24(x_doe)
@@ -788,6 +784,41 @@ class TestEgor(unittest.TestCase):
                 )
                 res = egor.minimize(fun, max_iters=0)
                 self.assertEqual(res.x_opt[0], x_doe[expected, 0])
+                self.assertEqual(egor.best_index(y_doe), expected)
+
+    def test_best_index_with_specs(self):
+        # objective increases with x, raw constraint c(x) = x
+        x_doe = np.array([[0.0], [1.6], [2.0], [3.0]])
+        y_doe = np.hstack((x_doe, x_doe))
+        for spec, expected in (
+            # without specs c <= 0: x = 0 is the best
+            (None, 0),
+            # c >= 2: x = 2 is the best feasible point
+            (egx.CstrSpec.geq(2.0), 2),
+            # c >= 2 within 0.5: x = 1.6 is accepted
+            (egx.CstrSpec.geq(2.0, tol=0.5), 1),
+            # c == 3: only x = 3 is feasible
+            (egx.CstrSpec.eq(3.0), 3),
+            # 1.5 <= c <= 2.5
+            (egx.CstrSpec.between(1.5, 2.5), 1),
+        ):
+            with self.subTest(spec=spec):
+                if spec is None:
+                    egor = egx.Egor([[0.0, 3.0]], n_cstr=1)
+                else:
+                    egor = egx.Egor([[0.0, 3.0]], cstr_specs=[spec])
+                self.assertEqual(egor.best_index(y_doe), expected)
+                result = egor.best_result(x_doe, y_doe)
+                np.testing.assert_array_equal(result.x_opt, x_doe[expected])
+                # raw y_doe row is returned
+                np.testing.assert_array_equal(result.y_opt, y_doe[expected])
+                np.testing.assert_array_equal(result.y_doe, y_doe)
+
+        egor = egx.Egor([[0.0, 3.0]], cstr_specs=[egx.CstrSpec.geq(2.0)])
+        with self.assertRaises(ValueError):
+            egor.best_index(x_doe)
+        with self.assertRaises(ValueError):
+            egor.best_result(x_doe, np.hstack((y_doe, y_doe)))
 
     def test_enum_long_name_aliases(self):
         self.assertEqual(

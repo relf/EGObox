@@ -321,6 +321,46 @@ class TestEgorDoe(DeprecationTestCase):
         np.testing.assert_array_equal(new.y_doe, old.y_doe)
 
 
+class TestEgorCstrTol(DeprecationTestCase):
+    """`cstr_tol` is not renamed: spec `tol` replaces it, it still warns and is used"""
+
+    def setUp(self):
+        # objective decreases with x, constraint c(x) = x - 1 <= 0: the best objective
+        # violates the constraint by 0.2, accepted with a 0.5 tolerance only
+        self.x_doe = np.array([[0.0], [0.5], [1.2]])
+        self.y_doe = np.hstack((-self.x_doe, self.x_doe - 1.0))
+
+    def fun(self, x):
+        return np.hstack((-x, x - 1.0))
+
+    def test_cstr_tol(self):
+        egor = self.assertDeprecated(
+            "cstr_tol",
+            "CstrSpec(..., tol=...)",
+            egx.Egor,
+            [[0.0, 2.0]],
+            n_cstr=1,
+            cstr_tol=[0.5],
+            x_doe=self.x_doe,
+            y_doe=self.y_doe,
+        )
+        self.assertEqual(egor.best_index(self.y_doe), 2)
+        res = egor.minimize(self.fun, max_iters=0)
+        self.assertEqual(res.x_opt[0], self.x_doe[2, 0])
+
+    def test_spec_tol(self):
+        egor = self.assertNoWarning(
+            egx.Egor,
+            [[0.0, 2.0]],
+            cstr_specs=[egx.CstrSpec.leq(0.0, tol=0.5)],
+            x_doe=self.x_doe,
+            y_doe=self.y_doe,
+        )
+        self.assertEqual(egor.best_index(self.y_doe), 2)
+        res = egor.minimize(self.fun, max_iters=0)
+        self.assertEqual(res.x_opt[0], self.x_doe[2, 0])
+
+
 class TestSamplingOrder(DeprecationTestCase):
     XSPECS = [[0.0, 1.0], [-1.0, 1.0]]
 

@@ -52,10 +52,15 @@ fcstrs = [G24_c1, G24_c2]
 egor = egx.Egor(
     xspecs_g24,
     n_doe=10,
-    cstr_tol=[1e-3] * len(fcstrs),  # Tolerance for function constraints
     infill_strategy=egx.InfillStrategy.WB2,
     target=-5.50,  # known reference objective value
 )
 
-optim = egor.minimize(g24, max_iters=30, fcstrs=fcstrs)
+optim = egor.minimize(
+    g24,
+    max_iters=30,
+    fcstrs=fcstrs,
+    # function constraints c(x) <= 0 with a tolerance of 1e-3
+    fcstr_specs=[egx.CstrSpec.leq(0.0, tol=1e-3)] * len(fcstrs),
+)
 print(f"Optimization f={optim.result.y_opt} at {optim.result.x_opt}")
