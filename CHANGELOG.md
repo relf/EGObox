@@ -2,73 +2,63 @@
 
 ## Version 0.38.0 - unreleased
 
-* Python API raises standard exceptions (`ValueError`, `TypeError`, `OSError`, `RuntimeError`) instead of
-  `PanicException` on invalid input or failure. Errors raised by function constraints are propagated as is.
-  `Gpx.save()`/`SparseGpx.save()` raise on failure instead of returning `False`.
-* Python `EgorOptim` forwards `x_opt`, `y_opt`, `x_doe`, `y_doe` from its `result` and unpacks as
-  `x_opt, y_opt = egor.minimize(...)`.
-* Python `Egor(x_doe=..., y_doe=...)` gives the initial DOE as two arrays, like `Egor.suggest()`.
-* Python `CstrSpec` takes an optional per-constraint tolerance, e.g. `CstrSpec.leq(bound, tol=1e-3)` or
-  `{"leq": bound, "tol": 1e-3}`, which replaces `Egor(cstr_tol=...)` (deprecated, see below). When `cstr_specs` is
-  given, `n_cstr` is inferred and a mismatching `n_cstr` raises `ValueError`.
-* Python `Egor.best_index()` / `Egor.best_result()` interpret the raw constraint values of `y_doe` with `cstr_specs`
-  and their tolerances, as the optimizer does (they used to judge them as `c <= 0` with `cstr_tol` only).
-  A `y_doe` which is not of shape `(ns, 1 + n_cstr)` raises `ValueError`.
-* With `cstr_specs`, the optimization results `OptimResult.y_opt` / `OptimResult.y_doe` (Rust and Python `minimize()`)
-  hold the raw constraint values as returned by the objective function, i.e. `1 + n_cstr` columns, instead of the
-  internal `<= 0` form (sign-flipped for `geq`, two columns for `eq` / `between`). They can now be given back to
-  `best_result()` or `Egor(x_doe=..., y_doe=...)`. The DOE files saved in `outdir` keep the internal form.
-* Python `Gpx.predict(x, return_std=True)` / `SparseGpx.predict(x, return_std=True)` return `(mean, std)`,
-  and `Gpx.nx`, `Gpx.ny`, `SparseGpx.nx`, `SparseGpx.ny` properties give the dimensions.
-* Python `sampling(xspecs, n_samples, method=Sampling.LHS, seed=None)`: `method` becomes optional (LHS by default).
-* Python enums get long name aliases: `ConstraintStrategy.MEAN_CONSTRAINT` / `UPPER_TRUST_BOUND`,
-  `QEiStrategy.KRIGING_BELIEVER` / `KRIGING_BELIEVER_LOWER_BOUND` / `KRIGING_BELIEVER_UPPER_BOUND` /
-  `CONSTANT_LIAR_MINIMUM`, `FeasibleInfillStrategy.EFI_PROBABILITY` / `EFI_FEASIBILITY_ENHANCED`.
-* Python `Egor.minimize(fcstrs=...)` also takes each function constraint as a `(g, grad_g)` tuple or a
-  `{"fun": g, "jac": grad_g}` dict, with `g(x)` and `grad_g(x)` one-argument callables. The `g(x, return_grad)` form
-  stays. Constraints stay `g(x) <= 0`: a scipy-like `"type"` key raises `ValueError`, use `fcstr_specs` instead.
-* Python `Egor(seed=..., verbose=...)` gives the defaults used by `minimize()` and `suggest()`; the value given to
-  `minimize()` / `suggest()` takes precedence.
+This release speeds up the optimization loop (incremental surrogate updates, pure Rust optimizers by default)
+and cleans up the Python API. Old Python names still work with a `DeprecationWarning` and will be removed in the
+next release. See [release notes](doc/release-notes-0.38.0.md) for details.
 
-### Deprecations
+* **Breaking changes**:
+  * Remove deprecated Rust methods (`EgorConfig::q_batch()`, `qei_strategy()`, `q_optmod()`, ...), runtime flags
+    and Python `Egor(outdir=, warm_start=, hot_start=)` by @relf in <https://github.com/relf/EGObox/pull/456>
+  * Remove run recorder, keep state recording for debug/demo by @relf in <https://github.com/relf/EGObox/pull/455>
+  * Refactor mixed integer GP mixture, remove `load_gp_models` by @relf in <https://github.com/relf/EGObox/pull/457>
+  * Remove `nlopt` optional dependency by @relf in <https://github.com/relf/EGObox/pull/458>
+  * Use `basin` optimizers by default, C-ported COBYLA/SLSQP behind `c-cobyla`/`c-slsqp` features
+    by @relf in <https://github.com/relf/EGObox/pull/459>, <https://github.com/relf/EGObox/pull/460>
+  * Make `persistent` feature permanent in `ego` and `moe` by @relf in <https://github.com/relf/EGObox/pull/462>
+  * With `cstr_specs`, `OptimResult.y_opt`/`y_doe` hold raw constraint values (`1 + n_cstr` columns)
+    by @relf in <https://github.com/relf/EGObox/pull/475>
+* Use adaptive surrogate update strategy (GP update without theta optimization when possible)
+  by @relf in <https://github.com/relf/EGObox/pull/454>
+* Use fast model update in TREGO local step by @relf in <https://github.com/relf/EGObox/pull/461>
+* Fix best point `nan` when failsafe strategy is imputation by @relf in <https://github.com/relf/EGObox/pull/464>
+* Fix `Egor` stopping at iteration 1 when no initial point is feasible by @relf in <https://github.com/relf/EGObox/pull/465>
+* Accept one-element array as function constraint returned value
+* Add cookbook recipe for constrained engineering problems by @relf in <https://github.com/relf/EGObox/pull/463>
+* Python API:
+  * Raise standard exceptions instead of `PanicException` by @relf in <https://github.com/relf/EGObox/pull/466>
+  * Fix stubs, silent bugs, docs and input shapes consistency by @relf in <https://github.com/relf/EGObox/pull/467>,
+    <https://github.com/relf/EGObox/pull/468>, <https://github.com/relf/EGObox/pull/469>, <https://github.com/relf/EGObox/pull/470>
+  * Add `theta_`/`infill_` prefixed options, `best_result()`/`best_index()`, result unpacking
+    `x_opt, y_opt = egor.minimize(...)` by @relf in <https://github.com/relf/EGObox/pull/471>
+  * Add `Egor(x_doe=, y_doe=)`, per-constraint tolerance `CstrSpec.leq(bound, tol=...)`, `predict(x, return_std=True)`,
+    `nx`/`ny` properties, optional `sampling` method, long enum aliases, renamed abbreviations
+  * Add `(g, grad_g)` / `{"fun": g, "jac": grad_g}` forms for `fcstrs`, `Egor(seed=, verbose=)` defaults
+    by @relf in <https://github.com/relf/EGObox/pull/473>
+  * Deprecate `Egor(cstr_tol=...)`, fix `best_index()`/`best_result()` with `cstr_specs`
+    by @relf in <https://github.com/relf/EGObox/pull/474>
+  * Deprecated: `n_start`, `max_eval`, `nz`, `z`, `optmod`, `n_gl_steps`, `d`, `doe`, `cstr_tol`, `CstrSpec.btw`,
+    `get_result()`, `get_result_index()`, positional `sampling(method, ...)`
+  * Upcoming breaking change: `Gpx.thetas()`, `variances()`, `likelihoods()` become properties
 
-Deprecated Python names still work but emit a `DeprecationWarning`; they will be removed in the release after 0.38.
+## Version 0.37.9 - 22/09/2026
 
-| Deprecated | Use instead |
-|---|---|
-| `Egor(n_start=...)` | `Egor(infill_n_start=...)` |
-| `GpConfig(n_start=...)`, `GpConfig.n_start`, `gp_config={"n_start": ...}` | `theta_n_start` |
-| `GpConfig(max_eval=...)`, `GpConfig.max_eval`, `gp_config={"max_eval": ...}` | `theta_max_eval` |
-| `GpMix` / `Gpx.builder(n_start=..., max_eval=...)` | `theta_n_start=...`, `theta_max_eval=...` |
-| `SparseGpMix` / `SparseGpx.builder(n_start=...)` | `theta_n_start=...` |
-| `Egor.get_result(x_doe, y_doe)` | `Egor.best_result(x_doe, y_doe)` |
-| `Egor.get_result_index(y_doe)` | `Egor.best_index(y_doe)` |
-| `Egor(doe=...)` | `Egor(x_doe=..., y_doe=...)` |
-| `CstrSpec.btw(lower, upper)`, `{"btw": (lower, upper)}` | `CstrSpec.between(lower, upper)`, `{"between": (lower, upper)}` |
-| `QEiConfig(optmod=...)`, `QEiConfig.optmod`, `qei_config={"optmod": ...}` | `optim_every` |
-| `TregoConfig(n_gl_steps=...)`, `TregoConfig.n_gl_steps`, `trego={"n_gl_steps": ...}` | `n_global_local_steps` |
-| `TregoConfig(d=...)`, `TregoConfig.d`, `trego={"d": ...}` | `radius_bounds` |
-| `SparseGpMix` / `SparseGpx.builder(nz=..., z=...)` | `n_inducing=...`, `inducing=...` |
-| `Egor(cstr_tol=[...])` | a tolerance per spec: `Egor(cstr_specs=[CstrSpec.leq(0.0, tol=...)])`, `minimize(fcstr_specs=[...])` |
-| `sampling(method, xspecs, n_samples, seed)` (positional) | `sampling(xspecs, n_samples, method=..., seed=...)` |
+* Add an optional `basin` optimizer backend by @relf in https://github.com/relf/EGObox/pull/453
+* Add `GaussianProcess::update()` for incremental training without full refit by @relf in https://github.com/relf/EGObox/pull/452
+* Fix `warm_start` with non canonical constraints by @relf in https://github.com/relf/EGObox/pull/450
+* Publish `egobox` crate to mirror the Python package, adjust `gpx` short option names
 
-Passing both a deprecated keyword and its replacement raises `TypeError`.
+## Version 0.37.8 - 07/09/2026
 
-### Upcoming breaking changes
+* Add Python 3.14 distribution
+* Rename package `egobox-gpx`
+* Accept int for `FeasibleInfillStrategy` in Python API
 
-These changes cannot go through a deprecation warning and will be made in the release after 0.38:
-
-* Python `Gpx.thetas()`, `Gpx.variances()` and `Gpx.likelihoods()` become read-only properties
-  (`gpx.thetas` instead of `gpx.thetas()`).
-* The deprecated names above are removed, and `sampling` accepts only the `sampling(xspecs, n_samples, method=..., seed=...)`
-  argument order.
-
-## Version 0.37.7 - unreleased
+## Version 0.37.7 - 31/08/2026
 
 * Add the configuration of objective-error handling by @relf in https://github.com/relf/EGObox/pull/447
 * Add Expected Feasible Improvement variants by @relf in https://github.com/relf/EGObox/pull/442
-* Add a [companion website](https://relf.github.io/EGObox) by @relf in https://github.com/relf/EGObox/pull/443
-* Refactor Python packaging by @relf in https://github.com/relf/EGObox/pull/445
+* Add a [companion website](https://relf.github.io/EGObox) with examples and cookbook by @relf in https://github.com/relf/EGObox/pull/443
+* Refactor Python packaging, upgrade to PyO3 0.29 by @relf in https://github.com/relf/EGObox/pull/445
 * Format/Lint with ruff 0.16 by @relf in https://github.com/relf/EGObox/pull/446
 * [`gpx`] Use `;` as csv separator by @relf in https://github.com/relf/EGObox/pull/438
 * Add experimental agent skills and mcp server by @relf in https://github.com/relf/EGObox/pull/440
