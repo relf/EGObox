@@ -1,7 +1,7 @@
 [package]
 name = "egobox"
 authors.workspace = true
-version = "0.37.9"
+version = "0.38.0"
 license.workspace = true
 edition.workspace = true
 homepage.workspace = true
@@ -30,10 +30,10 @@ serializable-gp = ["egobox-gp/serializable"]
 blas = ["ndarray/blas", "egobox-gp/blas", "egobox-moe/blas", "egobox-ego/blas"]
 
 [dependencies]
-egobox-doe = { version = "0.35.1", path = "../crates/doe" }
-egobox-gp = { version = "0.36.4", path = "../crates/gp" }
-egobox-moe = { version = "0.35.5", path = "../crates/moe" }
-egobox-ego = { version = "0.40.2", path = "../crates/ego" }
+egobox-doe = { version = "0.35.2", path = "../crates/doe" }
+egobox-gp = { version = "0.37.0", path = "../crates/gp" }
+egobox-moe = { version = "0.36.0", path = "../crates/moe" }
+egobox-ego = { version = "0.41.0", path = "../crates/ego" }
 egobox-gpx = { version = "0.5.1", path = "../crates/gpx" }
 
 

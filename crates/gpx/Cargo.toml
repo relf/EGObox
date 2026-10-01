@@ -16,7 +16,7 @@ categories = ["algorithms", "mathematics", "science"]
 c-cobyla = ["egobox-moe/c-cobyla"]
 
 [dependencies]
-egobox-moe = { version = "0.35", path = "../moe" }
+egobox-moe = { version = "0.36", path = "../moe" }
 anyhow.workspace = true
 clap.workspace = true
 bincode.workspace = true
