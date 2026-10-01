@@ -843,9 +843,7 @@ class TestEgor(unittest.TestCase):
         best = egor.best_result(res.x_doe, res.y_doe)
         np.testing.assert_allclose(best.x_opt, res.x_opt)
         np.testing.assert_allclose(best.y_opt, res.y_opt)
-        egor = egx.Egor(
-            xspecs, cstr_specs=cstr_specs, x_doe=res.x_doe, y_doe=res.y_doe
-        )
+        egor = egx.Egor(xspecs, cstr_specs=cstr_specs, x_doe=res.x_doe, y_doe=res.y_doe)
         restarted = egor.minimize(fun, max_iters=0)
         np.testing.assert_allclose(restarted.x_opt, res.x_opt)
 
