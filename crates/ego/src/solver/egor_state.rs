@@ -618,7 +618,9 @@ impl<F: Float> EgorState<F> {
     /// assert!(state.is_best());
     /// ```
     pub fn update(&mut self) {
-        if let Some((x_data, y_data, c_data)) = self.surrogate.data.as_ref() {
+        if let Some((x_data, y_data, c_data)) = self.surrogate.data.as_ref()
+            && x_data.nrows() > 0
+        {
             let best_index = self
                 .surrogate
                 .best_index

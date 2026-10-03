@@ -241,6 +241,12 @@ where
         debug!("Component activity = {activity:?}");
 
         let (valid_idx, invalid_idx) = filter_nans(&y_data);
+        if valid_idx.is_empty() {
+            return Err(EgoError::ObjectiveFunctionError(format!(
+                "Objective evaluation failed (NaN) at all {} initial DOE points",
+                invalid_idx.len()
+            )));
+        }
         let x_fail = x_data.select(Axis(0), &invalid_idx).clone();
         let x_data = x_data.select(Axis(0), &valid_idx);
         let y_data = y_data.select(Axis(0), &valid_idx);

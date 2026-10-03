@@ -5,6 +5,8 @@
 * Fix function constraints (`fcstrs`) with mixed-integer inputs: they now receive `x` in folded discrete space
   and their gradient is mapped back to the continuous relaxed space
 * Fix mixed-integer enum folding/unfolding when an enum follows another enum or a non-enum variable follows an enum
+* Fix `Egor` panic when the objective fails (NaN) at every initial DOE point: `run()` now returns an
+  `ObjectiveFunctionError`
 
 ## Version 0.38.0 - 01/10/2026
 

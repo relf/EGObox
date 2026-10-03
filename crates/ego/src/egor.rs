@@ -1958,6 +1958,35 @@ mod tests {
         assert!(res.state.surrogate.x_fail.is_some());
     }
 
+    #[test]
+    #[serial]
+    fn test_egor_all_initial_points_fail() {
+        let xlimits = array![[0.0, 1.0], [0.0, 1.0]];
+        let initial_doe = Lhs::new(&xlimits)
+            .with_rng(Xoshiro256Plus::seed_from_u64(42))
+            .sample(10);
+
+        // unconstrained
+        let res = EgorBuilder::optimize(|x: &ArrayView2<f64>| {
+            Array2::from_elem((x.nrows(), 1), f64::NAN)
+        })
+        .configure(|cfg| cfg.doe(&initial_doe).max_iters(5).seed(42))
+        .min_within(&xlimits)
+        .expect("Egor should be configured")
+        .run();
+        assert!(matches!(res, Err(EgoError::ObjectiveFunctionError(_))));
+
+        // constrained
+        let res = EgorBuilder::optimize(|x: &ArrayView2<f64>| {
+            Array2::from_elem((x.nrows(), 2), f64::NAN)
+        })
+        .configure(|cfg| cfg.doe(&initial_doe).n_cstr(1).max_iters(5).seed(42))
+        .min_within(&xlimits)
+        .expect("Egor should be configured")
+        .run();
+        assert!(matches!(res, Err(EgoError::ObjectiveFunctionError(_))));
+    }
+
     /// Constrained problem whose optimum lies on the border of a failure region
     fn cstr_quadratic_with_nans(x: &ArrayView2<f64>) -> Array2<f64> {
         let mut y = Array2::zeros((x.nrows(), 2));
