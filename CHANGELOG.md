@@ -1,6 +1,12 @@
 # Changes
 
-## Version 0.38.0 - unreleased
+## Version 0.39.0 - unreleased
+
+* Fix function constraints (`fcstrs`) with mixed-integer inputs: they now receive `x` in folded discrete space
+  and their gradient is mapped back to the continuous relaxed space
+* Fix mixed-integer enum folding/unfolding when an enum follows another enum or a non-enum variable follows an enum
+
+## Version 0.38.0 - 01/10/2026
 
 This release speeds up the optimization loop (incremental surrogate updates, pure Rust optimizers by default)
 and cleans up the Python API. Old Python names still work with a `DeprecationWarning` and will be removed in the
