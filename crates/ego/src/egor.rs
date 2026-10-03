@@ -1731,6 +1731,52 @@ mod tests {
         assert_abs_diff_eq!(&array![-15.], &res.y_opt, epsilon = 1.);
     }
 
+    fn f_mixint_fcstr(x: &ArrayView2<f64>) -> Array2<f64> {
+        let mut y = Array2::zeros((x.nrows(), 1));
+        Zip::from(y.rows_mut())
+            .and(x.rows())
+            .for_each(|mut yi, xi| {
+                yi[0] = (xi[0] - 7.).powi(2) + xi[1] + (xi[2] - 3.).powi(2);
+            });
+        y
+    }
+
+    #[test]
+    #[serial]
+    fn test_mixint_with_function_constraint() {
+        let xtypes = vec![XType::Int(0, 10), XType::Enum(3), XType::Float(-5., 5.)];
+        // Function constraint expects x in folded space: [int, enum index, float]
+        let fcstr = |x: &[f64], g: Option<&mut [f64]>, _u: &mut InfillObjData<f64>| {
+            assert_eq!(x.len(), 3);
+            assert_eq!(x[0].fract(), 0.);
+            assert!([0., 1., 2.].contains(&x[1]));
+            if let Some(g) = g {
+                assert_eq!(g.len(), 3);
+                g.copy_from_slice(&[1., 0., 1.]);
+            }
+            x[0] + x[2] - 4.
+        };
+
+        for optimizer in [InfillOptimizer::Cobyla, InfillOptimizer::Slsqp] {
+            let res = EgorBuilder::optimize(f_mixint_fcstr)
+                .subject_to_with_specs(vec![fcstr], vec![CstrSpec::Leq(0.)])
+                .configure(|config| {
+                    config
+                        .max_iters(20)
+                        .infill_optimizer(optimizer.clone())
+                        .seed(42)
+                })
+                .min_within_mixint_space(&xtypes)
+                .expect("Egor configured")
+                .run()
+                .expect("Minimize failure");
+            println!("{optimizer:?}: res={res:?}");
+            let x = res.x_opt;
+            assert_eq!(x[0].fract(), 0.);
+            assert!(x[0] + x[2] - 4. <= 1e-3);
+        }
+    }
+
     #[test]
     #[serial]
     fn test_mixobj_mixint_warmstart_egor_builder() {

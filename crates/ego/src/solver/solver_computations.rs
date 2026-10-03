@@ -1,7 +1,7 @@
 use crate::criteria::InfillComposition;
 use crate::errors::Result;
 use crate::{types::*, utils};
-use egobox_moe::to_discrete_space;
+use egobox_moe::{XType, to_discrete_space};
 
 use crate::utils::{compute_cstr_scales, logpofs, logpofs_grad, pofs, pofs_grad};
 use crate::{EgorSolver, solver::coego};
@@ -650,18 +650,7 @@ where
                 let cstr_vals = &fcstrs
                     .iter()
                     .map(|cstr| {
-                        let xuser = if self.config.discrete() {
-                            let xary = xi.to_owned().insert_axis(Axis(0));
-                            // We have to cast x to folded space as EgorSolver
-                            // works internally in the continuous space while
-                            // the constraint function expects discrete variable in folded space
-                            to_discrete_space(&self.config.xtypes, &xary)
-                                .row(0)
-                                .into_owned();
-                            xary.into_iter().collect::<Vec<_>>()
-                        } else {
-                            xi.to_vec()
-                        };
+                        let xuser = self.fcstr_input(xi.as_slice().unwrap_or(&xi.to_vec()));
                         cstr(&xuser, None, &mut unused)
                     })
                     .collect::<Array1<_>>();
@@ -669,6 +658,39 @@ where
             });
 
         res
+    }
+
+    /// Convert a point from the internal continuous (unfolded) space to the space
+    /// expected by function constraints (discrete variables in folded space)
+    pub(crate) fn fcstr_input(&self, x: &[f64]) -> Vec<f64> {
+        if self.config.discrete() {
+            let xary = ArrayView2::from_shape((1, x.len()), x).unwrap();
+            to_discrete_space(&self.config.xtypes, &xary)
+                .row(0)
+                .to_vec()
+        } else {
+            x.to_vec()
+        }
+    }
+
+    /// Map a function constraint gradient computed in folded space `gfold`
+    /// to the internal continuous (unfolded) space `g`.
+    /// Gradient components are passed through for Float, Int and Ord variables
+    /// while they are zeroed for Enum one-hot components.
+    pub(crate) fn unfold_fcstr_gradient(&self, gfold: &[f64], g: &mut [f64]) {
+        let mut unfold_index = 0;
+        for (j, xtype) in self.config.xtypes.iter().enumerate() {
+            match xtype {
+                XType::Float(_, _) | XType::Int(_, _) | XType::Ord(_) => {
+                    g[unfold_index] = gfold[j];
+                    unfold_index += 1;
+                }
+                XType::Enum(v) => {
+                    g[unfold_index..unfold_index + v].fill(0.);
+                    unfold_index += v;
+                }
+            }
+        }
     }
 
     /// Evaluate the constraints given as function at given x points

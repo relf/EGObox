@@ -10,7 +10,7 @@ use crate::utils::{
 use crate::{ActivityStrategy, FullActivity, find_best_result_index};
 use crate::{DEFAULT_CSTR_TOL, EgorSolver, MAX_POINT_ADDITION_RETRY, ValidEgorConfig};
 use crate::{EgorState, types::*};
-use egobox_moe::{as_continuous_limits, to_discrete_space};
+use egobox_moe::as_continuous_limits;
 
 use basin::{CostFunction, Problem};
 
@@ -1083,25 +1083,22 @@ where
                               gradient: Option<&mut [f64]>,
                               params: &mut InfillObjData<f64>|
                               -> f64 {
-                            let x = if self.config.discrete() {
-                                let xary =
-                                    Array2::from_shape_vec((1, x.len()), x.to_vec()).unwrap();
-                                // We have to cast x to folded space as EgorSolver
-                                // works internally in the continuous space while
-                                // the constraint function expects discrete variable in folded space
-                                to_discrete_space(&self.config.xtypes, &xary)
-                                    .row(0)
-                                    .into_owned();
-                                &xary.into_iter().collect::<Vec<_>>()
-                            } else {
-                                x
-                            };
+                            // EgorSolver works internally in the continuous space while
+                            // the constraint function expects discrete variables in folded space
+                            let xuser = self.fcstr_input(x);
                             if let Some(g) = gradient {
-                                let v = cstr(x, Some(g), params) / scale_fc;
+                                let v = if self.config.discrete() {
+                                    let mut gfold = vec![0.; xuser.len()];
+                                    let v = cstr(&xuser, Some(&mut gfold), params);
+                                    self.unfold_fcstr_gradient(&gfold, g);
+                                    v
+                                } else {
+                                    cstr(&xuser, Some(g), params)
+                                };
                                 g.iter_mut().for_each(|gi| *gi /= scale_fc);
-                                v
+                                v / scale_fc
                             } else {
-                                cstr(x, None, params) / scale_fc
+                                cstr(&xuser, None, params) / scale_fc
                             }
                         }
                     })
