@@ -85,7 +85,7 @@ pub(crate) fn fold_with_enum_index<F: Float>(
             unfold_index += 1;
         }
         XType::Enum(v) => {
-            let xenum = x.slice(s![.., j..j + v]);
+            let xenum = x.slice(s![.., unfold_index..unfold_index + v]);
             let argmaxx = xenum.map_axis(Axis(1), |row| F::cast(row.argmax().unwrap()));
             col.assign(&argmaxx);
             unfold_index += v;
@@ -120,9 +120,7 @@ pub(crate) fn unfold_with_enum_mask(
     let mut unfold_index = 0;
     xtypes.iter().enumerate().for_each(|(i, s)| match s {
         XType::Float(_, _) | XType::Int(_, _) | XType::Ord(_) => {
-            xunfold
-                .column_mut(unfold_index)
-                .assign(&x.column(unfold_index));
+            xunfold.column_mut(unfold_index).assign(&x.column(i));
             unfold_index += 1;
         }
         XType::Enum(v) => {
@@ -1100,6 +1098,20 @@ mod tests {
             [3.392359215362074, 0.0, -9.0, 3.0]
         ];
         assert_abs_diff_eq!(expected, actual, epsilon = 1e-6);
+    }
+
+    #[test]
+    fn test_fold_unfold_with_successive_enums() {
+        let xtypes = vec![
+            XType::Float(-5., 5.),
+            XType::Enum(3),
+            XType::Enum(2),
+            XType::Ord(vec![0., 2., 3.]),
+        ];
+        let xfold = array![[1.5, 2., 0., 3.], [-2., 0., 1., 0.]];
+        let xunfold = array![[1.5, 0., 0., 1., 1., 0., 3.], [-2., 1., 0., 0., 0., 1., 0.]];
+        assert_abs_diff_eq!(xunfold, to_continuous_space(&xtypes, &xfold));
+        assert_abs_diff_eq!(xfold, to_discrete_space(&xtypes, &xunfold));
     }
 
     #[test]
