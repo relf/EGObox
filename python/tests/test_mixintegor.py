@@ -60,9 +60,9 @@ class TestMixintEgx(unittest.TestCase):
             egx.XSpec(egx.XType.ENUM, xlimits=[2]),
             egx.XSpec(egx.XType.ORD, [0, 2, 3]),
         ]
-        egor = egx.Egor(xspecs, infill_strategy=egx.InfillStrategy.WB2)
+        egor = egx.Egor(xspecs)
         optim = egor.minimize(mixobj, max_iters=10, seed=42)
-        self.assertAlmostEqual(-14.6, optim.result.y_opt[0], delta=5e-1)
+        self.assertAlmostEqual(-15.0, optim.result.y_opt[0])
         self.assertAlmostEqual(-5, optim.result.x_opt[0])
         self.assertAlmostEqual(2, optim.result.x_opt[1])
         self.assertAlmostEqual(0, optim.result.x_opt[2])
