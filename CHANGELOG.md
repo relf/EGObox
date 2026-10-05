@@ -1,6 +1,6 @@
 # Changes
 
-## Version 0.39.0 - unreleased
+## Version 0.38.1 - unreleased
 
 * Fix function constraints (`fcstrs`) with mixed-integer inputs: they now receive `x` in folded discrete space
   and their gradient is mapped back to the continuous relaxed space
@@ -8,6 +8,9 @@
   (affects objective inputs and mixed-integer sampling results)
 * Fix `Egor` panic when the objective fails (NaN) at every initial DOE point: `run()` now returns an
   `ObjectiveFunctionError`
+* Fix mixed-integer sampling fairness: integer, ordered and enum levels are now sampled with equal probability
+  (bounds of integer/ordered variables were under-sampled). It applies to `MixintContext`
+  LHS/random sampling, Python `lhs`/`sampling` and `Egor` initial DOE
 
 ## Version 0.38.0 - 01/10/2026
 

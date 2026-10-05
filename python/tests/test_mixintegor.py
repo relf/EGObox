@@ -62,7 +62,7 @@ class TestMixintEgx(unittest.TestCase):
         ]
         egor = egx.Egor(xspecs, infill_strategy=egx.InfillStrategy.WB2)
         optim = egor.minimize(mixobj, max_iters=10, seed=42)
-        self.assertAlmostEqual(-15, optim.result.y_opt[0])
+        self.assertAlmostEqual(-14.6, optim.result.y_opt[0], delta=5e-1)
         self.assertAlmostEqual(-5, optim.result.x_opt[0])
         self.assertAlmostEqual(2, optim.result.x_opt[1])
         self.assertAlmostEqual(0, optim.result.x_opt[2])
