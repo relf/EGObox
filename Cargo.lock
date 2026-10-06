@@ -580,7 +580,7 @@ checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 
 [[package]]
 name = "egobox"
-version = "0.38.0"
+version = "0.38.1"
 dependencies = [
  "argmin_testfunctions",
  "bincode",
@@ -622,7 +622,7 @@ dependencies = [
 
 [[package]]
 name = "egobox-ego"
-version = "0.41.0"
+version = "0.41.1"
 dependencies = [
  "anyhow",
  "approx",
@@ -713,7 +713,7 @@ dependencies = [
 
 [[package]]
 name = "egobox-moe"
-version = "0.36.0"
+version = "0.36.1"
 dependencies = [
  "approx",
  "argmin_testfunctions",
