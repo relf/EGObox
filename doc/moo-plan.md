@@ -146,7 +146,8 @@ Each step is one PR or a few PRs. Each keeps CI green and respects the contract 
     - Warm start, hot-start continuation.
   - Store `[x_doe, y_doe]` from current master as `.npy` fixtures in
     `crates/ego/tests/snapshots/<os>-<backend>/` and compare them with a tight tolerance
-    (1e-8 absolute + 1e-6 relative). Floating point results differ across OS libm and the
+    (1e-8 + 1e-6 × the column magnitude, as values close to zero such as active constraints
+    amplify tiny differences of the evaluated points). Floating point results differ across OS libm and the
     `c-cobyla`/`c-slsqp`/`blas` backends, so fixtures are per platform and a scenario without
     fixture for the current platform is skipped. Exact equality is not usable: on a given OS, math
     library code paths depend on the CPU, and CI runners differ from developer machines by ~1e-9.

@@ -6,7 +6,9 @@
 //! hence fixtures are recorded per platform: a scenario without fixture for the current
 //! platform is skipped, unless `EGOBOX_REQUIRE_SNAPSHOTS=1` is set (reference CI job).
 //! Even on a given platform, math library code paths depend on the CPU, so values are
-//! compared with a tight tolerance (`SNAPSHOT_ABS_TOL + SNAPSHOT_REL_TOL * |expected|`):
+//! compared with a tight tolerance scaled by the magnitude of each column
+//! (`SNAPSHOT_ABS_TOL + SNAPSHOT_REL_TOL * max |column|`), as values close to zero
+//! (e.g. active constraints) amplify tiny differences of the evaluated points:
 //! an actual behavior change moves the evaluated points far beyond it.
 //!
 //! Record (or update) fixtures with `EGOBOX_UPDATE_SNAPSHOTS=1 cargo test --release --test mono_snapshots`.
@@ -73,11 +75,20 @@ fn check_snapshot(name: &str, res: &OptimResult<f64>) {
         data.dim(),
         "{name}: [x_doe, y_doe] shape differs from snapshot"
     );
+    let scales: Vec<f64> = expected
+        .columns()
+        .into_iter()
+        .map(|col| {
+            col.iter()
+                .filter(|v| v.is_finite())
+                .fold(0., |m: f64, v| m.max(v.abs()))
+        })
+        .collect();
     for ((i, j), v) in data.indexed_iter() {
         let e = expected[[i, j]];
         let same = (v.is_nan() && e.is_nan())
             || v == &e
-            || (v - e).abs() <= SNAPSHOT_ABS_TOL + SNAPSHOT_REL_TOL * e.abs();
+            || (v - e).abs() <= SNAPSHOT_ABS_TOL + SNAPSHOT_REL_TOL * scales[j];
         assert!(
             same,
             "{name}: [x_doe, y_doe][[{i}, {j}]] = {v} differs from snapshot {e}"
