@@ -1,10 +1,13 @@
 //! Mono-objective non-regression snapshots.
 //!
 //! Each scenario runs a seeded optimization and compares the resulting `[x_doe, y_doe]`
-//! bit for bit against a `.npy` fixture stored in `tests/snapshots/<os>-<backend>/`.
+//! against a `.npy` fixture stored in `tests/snapshots/<os>-<backend>/`.
 //! Floating point results differ across OS and optimizer/linear algebra backends,
 //! hence fixtures are recorded per platform: a scenario without fixture for the current
 //! platform is skipped, unless `EGOBOX_REQUIRE_SNAPSHOTS=1` is set (reference CI job).
+//! Even on a given platform, math library code paths depend on the CPU, so values are
+//! compared with a tight tolerance (`SNAPSHOT_ABS_TOL + SNAPSHOT_REL_TOL * |expected|`):
+//! an actual behavior change moves the evaluated points far beyond it.
 //!
 //! Record (or update) fixtures with `EGOBOX_UPDATE_SNAPSHOTS=1 cargo test --release --test mono_snapshots`.
 //! A fixture update has to be committed separately and explicitly reviewed.
@@ -23,6 +26,8 @@ use std::path::PathBuf;
 
 const UPDATE_ENV: &str = "EGOBOX_UPDATE_SNAPSHOTS";
 const REQUIRE_ENV: &str = "EGOBOX_REQUIRE_SNAPSHOTS";
+const SNAPSHOT_ABS_TOL: f64 = 1e-8;
+const SNAPSHOT_REL_TOL: f64 = 1e-6;
 
 fn snapshot_dir() -> PathBuf {
     let mut backend = vec![];
@@ -69,11 +74,13 @@ fn check_snapshot(name: &str, res: &OptimResult<f64>) {
         "{name}: [x_doe, y_doe] shape differs from snapshot"
     );
     for ((i, j), v) in data.indexed_iter() {
-        assert_eq!(
-            expected[[i, j]].to_bits(),
-            v.to_bits(),
-            "{name}: [x_doe, y_doe][[{i}, {j}]] = {v} differs from snapshot {}",
-            expected[[i, j]]
+        let e = expected[[i, j]];
+        let same = (v.is_nan() && e.is_nan())
+            || v == &e
+            || (v - e).abs() <= SNAPSHOT_ABS_TOL + SNAPSHOT_REL_TOL * e.abs();
+        assert!(
+            same,
+            "{name}: [x_doe, y_doe][[{i}, {j}]] = {v} differs from snapshot {e}"
         );
     }
 }

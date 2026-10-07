@@ -145,11 +145,14 @@ Each step is one PR or a few PRs. Each keeps CI green and respects the contract 
     - TREGO, CoEGO.
     - Warm start, hot-start continuation.
   - Store `[x_doe, y_doe]` from current master as `.npy` fixtures in
-    `crates/ego/tests/snapshots/<os>-<backend>/` and assert bit-for-bit equality. Floating point
-    results differ across OS libm and the `c-cobyla`/`c-slsqp`/`blas` backends, so fixtures are
-    per platform and a scenario without fixture for the current platform is skipped. Fixtures are
-    recorded with `EGOBOX_UPDATE_SNAPSHOTS=1` (only `windows-default` so far; record the
-    `linux-default` ones to get CI coverage).
+    `crates/ego/tests/snapshots/<os>-<backend>/` and compare them with a tight tolerance
+    (1e-8 absolute + 1e-6 relative). Floating point results differ across OS libm and the
+    `c-cobyla`/`c-slsqp`/`blas` backends, so fixtures are per platform and a scenario without
+    fixture for the current platform is skipped. Exact equality is not usable: on a given OS, math
+    library code paths depend on the CPU, and CI runners differ from developer machines by ~1e-9.
+    Fixtures are recorded with `EGOBOX_UPDATE_SNAPSHOTS=1`: `windows-default` (local) and
+    `linux-default` (recorded on the CI ubuntu runner). The ubuntu stable default job sets
+    `EGOBOX_REQUIRE_SNAPSHOTS=1` so that a missing fixture fails.
   - A legitimate fixture update must be its own, explicitly reviewed commit.
 - Add a `cargo semver-checks` job to `.github/workflows/lint.yml`, run on pull requests against the
   base branch (0.41.1 is not published on crates.io, so there is no registry baseline).
@@ -173,7 +176,7 @@ Each step is one PR or a few PRs. Each keeps CI green and respects the contract 
   `compute_penalized_point` take objective-model slices. The NaN fill in `eval_obj` uses `ny_raw()`,
   and the warm-start DOE split in `init_state` uses `nx + ny_internal()`.
 - Public `EgorSolver` methods keep their signatures and delegate to the generalized `pub(crate)` code.
-- Exit criteria: snapshots bit-identical, semver-checks clean, clippy clean.
+- Exit criteria: snapshots unchanged, semver-checks clean, clippy clean.
 
 ### Step 2 — Pareto toolkit (pure functions in `moo/`) — done
 - Non-dominated filtering with constrained domination: feasible points dominate infeasible ones,
