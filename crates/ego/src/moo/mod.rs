@@ -4,6 +4,7 @@
 //! All objectives are minimized.
 
 mod config;
+pub(crate) mod eim;
 // Used by hypervolume-based strategies and termination (not available yet)
 #[allow(dead_code)]
 pub(crate) mod hypervolume;
@@ -12,5 +13,5 @@ pub(crate) mod pareto;
 mod result;
 pub(crate) mod scalarization;
 
-pub use config::{MooConfig, MooStrategy};
+pub use config::{EimAggregation, MooConfig, MooStrategy};
 pub use result::ParetoResult;

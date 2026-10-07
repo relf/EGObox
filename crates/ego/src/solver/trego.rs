@@ -166,6 +166,7 @@ where
             self.config.feasibility_infill.alpha(),
             infill_data,
             &state.coego.activity,
+            None,
         );
 
         let (infill_obj, x_opt) = self.optimize_infill_criterion(

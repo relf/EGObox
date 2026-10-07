@@ -419,9 +419,23 @@ impl ValidEgorConfig {
         self.n_obj
     }
 
+    /// Whether several objectives are scalarized into one surrogate (ParEGO)
+    pub(crate) fn is_scalarized(&self) -> bool {
+        self.n_obj > 1 && matches!(self.moo.strategy, crate::MooStrategy::ParEgo)
+    }
+
+    /// Whether several objectives are each modeled with a surrogate
+    pub(crate) fn is_per_objective(&self) -> bool {
+        self.n_obj > 1 && !self.is_scalarized()
+    }
+
     /// Number of surrogate models of the objective(s)
     pub(crate) fn n_obj_models(&self) -> usize {
-        1
+        if self.is_per_objective() {
+            self.n_obj
+        } else {
+            1
+        }
     }
 
     /// Number of surrogate models: objective(s) models then constraint models
@@ -435,10 +449,10 @@ impl ValidEgorConfig {
     }
 
     /// Max number of tries without adding a point before the solver is considered converged.
-    /// With several objectives, every ParEGO weight vector is tried once.
+    /// With ParEGO, every weight vector is tried once.
     pub(crate) fn max_point_addition_retries(&self) -> i32 {
         let retries = crate::MAX_POINT_ADDITION_RETRY;
-        if self.n_obj > 1 {
+        if self.is_scalarized() {
             retries.max(crate::moo::parego::n_weights(self.n_obj, self.moo.n_divisions) as i32)
         } else {
             retries
@@ -856,6 +870,11 @@ impl EgorConfig {
                 Some("target".to_string())
             } else if config.failsafe_strategy == FailsafeStrategy::Imputation {
                 Some("Imputation failsafe strategy".to_string())
+            } else if config.feasibility_infill.is_enabled() && !config.is_scalarized() {
+                Some(format!(
+                    "{:?} feasible infill strategy with {:?}",
+                    config.feasibility_infill, config.moo.strategy
+                ))
             } else {
                 None
             };
