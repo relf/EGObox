@@ -234,3 +234,23 @@ fn interruption_works_for_repeated_runs() {
         );
     }
 }
+
+#[test]
+fn current_param_and_cost_are_an_evaluated_point() {
+    let result = EgorBuilder::optimize(xsinx)
+        .configure(|cfg| cfg.doe(&array![[0.], [7.], [25.]]).seed(42).max_iters(3))
+        .min_within(&array![[0., 25.]])
+        .unwrap()
+        .run()
+        .unwrap();
+    let param = result.state.param.as_ref().expect("current param");
+    let cost = result.state.cost.as_ref().expect("current cost");
+    let index = result
+        .x_doe
+        .rows()
+        .into_iter()
+        .position(|x| x == param)
+        .expect("current param is an evaluated point");
+    // evaluated value, not the surrogate prediction
+    assert_eq!(result.y_doe.row(index), cost);
+}

@@ -690,7 +690,7 @@ where
                     std::mem::take(&mut models)
                 };
 
-            let (x_dat, y_dat, c_dat, y_penalized, infill_value) = self.select_next_points(
+            let (x_dat, _y_dat, c_dat, y_penalized, infill_value) = self.select_next_points(
                 init,
                 state.get_iter(),
                 recluster,
@@ -725,13 +725,6 @@ where
                 .data((x_data.clone(), y_data.clone(), c_data.clone()))
                 .infill_value(infill_value)
                 .rng(rng.clone());
-            if n_obj == 1 {
-                new_state = new_state
-                    .param(x_dat.row(0).to_owned()) // Note: take only first point.
-                    .cost(y_dat.row(0).to_owned()); // Argmin framework requires param and cost to be set.
-            }
-            // With several objectives, y_dat holds virtual values of the scalarized view:
-            // param and cost are only set from a valid evaluation below
 
             info!(
                 "{} criterion {} max found = {}",
@@ -794,6 +787,10 @@ where
         } else {
             y_actual
         };
+        // Current param and cost are those of the first evaluated point (internal layout)
+        new_state = new_state
+            .param(x_dat.row(0).to_owned())
+            .cost(y_actual.row(0).to_owned());
         let y_penalized = match self.config.failsafe_strategy {
             FailsafeStrategy::Imputation => Some(y_penalized),
             _ => None,
@@ -849,14 +846,6 @@ where
                 &new_state.doe.cstr_tol,
             )
         };
-        if n_obj > 1 && valid_count > 0 {
-            // Current param and cost are those of the last valid evaluated point
-            // (not the virtual point of the scalarized view)
-            let last = y_data.nrows() - 1;
-            new_state = new_state
-                .param(x_data.row(last).to_owned())
-                .cost(y_data.row(last).to_owned());
-        }
         new_state =
             new_state
                 .best_index(best_index)
