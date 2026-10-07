@@ -1,7 +1,7 @@
 use crate::{EgoError, EgorState, Result};
 use basin::CostFunction;
 use linfa::Float;
-use ndarray::{Array1, Array2, ArrayView2};
+use ndarray::{Array1, Array2, ArrayView2, s};
 use serde::{Deserialize, Serialize};
 
 pub use egobox_moe::SurrogateBuilder;
@@ -220,7 +220,12 @@ pub enum InternalCstrKind {
 /// For `Eq(z)` specs: `Primary` then `Derived { source, scale: -1.0, offset: 0.0 }`.
 /// For `Btw(lo, hi)` specs: `Primary` then `Derived { source, scale: -1.0, offset: lo - hi }`.
 pub fn internal_cstr_mapping(specs: &[CstrSpec]) -> Vec<InternalCstrKind> {
-    let mut mapping = vec![InternalCstrKind::Primary]; // index 0 = objective
+    output_mapping(1, specs)
+}
+
+/// Same as [`internal_cstr_mapping`] with `n_obj` leading objective columns (always `Primary`).
+pub(crate) fn output_mapping(n_obj: usize, specs: &[CstrSpec]) -> Vec<InternalCstrKind> {
+    let mut mapping = vec![InternalCstrKind::Primary; n_obj];
     for spec in specs {
         match spec {
             CstrSpec::Leq(_) | CstrSpec::Geq(_) => {
@@ -257,18 +262,29 @@ pub fn internal_cstr_mapping(specs: &[CstrSpec]) -> Vec<InternalCstrKind> {
 /// Returns a new array with shape `(nrows, 1 + n_internal_cstrs)` where the constraint
 /// columns have been transformed (and potentially expanded for Equal/Between specs).
 pub fn transform_constraints(y: &Array2<f64>, specs: &[CstrSpec]) -> Array2<f64> {
+    transform_constraints_at(y, 1, specs)
+}
+
+/// Same as [`transform_constraints`] with `n_obj` leading objective columns.
+pub(crate) fn transform_constraints_at(
+    y: &Array2<f64>,
+    n_obj: usize,
+    specs: &[CstrSpec],
+) -> Array2<f64> {
     let nrows = y.nrows();
     let n_intern = n_internal_cstrs(specs);
-    let mut result = Array2::zeros((nrows, 1 + n_intern));
+    let mut result = Array2::zeros((nrows, n_obj + n_intern));
 
-    // Copy objective column
-    result.column_mut(0).assign(&y.column(0));
+    // Copy objective columns
+    result
+        .slice_mut(s![.., ..n_obj])
+        .assign(&y.slice(s![.., ..n_obj]));
 
     // Transform constraint columns
     for row_idx in 0..nrows {
-        let mut col = 1usize;
+        let mut col = n_obj;
         for (i, spec) in specs.iter().enumerate() {
-            let raw = y[[row_idx, 1 + i]];
+            let raw = y[[row_idx, n_obj + i]];
             let transformed = spec
                 .terms()
                 .into_iter()
@@ -291,23 +307,34 @@ pub fn transform_constraints(y: &Array2<f64>, specs: &[CstrSpec]) -> Array2<f64>
 /// Returns a new array with shape `(nrows, 1 + n_user_cstrs)`. For Equal/Between specs,
 /// the raw value is recovered from the first of the two internal columns.
 pub fn untransform_constraints(y: &Array2<f64>, specs: &[CstrSpec]) -> Array2<f64> {
+    untransform_constraints_at(y, 1, specs)
+}
+
+/// Same as [`untransform_constraints`] with `n_obj` leading objective columns.
+pub(crate) fn untransform_constraints_at(
+    y: &Array2<f64>,
+    n_obj: usize,
+    specs: &[CstrSpec],
+) -> Array2<f64> {
     assert_eq!(
         y.ncols(),
-        1 + n_internal_cstrs(specs),
-        "untransform_constraints: y should have 1 + n_internal_cstrs columns"
+        n_obj + n_internal_cstrs(specs),
+        "untransform_constraints: y should have n_obj + n_internal_cstrs columns"
     );
     let nrows = y.nrows();
-    let mut result = Array2::zeros((nrows, 1 + specs.len()));
+    let mut result = Array2::zeros((nrows, n_obj + specs.len()));
 
-    // Copy objective column
-    result.column_mut(0).assign(&y.column(0));
+    // Copy objective columns
+    result
+        .slice_mut(s![.., ..n_obj])
+        .assign(&y.slice(s![.., ..n_obj]));
 
     // Invert first internal term of each spec: raw = (v - offset) / scale
-    let mut col = 1usize;
+    let mut col = n_obj;
     for (i, spec) in specs.iter().enumerate() {
         let (scale, offset) = spec.terms()[0];
         result
-            .column_mut(1 + i)
+            .column_mut(n_obj + i)
             .assign(&y.column(col).mapv(|v| (v - offset) / scale));
         col += spec.n_internal();
     }

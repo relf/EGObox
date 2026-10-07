@@ -154,20 +154,21 @@ Each step is one PR or a few PRs. Each keeps CI green and respects the contract 
 - Add a `cargo semver-checks` job to `.github/workflows/lint.yml`, run on pull requests against the
   base branch (0.41.1 is not published on crates.io, so there is no registry baseline).
 
-### Step 1 — Internal refactor: explicit output layout (no behavior change)
+### Step 1 — Internal refactor: explicit output layout (no behavior change) — done
 - `ValidEgorConfig` gets `pub(crate) n_obj: usize` (default 1, `#[serde(default)]`), not settable
   yet. Helpers: `n_obj()`, `n_obj_models()` (1 for Single and Scalarized, m for PerObjective),
   `n_surrogates()`, `ny_raw() = n_obj + n_cstr`, `ny_internal() = n_obj + n_internal_cstr()`.
 - Offset-aware internal variants:
   - `transform_constraints_at(y, n_obj, specs)` and `untransform_constraints_at`.
   - `output_mapping(n_obj_models, specs)`.
-  - `find_best_result_index_at(.., n_obj)`.
-  - `cstr_min` and `is_feasible` with an offset.
+  - `cstr_sum_at` and `is_feasible_at` (violation and feasibility with `n_obj` leading columns).
 
-  The current public functions become wrappers with `n_obj = 1`.
-- Column-aware model management: `train_all_columns`, `train_with_mapping`, `update_models`,
-  `refresh_models` and `sync_clustering_and_theta_inits` take an explicit mapping from model to y
-  column instead of `0..=n_internal_cstr`. Mono keeps its all-or-nothing z-score semantics.
+  The current public functions become wrappers with `n_obj = 1`. The best-index functions stay
+  mono-objective: they apply as is to the ParEGO training view.
+- Model management keeps the "model k ↔ column k" rule: loops run over `n_surrogates()` /
+  `models.len()` instead of `0..=n_internal_cstr`. The solver feeds the surrogates a training view
+  whose columns match the models (`[s_λ | cstrs]` for ParEGO, `[f_1..f_m | cstrs]` per objective),
+  so no explicit column mapping is needed.
 - Replace `split_first()` with `split_at(n_obj_models)`. `compute_virtual_point` and
   `compute_penalized_point` take objective-model slices. The NaN fill in `eval_obj` uses `ny_raw()`,
   and the warm-start DOE split in `init_state` uses `nx + ny_internal()`.

@@ -301,8 +301,12 @@ pub struct ValidEgorConfig {
     /// Number of initial doe drawn using Latin hypercube sampling
     /// Note: n_doe > 0; otherwise n_doe = max(xdim + 1, 5)
     pub(crate) n_doe: usize,
+    /// Number of objectives
+    /// Note: dim function ouput = n_obj objectives + n_cstr constraints
+    #[serde(default = "default_n_obj")]
+    pub(crate) n_obj: usize,
     /// Number of Constraints
-    /// Note: dim function ouput = 1 objective + n_cstr constraints
+    /// Note: dim function ouput = n_obj objectives + n_cstr constraints
     pub(crate) n_cstr: usize,
     /// Optional constraints violation tolerance meaning cstr < cstr_tol is considered valid
     pub(crate) cstr_tol: Option<Array1<f64>>,
@@ -360,6 +364,7 @@ impl Default for ValidEgorConfig {
             max_iters: EGO_DEFAULT_MAX_ITERS,
             n_start: EGO_DEFAULT_N_START,
             n_doe: 0,
+            n_obj: 1,
             n_cstr: 0,
             cstr_tol: None,
             cstr_specs: None,
@@ -404,6 +409,35 @@ impl ValidEgorConfig {
             self.n_cstr
         }
     }
+
+    /// Number of objectives
+    pub(crate) fn n_obj(&self) -> usize {
+        self.n_obj
+    }
+
+    /// Number of surrogate models of the objective(s)
+    pub(crate) fn n_obj_models(&self) -> usize {
+        1
+    }
+
+    /// Number of surrogate models: objective(s) models then constraint models
+    pub(crate) fn n_surrogates(&self) -> usize {
+        self.n_obj_models() + self.n_internal_cstr()
+    }
+
+    /// Number of columns of the objective function output: objectives then raw constraints
+    pub(crate) fn ny_raw(&self) -> usize {
+        self.n_obj + self.n_cstr
+    }
+
+    /// Number of columns of the internal output data: objectives then internal constraints
+    pub(crate) fn ny_internal(&self) -> usize {
+        self.n_obj + self.n_internal_cstr()
+    }
+}
+
+fn default_n_obj() -> usize {
+    1
 }
 
 /// Egor optimizer configuration builder

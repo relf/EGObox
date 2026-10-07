@@ -59,7 +59,11 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
         // Apply constraint transformation if cstr_specs are set
         let y_data_owned;
         let y_data: &ArrayBase<_, Ix2> = if let Some(ref specs) = self.config.cstr_specs {
-            y_data_owned = crate::types::transform_constraints(&y_data.to_owned(), specs);
+            y_data_owned = crate::types::transform_constraints_at(
+                &y_data.to_owned(),
+                self.config.n_obj(),
+                specs,
+            );
             &y_data_owned
         } else {
             y_data_owned = y_data.to_owned();
@@ -71,8 +75,8 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
             Xoshiro256Plus::from_entropy()
         };
         let n_int_cstr = self.config.n_internal_cstr();
-        let mut clusterings = vec![None; 1 + n_int_cstr];
-        let mut theta_tunings = vec![None; 1 + n_int_cstr];
+        let mut clusterings = vec![None; self.config.n_surrogates()];
+        let mut theta_tunings = vec![None; self.config.n_surrogates()];
         let cstr_tol = self
             .config
             .cstr_tol
@@ -171,6 +175,18 @@ where
     SB: SurrogateBuilder + Serialize + DeserializeOwned,
     C: CstrFn,
 {
+    /// Name of the k-th surrogate model used in logs
+    fn model_name(&self, k: usize) -> String {
+        let n_obj_models = self.config.n_obj_models();
+        if k >= n_obj_models {
+            format!("Constraint[{}]", k - n_obj_models + 1)
+        } else if n_obj_models == 1 {
+            "Objective".to_string()
+        } else {
+            format!("Objective[{}]", k + 1)
+        }
+    }
+
     /// Whether we have to recluster the data
     pub fn have_to_recluster(&self, added: usize, prev_added: usize) -> bool {
         self.config.gp.n_clusters.is_auto()
@@ -503,25 +519,18 @@ where
         theta_inits: &[Option<Array2<f64>>],
         actives: &Array2<usize>,
     ) -> (Vec<Box<dyn MixtureGpSurrogate>>, Vec<Array2<f64>>) {
-        let models_and_inits = (0..=self.config.n_internal_cstr())
-            .into_par_iter()
-            .map(|k| {
-                let name = if k == 0 {
-                    "Objective".to_string()
-                } else {
-                    format!("Constraint[{k}]")
-                };
-                self.make_clustered_surrogate(
-                    &name,
-                    xt,
-                    &yt.slice(s![.., k]).to_owned(),
-                    do_clustering,
-                    optimize_theta,
-                    clusterings[k].as_ref(),
-                    theta_inits[k].as_ref(),
-                    actives,
-                )
-            });
+        let models_and_inits = (0..self.config.n_surrogates()).into_par_iter().map(|k| {
+            self.make_clustered_surrogate(
+                &self.model_name(k),
+                xt,
+                &yt.slice(s![.., k]).to_owned(),
+                do_clustering,
+                optimize_theta,
+                clusterings[k].as_ref(),
+                theta_inits[k].as_ref(),
+                actives,
+            )
+        });
         models_and_inits.unzip()
     }
 
@@ -549,13 +558,8 @@ where
             primary_indices
                 .into_par_iter()
                 .map(|k| {
-                    let name = if k == 0 {
-                        "Objective".to_string()
-                    } else {
-                        format!("Constraint[{k}]")
-                    };
                     let (model, inits) = self.make_clustered_surrogate(
-                        &name,
+                        &self.model_name(k),
                         xt,
                         &yt.slice(s![.., k]).to_owned(),
                         do_clustering,
@@ -750,7 +754,7 @@ where
         let y_actual = self.eval_obj(problem, &x_dat)?;
         // Apply constraint transformation if cstr_specs are set
         let y_actual = if let Some(ref specs) = self.config.cstr_specs {
-            crate::types::transform_constraints(&y_actual, specs)
+            crate::types::transform_constraints_at(&y_actual, self.config.n_obj(), specs)
         } else {
             y_actual
         };
@@ -966,17 +970,17 @@ where
                                 "Impute failed initial points ({} points)...",
                                 xfail_points.nrows()
                             );
-                            let mut y_pen_imputed = Array2::zeros((
-                                xfail_points.nrows(),
-                                1 + self.config.n_internal_cstr(),
-                            ));
+                            let mut y_pen_imputed =
+                                Array2::zeros((xfail_points.nrows(), self.config.n_surrogates()));
+                            let (obj_models, cstr_models) =
+                                models.split_at(self.config.n_obj_models());
                             Zip::from(y_pen_imputed.rows_mut())
                                 .and(xfail_points.rows())
                                 .for_each(|mut y_row, xfail| {
                                     let y_pred = self.compute_penalized_point(
                                         &xfail,
-                                        &*models[0],
-                                        &models[1..],
+                                        obj_models,
+                                        cstr_models,
                                         y_data,
                                     );
                                     y_row.assign(&y_pred);
@@ -1011,7 +1015,8 @@ where
 
                 self.sync_clustering_and_theta_inits(clusterings, theta_inits, models, &inits);
 
-                let (obj_model, cstr_models) = models.split_first().unwrap();
+                let (obj_models, cstr_models) = models.split_at(self.config.n_obj_models());
+                let obj_model = &obj_models[0];
                 debug!("... surrogates trained");
 
                 let fmin = y_data[[best_index, 0]];
@@ -1145,18 +1150,14 @@ where
                 );
                 debug!("+++++++  xk = {xk}");
 
-                match self.compute_virtual_point(&xk, y_data, obj_model.as_ref(), cstr_models) {
+                match self.compute_virtual_point(&xk, y_data, obj_models, cstr_models) {
                     Ok(yk) => {
-                        let yk = Array2::from_shape_vec((1, 1 + self.config.n_internal_cstr()), yk)
-                            .unwrap();
+                        let yk =
+                            Array2::from_shape_vec((1, self.config.n_surrogates()), yk).unwrap();
                         y_dat = concatenate![Axis(0), y_dat, yk];
 
-                        let yk_pen = self.compute_penalized_point(
-                            &xk,
-                            obj_model.as_ref(),
-                            cstr_models,
-                            y_data,
-                        );
+                        let yk_pen =
+                            self.compute_penalized_point(&xk, obj_models, cstr_models, y_data);
                         let yk_pen = yk_pen.insert_axis(Axis(0));
                         y_penalized = concatenate![Axis(0), y_penalized, yk_pen];
 
@@ -1218,7 +1219,7 @@ where
             .config
             .cstr_specs
             .as_ref()
-            .map(|s| internal_cstr_mapping(s));
+            .map(|s| output_mapping(self.config.n_obj_models(), s));
 
         let (models_new, inits) = if let Some(ref mapping) = mapping {
             self.train_with_mapping(
@@ -1401,7 +1402,7 @@ where
         models: &[Box<dyn MixtureGpSurrogate>],
         inits: &[Option<Array2<f64>>],
     ) {
-        (0..=self.config.n_internal_cstr()).for_each(|k| {
+        (0..models.len()).for_each(|k| {
             clusterings[k] = Some(models[k].to_clustering());
             if let Some(init) = inits.get(k).and_then(|i| i.as_ref()) {
                 theta_inits[k] = Some(init.to_owned());

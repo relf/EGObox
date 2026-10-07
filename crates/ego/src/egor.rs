@@ -372,9 +372,10 @@ impl<O: ObjFn, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> E
         // Results are given back in the raw constraint layout (as returned by the objective function)
         // while the state keeps the internal one
         let (y_data, y_opt) = if let Some(specs) = self.solver.config.cstr_specs.as_ref() {
-            let y_opt = untransform_constraints(&y_opt.insert_axis(Axis(0)), specs);
+            let n_obj = self.solver.config.n_obj();
+            let y_opt = untransform_constraints_at(&y_opt.insert_axis(Axis(0)), n_obj, specs);
             (
-                untransform_constraints(&y_data, specs),
+                untransform_constraints_at(&y_data, n_obj, specs),
                 y_opt.row(0).to_owned(),
             )
         } else {

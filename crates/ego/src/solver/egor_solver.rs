@@ -198,10 +198,10 @@ where
                 info!("Use specified DOE {} samples", doe.nrows());
                 let nx = self.xlimits.nrows();
                 // Warm-start DOE is either [x, y] or [x, y, c] with y in internal layout
-                // (1 objective + internal constraints): saved function constraint values c
+                // (objectives + internal constraints): saved function constraint values c
                 // are dropped as they are re-evaluated below
                 let ny_end = if warm_start_doe.is_some() {
-                    nx + 1 + self.config.n_internal_cstr()
+                    nx + self.config.ny_internal()
                 } else {
                     doe.ncols()
                 };
@@ -238,7 +238,7 @@ where
         let y_data = if warm_start_doe.is_none()
             && let Some(ref specs) = self.config.cstr_specs
         {
-            crate::types::transform_constraints(&y_data, specs)
+            crate::types::transform_constraints_at(&y_data, self.config.n_obj(), specs)
         } else {
             y_data
         };
@@ -251,8 +251,8 @@ where
         }
 
         let n_int_cstr = self.config.n_internal_cstr();
-        let clusterings = vec![None; n_int_cstr + 1];
-        let theta_inits = vec![None; n_int_cstr + 1];
+        let clusterings = vec![None; self.config.n_surrogates()];
+        let theta_inits = vec![None; self.config.n_surrogates()];
 
         let c_data = self.eval_problem_fcstrs(problem, &x_data);
 

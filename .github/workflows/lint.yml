@@ -54,3 +54,4 @@ jobs:
         with:
           package: egobox-ego
           baseline-rev: ${{ github.event.pull_request.base.sha }}
+          feature-group: default-features
