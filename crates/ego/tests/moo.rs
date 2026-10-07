@@ -428,3 +428,39 @@ fn test_parego_rejected_tries_keep_raw_state() {
         assert_eq!(cost.len(), 2);
     }
 }
+
+#[test]
+#[serial]
+fn test_solver_suggest_with_several_objectives() {
+    use egobox_ego::{Cstr, EgorConfig, EgorSolver, to_xtypes};
+    use egobox_moe::GpMixtureParams;
+
+    let xlimits = array![[0., 5.], [0., 3.]];
+    let config = EgorConfig::default()
+        .xtypes(&to_xtypes(&xlimits))
+        .n_obj(2)
+        .n_cstr(2)
+        .seed(42)
+        .check()
+        .expect("valid config");
+    let solver = EgorSolver::<GpMixtureParams<f64>, Cstr>::new(config);
+    let mut x = array![
+        [0., 0.],
+        [1., 1.],
+        [2.5, 1.5],
+        [4., 2.],
+        [5., 3.],
+        [3., 0.5]
+    ];
+    for _ in 0..3 {
+        let y = bnh(&x.view());
+        let x_new = solver.suggest(&x, &y);
+        assert_eq!(x_new.dim(), (1, 2));
+        assert!(
+            Zip::from(x_new.row(0))
+                .and(xlimits.rows())
+                .all(|v, lim| lim[0] <= *v && *v <= lim[1])
+        );
+        x = ndarray::concatenate![Axis(0), x, x_new];
+    }
+}

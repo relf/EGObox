@@ -92,6 +92,22 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
         // TODO: Coego not implemented
         let activity = FullActivity.generate_activity(x_data.ncols(), &mut rng);
 
+        // With several objectives, surrogates are trained on the ParEGO scalarized view
+        // [s | cstrs] of the data (see `ego_step`). Weights change from one call to the next
+        // as the number of data points grows.
+        let n_obj = self.config.n_obj();
+        let y_view;
+        let y_data: &ArrayBase<_, Ix2> = if n_obj > 1 {
+            let weights =
+                crate::moo::parego::shuffled_weights(n_obj, self.config.moo.n_divisions, &mut rng);
+            let weights = &weights[x_data.nrows() % weights.len()];
+            y_view =
+                crate::moo::parego::scalarized_view(y_data, n_obj, weights, self.config.moo.rho);
+            &y_view
+        } else {
+            y_data
+        };
+
         let best_index = find_best_result_index(y_data, &c_data, &cstr_tol);
         let feasibility = is_feasible(&y_data.row(best_index), &c_data.row(best_index), &cstr_tol);
 
