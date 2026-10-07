@@ -196,9 +196,25 @@ where
             } else {
                 // split doe in x and y
                 info!("Use specified DOE {} samples", doe.nrows());
+                let nx = self.xlimits.nrows();
+                // Warm-start DOE is either [x, y] or [x, y, c] with y in internal layout
+                // (1 objective + internal constraints): saved function constraint values c
+                // are dropped as they are re-evaluated below
+                let ny_end = if warm_start_doe.is_some() {
+                    nx + 1 + self.config.n_internal_cstr()
+                } else {
+                    doe.ncols()
+                };
+                if ny_end > doe.ncols() {
+                    return Err(EgoError::InvalidConfigError(format!(
+                        "Warm-start DOE has {} columns, expected at least {} (x, objective and internal constraints)",
+                        doe.ncols(),
+                        ny_end
+                    )));
+                }
                 (
-                    doe.slice(s![.., self.xlimits.nrows()..]).to_owned(),
-                    doe.slice(s![.., ..self.xlimits.nrows()]).to_owned(),
+                    doe.slice(s![.., nx..ny_end]).to_owned(),
+                    doe.slice(s![.., ..nx]).to_owned(),
                 )
             }
         } else {

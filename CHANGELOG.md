@@ -11,6 +11,8 @@
 * Fix mixed-integer sampling fairness: integer, ordered and enum levels are now sampled with equal probability
   (bounds of integer/ordered variables were under-sampled). It applies to `MixintContext`
   LHS/random sampling, Python `lhs`/`sampling` and `Egor` initial DOE
+* Fix `Egor` warm start with function constraints (`fcstrs`): saved function constraint values were read back
+  as objective/constraint outputs, making the first iteration panic
 
 ## Version 0.38.0 - 01/10/2026
 

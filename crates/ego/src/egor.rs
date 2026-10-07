@@ -890,6 +890,63 @@ mod tests {
         assert_abs_diff_eq!(expected, res.x_opt, epsilon = 1e-1);
     }
 
+    #[test]
+    #[serial]
+    fn test_xsinx_with_domain_constraint_warmstart_egor_builder() {
+        let outdir = "target/test_warmstart_fcstr";
+        let _ = std::fs::remove_dir_all(outdir);
+        let xlimits = array![[0.0, 25.0]];
+        let doe = array![[0.], [7.], [10.]];
+        let fcstr: Cstr = |x, g, _u| {
+            if let Some(g) = g {
+                g[0] = 1.
+            }
+            x[0] - 17.0
+        };
+        let _ = EgorBuilder::optimize(xsinx)
+            .subject_to(vec![fcstr])
+            .configure(|config| {
+                config
+                    .infill_strategy(InfillStrategy::EI)
+                    .infill_optimizer(InfillOptimizer::Cobyla)
+                    .max_iters(2)
+                    .doe(&doe)
+                    .outdir(outdir)
+                    .seed(42)
+            })
+            .min_within(&xlimits)
+            .expect("Egor configured")
+            .run()
+            .expect("Minimize failure");
+
+        // Saved doe layout is [x, y, c]
+        let filepath = std::path::Path::new(&outdir).join(DOE_FILE);
+        let saved_doe: Array2<f64> = read_npy(&filepath).expect("file read");
+        assert_eq!(saved_doe.ncols(), 3);
+
+        let n_iters = 2;
+        let res = EgorBuilder::optimize(xsinx)
+            .subject_to(vec![fcstr])
+            .configure(|config| {
+                config
+                    .infill_strategy(InfillStrategy::EI)
+                    .infill_optimizer(InfillOptimizer::Cobyla)
+                    .max_iters(n_iters)
+                    .outdir(outdir)
+                    .warm_start(true)
+                    .seed(42)
+            })
+            .min_within(&xlimits)
+            .expect("Egor configured")
+            .run()
+            .expect("Warm-start minimization");
+
+        // Function constraint values are not read back as objective outputs
+        assert_eq!(res.y_doe.ncols(), 1);
+        assert!(res.x_doe.nrows() > saved_doe.nrows());
+        let _ = std::fs::remove_dir_all(outdir);
+    }
+
     fn rosenb(x: &ArrayView2<f64>) -> Array2<f64> {
         let mut y: Array2<f64> = Array2::zeros((x.nrows(), 1));
         Zip::from(y.rows_mut())
