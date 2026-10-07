@@ -315,7 +315,17 @@ where
         };
         initial_state.target_cost = self.config.target;
 
-        let best_index = find_best_result_index(&y_data, &c_data, &initial_state.doe.cstr_tol);
+        let best_index = if self.config.n_obj() > 1 {
+            crate::moo::scalarization::compromise_index(
+                &y_data,
+                &c_data,
+                self.config.n_obj(),
+                &initial_state.doe.cstr_tol,
+            )
+            .unwrap_or(0)
+        } else {
+            find_best_result_index(&y_data, &c_data, &initial_state.doe.cstr_tol)
+        };
         initial_state.surrogate.best_index = Some(best_index);
         initial_state.surrogate.prev_best_index = initial_state.surrogate.best_index;
         initial_state.last_best_iter = 0;
@@ -369,6 +379,12 @@ where
             .prepare(&mut state, &self.xlimits);
         let mut new_state = match mode {
             IterationMode::Global => self.ego_iteration(problem, state)?,
+            IterationMode::Local { .. } if self.config.n_obj() > 1 => {
+                return Err(EgoError::InvalidConfigError(format!(
+                    "{} local steps are not supported with several objectives",
+                    self.config.iteration_strategy.name()
+                )));
+            }
             IterationMode::Local {
                 max_dist,
                 min_acceptance_distance,

@@ -38,6 +38,7 @@ fn non_dominated_among(
 
 /// Indices of the non-dominated rows of `objs` (ascending order).
 /// Rows with non finite values are never part of the front.
+#[allow(dead_code)] // used by upcoming per-objective strategies
 pub(crate) fn non_dominated_indices(objs: &ArrayBase<impl Data<Elem = f64>, Ix2>) -> Vec<usize> {
     let candidates: Vec<usize> = (0..objs.nrows())
         .filter(|&i| objs.row(i).iter().all(|v| v.is_finite()))

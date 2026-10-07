@@ -1,11 +1,12 @@
 use std::marker::PhantomData;
 
 use crate::errors::{EgoError, Result};
+use crate::moo::scalarization::compromise_index;
 use crate::solver::solver_computations::MiddlePickerMultiStarter;
 use crate::solver::solver_infill_optim::InfillOptProblem;
 use crate::utils::{
-    EGOBOX_LOG, find_best_result_index_from, is_feasible, select_from_portfolio, update_data,
-    usable_data,
+    EGOBOX_LOG, find_best_result_index_from, is_feasible, is_feasible_at, select_from_portfolio,
+    update_data, usable_data,
 };
 use crate::{ActivityStrategy, FullActivity, find_best_result_index};
 use crate::{DEFAULT_CSTR_TOL, EgorSolver, MAX_POINT_ADDITION_RETRY, ValidEgorConfig};
@@ -640,7 +641,30 @@ where
         }
         let init = new_state.get_iter() == 0;
 
+        let n_obj = self.config.n_obj();
+
         let (x_dat, c_dat, y_penalized) = loop {
+            // Multi-objective (ParEGO): surrogates are trained on a view of the data where the
+            // objectives are scalarized with weights randomly drawn at each try. As their
+            // training targets change, the surrogates are retrained (never incrementally updated).
+            let (scalarized_y, train_best_index) = if n_obj > 1 {
+                let weights =
+                    crate::moo::parego::draw_weights(n_obj, self.config.moo.n_divisions, &mut rng);
+                info!("ParEGO weights = {weights}");
+                let view = crate::moo::parego::scalarized_view(
+                    &y_data,
+                    n_obj,
+                    &weights,
+                    self.config.moo.rho,
+                );
+                let best = find_best_result_index(&view, &c_data, &state.doe.cstr_tol);
+                models.clear();
+                (Some(view), best)
+            } else {
+                (None, state.surrogate.best_index.unwrap())
+            };
+            let y_train = scalarized_y.as_ref().unwrap_or(&y_data);
+
             let pb = problem.inner();
             let fcstrs = pb.constraints();
             let fcstr_specs = pb.constraint_specs();
@@ -668,11 +692,11 @@ where
                 &mut search_models,
                 &state.coego.activity,
                 &x_data,
-                &y_data,
+                y_train,
                 &c_data,
                 state.surrogate.x_fail.as_ref(),
                 &state.doe.cstr_tol,
-                state.surrogate.best_index.unwrap(),
+                train_best_index,
                 fcstrs,
                 fcstr_specs,
                 state.feasibility,
@@ -798,26 +822,43 @@ where
         );
         new_state.doe.no_point_added_retries = MAX_POINT_ADDITION_RETRY;
 
-        // Only actually evaluated points (appended last) are candidates for the best,
-        // failed points with imputed values are not.
-        let best_index = find_best_result_index_from(
-            state.surrogate.best_index.unwrap(),
-            y_data.nrows() - valid_count,
-            &y_data,
-            &c_data,
-            &new_state.doe.cstr_tol,
-        );
+        let best_index = if n_obj > 1 {
+            // Compromise point of the Pareto front (recomputed as normalization changes)
+            compromise_index(&y_data, &c_data, n_obj, &new_state.doe.cstr_tol)
+                .unwrap_or(state.surrogate.best_index.unwrap())
+        } else {
+            // Only actually evaluated points (appended last) are candidates for the best,
+            // failed points with imputed values are not.
+            find_best_result_index_from(
+                state.surrogate.best_index.unwrap(),
+                y_data.nrows() - valid_count,
+                &y_data,
+                &c_data,
+                &new_state.doe.cstr_tol,
+            )
+        };
+        if n_obj > 1 && valid_count > 0 {
+            // Current cost is the evaluated point (not the virtual point of the scalarized view)
+            new_state.cost = Some(y_data.row(y_data.nrows() - 1).to_owned());
+        }
         new_state =
             new_state
                 .best_index(best_index)
                 .data((x_data.clone(), y_data.clone(), c_data.clone()));
         new_state.feasibility = state.feasibility
-            || is_feasible(
+            || is_feasible_at(
                 &y_data.row(best_index),
                 &c_data.row(best_index),
+                n_obj,
                 &new_state.doe.cstr_tol,
             );
-        {
+        if n_obj > 1 {
+            // Surrogates are retrained on the next scalarized view at next iteration
+            new_state = new_state
+                .clusterings(clusterings.clone())
+                .theta_inits(theta_inits.clone());
+            new_state.surrogate.models = models;
+        } else {
             // Incorporate the actually evaluated point(s) into the persisted
             // models (never the virtual/Kriging-believer values used only for
             // the batch search above, see `search_models`): see

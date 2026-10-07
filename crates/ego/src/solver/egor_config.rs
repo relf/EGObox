@@ -56,7 +56,7 @@
 //! ```
 
 use crate::utils::{EGOR_USE_GP_VAR_PORTFOLIO, EGOR_USE_STATE_RECORDING};
-use crate::{HotStartMode, criteria::*, errors::Result, types::*};
+use crate::{HotStartMode, MooConfig, criteria::*, errors::Result, types::*};
 use egobox_gp::ThetaTuning;
 use egobox_moe::NbClusters;
 use egobox_moe::Recombination;
@@ -356,6 +356,9 @@ pub struct ValidEgorConfig {
     pub(crate) iteration_strategy: Box<dyn IterationStrategy>,
     /// Strategy controlling variable activity (Full vs Cooperative/CoEGO)
     pub(crate) activity_strategy: Box<dyn ActivityStrategy>,
+    /// Multi-objective optimization configuration (used when n_obj > 1)
+    #[serde(default)]
+    pub(crate) moo: MooConfig,
 }
 
 impl Default for ValidEgorConfig {
@@ -388,6 +391,7 @@ impl Default for ValidEgorConfig {
             runtime_flags: RuntimeFlags::default(),
             iteration_strategy: Box::new(StandardEgoStrategy),
             activity_strategy: Box::new(FullActivity),
+            moo: MooConfig::default(),
         }
     }
 }
@@ -469,6 +473,24 @@ impl EgorConfig {
     /// of the function under optimization.
     pub fn n_doe(mut self, n_doe: usize) -> Self {
         self.0.n_doe = n_doe;
+        self
+    }
+
+    /// Sets the number of objectives (default 1)
+    ///
+    /// The objective function is then expected to return rows
+    /// `[obj_1, ..., obj_n_obj, cstr_1, ..., cstr_n_cstr]`.
+    /// With more than one objective, the Pareto front is approximated using the strategy
+    /// set with [`configure_moo`](Self::configure_moo) and retrieved with
+    /// [`crate::Egor::run_pareto`] (experimental).
+    pub fn n_obj(mut self, n_obj: usize) -> Self {
+        self.0.n_obj = n_obj;
+        self
+    }
+
+    /// Configure multi-objective optimization (used when `n_obj > 1`)
+    pub fn configure_moo<F: FnOnce(MooConfig) -> MooConfig>(mut self, init: F) -> Self {
+        self.0.moo = init(self.0.moo);
         self
     }
 
@@ -793,6 +815,38 @@ impl EgorConfig {
                 "CoEGO and KPLS both enabled: KPLS will be used for GP training, \
                  CoEGO for infill criterion optimization"
             );
+        }
+
+        if config.n_obj == 0 {
+            return Err(crate::EgoError::InvalidConfigError(
+                "EgorConfig invalid: n_obj should be at least 1".to_string(),
+            ));
+        }
+        if config.n_obj > 1 {
+            let unsupported = if config.iteration_strategy.name() != StandardEgoStrategy.name() {
+                Some(format!(
+                    "{} iteration strategy",
+                    config.iteration_strategy.name()
+                ))
+            } else if config.activity_strategy.is_cooperative() {
+                Some("CoEGO".to_string())
+            } else if config.target != f64::MIN {
+                Some("target".to_string())
+            } else if config.failsafe_strategy == FailsafeStrategy::Imputation {
+                Some("Imputation failsafe strategy".to_string())
+            } else {
+                None
+            };
+            if let Some(feature) = unsupported {
+                return Err(crate::EgoError::InvalidConfigError(format!(
+                    "EgorConfig invalid: {feature} is not supported with several objectives (n_obj = {})",
+                    config.n_obj
+                )));
+            }
+            if config.runtime_flags.use_gp_var_portfolio {
+                log::warn!("GP variance portfolio is ignored with several objectives");
+                config.runtime_flags.use_gp_var_portfolio = false;
+            }
         }
 
         // Feasible infill strategy not implemented for LogEI, so warn if selected

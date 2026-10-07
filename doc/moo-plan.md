@@ -188,35 +188,38 @@ Each step is one PR or a few PRs. Each keeps CI green and respects the contract 
 - Unit tests on analytic fronts (ZDT1/2, DTLZ2 samples) and hand-computed hypervolumes. No solver
   change in this step.
 
-### Step 3 — MOO v1: ParEGO and the public API (experimental)
+### Step 3 — MOO v1: ParEGO and the public API (experimental) — done
 - Expose `EgorConfig::n_obj`, `configure_moo`, `MooConfig`, `MooStrategy::ParEgo`,
   `Egor::run_pareto` and `ParetoResult`.
 - `check()` validates `n_obj ≥ 1`. With `n_obj > 1`:
-  - It rejects TREGO, CoEGO, `target` and `FailsafeStrategy::Imputation` with explicit errors.
-    Imputation is lifted in Step 6.
+  - It rejects TREGO (any non-standard iteration strategy), CoEGO, `target` and
+    `FailsafeStrategy::Imputation` with explicit errors. Imputation is lifted in Step 6.
   - The GP-variance portfolio flag is ignored with a warning, since it can come from an environment
     variable.
   - A runtime guard covers custom `IterationStrategy` impls that return `IterationMode::Local`.
-- Scalarized path in `ego_step`:
-  1. Draw λ from the RNG (MOO path only).
-  2. Build the `[s_λ | cstrs]` view.
-  3. Train the scalarized model fresh, with theta warm-started from `theta_inits[0]` through
-     `make_clustered_surrogate` (`solver_impl.rs:186`). Its targets change every iteration, so it
-     must never go through the incremental `update` path: `models_up_to_date` would wrongly accept
-     it.
-  4. Run `select_next_points` on the view. The constraint models are already up to date.
+  - The ask-and-tell `EgorServiceBuilder` rejects `n_obj > 1` until Step 6.
+- Scalarized path in `ego_step`, for each try of the point-addition loop:
+  1. Draw λ from the RNG (MOO path only). Drawing new weights on retry matters: with the same λ,
+     a rejected point (too close to the data) tends to be proposed again until the solver stops.
+  2. Build the `[s_λ | cstrs]` view (`moo/parego.rs`).
+  3. Clear the persisted surrogates, so that `select_next_points` retrains all of them on the view
+     (theta warm-started from `theta_inits`). The scalarized targets change at every try, so the
+     incremental `update` path must never be used: `models_up_to_date` only compares row counts.
+  4. Run `select_next_points` on the view, with the best index of the view.
   5. Evaluate the new points, then `update_data` on the raw data.
-  6. Recompute the Pareto set and compromise index from all data.
-  7. Refresh only the constraint models.
-- Plumbing: `init_state`, untransforming with the objective offset in `run()`/`run_pareto()`, and an
-  optional new `egor_pareto.npy` in `outdir`.
+  6. Recompute the compromise index from all data; the current cost is the evaluated point.
+  7. Skip the end-of-iteration model refresh (models are retrained at next iteration).
+- Plumbing: `init_state` (compromise index), untransforming with the objective offset in
+  `run()`/`run_pareto()`. A per-iteration `egor_pareto.npy` in `outdir` is not done.
 - Tests in `crates/ego/tests/moo.rs`:
-  - ZDT1 (2 objectives), BNH (2 objectives, 2 constraints) and DTLZ2 (3 objectives), with
-    hypervolume-ratio thresholds.
+  - ZDT1 (2 objectives, hypervolume above 85 % of the true front one, 95.8 % in practice),
+    BNH (2 objectives, 2 constraints, feasible front reaching both extremes) and DTLZ2
+    (3 objectives, mean distance to the true front).
   - Seeded determinism.
   - Hot-start continuation equals an uninterrupted run.
   - A mixed-integer variant.
   - `cstr_specs` with m = 2.
+  - Unsupported configurations, `run()` compromise point, mono-objective `run_pareto()`.
 - Example: `crates/ego/examples/zdt1.rs`.
 
 ### Step 4 — Per-objective surrogates and EIM

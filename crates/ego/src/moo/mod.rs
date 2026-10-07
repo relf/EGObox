@@ -3,9 +3,14 @@
 //!
 //! All objectives are minimized.
 
-// Used by multi-objective solver strategies (not wired in the solver yet)
-#![allow(dead_code)]
-
+mod config;
+// Used by hypervolume-based strategies and termination (not available yet)
+#[allow(dead_code)]
 pub(crate) mod hypervolume;
+pub(crate) mod parego;
 pub(crate) mod pareto;
+mod result;
 pub(crate) mod scalarization;
+
+pub use config::{MooConfig, MooStrategy};
+pub use result::ParetoResult;

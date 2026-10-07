@@ -152,7 +152,9 @@
 use crate::EgoError;
 use crate::EgorConfig;
 use crate::EgorState;
+use crate::ParetoResult;
 use crate::errors::Result;
+use crate::moo::pareto::pareto_front_indices;
 use crate::types::*;
 use crate::{EgorSolver, to_xtypes};
 use egobox_moe::{MixintGpMixtureParams, to_discrete_space};
@@ -413,6 +415,49 @@ impl<O: ObjFn, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> E
         info!("Optim Result: min f(x)={} at x={}", res.y_opt, res.x_opt);
 
         Ok(res)
+    }
+
+    /// Runs the (constrained) optimization of the objective(s) and returns the
+    /// (constrained) Pareto front approximation (experimental).
+    ///
+    /// With one objective, the Pareto set reduces to the optimum found by [`Egor::run`].
+    ///
+    /// ```no_run
+    /// # use ndarray::{array, Array2, ArrayView2, Axis, concatenate};
+    /// # use egobox_ego::EgorBuilder;
+    /// // ZDT1 test function with x in [0, 1]^2
+    /// fn zdt1(x: &ArrayView2<f64>) -> Array2<f64> {
+    ///     let f1 = x.column(0).to_owned();
+    ///     let g = x.column(1).mapv(|v| 1. + 9. * v);
+    ///     let f2 = &g * (1. - (&f1 / &g).mapv(f64::sqrt));
+    ///     concatenate![Axis(1), f1.insert_axis(Axis(1)), f2.insert_axis(Axis(1))]
+    /// }
+    ///
+    /// let res = EgorBuilder::optimize(zdt1)
+    ///     .configure(|config| config.n_obj(2).max_iters(30).seed(42))
+    ///     .min_within(&array![[0., 1.], [0., 1.]])
+    ///     .expect("optimizer configured")
+    ///     .run_pareto()
+    ///     .expect("ZDT1 optimized");
+    /// println!("Pareto front: {}", res.y_pareto);
+    /// ```
+    pub fn run_pareto(&self) -> Result<ParetoResult<f64>> {
+        let res = self.run()?;
+        let n_obj = self.solver.config.n_obj();
+        let indices = match (n_obj > 1, res.state.surrogate.data.as_ref()) {
+            (true, Some((_, y_data, c_data))) => {
+                pareto_front_indices(y_data, c_data, n_obj, &res.state.doe.cstr_tol)
+            }
+            _ => res.state.surrogate.best_index.into_iter().collect(),
+        };
+        // Result DOE rows are in the same order as the internal data rows
+        Ok(ParetoResult {
+            x_pareto: res.x_doe.select(Axis(0), &indices),
+            y_pareto: res.y_doe.select(Axis(0), &indices),
+            x_doe: res.x_doe,
+            y_doe: res.y_doe,
+            state: res.state,
+        })
     }
 
     /// Set execution metadata used to qualify optimization run
