@@ -228,6 +228,10 @@ Structural and multidisciplinary optimization 43.2 (2011): 243-259.
 Jones, D. R., Schonlau, M., & Welch, W. J. (1998).
 [Efficient global optimization of expensive black-box functions. Journal of Global Optimization](https://www.researchgate.net/publication/235709802_Efficient_Global_Optimization_of_Expensive_Black-Box_Functions), 13(4), 455–492.
 
+Knowles, J. (2006).
+[ParEGO: a hybrid algorithm with on-line landscape approximation for expensive multiobjective optimization problems](https://doi.org/10.1109/TEVC.2005.851274).
+IEEE Transactions on Evolutionary Computation, 10(1), 50–66.
+
 Diouane, Youssef, et al. (2023).
 [TREGO: a trust-region framework for efficient global optimization](https://arxiv.org/pdf/2101.06808).
 Journal of Global Optimization 86.1 (2023): 1-23.
