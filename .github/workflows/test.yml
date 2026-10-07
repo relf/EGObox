@@ -51,6 +51,18 @@ jobs:
         with:
           python-version: '3.12' 
 
+      # Temporary: record Linux mono-objective snapshot fixtures
+      - name: Record mono snapshots
+        if: matrix.os == 'ubuntu-latest' && matrix.backend == 'default' && matrix.toolchain == 'stable'
+        run: EGOBOX_UPDATE_SNAPSHOTS=1 cargo test --release -p egobox-ego --test mono_snapshots
+
+      - name: Upload mono snapshots
+        if: matrix.os == 'ubuntu-latest' && matrix.backend == 'default' && matrix.toolchain == 'stable'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mono-snapshots-linux-default
+          path: crates/ego/tests/snapshots/linux-default
+
       - name: Run cargo test in release mode
         uses: actions-rs/cargo@v1
         with:

@@ -4,7 +4,7 @@
 //! bit for bit against a `.npy` fixture stored in `tests/snapshots/<os>-<backend>/`.
 //! Floating point results differ across OS and optimizer/linear algebra backends,
 //! hence fixtures are recorded per platform: a scenario without fixture for the current
-//! platform is skipped.
+//! platform is skipped, unless `EGOBOX_REQUIRE_SNAPSHOTS=1` is set (reference CI job).
 //!
 //! Record (or update) fixtures with `EGOBOX_UPDATE_SNAPSHOTS=1 cargo test --release --test mono_snapshots`.
 //! A fixture update has to be committed separately and explicitly reviewed.
@@ -22,6 +22,7 @@ use serial_test::serial;
 use std::path::PathBuf;
 
 const UPDATE_ENV: &str = "EGOBOX_UPDATE_SNAPSHOTS";
+const REQUIRE_ENV: &str = "EGOBOX_REQUIRE_SNAPSHOTS";
 
 fn snapshot_dir() -> PathBuf {
     let mut backend = vec![];
@@ -54,6 +55,10 @@ fn check_snapshot(name: &str, res: &OptimResult<f64>) {
         return;
     }
     if !filepath.exists() {
+        assert!(
+            std::env::var(REQUIRE_ENV).as_deref() != Ok("1"),
+            "Missing snapshot {filepath:?} while {REQUIRE_ENV}=1"
+        );
         eprintln!("No snapshot {filepath:?} for this platform: skipped");
         return;
     }

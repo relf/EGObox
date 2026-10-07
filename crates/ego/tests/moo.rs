@@ -336,6 +336,46 @@ fn test_moo_unsupported_configurations() {
             .min_within(&xlimits)
             .is_ok()
     );
+    for rho in [-1., f64::NAN, f64::INFINITY] {
+        assert!(
+            EgorBuilder::optimize(zdt1)
+                .configure(|cfg| cfg.n_obj(2).configure_moo(|moo| moo.rho(rho)))
+                .min_within(&xlimits)
+                .is_err()
+        );
+    }
+    assert!(
+        EgorBuilder::optimize(zdt1)
+            .configure(|cfg| cfg.n_obj(2).configure_moo(|moo| moo.n_divisions(0)))
+            .min_within(&xlimits)
+            .is_err()
+    );
+}
+
+#[test]
+#[serial]
+fn test_zdt1_parego_qei_state_param_and_cost_match() {
+    let res = EgorBuilder::optimize(zdt1)
+        .configure(|cfg| {
+            cfg.n_obj(2)
+                .n_doe(10)
+                .configure_qei(|qei| qei.batch(3))
+                .max_iters(3)
+                .seed(42)
+        })
+        .min_within(&array![[0., 1.], [0., 1.]])
+        .expect("Egor configured")
+        .run_pareto()
+        .expect("ZDT1 optimization");
+    let param = res.state.param.as_ref().expect("current param");
+    let cost = res.state.cost.as_ref().expect("current cost");
+    let index = res
+        .x_doe
+        .rows()
+        .into_iter()
+        .position(|x| x == param)
+        .expect("current param is an evaluated point");
+    assert_eq!(res.y_doe.row(index), cost);
 }
 
 #[test]

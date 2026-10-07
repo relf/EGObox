@@ -302,11 +302,11 @@ pub struct ValidEgorConfig {
     /// Note: n_doe > 0; otherwise n_doe = max(xdim + 1, 5)
     pub(crate) n_doe: usize,
     /// Number of objectives
-    /// Note: dim function ouput = n_obj objectives + n_cstr constraints
+    /// Note: dim function output = n_obj objectives + n_cstr constraints
     #[serde(default = "default_n_obj")]
     pub(crate) n_obj: usize,
     /// Number of Constraints
-    /// Note: dim function ouput = n_obj objectives + n_cstr constraints
+    /// Note: dim function output = n_obj objectives + n_cstr constraints
     pub(crate) n_cstr: usize,
     /// Optional constraints violation tolerance meaning cstr < cstr_tol is considered valid
     pub(crate) cstr_tol: Option<Array1<f64>>,
@@ -537,7 +537,7 @@ impl EgorConfig {
 
     /// Sets an initial DOE \['ns', `nt`\] containing `ns` samples.
     ///
-    /// Either `nt` = `nx` then only `x` input values are specified and `ns` evals are done to get y ouput doe values,
+    /// Either `nt` = `nx` then only `x` input values are specified and `ns` evals are done to get y output doe values,
     /// or `nt = nx + ny` then `x = doe\[:, :nx\]` and `y = doe\[:, nx:\]` are specified
     pub fn doe(mut self, doe: &Array2<f64>) -> Self {
         self.0.doe = Some(doe.to_owned());
@@ -832,6 +832,17 @@ impl EgorConfig {
             return Err(crate::EgoError::InvalidConfigError(
                 "EgorConfig invalid: n_obj should be at least 1".to_string(),
             ));
+        }
+        if config.moo.n_divisions == Some(0) {
+            return Err(crate::EgoError::InvalidConfigError(
+                "EgorConfig invalid: MOO n_divisions should be at least 1".to_string(),
+            ));
+        }
+        if !config.moo.rho.is_finite() || config.moo.rho < 0. {
+            return Err(crate::EgoError::InvalidConfigError(format!(
+                "EgorConfig invalid: MOO rho should be a finite non-negative value, got {}",
+                config.moo.rho
+            )));
         }
         if config.n_obj > 1 {
             let unsupported = if config.iteration_strategy.name() != StandardEgoStrategy.name() {

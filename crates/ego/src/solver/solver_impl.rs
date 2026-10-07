@@ -845,8 +845,11 @@ where
             )
         };
         if n_obj > 1 && valid_count > 0 {
-            // Current cost is the evaluated point (not the virtual point of the scalarized view)
-            new_state.cost = Some(y_data.row(y_data.nrows() - 1).to_owned());
+            // Current param and cost are those of the last valid evaluated point
+            // (not the virtual point of the scalarized view)
+            let last = y_data.nrows() - 1;
+            new_state.param = Some(x_data.row(last).to_owned());
+            new_state.cost = Some(y_data.row(last).to_owned());
         }
         new_state =
             new_state
