@@ -8,7 +8,16 @@ use std::iter::zip;
 
 /// Compute sum of constraints above tolerance where y is [obj, cstr1, cstr2, ..., cstrn]
 fn cstr_sum<F: Float>(y: &ArrayBase<impl Data<Elem = F>, Ix1>, cstr_tol: &Array1<F>) -> F {
-    y.slice(s![1..])
+    cstr_sum_at(y, 1, cstr_tol)
+}
+
+/// Compute sum of constraints above tolerance where y is [obj_1, ..., obj_n_obj, cstr1, ..., cstrn]
+pub(crate) fn cstr_sum_at<F: Float>(
+    y: &ArrayBase<impl Data<Elem = F>, Ix1>,
+    n_obj: usize,
+    cstr_tol: &Array1<F>,
+) -> F {
+    y.slice(s![n_obj..])
         .iter()
         .enumerate()
         .filter(|&(ref i, &c)| c > cstr_tol[*i])
@@ -162,9 +171,19 @@ pub fn is_feasible<F: Float>(
     c: &ArrayBase<impl Data<Elem = F>, Ix1>,
     cstr_tol: &Array1<F>,
 ) -> bool {
+    is_feasible_at(y, c, 1, cstr_tol)
+}
+
+/// Same as [`is_feasible`] where y is [obj_1, ..., obj_n_obj, cstr1, ..., cstrn]
+pub(crate) fn is_feasible_at<F: Float>(
+    y: &ArrayBase<impl Data<Elem = F>, Ix1>,
+    c: &ArrayBase<impl Data<Elem = F>, Ix1>,
+    n_obj: usize,
+    cstr_tol: &Array1<F>,
+) -> bool {
     let y_c = concatenate![Axis(0), y.to_owned(), c.to_owned()];
-    if y_c.len() > 1 {
-        let sum_c = cstr_sum(&y_c, cstr_tol);
+    if y_c.len() > n_obj {
+        let sum_c = cstr_sum_at(&y_c, n_obj, cstr_tol);
         sum_c == F::zero()
     } else {
         true

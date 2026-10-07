@@ -56,7 +56,7 @@
 //! ```
 
 use crate::utils::{EGOR_USE_GP_VAR_PORTFOLIO, EGOR_USE_STATE_RECORDING};
-use crate::{HotStartMode, criteria::*, errors::Result, types::*};
+use crate::{HotStartMode, MooConfig, criteria::*, errors::Result, types::*};
 use egobox_gp::ThetaTuning;
 use egobox_moe::NbClusters;
 use egobox_moe::Recombination;
@@ -301,8 +301,12 @@ pub struct ValidEgorConfig {
     /// Number of initial doe drawn using Latin hypercube sampling
     /// Note: n_doe > 0; otherwise n_doe = max(xdim + 1, 5)
     pub(crate) n_doe: usize,
+    /// Number of objectives
+    /// Note: dim function output = n_obj objectives + n_cstr constraints
+    #[serde(default = "default_n_obj")]
+    pub(crate) n_obj: usize,
     /// Number of Constraints
-    /// Note: dim function ouput = 1 objective + n_cstr constraints
+    /// Note: dim function output = n_obj objectives + n_cstr constraints
     pub(crate) n_cstr: usize,
     /// Optional constraints violation tolerance meaning cstr < cstr_tol is considered valid
     pub(crate) cstr_tol: Option<Array1<f64>>,
@@ -352,6 +356,9 @@ pub struct ValidEgorConfig {
     pub(crate) iteration_strategy: Box<dyn IterationStrategy>,
     /// Strategy controlling variable activity (Full vs Cooperative/CoEGO)
     pub(crate) activity_strategy: Box<dyn ActivityStrategy>,
+    /// Multi-objective optimization configuration (used when n_obj > 1)
+    #[serde(default)]
+    pub(crate) moo: MooConfig,
 }
 
 impl Default for ValidEgorConfig {
@@ -360,6 +367,7 @@ impl Default for ValidEgorConfig {
             max_iters: EGO_DEFAULT_MAX_ITERS,
             n_start: EGO_DEFAULT_N_START,
             n_doe: 0,
+            n_obj: 1,
             n_cstr: 0,
             cstr_tol: None,
             cstr_specs: None,
@@ -383,6 +391,7 @@ impl Default for ValidEgorConfig {
             runtime_flags: RuntimeFlags::default(),
             iteration_strategy: Box::new(StandardEgoStrategy),
             activity_strategy: Box::new(FullActivity),
+            moo: MooConfig::default(),
         }
     }
 }
@@ -404,6 +413,46 @@ impl ValidEgorConfig {
             self.n_cstr
         }
     }
+
+    /// Number of objectives
+    pub(crate) fn n_obj(&self) -> usize {
+        self.n_obj
+    }
+
+    /// Number of surrogate models of the objective(s)
+    pub(crate) fn n_obj_models(&self) -> usize {
+        1
+    }
+
+    /// Number of surrogate models: objective(s) models then constraint models
+    pub(crate) fn n_surrogates(&self) -> usize {
+        self.n_obj_models() + self.n_internal_cstr()
+    }
+
+    /// Number of columns of the objective function output: objectives then raw constraints
+    pub(crate) fn ny_raw(&self) -> usize {
+        self.n_obj + self.n_cstr
+    }
+
+    /// Max number of tries without adding a point before the solver is considered converged.
+    /// With several objectives, every ParEGO weight vector is tried once.
+    pub(crate) fn max_point_addition_retries(&self) -> i32 {
+        let retries = crate::MAX_POINT_ADDITION_RETRY;
+        if self.n_obj > 1 {
+            retries.max(crate::moo::parego::n_weights(self.n_obj, self.moo.n_divisions) as i32)
+        } else {
+            retries
+        }
+    }
+
+    /// Number of columns of the internal output data: objectives then internal constraints
+    pub(crate) fn ny_internal(&self) -> usize {
+        self.n_obj + self.n_internal_cstr()
+    }
+}
+
+fn default_n_obj() -> usize {
+    1
 }
 
 /// Egor optimizer configuration builder
@@ -435,6 +484,24 @@ impl EgorConfig {
     /// of the function under optimization.
     pub fn n_doe(mut self, n_doe: usize) -> Self {
         self.0.n_doe = n_doe;
+        self
+    }
+
+    /// Sets the number of objectives (default 1)
+    ///
+    /// The objective function is then expected to return rows
+    /// `[obj_1, ..., obj_n_obj, cstr_1, ..., cstr_n_cstr]`.
+    /// With more than one objective, the Pareto front is approximated using the strategy
+    /// set with [`configure_moo`](Self::configure_moo) and retrieved with
+    /// [`crate::Egor::run_pareto`] (experimental).
+    pub fn n_obj(mut self, n_obj: usize) -> Self {
+        self.0.n_obj = n_obj;
+        self
+    }
+
+    /// Configure multi-objective optimization (used when `n_obj > 1`)
+    pub fn configure_moo<F: FnOnce(MooConfig) -> MooConfig>(mut self, init: F) -> Self {
+        self.0.moo = init(self.0.moo);
         self
     }
 
@@ -470,7 +537,7 @@ impl EgorConfig {
 
     /// Sets an initial DOE \['ns', `nt`\] containing `ns` samples.
     ///
-    /// Either `nt` = `nx` then only `x` input values are specified and `ns` evals are done to get y ouput doe values,
+    /// Either `nt` = `nx` then only `x` input values are specified and `ns` evals are done to get y output doe values,
     /// or `nt = nx + ny` then `x = doe\[:, :nx\]` and `y = doe\[:, nx:\]` are specified
     pub fn doe(mut self, doe: &Array2<f64>) -> Self {
         self.0.doe = Some(doe.to_owned());
@@ -759,6 +826,49 @@ impl EgorConfig {
                 "CoEGO and KPLS both enabled: KPLS will be used for GP training, \
                  CoEGO for infill criterion optimization"
             );
+        }
+
+        if config.n_obj == 0 {
+            return Err(crate::EgoError::InvalidConfigError(
+                "EgorConfig invalid: n_obj should be at least 1".to_string(),
+            ));
+        }
+        if config.moo.n_divisions == Some(0) {
+            return Err(crate::EgoError::InvalidConfigError(
+                "EgorConfig invalid: MOO n_divisions should be at least 1".to_string(),
+            ));
+        }
+        if !config.moo.rho.is_finite() || config.moo.rho < 0. {
+            return Err(crate::EgoError::InvalidConfigError(format!(
+                "EgorConfig invalid: MOO rho should be a finite non-negative value, got {}",
+                config.moo.rho
+            )));
+        }
+        if config.n_obj > 1 {
+            let unsupported = if config.iteration_strategy.name() != StandardEgoStrategy.name() {
+                Some(format!(
+                    "{} iteration strategy",
+                    config.iteration_strategy.name()
+                ))
+            } else if config.activity_strategy.is_cooperative() {
+                Some("CoEGO".to_string())
+            } else if config.target != f64::MIN {
+                Some("target".to_string())
+            } else if config.failsafe_strategy == FailsafeStrategy::Imputation {
+                Some("Imputation failsafe strategy".to_string())
+            } else {
+                None
+            };
+            if let Some(feature) = unsupported {
+                return Err(crate::EgoError::InvalidConfigError(format!(
+                    "EgorConfig invalid: {feature} is not supported with several objectives (n_obj = {})",
+                    config.n_obj
+                )));
+            }
+            if config.runtime_flags.use_gp_var_portfolio {
+                log::warn!("GP variance portfolio is ignored with several objectives");
+                config.runtime_flags.use_gp_var_portfolio = false;
+            }
         }
 
         // Feasible infill strategy not implemented for LogEI, so warn if selected

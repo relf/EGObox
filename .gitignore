@@ -21,6 +21,7 @@
 **/*.json
 **/*.bin
 *.npy
+!crates/ego/tests/snapshots/**/*.npy
 input.txt
 output.txt
 mopta08.exe

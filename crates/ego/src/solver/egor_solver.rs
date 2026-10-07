@@ -95,7 +95,7 @@ use crate::solver::solver_impl::DataClustering;
 use crate::utils::{
     EGOR_USE_GP_VAR_PORTFOLIO, EGOR_USE_STATE_RECORDING, filter_nans, find_best_result_index,
 };
-use crate::{EgoError, EgorState, MAX_POINT_ADDITION_RETRY, ValidEgorConfig};
+use crate::{EgoError, EgorState, ValidEgorConfig};
 
 use crate::types::*;
 
@@ -198,10 +198,10 @@ where
                 info!("Use specified DOE {} samples", doe.nrows());
                 let nx = self.xlimits.nrows();
                 // Warm-start DOE is either [x, y] or [x, y, c] with y in internal layout
-                // (1 objective + internal constraints): saved function constraint values c
+                // (objectives + internal constraints): saved function constraint values c
                 // are dropped as they are re-evaluated below
                 let ny_end = if warm_start_doe.is_some() {
-                    nx + 1 + self.config.n_internal_cstr()
+                    nx + self.config.ny_internal()
                 } else {
                     doe.ncols()
                 };
@@ -238,7 +238,7 @@ where
         let y_data = if warm_start_doe.is_none()
             && let Some(ref specs) = self.config.cstr_specs
         {
-            crate::types::transform_constraints(&y_data, specs)
+            crate::types::transform_constraints_at(&y_data, self.config.n_obj(), specs)
         } else {
             y_data
         };
@@ -251,8 +251,8 @@ where
         }
 
         let n_int_cstr = self.config.n_internal_cstr();
-        let clusterings = vec![None; n_int_cstr + 1];
-        let theta_inits = vec![None; n_int_cstr + 1];
+        let clusterings = vec![None; self.config.n_surrogates()];
+        let theta_inits = vec![None; self.config.n_surrogates()];
 
         let c_data = self.eval_problem_fcstrs(problem, &x_data);
 
@@ -290,7 +290,7 @@ where
 
         initial_state.doe.doe_size = doe.nrows();
         initial_state.max_iters = self.config.max_iters as u64;
-        initial_state.doe.no_point_added_retries = MAX_POINT_ADDITION_RETRY;
+        initial_state.doe.no_point_added_retries = self.config.max_point_addition_retries();
         let n_total_cstr = n_int_cstr + c_data.ncols();
         initial_state.doe.cstr_tol = if let Some(cstr_tol) = self.config.cstr_tol.clone() {
             if cstr_tol.len() > n_total_cstr {
@@ -315,7 +315,17 @@ where
         };
         initial_state.target_cost = self.config.target;
 
-        let best_index = find_best_result_index(&y_data, &c_data, &initial_state.doe.cstr_tol);
+        let best_index = if self.config.n_obj() > 1 {
+            crate::moo::scalarization::compromise_index(
+                &y_data,
+                &c_data,
+                self.config.n_obj(),
+                &initial_state.doe.cstr_tol,
+            )
+            .unwrap_or(0)
+        } else {
+            find_best_result_index(&y_data, &c_data, &initial_state.doe.cstr_tol)
+        };
         initial_state.surrogate.best_index = Some(best_index);
         initial_state.surrogate.prev_best_index = initial_state.surrogate.best_index;
         initial_state.last_best_iter = 0;
@@ -369,6 +379,12 @@ where
             .prepare(&mut state, &self.xlimits);
         let mut new_state = match mode {
             IterationMode::Global => self.ego_iteration(problem, state)?,
+            IterationMode::Local { .. } if self.config.n_obj() > 1 => {
+                return Err(EgoError::InvalidConfigError(format!(
+                    "{} local steps are not supported with several objectives",
+                    self.config.iteration_strategy.name()
+                )));
+            }
             IterationMode::Local {
                 max_dist,
                 min_acceptance_distance,

@@ -348,6 +348,7 @@ mod types;
 
 pub use crate::egor::*;
 pub use crate::errors::*;
+pub use crate::moo::{MooConfig, MooStrategy, ParetoResult};
 pub use crate::solver::*;
 pub use crate::types::*;
 pub use crate::utils::{
@@ -356,5 +357,6 @@ pub use crate::utils::{
 };
 pub use egobox_moe::{CorrelationSpec, RegressionSpec};
 
+mod moo;
 mod optimizers;
 mod utils;

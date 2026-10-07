@@ -88,7 +88,7 @@ impl<C: CstrFn> EgorServiceFactory<C> {
     ) -> Result<EgorServiceApi<GpMixtureParams<f64>, C>> {
         let config = self.config.xtypes(&to_xtypes(xlimits));
         Ok(EgorServiceApi {
-            solver: EgorSolver::new(config.check()?),
+            solver: EgorSolver::new(check_service_config(config)?),
         })
     }
 
@@ -101,9 +101,20 @@ impl<C: CstrFn> EgorServiceFactory<C> {
     ) -> Result<EgorServiceApi<MixintGpMixtureParams, C>> {
         let config = self.config.xtypes(xtypes);
         Ok(EgorServiceApi {
-            solver: EgorSolver::new(config.check()?),
+            solver: EgorSolver::new(check_service_config(config)?),
         })
     }
+}
+
+/// Checks the configuration for the ask-and-tell interface
+fn check_service_config(config: EgorConfig) -> Result<crate::ValidEgorConfig> {
+    let config = config.check()?;
+    if config.n_obj() > 1 {
+        return Err(crate::EgoError::InvalidConfigError(
+            "Ask-and-tell interface does not support several objectives yet".to_string(),
+        ));
+    }
+    Ok(config)
 }
 
 /// Egor optimizer service API.

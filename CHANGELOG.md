@@ -1,5 +1,13 @@
 # Changes
 
+## Unreleased
+
+* Experimental multi-objective optimization in Rust `Egor` with ParEGO: `EgorConfig::n_obj()`,
+  `EgorConfig::configure_moo()` and `Egor::run_pareto()` returning the (constrained) Pareto front
+  approximation (see [plan](doc/moo-plan.md)). Mono-objective optimization is unchanged
+* `EgorState::param` and `EgorState::cost` (current point) now hold the first evaluated point of the
+  iteration and its evaluated value (instead of the first proposed point and its surrogate prediction)
+
 ## Version 0.38.1 - unreleased
 
 * Fix function constraints (`fcstrs`) with mixed-integer inputs: they now receive `x` in folded discrete space

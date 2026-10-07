@@ -57,7 +57,7 @@ println!("{}", res.y_pareto);
   point are recomputed from `state.surrogate.data` each iteration. ParEGO weights are drawn from the
   state RNG, so hot start stays exact.
 - Expose the minimum: the MOO criterion abstraction stays crate-private until it is stable.
-- Every PR must pass `cargo semver-checks check-release -p egobox-ego --baseline-version 0.41.1`
+- Every PR must pass `cargo semver-checks check-release -p egobox-ego --baseline-rev <base>`
   cleanly and keep the mono snapshot tests green (Step 0).
 
 ## 3. Code review: where single-objective is assumed
@@ -133,7 +133,7 @@ is documented and not used for decisions in MOO mode.
 
 Each step is one PR or a few PRs. Each keeps CI green and respects the contract in §2.
 
-### Step 0 — Safety net (tests and tooling only)
+### Step 0 — Safety net (tests and tooling only) — done
 - Add mono snapshot tests in `crates/ego/tests/mono_snapshots.rs`, next to `execution_contract.rs`:
   - Scenarios, all seeded:
     - xsinx with EI, LogEI and WB2.
@@ -144,74 +144,88 @@ Each step is one PR or a few PRs. Each keeps CI green and respects the contract 
     - Failsafe imputation and viability.
     - TREGO, CoEGO.
     - Warm start, hot-start continuation.
-  - Store `x_doe`/`y_doe` from current master as `.npy` fixtures and assert exact equality.
-  - Exact comparison runs only on the reference CI job (ubuntu, default backend), because floating
-    point results differ across OS libm and the `c-cobyla`/`c-slsqp`/`blas` backends. The other jobs
-    just run the scenarios.
+  - Store `[x_doe, y_doe]` from current master as `.npy` fixtures in
+    `crates/ego/tests/snapshots/<os>-<backend>/` and compare them with a tight tolerance
+    (1e-8 + 1e-6 × the column magnitude, as values close to zero such as active constraints
+    amplify tiny differences of the evaluated points). Floating point results differ across OS libm and the
+    `c-cobyla`/`c-slsqp`/`blas` backends, so fixtures are per platform and a scenario without
+    fixture for the current platform is skipped. Exact equality is not usable: on a given OS, math
+    library code paths depend on the CPU, and CI runners differ from developer machines by ~1e-9.
+    Fixtures are recorded with `EGOBOX_UPDATE_SNAPSHOTS=1`: `windows-default` (local) and
+    `linux-default` (recorded on the CI ubuntu runner). The ubuntu stable default job sets
+    `EGOBOX_REQUIRE_SNAPSHOTS=1` so that a missing fixture fails.
   - A legitimate fixture update must be its own, explicitly reviewed commit.
-- Add a `cargo semver-checks` step (baseline 0.41.1) to `.github/workflows/lint.yml`.
+- Add a `cargo semver-checks` job to `.github/workflows/lint.yml`, run on pull requests against the
+  base branch (0.41.1 is not published on crates.io, so there is no registry baseline).
 
-### Step 1 — Internal refactor: explicit output layout (no behavior change)
+### Step 1 — Internal refactor: explicit output layout (no behavior change) — done
 - `ValidEgorConfig` gets `pub(crate) n_obj: usize` (default 1, `#[serde(default)]`), not settable
   yet. Helpers: `n_obj()`, `n_obj_models()` (1 for Single and Scalarized, m for PerObjective),
   `n_surrogates()`, `ny_raw() = n_obj + n_cstr`, `ny_internal() = n_obj + n_internal_cstr()`.
 - Offset-aware internal variants:
   - `transform_constraints_at(y, n_obj, specs)` and `untransform_constraints_at`.
   - `output_mapping(n_obj_models, specs)`.
-  - `find_best_result_index_at(.., n_obj)`.
-  - `cstr_min` and `is_feasible` with an offset.
+  - `cstr_sum_at` and `is_feasible_at` (violation and feasibility with `n_obj` leading columns).
 
-  The current public functions become wrappers with `n_obj = 1`.
-- Column-aware model management: `train_all_columns`, `train_with_mapping`, `update_models`,
-  `refresh_models` and `sync_clustering_and_theta_inits` take an explicit mapping from model to y
-  column instead of `0..=n_internal_cstr`. Mono keeps its all-or-nothing z-score semantics.
+  The current public functions become wrappers with `n_obj = 1`. The best-index functions stay
+  mono-objective: they apply as is to the ParEGO training view.
+- Model management keeps the "model k ↔ column k" rule: loops run over `n_surrogates()` /
+  `models.len()` instead of `0..=n_internal_cstr`. The solver feeds the surrogates a training view
+  whose columns match the models (`[s_λ | cstrs]` for ParEGO, `[f_1..f_m | cstrs]` per objective),
+  so no explicit column mapping is needed.
 - Replace `split_first()` with `split_at(n_obj_models)`. `compute_virtual_point` and
   `compute_penalized_point` take objective-model slices. The NaN fill in `eval_obj` uses `ny_raw()`,
   and the warm-start DOE split in `init_state` uses `nx + ny_internal()`.
 - Public `EgorSolver` methods keep their signatures and delegate to the generalized `pub(crate)` code.
-- Exit criteria: snapshots bit-identical, semver-checks clean, clippy clean.
+- Exit criteria: snapshots unchanged, semver-checks clean, clippy clean.
 
-### Step 2 — Pareto toolkit (pure functions in `moo/`)
+### Step 2 — Pareto toolkit (pure functions in `moo/`) — done
 - Non-dominated filtering with constrained domination: feasible points dominate infeasible ones,
   then points compare by violation sum using `cstr_tol` over y constraints and `c_data`. Non-finite
   rows are excluded, as in `find_best_result_index`.
 - Normalization (ideal and nadir from data), augmented Tchebycheff, and simplex-lattice weights.
   ParEGO uses s = 10 divisions for m = 2 and s = 4 for m = 3.
-- Hypervolume: exact sweep for m = 2 (reuse `utils/sort_axis.rs`), an exact algorithm such as WFG for
-  m = 3, and Monte Carlo above that. The reference point is nadir + 10 % of the range.
+- Hypervolume: exact sweep for m = 2 and exact recursive slicing along the last objective for
+  m ≥ 3, which is cheap for the small fronts of EGO. The reference point is nadir + 10 % of the
+  range.
 - Compromise point selection.
 - Unit tests on analytic fronts (ZDT1/2, DTLZ2 samples) and hand-computed hypervolumes. No solver
   change in this step.
 
-### Step 3 — MOO v1: ParEGO and the public API (experimental)
+### Step 3 — MOO v1: ParEGO and the public API (experimental) — done
 - Expose `EgorConfig::n_obj`, `configure_moo`, `MooConfig`, `MooStrategy::ParEgo`,
   `Egor::run_pareto` and `ParetoResult`.
 - `check()` validates `n_obj ≥ 1`. With `n_obj > 1`:
-  - It rejects TREGO, CoEGO, `target` and `FailsafeStrategy::Imputation` with explicit errors.
-    Imputation is lifted in Step 6.
+  - It rejects TREGO (any non-standard iteration strategy), CoEGO, `target` and
+    `FailsafeStrategy::Imputation` with explicit errors. Imputation is lifted in Step 6.
   - The GP-variance portfolio flag is ignored with a warning, since it can come from an environment
     variable.
   - A runtime guard covers custom `IterationStrategy` impls that return `IterationMode::Local`.
-- Scalarized path in `ego_step`:
-  1. Draw λ from the RNG (MOO path only).
-  2. Build the `[s_λ | cstrs]` view.
-  3. Train the scalarized model fresh, with theta warm-started from `theta_inits[0]` through
-     `make_clustered_surrogate` (`solver_impl.rs:186`). Its targets change every iteration, so it
-     must never go through the incremental `update` path: `models_up_to_date` would wrongly accept
-     it.
-  4. Run `select_next_points` on the view. The constraint models are already up to date.
+  - The ask-and-tell `EgorServiceBuilder` rejects `n_obj > 1` until Step 6.
+- Scalarized path in `ego_step`, for each try of the point-addition loop:
+  1. Take the next λ of the simplex lattice, shuffled once per iteration with the RNG (MOO path
+     only). Each retry uses a distinct λ and the retry budget is the lattice size: the optimum of
+     a scalarization often lies on a bound, so a rejected point (too close to the data) tends to be
+     proposed again with the same λ, and 3 tries made the solver stop early with the C optimizers.
+  2. Build the `[s_λ | cstrs]` view (`moo/parego.rs`).
+  3. Clear the persisted surrogates, so that `select_next_points` retrains all of them on the view
+     (theta warm-started from `theta_inits`). The scalarized targets change at every try, so the
+     incremental `update` path must never be used: `models_up_to_date` only compares row counts.
+  4. Run `select_next_points` on the view, with the best index of the view.
   5. Evaluate the new points, then `update_data` on the raw data.
-  6. Recompute the Pareto set and compromise index from all data.
-  7. Refresh only the constraint models.
-- Plumbing: `init_state`, untransforming with the objective offset in `run()`/`run_pareto()`, and an
-  optional new `egor_pareto.npy` in `outdir`.
+  6. Recompute the compromise index from all data; the current cost is the evaluated point.
+  7. Skip the end-of-iteration model refresh (models are retrained at next iteration).
+- Plumbing: `init_state` (compromise index), untransforming with the objective offset in
+  `run()`/`run_pareto()`. A per-iteration `egor_pareto.npy` in `outdir` is not done.
 - Tests in `crates/ego/tests/moo.rs`:
-  - ZDT1 (2 objectives), BNH (2 objectives, 2 constraints) and DTLZ2 (3 objectives), with
-    hypervolume-ratio thresholds.
+  - ZDT1 (2 objectives, hypervolume above 85 % of the true front one, 95.8 % in practice),
+    BNH (2 objectives, 2 constraints, feasible front reaching both extremes) and DTLZ2
+    (3 objectives, mean distance to the true front).
   - Seeded determinism.
   - Hot-start continuation equals an uninterrupted run.
   - A mixed-integer variant.
   - `cstr_specs` with m = 2.
+  - Unsupported configurations, `run()` compromise point, mono-objective `run_pareto()`.
 - Example: `crates/ego/examples/zdt1.rs`.
 
 ### Step 4 — Per-objective surrogates and EIM

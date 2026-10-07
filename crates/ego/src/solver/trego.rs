@@ -101,7 +101,8 @@ where
 
         let best_index = new_state.surrogate.best_index.unwrap();
         let y_old = y_data[[best_index, 0]];
-        let (obj_model, cstr_models) = models.split_first().unwrap();
+        let (obj_models, cstr_models) = models.split_at(self.config.n_obj_models());
+        let obj_model = &obj_models[0];
         let cstr_tols = new_state.doe.cstr_tol.clone();
 
         let ybest = y_data.row(best_index).to_owned();
@@ -195,7 +196,7 @@ where
             let y_new = self.eval_obj(problem, &x_new)?;
             // Apply constraint transformation if cstr_specs are set
             let y_new = if let Some(ref specs) = self.config.cstr_specs {
-                crate::types::transform_constraints(&y_new, specs)
+                crate::types::transform_constraints_at(&y_new, self.config.n_obj(), specs)
             } else {
                 y_new
             };
@@ -207,7 +208,7 @@ where
                 FailsafeStrategy::Imputation => {
                     let y_pen = self.compute_penalized_point(
                         &x_new.row(0),
-                        obj_model.as_ref(),
+                        obj_models,
                         cstr_models,
                         &y_data,
                     );

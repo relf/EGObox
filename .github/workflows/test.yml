@@ -53,6 +53,9 @@ jobs:
 
       - name: Run cargo test in release mode
         uses: actions-rs/cargo@v1
+        env:
+          # mono-objective snapshot fixtures are required on the reference job
+          EGOBOX_REQUIRE_SNAPSHOTS: ${{ (matrix.os == 'ubuntu-latest' && matrix.backend == 'default' && matrix.toolchain == 'stable') && '1' || '0' }}
         with:
           command: test
           args: --all --release ${{ matrix.backend == 'c-optim' && '--features c-cobyla,c-slsqp' || '' }}

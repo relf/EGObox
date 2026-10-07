@@ -1,14 +1,15 @@
 use std::marker::PhantomData;
 
 use crate::errors::{EgoError, Result};
+use crate::moo::scalarization::compromise_index;
 use crate::solver::solver_computations::MiddlePickerMultiStarter;
 use crate::solver::solver_infill_optim::InfillOptProblem;
 use crate::utils::{
-    EGOBOX_LOG, find_best_result_index_from, is_feasible, select_from_portfolio, update_data,
-    usable_data,
+    EGOBOX_LOG, find_best_result_index_from, is_feasible, is_feasible_at, select_from_portfolio,
+    update_data, usable_data,
 };
 use crate::{ActivityStrategy, FullActivity, find_best_result_index};
-use crate::{DEFAULT_CSTR_TOL, EgorSolver, MAX_POINT_ADDITION_RETRY, ValidEgorConfig};
+use crate::{DEFAULT_CSTR_TOL, EgorSolver, ValidEgorConfig};
 use crate::{EgorState, types::*};
 use egobox_moe::as_continuous_limits;
 
@@ -59,7 +60,11 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
         // Apply constraint transformation if cstr_specs are set
         let y_data_owned;
         let y_data: &ArrayBase<_, Ix2> = if let Some(ref specs) = self.config.cstr_specs {
-            y_data_owned = crate::types::transform_constraints(&y_data.to_owned(), specs);
+            y_data_owned = crate::types::transform_constraints_at(
+                &y_data.to_owned(),
+                self.config.n_obj(),
+                specs,
+            );
             &y_data_owned
         } else {
             y_data_owned = y_data.to_owned();
@@ -71,8 +76,8 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
             Xoshiro256Plus::from_entropy()
         };
         let n_int_cstr = self.config.n_internal_cstr();
-        let mut clusterings = vec![None; 1 + n_int_cstr];
-        let mut theta_tunings = vec![None; 1 + n_int_cstr];
+        let mut clusterings = vec![None; self.config.n_surrogates()];
+        let mut theta_tunings = vec![None; self.config.n_surrogates()];
         let cstr_tol = self
             .config
             .cstr_tol
@@ -86,6 +91,22 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
         let c_data = Array2::zeros((x_data.nrows(), 0));
         // TODO: Coego not implemented
         let activity = FullActivity.generate_activity(x_data.ncols(), &mut rng);
+
+        // With several objectives, surrogates are trained on the ParEGO scalarized view
+        // [s | cstrs] of the data (see `ego_step`). Weights change from one call to the next
+        // as the number of data points grows.
+        let n_obj = self.config.n_obj();
+        let y_view;
+        let y_data: &ArrayBase<_, Ix2> = if n_obj > 1 {
+            let weights =
+                crate::moo::parego::shuffled_weights(n_obj, self.config.moo.n_divisions, &mut rng);
+            let weights = &weights[x_data.nrows() % weights.len()];
+            y_view =
+                crate::moo::parego::scalarized_view(y_data, n_obj, weights, self.config.moo.rho);
+            &y_view
+        } else {
+            y_data
+        };
 
         let best_index = find_best_result_index(y_data, &c_data, &cstr_tol);
         let feasibility = is_feasible(&y_data.row(best_index), &c_data.row(best_index), &cstr_tol);
@@ -171,6 +192,18 @@ where
     SB: SurrogateBuilder + Serialize + DeserializeOwned,
     C: CstrFn,
 {
+    /// Name of the k-th surrogate model used in logs
+    fn model_name(&self, k: usize) -> String {
+        let n_obj_models = self.config.n_obj_models();
+        if k >= n_obj_models {
+            format!("Constraint[{}]", k - n_obj_models + 1)
+        } else if n_obj_models == 1 {
+            "Objective".to_string()
+        } else {
+            format!("Objective[{}]", k + 1)
+        }
+    }
+
     /// Whether we have to recluster the data
     pub fn have_to_recluster(&self, added: usize, prev_added: usize) -> bool {
         self.config.gp.n_clusters.is_auto()
@@ -503,25 +536,18 @@ where
         theta_inits: &[Option<Array2<f64>>],
         actives: &Array2<usize>,
     ) -> (Vec<Box<dyn MixtureGpSurrogate>>, Vec<Array2<f64>>) {
-        let models_and_inits = (0..=self.config.n_internal_cstr())
-            .into_par_iter()
-            .map(|k| {
-                let name = if k == 0 {
-                    "Objective".to_string()
-                } else {
-                    format!("Constraint[{k}]")
-                };
-                self.make_clustered_surrogate(
-                    &name,
-                    xt,
-                    &yt.slice(s![.., k]).to_owned(),
-                    do_clustering,
-                    optimize_theta,
-                    clusterings[k].as_ref(),
-                    theta_inits[k].as_ref(),
-                    actives,
-                )
-            });
+        let models_and_inits = (0..self.config.n_surrogates()).into_par_iter().map(|k| {
+            self.make_clustered_surrogate(
+                &self.model_name(k),
+                xt,
+                &yt.slice(s![.., k]).to_owned(),
+                do_clustering,
+                optimize_theta,
+                clusterings[k].as_ref(),
+                theta_inits[k].as_ref(),
+                actives,
+            )
+        });
         models_and_inits.unzip()
     }
 
@@ -549,13 +575,8 @@ where
             primary_indices
                 .into_par_iter()
                 .map(|k| {
-                    let name = if k == 0 {
-                        "Objective".to_string()
-                    } else {
-                        format!("Constraint[{k}]")
-                    };
                     let (model, inits) = self.make_clustered_surrogate(
-                        &name,
+                        &self.model_name(k),
                         xt,
                         &yt.slice(s![.., k]).to_owned(),
                         do_clustering,
@@ -636,7 +657,37 @@ where
         }
         let init = new_state.get_iter() == 0;
 
+        let n_obj = self.config.n_obj();
+        // Multi-objective (ParEGO): weight vectors tried in a random order, a distinct one at each try
+        let parego_weights = if n_obj > 1 {
+            crate::moo::parego::shuffled_weights(n_obj, self.config.moo.n_divisions, &mut rng)
+        } else {
+            vec![]
+        };
+        let mut n_tries = 0;
+
         let (x_dat, c_dat, y_penalized) = loop {
+            // Multi-objective (ParEGO): surrogates are trained on a view of the data where the
+            // objectives are scalarized with the weights of the try. As their training targets
+            // change, the surrogates are retrained (never incrementally updated).
+            let (scalarized_y, train_best_index) = if n_obj > 1 {
+                let weights = &parego_weights[n_tries % parego_weights.len()];
+                n_tries += 1;
+                info!("ParEGO weights = {weights}");
+                let view = crate::moo::parego::scalarized_view(
+                    &y_data,
+                    n_obj,
+                    weights,
+                    self.config.moo.rho,
+                );
+                let best = find_best_result_index(&view, &c_data, &state.doe.cstr_tol);
+                models.clear();
+                (Some(view), best)
+            } else {
+                (None, state.surrogate.best_index.unwrap())
+            };
+            let y_train = scalarized_y.as_ref().unwrap_or(&y_data);
+
             let pb = problem.inner();
             let fcstrs = pb.constraints();
             let fcstr_specs = pb.constraint_specs();
@@ -655,7 +706,7 @@ where
                     std::mem::take(&mut models)
                 };
 
-            let (x_dat, y_dat, c_dat, y_penalized, infill_value) = self.select_next_points(
+            let (x_dat, _y_dat, c_dat, y_penalized, infill_value) = self.select_next_points(
                 init,
                 state.get_iter(),
                 recluster,
@@ -664,11 +715,11 @@ where
                 &mut search_models,
                 &state.coego.activity,
                 &x_data,
-                &y_data,
+                y_train,
                 &c_data,
                 state.surrogate.x_fail.as_ref(),
                 &state.doe.cstr_tol,
-                state.surrogate.best_index.unwrap(),
+                train_best_index,
                 fcstrs,
                 fcstr_specs,
                 state.feasibility,
@@ -689,9 +740,7 @@ where
                 .theta_inits(theta_inits.clone())
                 .data((x_data.clone(), y_data.clone(), c_data.clone()))
                 .infill_value(infill_value)
-                .rng(rng.clone())
-                .param(x_dat.row(0).to_owned()) // Note: take only first point.
-                .cost(y_dat.row(0).to_owned()); // Argmin framework requires param and cost to be set.
+                .rng(rng.clone());
 
             info!(
                 "{} criterion {} max found = {}",
@@ -734,7 +783,7 @@ where
                 if new_state.doe.no_point_added_retries == 0 {
                     info!(
                         "Max number of retries ({}) without adding point",
-                        MAX_POINT_ADDITION_RETRY
+                        self.config.max_point_addition_retries()
                     );
                     info!("Consider solver has converged");
                     return Err(EgoError::NoMorePointToAddError(Box::new(new_state)));
@@ -750,10 +799,14 @@ where
         let y_actual = self.eval_obj(problem, &x_dat)?;
         // Apply constraint transformation if cstr_specs are set
         let y_actual = if let Some(ref specs) = self.config.cstr_specs {
-            crate::types::transform_constraints(&y_actual, specs)
+            crate::types::transform_constraints_at(&y_actual, self.config.n_obj(), specs)
         } else {
             y_actual
         };
+        // Current param and cost are those of the first evaluated point (internal layout)
+        new_state = new_state
+            .param(x_dat.row(0).to_owned())
+            .cost(y_actual.row(0).to_owned());
         let y_penalized = match self.config.failsafe_strategy {
             FailsafeStrategy::Imputation => Some(y_penalized),
             _ => None,
@@ -792,28 +845,41 @@ where
             "+{} point(s), total: {} points",
             add_count, new_state.doe.added
         );
-        new_state.doe.no_point_added_retries = MAX_POINT_ADDITION_RETRY;
+        new_state.doe.no_point_added_retries = self.config.max_point_addition_retries();
 
-        // Only actually evaluated points (appended last) are candidates for the best,
-        // failed points with imputed values are not.
-        let best_index = find_best_result_index_from(
-            state.surrogate.best_index.unwrap(),
-            y_data.nrows() - valid_count,
-            &y_data,
-            &c_data,
-            &new_state.doe.cstr_tol,
-        );
+        let best_index = if n_obj > 1 {
+            // Compromise point of the Pareto front (recomputed as normalization changes)
+            compromise_index(&y_data, &c_data, n_obj, &new_state.doe.cstr_tol)
+                .unwrap_or(state.surrogate.best_index.unwrap())
+        } else {
+            // Only actually evaluated points (appended last) are candidates for the best,
+            // failed points with imputed values are not.
+            find_best_result_index_from(
+                state.surrogate.best_index.unwrap(),
+                y_data.nrows() - valid_count,
+                &y_data,
+                &c_data,
+                &new_state.doe.cstr_tol,
+            )
+        };
         new_state =
             new_state
                 .best_index(best_index)
                 .data((x_data.clone(), y_data.clone(), c_data.clone()));
         new_state.feasibility = state.feasibility
-            || is_feasible(
+            || is_feasible_at(
                 &y_data.row(best_index),
                 &c_data.row(best_index),
+                n_obj,
                 &new_state.doe.cstr_tol,
             );
-        {
+        if n_obj > 1 {
+            // Surrogates are retrained on the next scalarized view at next iteration
+            new_state = new_state
+                .clusterings(clusterings.clone())
+                .theta_inits(theta_inits.clone());
+            new_state.surrogate.models = models;
+        } else {
             // Incorporate the actually evaluated point(s) into the persisted
             // models (never the virtual/Kriging-believer values used only for
             // the batch search above, see `search_models`): see
@@ -966,17 +1032,17 @@ where
                                 "Impute failed initial points ({} points)...",
                                 xfail_points.nrows()
                             );
-                            let mut y_pen_imputed = Array2::zeros((
-                                xfail_points.nrows(),
-                                1 + self.config.n_internal_cstr(),
-                            ));
+                            let mut y_pen_imputed =
+                                Array2::zeros((xfail_points.nrows(), self.config.n_surrogates()));
+                            let (obj_models, cstr_models) =
+                                models.split_at(self.config.n_obj_models());
                             Zip::from(y_pen_imputed.rows_mut())
                                 .and(xfail_points.rows())
                                 .for_each(|mut y_row, xfail| {
                                     let y_pred = self.compute_penalized_point(
                                         &xfail,
-                                        &*models[0],
-                                        &models[1..],
+                                        obj_models,
+                                        cstr_models,
                                         y_data,
                                     );
                                     y_row.assign(&y_pred);
@@ -1011,7 +1077,8 @@ where
 
                 self.sync_clustering_and_theta_inits(clusterings, theta_inits, models, &inits);
 
-                let (obj_model, cstr_models) = models.split_first().unwrap();
+                let (obj_models, cstr_models) = models.split_at(self.config.n_obj_models());
+                let obj_model = &obj_models[0];
                 debug!("... surrogates trained");
 
                 let fmin = y_data[[best_index, 0]];
@@ -1145,18 +1212,14 @@ where
                 );
                 debug!("+++++++  xk = {xk}");
 
-                match self.compute_virtual_point(&xk, y_data, obj_model.as_ref(), cstr_models) {
+                match self.compute_virtual_point(&xk, y_data, obj_models, cstr_models) {
                     Ok(yk) => {
-                        let yk = Array2::from_shape_vec((1, 1 + self.config.n_internal_cstr()), yk)
-                            .unwrap();
+                        let yk =
+                            Array2::from_shape_vec((1, self.config.n_surrogates()), yk).unwrap();
                         y_dat = concatenate![Axis(0), y_dat, yk];
 
-                        let yk_pen = self.compute_penalized_point(
-                            &xk,
-                            obj_model.as_ref(),
-                            cstr_models,
-                            y_data,
-                        );
+                        let yk_pen =
+                            self.compute_penalized_point(&xk, obj_models, cstr_models, y_data);
                         let yk_pen = yk_pen.insert_axis(Axis(0));
                         y_penalized = concatenate![Axis(0), y_penalized, yk_pen];
 
@@ -1218,7 +1281,7 @@ where
             .config
             .cstr_specs
             .as_ref()
-            .map(|s| internal_cstr_mapping(s));
+            .map(|s| output_mapping(self.config.n_obj_models(), s));
 
         let (models_new, inits) = if let Some(ref mapping) = mapping {
             self.train_with_mapping(
@@ -1401,7 +1464,7 @@ where
         models: &[Box<dyn MixtureGpSurrogate>],
         inits: &[Option<Array2<f64>>],
     ) {
-        (0..=self.config.n_internal_cstr()).for_each(|k| {
+        (0..models.len()).for_each(|k| {
             clusterings[k] = Some(models[k].to_clustering());
             if let Some(init) = inits.get(k).and_then(|i| i.as_ref()) {
                 theta_inits[k] = Some(init.to_owned());

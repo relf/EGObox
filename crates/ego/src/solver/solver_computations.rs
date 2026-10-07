@@ -286,7 +286,7 @@ where
         &self,
         xk: &ArrayBase<impl Data<Elem = f64>, Ix1>,
         y_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
-        obj_model: &dyn MixtureGpSurrogate,
+        obj_models: &[Box<dyn MixtureGpSurrogate>],
         cstr_models: &[Box<dyn MixtureGpSurrogate>],
     ) -> Result<Vec<f64>> {
         if self.config.qei_config.strategy == QEiStrategy::ConstantLiarMinimum {
@@ -296,15 +296,17 @@ where
             let mut res: Vec<f64> = vec![];
 
             let x = &xk.view().insert_axis(Axis(0));
-            let pred = obj_model.predict(x)?[0];
-            let var = obj_model.predict_var(x)?[0];
             let conf = match self.config.qei_config.strategy {
                 QEiStrategy::KrigingBeliever => 0.,
                 QEiStrategy::KrigingBelieverLowerBound => -3.,
                 QEiStrategy::KrigingBelieverUpperBound => 3.,
                 _ => unreachable!(), // never used
             };
-            res.push(pred + conf * f64::sqrt(var));
+            for obj_model in obj_models {
+                let pred = obj_model.predict(x)?[0];
+                let var = obj_model.predict_var(x)?[0];
+                res.push(pred + conf * f64::sqrt(var));
+            }
             for cstr_model in cstr_models {
                 res.push(cstr_model.predict(x)?[0]);
             }
@@ -321,18 +323,21 @@ where
     pub(crate) fn compute_penalized_point(
         &self,
         xk: &ArrayBase<impl Data<Elem = f64>, Ix1>,
-        obj_model: &dyn MixtureGpSurrogate,
+        obj_models: &[Box<dyn MixtureGpSurrogate>],
         cstr_models: &[Box<dyn MixtureGpSurrogate>],
         y_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
     ) -> Array1<f64> {
         let x = &xk.view().insert_axis(Axis(0));
-        let mut res = Array1::from_elem(1 + cstr_models.len(), f64::NAN);
-        if let (Ok(pred), Ok(var)) = (obj_model.predict(x), obj_model.predict_var(x)) {
-            res[0] = pred[0] + var[0].max(0.).sqrt();
+        let n_obj = obj_models.len();
+        let mut res = Array1::from_elem(n_obj + cstr_models.len(), f64::NAN);
+        for (i, obj_model) in obj_models.iter().enumerate() {
+            if let (Ok(pred), Ok(var)) = (obj_model.predict(x), obj_model.predict_var(x)) {
+                res[i] = pred[0] + var[0].max(0.).sqrt();
+            }
         }
         for (i, m) in cstr_models.iter().enumerate() {
             if let Ok(pred) = m.predict(x) {
-                res[i + 1] = pred[0];
+                res[n_obj + i] = pred[0];
             }
         }
 
@@ -625,11 +630,10 @@ where
                         _ => Err(crate::EgoError::ObjectiveFunctionError(err.to_string())),
                     }
                 } else {
-                    Ok(Array::from_shape_vec(
-                        (x.nrows(), 1 + self.config.n_cstr),
-                        vec![f64::NAN; x.nrows() * (1 + self.config.n_cstr)],
-                    )
-                    .unwrap())
+                    Ok(Array2::from_elem(
+                        (x.nrows(), self.config.ny_raw()),
+                        f64::NAN,
+                    ))
                 }
             }
         }
