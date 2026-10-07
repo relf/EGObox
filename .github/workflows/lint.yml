@@ -39,3 +39,18 @@ jobs:
           command: clippy
           args: --all-targets ${{ matrix.features == 'c-optim' && '--features c-cobyla,c-slsqp' || '' }} -- -D warnings
 
+  semver:
+    name: semver-checks
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check egobox-ego API against the base branch
+        uses: obi1kenobi/cargo-semver-checks-action@v2
+        with:
+          package: egobox-ego
+          baseline-rev: ${{ github.event.pull_request.base.sha }}

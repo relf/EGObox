@@ -57,7 +57,7 @@ println!("{}", res.y_pareto);
   point are recomputed from `state.surrogate.data` each iteration. ParEGO weights are drawn from the
   state RNG, so hot start stays exact.
 - Expose the minimum: the MOO criterion abstraction stays crate-private until it is stable.
-- Every PR must pass `cargo semver-checks check-release -p egobox-ego --baseline-version 0.41.1`
+- Every PR must pass `cargo semver-checks check-release -p egobox-ego --baseline-rev <base>`
   cleanly and keep the mono snapshot tests green (Step 0).
 
 ## 3. Code review: where single-objective is assumed
@@ -133,7 +133,7 @@ is documented and not used for decisions in MOO mode.
 
 Each step is one PR or a few PRs. Each keeps CI green and respects the contract in §2.
 
-### Step 0 — Safety net (tests and tooling only)
+### Step 0 — Safety net (tests and tooling only) — done
 - Add mono snapshot tests in `crates/ego/tests/mono_snapshots.rs`, next to `execution_contract.rs`:
   - Scenarios, all seeded:
     - xsinx with EI, LogEI and WB2.
@@ -144,12 +144,15 @@ Each step is one PR or a few PRs. Each keeps CI green and respects the contract 
     - Failsafe imputation and viability.
     - TREGO, CoEGO.
     - Warm start, hot-start continuation.
-  - Store `x_doe`/`y_doe` from current master as `.npy` fixtures and assert exact equality.
-  - Exact comparison runs only on the reference CI job (ubuntu, default backend), because floating
-    point results differ across OS libm and the `c-cobyla`/`c-slsqp`/`blas` backends. The other jobs
-    just run the scenarios.
+  - Store `[x_doe, y_doe]` from current master as `.npy` fixtures in
+    `crates/ego/tests/snapshots/<os>-<backend>/` and assert bit-for-bit equality. Floating point
+    results differ across OS libm and the `c-cobyla`/`c-slsqp`/`blas` backends, so fixtures are
+    per platform and a scenario without fixture for the current platform is skipped. Fixtures are
+    recorded with `EGOBOX_UPDATE_SNAPSHOTS=1` (only `windows-default` so far; record the
+    `linux-default` ones to get CI coverage).
   - A legitimate fixture update must be its own, explicitly reviewed commit.
-- Add a `cargo semver-checks` step (baseline 0.41.1) to `.github/workflows/lint.yml`.
+- Add a `cargo semver-checks` job to `.github/workflows/lint.yml`, run on pull requests against the
+  base branch (0.41.1 is not published on crates.io, so there is no registry baseline).
 
 ### Step 1 — Internal refactor: explicit output layout (no behavior change)
 - `ValidEgorConfig` gets `pub(crate) n_obj: usize` (default 1, `#[serde(default)]`), not settable
