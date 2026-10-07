@@ -175,14 +175,15 @@ Each step is one PR or a few PRs. Each keeps CI green and respects the contract 
 - Public `EgorSolver` methods keep their signatures and delegate to the generalized `pub(crate)` code.
 - Exit criteria: snapshots bit-identical, semver-checks clean, clippy clean.
 
-### Step 2 — Pareto toolkit (pure functions in `moo/`)
+### Step 2 — Pareto toolkit (pure functions in `moo/`) — done
 - Non-dominated filtering with constrained domination: feasible points dominate infeasible ones,
   then points compare by violation sum using `cstr_tol` over y constraints and `c_data`. Non-finite
   rows are excluded, as in `find_best_result_index`.
 - Normalization (ideal and nadir from data), augmented Tchebycheff, and simplex-lattice weights.
   ParEGO uses s = 10 divisions for m = 2 and s = 4 for m = 3.
-- Hypervolume: exact sweep for m = 2 (reuse `utils/sort_axis.rs`), an exact algorithm such as WFG for
-  m = 3, and Monte Carlo above that. The reference point is nadir + 10 % of the range.
+- Hypervolume: exact sweep for m = 2 and exact recursive slicing along the last objective for
+  m ≥ 3, which is cheap for the small fronts of EGO. The reference point is nadir + 10 % of the
+  range.
 - Compromise point selection.
 - Unit tests on analytic fronts (ZDT1/2, DTLZ2 samples) and hand-computed hypervolumes. No solver
   change in this step.

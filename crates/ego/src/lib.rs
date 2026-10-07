@@ -356,5 +356,6 @@ pub use crate::utils::{
 };
 pub use egobox_moe::{CorrelationSpec, RegressionSpec};
 
+mod moo;
 mod optimizers;
 mod utils;
