@@ -724,9 +724,14 @@ where
                 .theta_inits(theta_inits.clone())
                 .data((x_data.clone(), y_data.clone(), c_data.clone()))
                 .infill_value(infill_value)
-                .rng(rng.clone())
-                .param(x_dat.row(0).to_owned()) // Note: take only first point.
-                .cost(y_dat.row(0).to_owned()); // Argmin framework requires param and cost to be set.
+                .rng(rng.clone());
+            if n_obj == 1 {
+                new_state = new_state
+                    .param(x_dat.row(0).to_owned()) // Note: take only first point.
+                    .cost(y_dat.row(0).to_owned()); // Argmin framework requires param and cost to be set.
+            }
+            // With several objectives, y_dat holds virtual values of the scalarized view:
+            // param and cost are only set from a valid evaluation below
 
             info!(
                 "{} criterion {} max found = {}",
@@ -848,8 +853,9 @@ where
             // Current param and cost are those of the last valid evaluated point
             // (not the virtual point of the scalarized view)
             let last = y_data.nrows() - 1;
-            new_state.param = Some(x_data.row(last).to_owned());
-            new_state.cost = Some(y_data.row(last).to_owned());
+            new_state = new_state
+                .param(x_data.row(last).to_owned())
+                .cost(y_data.row(last).to_owned());
         }
         new_state =
             new_state

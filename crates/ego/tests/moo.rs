@@ -392,3 +392,35 @@ fn test_mono_objective_run_pareto_returns_optimum() {
     assert_eq!(front.x_pareto.row(0), res.x_opt);
     assert_eq!(front.y_pareto.row(0), res.y_opt);
 }
+
+#[test]
+#[serial]
+fn test_parego_rejected_tries_keep_raw_state() {
+    // Constant objectives: the infill criterion is flat, proposed points are the current
+    // best one, hence rejected at every try and the solver converges
+    let f = |x: &ArrayView2<f64>| Array2::zeros((x.nrows(), 2));
+    let res = EgorBuilder::optimize(f)
+        .configure(|cfg| {
+            cfg.n_obj(2)
+                .doe(&array![[0.], [0.5], [1.]])
+                .max_iters(3)
+                .seed(42)
+        })
+        .min_within(&array![[0., 1.]])
+        .expect("Egor configured")
+        .run_pareto()
+        .expect("optimization");
+    println!(
+        "termination: {}, {} points",
+        res.state.termination_status,
+        res.x_doe.nrows()
+    );
+    assert_eq!(
+        res.state.termination_status,
+        TerminationStatus::Terminated(TerminationReason::SolverConverged)
+    );
+    // no scalarized virtual value leaks into the state
+    if let Some(cost) = res.state.cost.as_ref() {
+        assert_eq!(cost.len(), 2);
+    }
+}
