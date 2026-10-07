@@ -9,7 +9,7 @@ use crate::utils::{
     update_data, usable_data,
 };
 use crate::{ActivityStrategy, FullActivity, find_best_result_index};
-use crate::{DEFAULT_CSTR_TOL, EgorSolver, MAX_POINT_ADDITION_RETRY, ValidEgorConfig};
+use crate::{DEFAULT_CSTR_TOL, EgorSolver, ValidEgorConfig};
 use crate::{EgorState, types::*};
 use egobox_moe::as_continuous_limits;
 
@@ -642,19 +642,26 @@ where
         let init = new_state.get_iter() == 0;
 
         let n_obj = self.config.n_obj();
+        // Multi-objective (ParEGO): weight vectors tried in a random order, a distinct one at each try
+        let parego_weights = if n_obj > 1 {
+            crate::moo::parego::shuffled_weights(n_obj, self.config.moo.n_divisions, &mut rng)
+        } else {
+            vec![]
+        };
+        let mut n_tries = 0;
 
         let (x_dat, c_dat, y_penalized) = loop {
             // Multi-objective (ParEGO): surrogates are trained on a view of the data where the
-            // objectives are scalarized with weights randomly drawn at each try. As their
-            // training targets change, the surrogates are retrained (never incrementally updated).
+            // objectives are scalarized with the weights of the try. As their training targets
+            // change, the surrogates are retrained (never incrementally updated).
             let (scalarized_y, train_best_index) = if n_obj > 1 {
-                let weights =
-                    crate::moo::parego::draw_weights(n_obj, self.config.moo.n_divisions, &mut rng);
+                let weights = &parego_weights[n_tries % parego_weights.len()];
+                n_tries += 1;
                 info!("ParEGO weights = {weights}");
                 let view = crate::moo::parego::scalarized_view(
                     &y_data,
                     n_obj,
-                    &weights,
+                    weights,
                     self.config.moo.rho,
                 );
                 let best = find_best_result_index(&view, &c_data, &state.doe.cstr_tol);
@@ -762,7 +769,7 @@ where
                 if new_state.doe.no_point_added_retries == 0 {
                     info!(
                         "Max number of retries ({}) without adding point",
-                        MAX_POINT_ADDITION_RETRY
+                        self.config.max_point_addition_retries()
                     );
                     info!("Consider solver has converged");
                     return Err(EgoError::NoMorePointToAddError(Box::new(new_state)));
@@ -820,7 +827,7 @@ where
             "+{} point(s), total: {} points",
             add_count, new_state.doe.added
         );
-        new_state.doe.no_point_added_retries = MAX_POINT_ADDITION_RETRY;
+        new_state.doe.no_point_added_retries = self.config.max_point_addition_retries();
 
         let best_index = if n_obj > 1 {
             // Compromise point of the Pareto front (recomputed as normalization changes)

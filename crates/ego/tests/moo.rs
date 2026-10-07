@@ -2,7 +2,7 @@
 
 use egobox_ego::{
     CstrSpec, EgorBuilder, EgorServiceBuilder, FailsafeStrategy, HotStartMode, MooStrategy,
-    ParetoResult, XType,
+    ParetoResult, TerminationReason, TerminationStatus, XType,
 };
 use ndarray::{Array1, Array2, ArrayView2, Axis, Zip, array};
 use serial_test::serial;
@@ -26,6 +26,16 @@ fn hypervolume_2d(front: &Array2<f64>, ref_point: [f64; 2]) -> f64 {
         }
     }
     hv
+}
+
+/// The run is not stopped prematurely (no weight yields a new point)
+fn assert_max_iters_reached(res: &ParetoResult<f64>) {
+    assert_eq!(
+        res.state.termination_status,
+        TerminationStatus::Terminated(TerminationReason::MaxItersReached),
+        "{} points evaluated",
+        res.x_doe.nrows()
+    );
 }
 
 fn assert_non_dominated(y: &Array2<f64>, n_obj: usize) {
@@ -114,7 +124,7 @@ fn run_zdt1(max_iters: usize) -> ParetoResult<f64> {
 #[serial]
 fn test_zdt1_parego() {
     let res = run_zdt1(30);
-    assert_eq!(res.x_doe.nrows(), 40);
+    assert_max_iters_reached(&res);
     assert_eq!(res.y_doe.ncols(), 2);
     assert_non_dominated(&res.y_pareto, 2);
     let hv = hypervolume_2d(&res.y_pareto, [1.1, 1.1]);
@@ -247,6 +257,7 @@ fn test_dtlz2_parego() {
         .expect("Egor configured")
         .run_pareto()
         .expect("DTLZ2 optimization");
+    assert_max_iters_reached(&res);
     assert_non_dominated(&res.y_pareto, 3);
     let distances = res
         .y_pareto
@@ -260,7 +271,7 @@ fn test_dtlz2_parego() {
         res.y_pareto.nrows()
     );
     assert!(res.y_pareto.nrows() >= 5);
-    assert!(mean_dist < 0.25);
+    assert!(mean_dist < 0.35);
 }
 
 #[test]

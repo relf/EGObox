@@ -95,7 +95,7 @@ use crate::solver::solver_impl::DataClustering;
 use crate::utils::{
     EGOR_USE_GP_VAR_PORTFOLIO, EGOR_USE_STATE_RECORDING, filter_nans, find_best_result_index,
 };
-use crate::{EgoError, EgorState, MAX_POINT_ADDITION_RETRY, ValidEgorConfig};
+use crate::{EgoError, EgorState, ValidEgorConfig};
 
 use crate::types::*;
 
@@ -290,7 +290,7 @@ where
 
         initial_state.doe.doe_size = doe.nrows();
         initial_state.max_iters = self.config.max_iters as u64;
-        initial_state.doe.no_point_added_retries = MAX_POINT_ADDITION_RETRY;
+        initial_state.doe.no_point_added_retries = self.config.max_point_addition_retries();
         let n_total_cstr = n_int_cstr + c_data.ncols();
         initial_state.doe.cstr_tol = if let Some(cstr_tol) = self.config.cstr_tol.clone() {
             if cstr_tol.len() > n_total_cstr {

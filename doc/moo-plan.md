@@ -199,8 +199,10 @@ Each step is one PR or a few PRs. Each keeps CI green and respects the contract 
   - A runtime guard covers custom `IterationStrategy` impls that return `IterationMode::Local`.
   - The ask-and-tell `EgorServiceBuilder` rejects `n_obj > 1` until Step 6.
 - Scalarized path in `ego_step`, for each try of the point-addition loop:
-  1. Draw λ from the RNG (MOO path only). Drawing new weights on retry matters: with the same λ,
-     a rejected point (too close to the data) tends to be proposed again until the solver stops.
+  1. Take the next λ of the simplex lattice, shuffled once per iteration with the RNG (MOO path
+     only). Each retry uses a distinct λ and the retry budget is the lattice size: the optimum of
+     a scalarization often lies on a bound, so a rejected point (too close to the data) tends to be
+     proposed again with the same λ, and 3 tries made the solver stop early with the C optimizers.
   2. Build the `[s_λ | cstrs]` view (`moo/parego.rs`).
   3. Clear the persisted surrogates, so that `select_next_points` retrains all of them on the view
      (theta warm-started from `theta_inits`). The scalarized targets change at every try, so the

@@ -434,6 +434,17 @@ impl ValidEgorConfig {
         self.n_obj + self.n_cstr
     }
 
+    /// Max number of tries without adding a point before the solver is considered converged.
+    /// With several objectives, every ParEGO weight vector is tried once.
+    pub(crate) fn max_point_addition_retries(&self) -> i32 {
+        let retries = crate::MAX_POINT_ADDITION_RETRY;
+        if self.n_obj > 1 {
+            retries.max(crate::moo::parego::n_weights(self.n_obj, self.moo.n_divisions) as i32)
+        } else {
+            retries
+        }
+    }
+
     /// Number of columns of the internal output data: objectives then internal constraints
     pub(crate) fn ny_internal(&self) -> usize {
         self.n_obj + self.n_internal_cstr()

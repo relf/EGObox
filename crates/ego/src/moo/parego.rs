@@ -5,16 +5,23 @@ use super::scalarization::{
 };
 use ndarray::{Array1, Array2, ArrayBase, Data, Ix2, s};
 use ndarray_rand::rand::Rng;
+use ndarray_rand::rand::seq::SliceRandom;
 
-/// Draws a weight vector uniformly among the simplex lattice vectors of dimension `n_obj`
-/// with `n_divisions` divisions (default divisions when `None`)
-pub(crate) fn draw_weights<R: Rng>(
+/// Simplex lattice vectors of dimension `n_obj` with `n_divisions` divisions
+/// (default divisions when `None`) in a random order
+pub(crate) fn shuffled_weights<R: Rng>(
     n_obj: usize,
     n_divisions: Option<usize>,
     rng: &mut R,
-) -> Array1<f64> {
-    let lattice = simplex_lattice(n_obj, n_divisions.unwrap_or(default_divisions(n_obj)));
-    lattice[rng.gen_range(0..lattice.len())].to_owned()
+) -> Vec<Array1<f64>> {
+    let mut lattice = simplex_lattice(n_obj, n_divisions.unwrap_or(default_divisions(n_obj)));
+    lattice.shuffle(rng);
+    lattice
+}
+
+/// Number of simplex lattice vectors used as ParEGO weights
+pub(crate) fn n_weights(n_obj: usize, n_divisions: Option<usize>) -> usize {
+    simplex_lattice(n_obj, n_divisions.unwrap_or(default_divisions(n_obj))).len()
 }
 
 /// Training view `[s | cstrs]` of `y_data = [obj_1, ..., obj_n_obj, cstrs]` where `s` is the
@@ -47,12 +54,15 @@ mod tests {
     use rand_xoshiro::Xoshiro256Plus;
 
     #[test]
-    fn test_draw_weights() {
+    fn test_shuffled_weights() {
         let mut rng = Xoshiro256Plus::seed_from_u64(42);
-        for _ in 0..10 {
-            let w = draw_weights(3, None, &mut rng);
+        let weights = shuffled_weights(3, None, &mut rng);
+        assert_eq!(weights.len(), n_weights(3, None));
+        for (i, w) in weights.iter().enumerate() {
             assert_eq!(w.len(), 3);
             assert_abs_diff_eq!(w.sum(), 1., epsilon = 1e-12);
+            // all weight vectors are distinct
+            assert!(weights[i + 1..].iter().all(|v| v != w));
         }
     }
 
