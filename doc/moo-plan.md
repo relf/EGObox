@@ -218,7 +218,7 @@ Each step is one PR or a few PRs. Each keeps CI green and respects the contract 
 - Plumbing: `init_state` (compromise index), untransforming with the objective offset in
   `run()`/`run_pareto()`. A per-iteration `egor_pareto.npy` in `outdir` is not done.
 - Tests in `crates/ego/tests/moo.rs`:
-  - ZDT1 (2 objectives, hypervolume above 85 % of the true front one, 95.8 % in practice),
+  - ZDT1 (2 objectives, hypervolume above 85 % of the true-front hypervolume, 95.8 % in practice),
     BNH (2 objectives, 2 constraints, feasible front reaching both extremes) and DTLZ2
     (3 objectives, mean distance to the true front).
   - Seeded determinism.
@@ -250,7 +250,7 @@ Each step is one PR or a few PRs. Each keeps CI green and respects the contract 
 - `Eim` is a unit variant with the aggregation in `MooConfig`: a tuple variant in `MooStrategy`
   is reported as a breaking change by `cargo semver-checks` (enum discriminants).
 - Results (`crates/ego/tests/moo.rs`, 30 iterations): ZDT1 hypervolume 92 % (Euclidean), 89 %
-  (maximin), 95 % (hypervolume aggregation) of the true front one vs 96 % with ParEGO; DTLZ2 mean
+  (maximin), 95 % (hypervolume aggregation) of the true-front hypervolume vs 96 % with ParEGO; DTLZ2 mean
   distance to the true front 0.06 vs 0.23 with ParEGO.
 
 ### Step 5 — EHVI and a hypervolume-based stop

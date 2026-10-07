@@ -1265,9 +1265,11 @@ where
                         let yk_pen = yk_pen.insert_axis(Axis(0));
                         y_penalized = concatenate![Axis(0), y_penalized, yk_pen];
 
-                        let ck = cstr_funcs
+                        // Function constraint values in canonical (unscaled) units like c_data
+                        let xuser = self.fcstr_input(&xk.to_vec());
+                        let ck = transformed_fcstrs
                             .iter()
-                            .map(|cstr| cstr(&xk.to_vec(), None, &mut infill_data))
+                            .map(|cstr| cstr(&xuser, None, &mut infill_data))
                             .collect::<Vec<_>>();
                         c_dat = concatenate![
                             Axis(0),
