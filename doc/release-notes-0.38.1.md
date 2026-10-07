@@ -11,3 +11,6 @@ Bug-fix release, mainly for mixed-integer problems. No API changes.
 * **Mixed-integer sampling fairness** (d79f269, aba35ac): integer, ordered and enum levels are sampled with
   equal probability (bounds were under-sampled). Applies to `MixintContext` LHS/random, Python
   `lhs`/`sampling` and `Egor` initial DOE. Results differ from 0.38.0 for a given seed.
+* **`Egor` warm start with function constraints** (255d7aa): saved function constraint values were read back as
+  objective/constraint outputs, making the first iteration panic. The warm-start DOE is now split
+  correctly, and a DOE file with too few columns returns an `InvalidConfigError`.
