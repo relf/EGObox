@@ -1,7 +1,7 @@
 //! Hypervolume indicator (minimization): volume of the objective space dominated by a set
 //! of points and bounded by a reference point.
 
-use ndarray::{Array1, ArrayBase, Data, Ix1, Ix2};
+use ndarray::{Array1, Array2, ArrayBase, Data, Ix1, Ix2};
 
 /// Hypervolume of the set of points `front` (one point per row) wrt `ref_point`.
 ///
@@ -118,10 +118,68 @@ pub(crate) fn hypervolume_progress(
     let all: Vec<usize> = (0..both.nrows()).collect();
     let (ideal, nadir) = ideal_and_nadir(&both, &all);
     let ref_point = reference_point(&ideal, &nadir, 0.1);
-    (
-        hypervolume(&front_prev, &ref_point),
-        hypervolume(&front_now, &ref_point),
-    )
+    if exact_hypervolume_cost(both.nrows(), n_obj) <= MAX_EXACT_HYPERVOLUME_COST {
+        (
+            hypervolume(&front_prev, &ref_point),
+            hypervolume(&front_now, &ref_point),
+        )
+    } else {
+        let hvs = hypervolumes_monte_carlo(&[&front_prev, &front_now], &ideal, &ref_point);
+        (hvs[0], hvs[1])
+    }
+}
+
+/// Max cost of the exact hypervolume computation (see [`exact_hypervolume_cost`])
+const MAX_EXACT_HYPERVOLUME_COST: usize = 1 << 22;
+
+/// Number of Monte Carlo samples used to estimate hypervolumes otherwise
+const N_HYPERVOLUME_SAMPLES: usize = 1 << 16;
+
+/// Rough cost of the exact recursive hypervolume computation of `size` points with `n_obj`
+/// objectives (`size^(n_obj - 1)`)
+fn exact_hypervolume_cost(size: usize, n_obj: usize) -> usize {
+    size.checked_pow(n_obj.saturating_sub(1) as u32)
+        .unwrap_or(usize::MAX)
+}
+
+/// Monte Carlo estimates of the hypervolumes of several fronts wrt `ref_point`, using the same
+/// uniform samples (fixed seed) of the box `[lower, ref_point]` for all fronts (hence the
+/// estimated hypervolume differences have a low variance)
+fn hypervolumes_monte_carlo(
+    fronts: &[&Array2<f64>],
+    lower: &Array1<f64>,
+    ref_point: &Array1<f64>,
+) -> Vec<f64> {
+    use ndarray_rand::RandomExt;
+    use ndarray_rand::rand::SeedableRng;
+    use ndarray_rand::rand_distr::Uniform;
+    use rand_xoshiro::Xoshiro256Plus;
+
+    let mut rng = Xoshiro256Plus::seed_from_u64(42);
+    let u = Array2::random_using(
+        (N_HYPERVOLUME_SAMPLES, ref_point.len()),
+        Uniform::new(0., 1.),
+        &mut rng,
+    );
+    let range = ref_point - lower;
+    let samples = &u * &range + lower;
+    let volume = range.product();
+    fronts
+        .iter()
+        .map(|front| {
+            let dominated = samples
+                .rows()
+                .into_iter()
+                .filter(|x| {
+                    front
+                        .rows()
+                        .into_iter()
+                        .any(|p| p.iter().zip(x.iter()).all(|(pj, xj)| pj <= xj))
+                })
+                .count();
+            volume * dominated as f64 / N_HYPERVOLUME_SAMPLES as f64
+        })
+        .collect()
 }
 
 /// Reference point built from the nadir point of the front with a relative `margin`
@@ -223,6 +281,22 @@ mod tests {
         // no progress
         let (hv_prev, hv_now) = hypervolume_progress(&y, &c, 2, &tol, 3);
         assert_eq!(hv_prev, hv_now);
+    }
+
+    #[test]
+    fn test_hypervolumes_monte_carlo() {
+        let front = array![[1., 3.], [2., 2.], [3., 1.]];
+        let hvs = hypervolumes_monte_carlo(&[&front], &array![0., 0.], &array![4., 4.]);
+        assert_abs_diff_eq!(hvs[0], 6., epsilon = 0.1);
+        let mut rng = Xoshiro256Plus::seed_from_u64(0);
+        let front = Array::random_using((30, 4), Uniform::new(0., 1.), &mut rng);
+        let front = front.select(
+            ndarray::Axis(0),
+            &crate::moo::pareto::non_dominated_indices(&front),
+        );
+        let ref_point = array![1., 1., 1., 1.];
+        let mc = hypervolumes_monte_carlo(&[&front], &array![0., 0., 0., 0.], &ref_point);
+        assert_abs_diff_eq!(mc[0], hypervolume(&front, &ref_point), epsilon = 1e-2);
     }
 
     #[test]

@@ -4,11 +4,13 @@
 //! evolutionary optimization assisted by Gaussian random field metamodels.
 //! IEEE Transactions on Evolutionary Computation, 10(4), 421–439.
 //!
-//! The region below the reference point not dominated by the Pareto front is decomposed into the
-//! cells of the grid built with the front coordinates. The hypervolume improvement of a point `y`
-//! is the sum over these cells `[l, u]` of `prod_j (u_j - max(y_j, l_j))^+`: with independent
-//! normal predictions, the expectation of each factor is `EI_j(u_j) - EI_j(l_j)` where
-//! `EI_j(b) = E[(b - Y_j)^+]`, hence an exact closed form for any number of objectives.
+//! The region below the reference point not dominated by the Pareto front is decomposed into
+//! boxes built on the grid of the front coordinates: for each cell of the grid of the first
+//! `n_obj - 1` objectives, the non-dominated part is a single box `]-inf, u_m]` along the last
+//! objective. The hypervolume improvement of a point `y` is the sum over these boxes `[l, u]` of
+//! `prod_j (u_j - max(y_j, l_j))^+`: with independent normal predictions, the expectation of each
+//! factor is `EI_j(u_j) - EI_j(l_j)` where `EI_j(b) = E[(b - Y_j)^+]`, hence a closed form (for two
+//! objectives, the classic sum over the `n + 1` stripes of the front staircase).
 
 use super::criterion::{ei_and_derivatives, normalized_front, predict_normalized};
 use super::scalarization::Normalization;
@@ -23,32 +25,35 @@ pub(crate) struct EhviCriterion<'a> {
     normalization: Normalization,
     /// Per objective, sorted grid values: -inf, front coordinates, reference point coordinate
     grids: Vec<Vec<f64>>,
-    /// Non-dominated cells given by the grid indices of their lower corner
-    /// (flattened, `n_obj` indices per cell)
+    /// Non-dominated boxes (flattened, `n_obj` indices per box): grid indices of the lower corner
+    /// for the first `n_obj - 1` objectives (the upper one being the next index), then the grid
+    /// index of the upper bound along the last objective (the lower one being -inf)
     cells: Vec<usize>,
     front_size: usize,
 }
 
-/// Max work to decompose the non-dominated region: number of grid cells `(front_size + 1)^n_obj`
-/// times the front size (domination check of each cell) plus the number of objectives
-/// (cell indices storage)
+/// Max work to decompose the non-dominated region: number of boxes `(front_size + 1)^(n_obj - 1)`
+/// times the domination checks (front size times number of objectives)
 const MAX_DECOMPOSITION_WORK: usize = 1 << 26;
 
-/// Max number of objectives handled by EHVI: the decomposition of a single point front
-/// (`2^n_obj` cells) has to fit in `MAX_DECOMPOSITION_WORK`
+/// Max work of a criterion evaluation: number of boxes times number of objectives
+const MAX_EVALUATION_WORK: usize = 1 << 16;
+
+/// Max number of objectives handled by EHVI (a single point front gives `2^(n_obj - 1)` boxes)
 pub(crate) const MAX_EHVI_OBJECTIVES: usize = 8;
 
-/// Work to decompose the non-dominated region of a front of `size` points
-fn decomposition_work(size: usize, n_obj: usize) -> Option<usize> {
-    (size + 1)
-        .checked_pow(n_obj as u32)
-        .and_then(|cells| cells.checked_mul(size + n_obj))
+/// Decomposition and evaluation works for a front of `size` points
+fn works(size: usize, n_obj: usize) -> Option<(usize, usize)> {
+    let boxes = (size + 1).checked_pow(n_obj as u32 - 1)?;
+    Some((boxes.checked_mul(size * n_obj)?, boxes.checked_mul(n_obj)?))
 }
 
-/// Max number of front points such that the decomposition work is at most `MAX_DECOMPOSITION_WORK`
+/// Max number of front points such that the decomposition and evaluation works are bounded
 fn max_front_size(n_obj: usize) -> usize {
     let mut k = 1;
-    while decomposition_work(k + 1, n_obj).is_some_and(|w| w <= MAX_DECOMPOSITION_WORK) {
+    while works(k + 1, n_obj)
+        .is_some_and(|(dw, ew)| dw <= MAX_DECOMPOSITION_WORK && ew <= MAX_EVALUATION_WORK)
+    {
         k += 1;
     }
     k
@@ -106,7 +111,7 @@ impl<'a> EhviCriterion<'a> {
         let max_size = max_front_size(n_obj);
         let front = if front_size > max_size {
             log::warn!(
-                "EHVI: Pareto front of {front_size} points reduced to {max_size} spread points                  ({n_obj} objectives)"
+                "EHVI: Pareto front of {front_size} points reduced to {max_size} spread points ({n_obj} objectives)"
             );
             front.select(ndarray::Axis(0), &spread_subset(&front, max_size))
         } else {
@@ -128,23 +133,41 @@ impl<'a> EhviCriterion<'a> {
                 grid
             })
             .collect();
+        let last = n_obj - 1;
+        // Grid index of the last objective coordinate of each front point
+        let last_index: Vec<usize> = front
+            .column(last)
+            .iter()
+            .map(|v| {
+                grids[last]
+                    .binary_search_by(|g| g.total_cmp(v))
+                    .unwrap_or(grids[last].len() - 1)
+            })
+            .collect();
 
-        // Enumerate the grid cells, keeping those whose interior is not dominated by the front:
-        // a cell is dominated iff a front point is lower or equal to its lower corner
+        // Enumerate the cells of the grid of the first n_obj - 1 objectives. Along the last
+        // objective, the cell with lower corner index k is dominated iff a front point lower
+        // or equal to the lower corner of the cell (first objectives) has a last coordinate lower
+        // or equal to grid[k]: the non-dominated part is the box ]-inf, grid[t]] where t is the
+        // smallest last index of such front points (the reference point if none).
         let mut cells = vec![];
-        let mut index = vec![0; n_obj];
+        let mut index = vec![0; last];
         loop {
-            let dominated = front
+            let t = front
                 .rows()
                 .into_iter()
-                .any(|p| (0..n_obj).all(|j| p[j] <= grids[j][index[j]]));
-            if !dominated {
+                .zip(&last_index)
+                .filter(|(p, _)| (0..last).all(|j| p[j] <= grids[j][index[j]]))
+                .map(|(_, &k)| k)
+                .fold(grids[last].len() - 1, usize::min);
+            if t > 0 {
                 cells.extend_from_slice(&index);
+                cells.push(t);
             }
             // next cell index (odometer)
             let mut j = 0;
             loop {
-                if j == n_obj {
+                if j == last {
                     return EhviCriterion {
                         obj_models,
                         normalization,
@@ -209,16 +232,27 @@ impl<'a> EhviCriterion<'a> {
         let mut value = 0.;
         let mut grad = Array1::zeros(nx);
         let mut factors = vec![0.; n_obj];
+        let last = n_obj - 1;
+        // (lower, upper) grid indices of a box along objective j
+        let bounds = |cell: &[usize], j: usize| {
+            if j == last {
+                (0, cell[last])
+            } else {
+                (cell[j], cell[j] + 1)
+            }
+        };
         for cell in self.cells.chunks(n_obj) {
-            for j in 0..n_obj {
-                factors[j] = ei[j][cell[j] + 1] - ei[j][cell[j]];
+            for (j, factor) in factors.iter_mut().enumerate() {
+                let (lo, up) = bounds(cell, j);
+                *factor = ei[j][up] - ei[j][lo];
             }
             value += factors.iter().product::<f64>();
             if with_grad {
-                for j in 0..n_obj {
+                for (j, dei_j) in dei.iter().enumerate() {
                     let others: f64 = (0..n_obj).filter(|&k| k != j).map(|k| factors[k]).product();
                     if others != 0. {
-                        let dfactor = &dei[j].row(cell[j] + 1) - &dei[j].row(cell[j]);
+                        let (lo, up) = bounds(cell, j);
+                        let dfactor = &dei_j.row(up) - &dei_j.row(lo);
                         grad = grad + dfactor * others;
                     }
                 }
@@ -321,8 +355,10 @@ mod tests {
         for n_obj in 2..=MAX_EHVI_OBJECTIVES {
             let k = max_front_size(n_obj);
             println!("n_obj={n_obj} max front size={k}");
-            assert!(decomposition_work(k, n_obj).unwrap() <= MAX_DECOMPOSITION_WORK);
-            assert!(decomposition_work(k + 1, n_obj).unwrap() > MAX_DECOMPOSITION_WORK);
+            let (dw, ew) = works(k, n_obj).unwrap();
+            assert!(dw <= MAX_DECOMPOSITION_WORK && ew <= MAX_EVALUATION_WORK);
+            let (dw, ew) = works(k + 1, n_obj).unwrap();
+            assert!(dw > MAX_DECOMPOSITION_WORK || ew > MAX_EVALUATION_WORK);
         }
     }
 

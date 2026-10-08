@@ -22,11 +22,11 @@ pub enum MooStrategy {
     /// (objectives normalized with their observed bounds, reference point at the front nadir
     /// plus 10 % of its range), computed in closed form.
     ///
-    /// The computation decomposes the region not dominated by the front into
-    /// `(front_size + 1)^n_obj` grid cells: with large fronts (more than 405 points for
-    /// 2 objectives, 89 for 3, 18 for 5), the front is approximated by a spread subset of its
-    /// points, which overestimates the improvement near the left out points. At most 8 objectives
-    /// are supported (use [`MooStrategy::Eim`] beyond).
+    /// The computation decomposes the region not dominated by the front into up to
+    /// `(front_size + 1)^(n_obj - 1)` boxes: with large fronts (more than 5792 points for
+    /// 2 objectives, 146 for 3, 24 for 4, 9 for 5), the front is approximated by a spread subset
+    /// of its points, which overestimates the improvement near the left out points. At most
+    /// 8 objectives are supported (use [`MooStrategy::Eim`] beyond).
     Ehvi,
 }
 

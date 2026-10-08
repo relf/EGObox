@@ -254,19 +254,21 @@ Each step is one PR or a few PRs. Each keeps CI green and respects the contract 
   distance to the true front 0.06 vs 0.23 with ParEGO.
 
 ### Step 5 — EHVI and a hypervolume-based stop — done
-- `MooStrategy::Ehvi` (`moo/ehvi.rs`), exact for any number of objectives instead of a closed form
-  for m = 2 and Monte Carlo above: the region below the reference point not dominated by the
-  front is decomposed into the cells of the grid built with the front coordinates; the
-  hypervolume improvement of `y` is `sum_cells prod_j (u_j - max(y_j, l_j))^+`, whose expectation
-  factorizes per objective as `EI_j(u_j) - EI_j(l_j)` with independent normal predictions.
-  Analytic gradients by the product rule. Cells are built once per infill optimization
-  (`(n_front + 1)^m` candidates), so evaluations are cheap; it matches a Monte Carlo estimate
-  to ~1e-5 for 2 and 3 objectives (unit test). The decomposition work (cells × (front size +
-  number of objectives), for domination checks and cell storage) is bounded to 2^26: beyond
-  (front of more than 405 points for 2 objectives, 89 for 3, 18 for 5), the region dominated by a
-  spread subset of the front (best point of each objective, then farthest point sampling) is
-  used, with a warning. EHVI is limited to 8 objectives (a single point front already has
-  `2^n_obj` cells); EIM is the alternative beyond.
+- `MooStrategy::Ehvi` (`moo/ehvi.rs`), in closed form for any number of objectives instead of a
+  closed form for m = 2 and Monte Carlo above: the region below the reference point not dominated
+  by the front is decomposed into boxes built on the grid of the front coordinates (for each
+  cell of the grid of the first m - 1 objectives, the non-dominated part is a single box
+  `]-inf, u_m]` along the last objective, so at most `(n_front + 1)^(m - 1)` boxes; for m = 2,
+  the classic `n + 1` stripes of the staircase); the hypervolume improvement of `y` is
+  `sum_boxes prod_j (u_j - max(y_j, l_j))^+`, whose expectation factorizes per objective as
+  `EI_j(u_j) - EI_j(l_j)` with independent normal predictions. Analytic gradients by the product
+  rule. Boxes are built once per infill optimization; it matches a Monte Carlo estimate to
+  ~1e-5 for 2 and 3 objectives (unit test). The decomposition work (boxes × front size ×
+  objectives) is bounded to 2^26 and the evaluation work (boxes × objectives) to 2^16: beyond
+  (front of more than 5792 points for 2 objectives, 146 for 3, 24 for 4, 9 for 5), the region
+  dominated by a spread subset of the front (best point of each objective, then farthest point
+  sampling) is used, with a warning. EHVI is limited to 8 objectives; EIM is the alternative
+  beyond.
 - EIM and EHVI share the normalized predictions, normalized front and reference point
   (`moo/criterion.rs`) and are dispatched by a crate-private `MooCriterion` enum in
   `InfillOptProblem`. The criterion is not published as a public trait: two concrete strategies
@@ -278,7 +280,9 @@ Each step is one PR or a few PRs. Each keeps CI green and respects the contract 
   points make the window longer, which only delays the stop, as iteration boundaries are not
   kept in the state), reported as `TerminationReason::SolverConverged`. Only feasible points
   count: without feasible point the hypervolume is zero, so the stop never triggers before
-  feasibility is reached.
+  feasibility is reached. Hypervolumes are exact when the recursive computation is affordable
+  (`front_size^(m - 1)` up to 2^22), estimated otherwise by Monte Carlo with 2^16 uniform samples
+  shared by both fronts (low variance of their difference).
 - Results (30 iterations): ZDT1 hypervolume 93.7 % of the true-front hypervolume (91.7 % with
   qEI batch of 3), DTLZ2 mean distance 0.08 to the true front; with `hv_stop(1e-3, 5)` a ZDT1
   run with a budget of 100 iterations stops after 38.
