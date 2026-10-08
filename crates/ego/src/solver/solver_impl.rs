@@ -1,12 +1,14 @@
 use std::marker::PhantomData;
 
 use crate::errors::{EgoError, Result};
+use crate::moo::eim::EimCriterion;
+use crate::moo::pareto::pareto_front_indices;
 use crate::moo::scalarization::compromise_index;
 use crate::solver::solver_computations::MiddlePickerMultiStarter;
 use crate::solver::solver_infill_optim::InfillOptProblem;
 use crate::utils::{
-    EGOBOX_LOG, find_best_result_index_from, is_feasible, is_feasible_at, select_from_portfolio,
-    update_data, usable_data,
+    EGOBOX_LOG, find_best_result_index_from, is_feasible_at, select_from_portfolio, update_data,
+    usable_data,
 };
 use crate::{ActivityStrategy, FullActivity, find_best_result_index};
 use crate::{DEFAULT_CSTR_TOL, EgorSolver, ValidEgorConfig};
@@ -15,7 +17,7 @@ use egobox_moe::as_continuous_limits;
 
 use basin::{CostFunction, Problem};
 
-use egobox_doe::{Lhs, LhsKind};
+use egobox_doe::{Lhs, LhsKind, SamplingMethod};
 use egobox_gp::ThetaTuning;
 use env_logger::{Builder, Env};
 
@@ -92,12 +94,12 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
         // TODO: Coego not implemented
         let activity = FullActivity.generate_activity(x_data.ncols(), &mut rng);
 
-        // With several objectives, surrogates are trained on the ParEGO scalarized view
-        // [s | cstrs] of the data (see `ego_step`). Weights change from one call to the next
-        // as the number of data points grows.
+        // With ParEGO, surrogates are trained on the scalarized view [s | cstrs] of the data
+        // (see `ego_step`). Weights change from one call to the next as the number of data
+        // points grows.
         let n_obj = self.config.n_obj();
         let y_view;
-        let y_data: &ArrayBase<_, Ix2> = if n_obj > 1 {
+        let y_data: &ArrayBase<_, Ix2> = if self.config.is_scalarized() {
             let weights =
                 crate::moo::parego::shuffled_weights(n_obj, self.config.moo.n_divisions, &mut rng);
             let weights = &weights[x_data.nrows() % weights.len()];
@@ -108,8 +110,22 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
             y_data
         };
 
-        let best_index = find_best_result_index(y_data, &c_data, &cstr_tol);
-        let feasibility = is_feasible(&y_data.row(best_index), &c_data.row(best_index), &cstr_tol);
+        let best_index = if self.config.is_per_objective() {
+            compromise_index(y_data, &c_data, n_obj, &cstr_tol).unwrap_or(0)
+        } else {
+            find_best_result_index(y_data, &c_data, &cstr_tol)
+        };
+        let n_train_obj = if self.config.is_per_objective() {
+            n_obj
+        } else {
+            1
+        };
+        let feasibility = is_feasible_at(
+            &y_data.row(best_index),
+            &c_data.row(best_index),
+            n_train_obj,
+            &cstr_tol,
+        );
 
         let mut models: Vec<Box<dyn MixtureGpSurrogate>> = Vec::new();
         let (x_dat, _, _, _, _) = self.select_next_points(
@@ -659,7 +675,7 @@ where
 
         let n_obj = self.config.n_obj();
         // Multi-objective (ParEGO): weight vectors tried in a random order, a distinct one at each try
-        let parego_weights = if n_obj > 1 {
+        let parego_weights = if self.config.is_scalarized() {
             crate::moo::parego::shuffled_weights(n_obj, self.config.moo.n_divisions, &mut rng)
         } else {
             vec![]
@@ -670,7 +686,7 @@ where
             // Multi-objective (ParEGO): surrogates are trained on a view of the data where the
             // objectives are scalarized with the weights of the try. As their training targets
             // change, the surrogates are retrained (never incrementally updated).
-            let (scalarized_y, train_best_index) = if n_obj > 1 {
+            let (scalarized_y, train_best_index) = if self.config.is_scalarized() {
                 let weights = &parego_weights[n_tries % parego_weights.len()];
                 n_tries += 1;
                 info!("ParEGO weights = {weights}");
@@ -873,7 +889,7 @@ where
                 n_obj,
                 &new_state.doe.cstr_tol,
             );
-        if n_obj > 1 {
+        if self.config.is_scalarized() {
             // Surrogates are retrained on the next scalarized view at next iteration
             new_state = new_state
                 .clusterings(clusterings.clone())
@@ -1125,6 +1141,31 @@ where
                     fmin,
                     *sigma_weight,
                 );
+                // Multi-objective EIM criterion wrt the Pareto front of the data, including
+                // virtual points of the batch so far
+                let eim = if self.config.moo.strategy == crate::MooStrategy::Eim
+                    && self.config.is_per_objective()
+                {
+                    let aggregation = self.config.moo.eim_aggregation;
+                    let n_obj = self.config.n_obj();
+                    let ct = concatenate![Axis(0), c_data.to_owned(), c_dat.to_owned()];
+                    let front = pareto_front_indices(&yt, &ct, n_obj, cstr_tol);
+                    let objs = yt.slice(s![.., ..n_obj]);
+                    Some(EimCriterion::new(obj_models, &objs, &front, aggregation))
+                } else {
+                    None
+                };
+                let scale_infill_obj = if let Some(eim) = eim.as_ref() {
+                    let npts = (100 * self.xlimits.nrows()).min(1000);
+                    let scale = eim.scaling(&sampling.sample(npts));
+                    info!(
+                        "EIM criterion ({} front points) scaling is updated to {scale}",
+                        eim.front_size()
+                    );
+                    scale
+                } else {
+                    scale_infill_obj
+                };
                 let scale_pov_cstr = Array1::ones((1,)); // PoV cstr is normalized 
                 let all_scale_cstr = concatenate![Axis(0), scale_cstr, scale_fcstr, scale_pov_cstr];
 
@@ -1203,6 +1244,7 @@ where
                     self.config.feasibility_infill.alpha(),
                     &infill_data,
                     actives,
+                    eim.as_ref(),
                 );
 
                 let (infill_obj, xk) = self.optimize_infill_criterion(

@@ -5,8 +5,13 @@
 * Experimental multi-objective optimization in Rust `Egor` with ParEGO: `EgorConfig::n_obj()`,
   `EgorConfig::configure_moo()` and `Egor::run_pareto()` returning the (constrained) Pareto front
   approximation (see [plan](doc/moo-plan.md)). Mono-objective optimization is unchanged
+* Multi-objective `MooStrategy::Eim`: one surrogate per objective and Expected Improvement Matrix infill
+  criterion (Zhan et al. 2017) with Euclidean, maximin or hypervolume aggregation
+  (`MooConfig::eim_aggregation()`)
 * `EgorState::param` and `EgorState::cost` (current point) now hold the first evaluated point of the
   iteration and its evaluated value (instead of the first proposed point and its surrogate prediction)
+* Fix gradient of the probability of feasibility (used with `cstr_infill`) when a non-zero constraint
+  tolerance is set
 
 ## Version 0.38.1 - unreleased
 

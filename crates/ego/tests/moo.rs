@@ -1,8 +1,8 @@
 //! Multi-objective optimization (ParEGO) tests
 
 use egobox_ego::{
-    CstrSpec, EgorBuilder, EgorServiceBuilder, FailsafeStrategy, HotStartMode, MooStrategy,
-    ParetoResult, TerminationReason, TerminationStatus, XType,
+    CstrSpec, EgorBuilder, EgorServiceBuilder, EimAggregation, FailsafeStrategy, HotStartMode,
+    MooStrategy, ParetoResult, TerminationReason, TerminationStatus, XType,
 };
 use ndarray::{Array1, Array2, ArrayView2, Axis, Zip, array};
 use serial_test::serial;
@@ -436,31 +436,220 @@ fn test_solver_suggest_with_several_objectives() {
     use egobox_moe::GpMixtureParams;
 
     let xlimits = array![[0., 5.], [0., 3.]];
-    let config = EgorConfig::default()
-        .xtypes(&to_xtypes(&xlimits))
-        .n_obj(2)
-        .n_cstr(2)
-        .seed(42)
-        .check()
-        .expect("valid config");
-    let solver = EgorSolver::<GpMixtureParams<f64>, Cstr>::new(config);
-    let mut x = array![
-        [0., 0.],
-        [1., 1.],
-        [2.5, 1.5],
-        [4., 2.],
-        [5., 3.],
-        [3., 0.5]
-    ];
-    for _ in 0..3 {
-        let y = bnh(&x.view());
-        let x_new = solver.suggest(&x, &y);
-        assert_eq!(x_new.dim(), (1, 2));
-        assert!(
-            Zip::from(x_new.row(0))
-                .and(xlimits.rows())
-                .all(|v, lim| lim[0] <= *v && *v <= lim[1])
-        );
-        x = ndarray::concatenate![Axis(0), x, x_new];
+    for strategy in [MooStrategy::ParEgo, MooStrategy::Eim] {
+        let config = EgorConfig::default()
+            .xtypes(&to_xtypes(&xlimits))
+            .n_obj(2)
+            .n_cstr(2)
+            .configure_moo(|moo| moo.strategy(strategy))
+            .seed(42)
+            .check()
+            .expect("valid config");
+        let solver = EgorSolver::<GpMixtureParams<f64>, Cstr>::new(config);
+        let mut x = array![
+            [0., 0.],
+            [1., 1.],
+            [2.5, 1.5],
+            [4., 2.],
+            [5., 3.],
+            [3., 0.5]
+        ];
+        for _ in 0..3 {
+            let y = bnh(&x.view());
+            let x_new = solver.suggest(&x, &y);
+            assert_eq!(x_new.dim(), (1, 2));
+            assert!(
+                Zip::from(x_new.row(0))
+                    .and(xlimits.rows())
+                    .all(|v, lim| lim[0] <= *v && *v <= lim[1])
+            );
+            x = ndarray::concatenate![Axis(0), x, x_new];
+        }
     }
+}
+
+fn run_zdt1_eim(aggregation: EimAggregation, max_iters: usize) -> ParetoResult<f64> {
+    EgorBuilder::optimize(zdt1)
+        .configure(|cfg| {
+            cfg.n_obj(2)
+                .configure_moo(|moo| moo.strategy(MooStrategy::Eim).eim_aggregation(aggregation))
+                .n_doe(10)
+                .max_iters(max_iters)
+                .seed(42)
+        })
+        .min_within(&array![[0., 1.], [0., 1.]])
+        .expect("Egor configured")
+        .run_pareto()
+        .expect("ZDT1 optimization")
+}
+
+#[test]
+#[serial]
+fn test_zdt1_eim() {
+    for aggregation in [
+        EimAggregation::Euclidean,
+        EimAggregation::Maximin,
+        EimAggregation::Hypervolume,
+    ] {
+        let res = run_zdt1_eim(aggregation, 30);
+        assert_non_dominated(&res.y_pareto, 2);
+        let hv = hypervolume_2d(&res.y_pareto, [1.1, 1.1]);
+        println!(
+            "ZDT1 EIM {aggregation:?} front ({} points, {} evaluations, {}) HV = {hv} ({:.1}% of true front HV)",
+            res.y_pareto.nrows(),
+            res.x_doe.nrows(),
+            res.state.termination_status,
+            100. * hv / ZDT1_HV_REF
+        );
+        assert_max_iters_reached(&res);
+        assert!(hv > 0.8 * ZDT1_HV_REF);
+    }
+}
+
+#[test]
+#[serial]
+fn test_zdt1_eim_is_deterministic() {
+    let res1 = run_zdt1_eim(EimAggregation::Euclidean, 5);
+    let res2 = run_zdt1_eim(EimAggregation::Euclidean, 5);
+    assert_eq!(res1.x_doe, res2.x_doe);
+}
+
+#[test]
+#[serial]
+fn test_zdt1_eim_hot_start_continues_like_uninterrupted_run() {
+    let outdir = "target/test_moo_eim_hot_start";
+    let _ = std::fs::remove_dir_all(outdir);
+    let run = |hot_start: HotStartMode, max_iters: usize| {
+        EgorBuilder::optimize(zdt1)
+            .configure(|cfg| {
+                cfg.n_obj(2)
+                    .configure_moo(|moo| {
+                        moo.strategy(MooStrategy::Eim)
+                            .eim_aggregation(EimAggregation::Euclidean)
+                    })
+                    .n_doe(10)
+                    .max_iters(max_iters)
+                    .hot_start(hot_start)
+                    .outdir(outdir)
+                    .seed(42)
+            })
+            .min_within(&array![[0., 1.], [0., 1.]])
+            .expect("Egor configured")
+            .run_pareto()
+            .expect("ZDT1 optimization")
+    };
+    let _ = run(HotStartMode::Enabled, 3);
+    let resumed = run(HotStartMode::ExtendedIters(3), 3);
+    let _ = std::fs::remove_dir_all(outdir);
+    let straight = run(HotStartMode::Disabled, 6);
+    assert_eq!(resumed.x_doe, straight.x_doe);
+}
+
+#[test]
+#[serial]
+fn test_bnh_eim() {
+    for cstr_infill in [false, true] {
+        let res = EgorBuilder::optimize(bnh)
+            .configure(|cfg| {
+                cfg.n_obj(2)
+                    .n_cstr(2)
+                    .cstr_infill(cstr_infill)
+                    .configure_moo(|moo| {
+                        moo.strategy(MooStrategy::Eim)
+                            .eim_aggregation(EimAggregation::Hypervolume)
+                    })
+                    .n_doe(10)
+                    .max_iters(30)
+                    .seed(42)
+            })
+            .min_within(&array![[0., 5.], [0., 3.]])
+            .expect("Egor configured")
+            .run_pareto()
+            .expect("BNH optimization");
+        assert_bnh_front(&res, |y| y[2] <= 1e-4 && y[3] <= 1e-4);
+    }
+}
+
+#[test]
+#[serial]
+fn test_dtlz2_eim() {
+    let xlimits = Array2::from_shape_vec((4, 2), [0., 1.].repeat(4)).unwrap();
+    let res = EgorBuilder::optimize(dtlz2)
+        .configure(|cfg| {
+            cfg.n_obj(3)
+                .configure_moo(|moo| {
+                    moo.strategy(MooStrategy::Eim)
+                        .eim_aggregation(EimAggregation::Hypervolume)
+                })
+                .n_doe(15)
+                .max_iters(30)
+                .seed(42)
+        })
+        .min_within(&xlimits)
+        .expect("Egor configured")
+        .run_pareto()
+        .expect("DTLZ2 optimization");
+    assert_max_iters_reached(&res);
+    assert_non_dominated(&res.y_pareto, 3);
+    let mean_dist = res
+        .y_pareto
+        .rows()
+        .into_iter()
+        .map(|y| y.dot(&y).sqrt() - 1.)
+        .sum::<f64>()
+        / res.y_pareto.nrows() as f64;
+    println!(
+        "DTLZ2 EIM front ({} points) mean distance to true front = {mean_dist}",
+        res.y_pareto.nrows()
+    );
+    assert!(res.y_pareto.nrows() >= 5);
+    assert!(mean_dist < 0.35);
+}
+
+#[test]
+#[serial]
+fn test_zdt1_eim_qei() {
+    let res = EgorBuilder::optimize(zdt1)
+        .configure(|cfg| {
+            cfg.n_obj(2)
+                .configure_moo(|moo| {
+                    moo.strategy(MooStrategy::Eim)
+                        .eim_aggregation(EimAggregation::Euclidean)
+                })
+                .configure_qei(|qei| qei.batch(3))
+                .n_doe(10)
+                .max_iters(8)
+                .seed(42)
+        })
+        .min_within(&array![[0., 1.], [0., 1.]])
+        .expect("Egor configured")
+        .run_pareto()
+        .expect("ZDT1 optimization");
+    assert_max_iters_reached(&res);
+    // batch points are distinct new points
+    assert!(res.x_doe.nrows() > 10 + 8);
+    let hv = hypervolume_2d(&res.y_pareto, [1.1, 1.1]);
+    println!(
+        "ZDT1 EIM qEI front HV = {hv} ({:.1}% of true front HV)",
+        100. * hv / ZDT1_HV_REF
+    );
+    assert!(hv > 0.7 * ZDT1_HV_REF);
+}
+
+#[test]
+fn test_eim_unsupported_configurations() {
+    assert!(
+        EgorBuilder::optimize(zdt1)
+            .configure(|cfg| {
+                cfg.n_obj(2)
+                    .configure_moo(|moo| {
+                        moo.strategy(MooStrategy::Eim)
+                            .eim_aggregation(EimAggregation::Euclidean)
+                    })
+                    .infill_strategy(egobox_ego::InfillStrategy::EI)
+                    .feasible_infill_strategy(egobox_ego::FeasibleInfillStrategy::EfiP)
+            })
+            .min_within(&array![[0., 1.], [0., 1.]])
+            .is_err()
+    );
 }

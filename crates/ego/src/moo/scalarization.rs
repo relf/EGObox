@@ -26,6 +26,11 @@ impl Normalization {
         Self::new(ideal, nadir)
     }
 
+    /// Ranges used to normalize the objectives
+    pub(crate) fn range(&self) -> &Array1<f64> {
+        &self.range
+    }
+
     /// Normalized objectives
     pub(crate) fn apply(&self, f: &ArrayBase<impl Data<Elem = f64>, Ix1>) -> Array1<f64> {
         (f - &self.lower) / &self.range

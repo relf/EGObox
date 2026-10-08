@@ -348,7 +348,7 @@ mod types;
 
 pub use crate::egor::*;
 pub use crate::errors::*;
-pub use crate::moo::{MooConfig, MooStrategy, ParetoResult};
+pub use crate::moo::{EimAggregation, MooConfig, MooStrategy, ParetoResult};
 pub use crate::solver::*;
 pub use crate::types::*;
 pub use crate::utils::{

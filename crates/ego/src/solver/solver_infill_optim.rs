@@ -2,6 +2,8 @@ use crate::optimizers::*;
 use crate::types::*;
 
 use crate::EgorSolver;
+use crate::moo::eim::EimCriterion;
+use crate::utils::{pofs, pofs_grad};
 
 use egobox_moe::MixtureGpSurrogate;
 use log::info;
@@ -38,6 +40,8 @@ pub(crate) struct InfillOptProblem<'a, CstrFn> {
     pub alpha: Option<f64>,
     pub infill_data: &'a InfillObjData<f64>,
     pub actives: &'a Array2<usize>,
+    /// Multi-objective EIM criterion replacing the mono-objective infill criterion (if any)
+    pub eim: Option<&'a EimCriterion<'a>>,
 }
 
 impl<'a, CstrFn> InfillOptProblem<'a, CstrFn> {
@@ -51,6 +55,7 @@ impl<'a, CstrFn> InfillOptProblem<'a, CstrFn> {
         alpha: Option<f64>,
         infill_data: &'a InfillObjData<f64>,
         actives: &'a Array2<usize>,
+        eim: Option<&'a EimCriterion<'a>>,
     ) -> Self {
         Self {
             obj_model,
@@ -61,6 +66,7 @@ impl<'a, CstrFn> InfillOptProblem<'a, CstrFn> {
             alpha,
             infill_data,
             actives,
+            eim,
         }
     }
 }
@@ -92,6 +98,7 @@ where
             alpha,
             infill_data,
             actives,
+            eim,
         } = infill_optpb;
         let mut infill_data = infill_data.clone();
 
@@ -129,6 +136,41 @@ where
                     // Defensive programming COBYLA may pass NaNs
                     if xcoop.iter().any(|x| x.is_nan()) {
                         return f64::INFINITY;
+                    }
+
+                    if let Some(eim) = eim {
+                        // Multi-objective EIM criterion (linear composition with PoF)
+                        let with_grad = gradient.is_some();
+                        let (mut obj, mut g_obj) = if cstr_infill && !*feasibility {
+                            // neutral factor: only use the probability of feasibility
+                            (-1., Array1::zeros(xcoop.len()))
+                        } else if with_grad {
+                            let (v, g) = eim.value_grad(&xcoop);
+                            (-v / *scale_infill_obj, -g / *scale_infill_obj)
+                        } else {
+                            (
+                                -eim.value(&xcoop) / *scale_infill_obj,
+                                Array1::zeros(xcoop.len()),
+                            )
+                        };
+                        if cstr_infill {
+                            let tols = cstr_tols.to_vec();
+                            let pof = pofs(&xcoop, cstr_models, &tols);
+                            if with_grad {
+                                g_obj = g_obj * pof + pofs_grad(&xcoop, cstr_models, &tols) * obj;
+                            }
+                            obj *= pof;
+                        }
+                        if let Some(grad) = gradient {
+                            let g_obj = g_obj
+                                .iter()
+                                .enumerate()
+                                .filter(|(i, _)| active.contains(i))
+                                .map(|(_, &g)| g)
+                                .collect::<Vec<_>>();
+                            grad[..].copy_from_slice(&g_obj);
+                        }
+                        return obj;
                     }
 
                     if let Some(grad) = gradient {

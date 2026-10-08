@@ -39,8 +39,10 @@ fn pof_grad(x: &[f64], cstr_model: &dyn MixtureGpSurrogate, cstr_tol: f64) -> Ar
                 let y_prime = y_prime.row(0);
                 let sig_2_prime = var_prime.row(0);
                 let sig_prime = sig_2_prime.mapv(|v| v / (2. * sigma));
-                let arg_prime =
-                    y_prime.mapv(|v| v / (-sigma)) + sig_prime.mapv(|v| v * pred / (sigma * sigma));
+                // arg = (tol - pred) / sigma
+                // arg' = -pred' / sigma - (tol - pred) * sigma' / sigma^2
+                let arg_prime = y_prime.mapv(|v| v / (-sigma))
+                    + sig_prime.mapv(|v| v * (pred - cstr_tol) / (sigma * sigma));
                 norm_pdf(arg) * arg_prime.to_owned()
             }
         }
@@ -141,14 +143,18 @@ mod tests {
             .create_surrogate(&surrogate_builder, &ds)
             .expect("Mixint surrogate creation");
 
-        let x = vec![0.3];
-        let grad = pof_grad(&x, &mixi_moe, 0.);
+        for tol in [0., 0.3, -0.2] {
+            for x in [vec![0.3], vec![7.]] {
+                let grad = pof_grad(&x, &mixi_moe, tol);
 
-        let f =
-            |x: &Vec<f64>| -> std::result::Result<f64, anyhow::Error> { Ok(pof(x, &mixi_moe, 0.)) };
-        let grad_central = vec::central_diff(&f)(&x).unwrap();
+                let f = |x: &Vec<f64>| -> std::result::Result<f64, anyhow::Error> {
+                    Ok(pof(x, &mixi_moe, tol))
+                };
+                let grad_central = vec::central_diff(&f)(&x).unwrap();
 
-        assert_abs_diff_eq!(grad[0], grad_central[0], epsilon = 1e-6);
+                assert_abs_diff_eq!(grad[0], grad_central[0], epsilon = 1e-6);
+            }
+        }
     }
 
     #[test]

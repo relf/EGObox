@@ -218,7 +218,7 @@ Each step is one PR or a few PRs. Each keeps CI green and respects the contract 
 - Plumbing: `init_state` (compromise index), untransforming with the objective offset in
   `run()`/`run_pareto()`. A per-iteration `egor_pareto.npy` in `outdir` is not done.
 - Tests in `crates/ego/tests/moo.rs`:
-  - ZDT1 (2 objectives, hypervolume above 85 % of the true front one, 95.8 % in practice),
+  - ZDT1 (2 objectives, hypervolume above 85 % of the true-front hypervolume, 95.8 % in practice),
     BNH (2 objectives, 2 constraints, feasible front reaching both extremes) and DTLZ2
     (3 objectives, mean distance to the true front).
   - Seeded determinism.
@@ -228,19 +228,30 @@ Each step is one PR or a few PRs. Each keeps CI green and respects the contract 
   - Unsupported configurations, `run()` compromise point, mono-objective `run_pareto()`.
 - Example: `crates/ego/examples/zdt1.rs`.
 
-### Step 4 — Per-objective surrogates and EIM
-- `PerObjective` mode: `models[..m]` are persisted and updated incrementally per column.
-- Crate-private MOO criterion trait providing value and gradient, given the objective models, the
-  normalized front and the reference point.
-- Generalize `InfillOptProblem` into an infill objective `Single | Multi`, so constraint handling is
-  shared: `cstr_infill` PoF/logPoF, metamodel constraints, function constraints, viability, and the
-  fallbacks. `Single` runs today's code unchanged.
+### Step 4 — Per-objective surrogates and EIM — done
+- `PerObjective` mode (`MooStrategy::Eim`): `models[..m]` (one GP per objective) are persisted and
+  updated incrementally per column like the mono-objective ones (training targets do not change).
 - EIM, the expected improvement matrix of Zhan et al. (2017), in Euclidean, maximin and hypervolume
-  variants. It is built from `ExpectedImprovement` (`criteria/ei.rs`) applied per objective and
-  Pareto point, with analytic gradients, and exposed as `MooStrategy::Eim(..)`.
-- Scaling: generalize `compute_infill_obj_scale` to take the criterion as a closure.
-- qEI: Kriging believer per objective. The front used for the next batch points includes the
-  virtual points already chosen.
+  aggregations (`MooConfig::eim_aggregation`), in `moo/eim.rs`. Objectives are normalized with
+  their observed bounds; the expected improvements and their gradients are computed in closed form
+  from the predicted means/variances and their gradients (one prediction per objective instead of
+  one per front point); the reference point of the hypervolume aggregation is the front nadir +
+  10 % of its range.
+- Rather than a generic criterion trait, `InfillOptProblem` takes an optional EIM criterion: when
+  set, the infill objective is `-EIM / scale`, combined with the probability of feasibility as
+  for linear criteria, so constraint handling is shared (`cstr_infill` PoF, metamodel constraints,
+  function constraints, viability, fallbacks). The mono-objective path is unchanged.
+- Scaling: max of EIM over an LHS sample, as for linear mono-objective criteria.
+- qEI: Kriging believer per objective; the front used for the next batch points includes the
+  virtual points already chosen. `ConstantLiarMinimum` lies with the row of the minimum of the
+  first objective.
+- `EgorSolver::suggest` uses the compromise point and the per-objective models.
+- Feasibility-enhanced infill (EFI) is rejected with EIM.
+- `Eim` is a unit variant with the aggregation in `MooConfig`: a tuple variant in `MooStrategy`
+  is reported as a breaking change by `cargo semver-checks` (enum discriminants).
+- Results (`crates/ego/tests/moo.rs`, 30 iterations): ZDT1 hypervolume 92 % (Euclidean), 89 %
+  (maximin), 95 % (hypervolume aggregation) of the true-front hypervolume vs 96 % with ParEGO; DTLZ2 mean
+  distance to the true front 0.06 vs 0.23 with ParEGO.
 
 ### Step 5 — EHVI and a hypervolume-based stop
 - EHVI: closed form for m = 2; Monte Carlo with common random numbers for m ≥ 3, using
@@ -257,6 +268,13 @@ Each step is one PR or a few PRs. Each keeps CI green and respects the contract 
   ideal point as the lie.
 - TREGO and CoEGO: either define them around the compromise point (trust region center or CoEGO
   context vector) or keep rejecting them.
+- Function constraint values stored for points added by iterations (`c_data`) come from the
+  scaled optimizer closures (divided by the function constraint scale), unlike the initial DOE
+  ones; the EIM front of qEI virtual points uses them too. Storing raw values is the fix, but it
+  has to come with infill points feasible in raw units: the C-ported COBYLA (no constraint
+  tolerance) returns boundary points violating the scaled constraints by ~2e-5, i.e. ~5e-4 in
+  raw units, which the scaled values accidentally accept within `cstr_tol` (attempted in #477
+  and reverted, as C COBYLA runs with function constraints then stalled).
 
 ### Step 7 — Docs and stabilization
 - Update the docs that say "1 objective + n_cstr": `lib.rs`, `egor.rs`, `types.rs` (`ObjFn`) and

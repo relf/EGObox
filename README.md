@@ -232,6 +232,10 @@ Knowles, J. (2006).
 [ParEGO: a hybrid algorithm with on-line landscape approximation for expensive multiobjective optimization problems](https://doi.org/10.1109/TEVC.2005.851274).
 IEEE Transactions on Evolutionary Computation, 10(1), 50–66.
 
+Zhan, D., Cheng, Y., & Liu, J. (2017).
+[Expected improvement matrix-based infill criteria for expensive multiobjective optimization](https://doi.org/10.1109/TEVC.2017.2697503).
+IEEE Transactions on Evolutionary Computation, 21(6), 956–975.
+
 Diouane, Youssef, et al. (2023).
 [TREGO: a trust-region framework for efficient global optimization](https://arxiv.org/pdf/2101.06808).
 Journal of Global Optimization 86.1 (2023): 1-23.
