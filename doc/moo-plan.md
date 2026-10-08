@@ -261,10 +261,12 @@ Each step is one PR or a few PRs. Each keeps CI green and respects the contract 
   factorizes per objective as `EI_j(u_j) - EI_j(l_j)` with independent normal predictions.
   Analytic gradients by the product rule. Cells are built once per infill optimization
   (`(n_front + 1)^m` candidates), so evaluations are cheap; it matches a Monte Carlo estimate
-  to ~1e-5 for 2 and 3 objectives (unit test). The decomposition work (cells × front size) is
-  bounded to 2^26: beyond (front of more than 405 points for 2 objectives, 89 for 3, 19 for 5),
-  the region dominated by a spread subset of the front (best point of each objective, then
-  farthest point sampling) is used, with a warning.
+  to ~1e-5 for 2 and 3 objectives (unit test). The decomposition work (cells × (front size +
+  number of objectives), for domination checks and cell storage) is bounded to 2^26: beyond
+  (front of more than 405 points for 2 objectives, 89 for 3, 18 for 5), the region dominated by a
+  spread subset of the front (best point of each objective, then farthest point sampling) is
+  used, with a warning. EHVI is limited to 8 objectives (a single point front already has
+  `2^n_obj` cells); EIM is the alternative beyond.
 - EIM and EHVI share the normalized predictions, normalized front and reference point
   (`moo/criterion.rs`) and are dispatched by a crate-private `MooCriterion` enum in
   `InfillOptProblem`. The criterion is not published as a public trait: two concrete strategies

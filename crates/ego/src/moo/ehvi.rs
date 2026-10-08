@@ -30,14 +30,19 @@ pub(crate) struct EhviCriterion<'a> {
 }
 
 /// Max work to decompose the non-dominated region: number of grid cells `(front_size + 1)^n_obj`
-/// times the front size (domination check of each cell)
+/// times the front size (domination check of each cell) plus the number of objectives
+/// (cell indices storage)
 const MAX_DECOMPOSITION_WORK: usize = 1 << 26;
+
+/// Max number of objectives handled by EHVI: the decomposition of a single point front
+/// (`2^n_obj` cells) has to fit in `MAX_DECOMPOSITION_WORK`
+pub(crate) const MAX_EHVI_OBJECTIVES: usize = 8;
 
 /// Work to decompose the non-dominated region of a front of `size` points
 fn decomposition_work(size: usize, n_obj: usize) -> Option<usize> {
     (size + 1)
         .checked_pow(n_obj as u32)
-        .and_then(|cells| cells.checked_mul(size))
+        .and_then(|cells| cells.checked_mul(size + n_obj))
 }
 
 /// Max number of front points such that the decomposition work is at most `MAX_DECOMPOSITION_WORK`
@@ -313,7 +318,7 @@ mod tests {
 
     #[test]
     fn test_max_front_size() {
-        for n_obj in 2..=8 {
+        for n_obj in 2..=MAX_EHVI_OBJECTIVES {
             let k = max_front_size(n_obj);
             println!("n_obj={n_obj} max front size={k}");
             assert!(decomposition_work(k, n_obj).unwrap() <= MAX_DECOMPOSITION_WORK);

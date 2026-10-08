@@ -877,6 +877,13 @@ impl EgorConfig {
                 Some("target".to_string())
             } else if config.failsafe_strategy == FailsafeStrategy::Imputation {
                 Some("Imputation failsafe strategy".to_string())
+            } else if config.moo.strategy == crate::MooStrategy::Ehvi
+                && config.n_obj > crate::moo::ehvi::MAX_EHVI_OBJECTIVES
+            {
+                Some(format!(
+                    "EHVI with more than {} objectives (use EIM)",
+                    crate::moo::ehvi::MAX_EHVI_OBJECTIVES
+                ))
             } else if config.feasibility_infill.is_enabled() && !config.is_scalarized() {
                 Some(format!(
                     "{:?} feasible infill strategy with {:?}",

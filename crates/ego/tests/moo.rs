@@ -768,6 +768,18 @@ fn test_zdt1_hv_stop() {
 }
 
 #[test]
+fn test_ehvi_too_many_objectives() {
+    let xlimits = array![[0., 1.], [0., 1.]];
+    let config = |n_obj: usize| {
+        EgorBuilder::optimize(zdt1)
+            .configure(|cfg| ehvi(cfg.n_obj(n_obj)))
+            .min_within(&xlimits)
+    };
+    assert!(config(8).is_ok());
+    assert!(config(9).is_err());
+}
+
+#[test]
 fn test_hv_stop_invalid_configurations() {
     for (tol, n_iters) in [(-1., 3), (f64::NAN, 3), (1e-3, 0)] {
         assert!(
