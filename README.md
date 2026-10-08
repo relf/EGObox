@@ -244,6 +244,10 @@ Emmerich, M. T. M., Giannakoglou, K. C., & Naujoks, B. (2006).
 [Single- and multiobjective evolutionary optimization assisted by Gaussian random field metamodels](https://doi.org/10.1109/TEVC.2005.859463).
 IEEE Transactions on Evolutionary Computation, 10(4), 421–439.
 
+Daulton, S., Balandat, M., & Bakshy, E. (2020).
+[Differentiable Expected Hypervolume Improvement for Parallel Multi-Objective Bayesian Optimization](https://arxiv.org/abs/2006.05078).
+Advances in Neural Information Processing Systems 33 (NeurIPS 2020), 9851–9864.
+
 Diouane, Youssef, et al. (2023).
 [TREGO: a trust-region framework for efficient global optimization](https://arxiv.org/pdf/2101.06808).
 Journal of Global Optimization 86.1 (2023): 1-23.

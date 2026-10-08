@@ -285,8 +285,8 @@ Each step is one PR or a few PRs. Each keeps CI green and respects the contract 
   shared by both fronts (low variance of their difference).
 - Batches (`configure_qei`) use the Kriging believer heuristic, as with EIM: each batch point
   maximizes the single-point EHVI wrt the front augmented with the virtual points (predicted
-  means) already chosen. This is not qEHVI (joint expected hypervolume improvement of the batch,
-  Daulton et al. 2020), see step 6.
+  means) already chosen. The joint expected hypervolume improvement of the batch (qEHVI,
+  Daulton et al. 2020) is available as `MooStrategy::QEhvi`, see step 6.
 - Results (30 iterations): ZDT1 hypervolume 93.7 % of the true-front hypervolume (91.7 % with
   Kriging believer batches of 3), DTLZ2 mean distance 0.08 to the true front; with `hv_stop(1e-3, 5)` a ZDT1
   run with a budget of 100 iterations stops after 38.
@@ -303,6 +303,26 @@ Done (easy wins):
   hypervolume progress, as imputed points are never the best in mono-objective.
 - In PerObjective mode, `ConstantLiarMinimum` uses the ideal point (minimum of each objective
   and constraint column) as the lie.
+- qEHVI (Daulton et al. 2020), `MooStrategy::QEhvi`: batches (`configure_qei`) selected by
+  sequential greedy optimization. The first point maximizes EHVI, each following point maximizes
+  the expected hypervolume improvement it brings over the front augmented with the points
+  already selected, under the joint posterior of the objective surrogates at these points and
+  `x` (the surrogates are not updated with virtual points within the batch).
+  - Joint posterior: `GaussianProcess::predict_covariance` and the provided
+    `GpSurrogateExt::predict_covariance` (error by default; GP surrogates, single-cluster
+    `GpMixture`, `AffinedSurrogate`, `MixintGpMixture`), hence single-cluster surrogates only.
+  - Monte Carlo estimate with 128 standard normal base samples drawn once per batch point from
+    the solver RNG (common random numbers: deterministic and reproducible on hot start),
+    semi-definite Cholesky factor (null pivots for perfectly correlated points).
+  - The improvement of a sample of `x` over the region not dominated by the front nor by the
+    samples of the selected points is computed by inclusion–exclusion over the subsets of the
+    selected points (`2^k` terms) on the EHVI box decomposition (`BoxDecomposition`, shared with
+    EHVI, front reduced to a spread subset beyond a qEHVI evaluation budget of 2^22).
+  - Gradients by central finite differences; the scaling uses 50 points.
+  - Limits: batches of at most 4 points, at most 8 objectives, single-cluster surrogates.
+  - Results (ZDT1, batch of 3, 8 iterations): hypervolume 88.9 % of the true-front hypervolume
+    (91.7 % with EHVI Kriging believer batches on the same run): no clear gain on this small
+    bi-objective case, where the Kriging believer is already a good batch heuristic.
 
 Remaining:
 - Failsafe imputation with ParEGO: the surrogates are trained on the scalarized view, so the
@@ -313,11 +333,9 @@ Remaining:
   loop).
 - TREGO and CoEGO: either define them around the compromise point (trust region center or CoEGO
   context vector) or keep rejecting them.
-- qEHVI (Daulton et al. 2020): joint expected hypervolume improvement of a batch of points, as an
-  alternative to the Kriging believer heuristic. It needs joint posterior samples across the
-  batch points (`MixtureGpSurrogate` only predicts marginal variances: a joint covariance
-  prediction is required, at least within a cluster) and a Monte Carlo estimate with
-  reparameterized gradients.
+- qEHVI follow-ups: several clusters (joint covariance across experts), analytic
+  (reparameterized) gradients instead of finite differences, larger batches (the
+  inclusion–exclusion grows as `2^k`).
 - Function constraint values stored for points added by iterations (`c_data`) come from the
   scaled optimizer closures (divided by the function constraint scale), unlike the initial DOE
   ones; the EIM front of qEI virtual points uses them too. Storing raw values is the fix, but it

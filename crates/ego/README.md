@@ -20,7 +20,8 @@
 * Trust region EGO algorithm
 * CoEGO method with CCBO setting
 * Multi-objective optimization (experimental): Pareto front approximation with ParEGO,
-  Expected Improvement Matrix (EIM) or Expected Hypervolume Improvement (EHVI) strategies
+  Expected Improvement Matrix (EIM) or Expected Hypervolume Improvement (EHVI) strategies,
+  batch EHVI (qEHVI) for batches of points
 
 ## Examples
 

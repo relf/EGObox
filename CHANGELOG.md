@@ -17,6 +17,12 @@
   ParEGO beyond (set it explicitly with `MooConfig::strategy()`)
 * Multi-objective ask-and-tell interface (`EgorServiceBuilder` with `n_obj > 1`), failsafe imputation with
   EIM/EHVI (failed points never in the Pareto front) and ideal point constant liar batches with EIM/EHVI
+* Multi-objective `MooStrategy::QEhvi` for batches of points (`configure_qei`): sequential greedy batch
+  Expected Hypervolume Improvement (Daulton et al. 2020) under the joint posterior of the objective
+  surrogates (Monte Carlo estimate), with single-cluster surrogates and batches of at most 4 points
+* `GaussianProcess::predict_covariance()` and `GpSurrogateExt::predict_covariance()` (provided method,
+  implemented by GP surrogates, single-cluster `GpMixture`, `AffinedSurrogate` and `MixintGpMixture`):
+  posterior covariance matrix between points
 * `EgorState::param` and `EgorState::cost` (current point) now hold the first evaluated point of the
   iteration and its evaluated value (instead of the first proposed point and its surrogate prediction)
 * Fix gradient of the probability of feasibility (used with `cstr_infill`) when a non-zero constraint
