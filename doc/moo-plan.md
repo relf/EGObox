@@ -319,8 +319,9 @@ Done (easy wins):
     selected points (`2^k` terms) on the EHVI box decomposition (`BoxDecomposition`, shared with
     EHVI, front reduced to a spread subset beyond a qEHVI evaluation budget of 2^22).
   - Gradients by central finite differences; for discrete variables (snapped by the mixed-integer
-    surrogates before prediction), the step reaches the adjacent levels (1 for integer and enum
-    one-hot dimensions, largest gap for ordinal ones). The scaling uses 50 points.
+    surrogates before prediction), slope between the adjacent valid levels of the current level
+    (one-sided at a domain bound, divided by the actual distance), 0 and 1 for enum one-hot
+    dimensions. The scaling uses 50 points.
   - The covariance support is checked when the criterion is built: on failure, the batch stops
     with an error logged instead of optimizing a vanishing criterion.
   - Limits: batches of at most 4 points, at most 8 objectives, single-cluster surrogates.

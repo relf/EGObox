@@ -39,23 +39,63 @@ const MAX_QEHVI_EVALUATION_WORK: usize = 1 << 22;
 /// Relative step of the central finite differences used for the gradient (continuous variables)
 const FD_STEP: f64 = 1e-6;
 
-/// Finite difference steps of the dimensions of the continuous relaxed space of `xtypes`:
-/// `None` for continuous variables (relative step), a step reaching the adjacent levels for
-/// discrete variables, whose values are snapped by the surrogates before prediction
-/// (a small step would give null derivatives)
-pub(crate) fn fd_steps(xtypes: &[XType]) -> Vec<Option<f64>> {
+/// Finite difference scheme of a dimension of the continuous relaxed space, discrete values
+/// being snapped by the mixed-integer surrogates before prediction (a small step would give
+/// null derivatives)
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum FdStep {
+    /// Continuous variable: central differences with a relative step
+    Continuous,
+    /// Integer variable in `[lower, upper]` (values rounded)
+    Int(f64, f64),
+    /// Ordinal variable given its sorted levels (values snapped to the closest level)
+    Ord(Vec<f64>),
+    /// One-hot dimension of an enum variable in `[0, 1]` (the largest dimension being the level)
+    OneHot,
+}
+
+impl FdStep {
+    /// Points `(backward, forward)` of the finite difference along the dimension at `x`
+    /// (`None` if the variable can not vary): for discrete variables, the adjacent valid levels
+    /// of the level of `x` (the level itself at a domain bound)
+    fn points(&self, x: f64) -> Option<(f64, f64)> {
+        let (backward, forward) = match self {
+            FdStep::Continuous => {
+                let h = FD_STEP * (1. + x.abs());
+                (x - h, x + h)
+            }
+            FdStep::Int(lower, upper) => {
+                let level = x.round().clamp(*lower, *upper);
+                ((level - 1.).max(*lower), (level + 1.).min(*upper))
+            }
+            FdStep::Ord(levels) => {
+                let k = (0..levels.len())
+                    .min_by(|&a, &b| (levels[a] - x).abs().total_cmp(&(levels[b] - x).abs()))?;
+                (
+                    levels[k.saturating_sub(1)],
+                    levels[(k + 1).min(levels.len() - 1)],
+                )
+            }
+            FdStep::OneHot => (0., 1.),
+        };
+        (forward > backward).then_some((backward, forward))
+    }
+}
+
+/// Finite difference schemes of the dimensions of the continuous relaxed space of `xtypes`
+pub(crate) fn fd_steps(xtypes: &[XType]) -> Vec<FdStep> {
     let mut steps = vec![];
     for xtype in xtypes {
         match xtype {
-            XType::Float(_, _) => steps.push(None),
-            XType::Int(_, _) => steps.push(Some(1.)),
+            XType::Float(_, _) => steps.push(FdStep::Continuous),
+            XType::Int(lower, upper) => steps.push(FdStep::Int(*lower as f64, *upper as f64)),
             XType::Ord(values) => {
-                let mut values = values.clone();
-                values.sort_by(f64::total_cmp);
-                let gap = values.windows(2).map(|w| w[1] - w[0]).fold(0., f64::max);
-                steps.push(Some(if gap > 0. { gap } else { 1. }));
+                let mut levels = values.clone();
+                levels.sort_by(f64::total_cmp);
+                levels.dedup();
+                steps.push(FdStep::Ord(levels));
             }
-            XType::Enum(n) => steps.extend(std::iter::repeat_n(Some(1.), *n)),
+            XType::Enum(n) => steps.extend(std::iter::repeat_n(FdStep::OneHot, *n)),
         }
     }
     steps
@@ -74,8 +114,8 @@ pub(crate) struct QEhviCriterion<'a> {
     upper: Array2<f64>,
     /// Points already selected in the batch (one row per point)
     selected: Array2<f64>,
-    /// Finite difference steps per dimension (see [`fd_steps`], continuous if missing)
-    fd_steps: Vec<Option<f64>>,
+    /// Finite difference schemes per dimension (see [`fd_steps`], continuous if missing)
+    fd_steps: Vec<FdStep>,
     /// Standard normal base samples: (sample, objective, point) with the selected points first
     base_samples: Array3<f64>,
     front_size: usize,
@@ -84,7 +124,7 @@ pub(crate) struct QEhviCriterion<'a> {
 impl<'a> QEhviCriterion<'a> {
     /// qEHVI criterion given the objective surrogates, the objective values `objs` of the data
     /// (used to normalize the objectives), the rows of `objs` forming the Pareto front, the points
-    /// already `selected` in the batch, the finite difference steps (see [`fd_steps`]) and the
+    /// already `selected` in the batch, the finite difference schemes (see [`fd_steps`]) and the
     /// `seed` of the base samples.
     ///
     /// Fails when the surrogates can not predict the posterior covariance at the selected points.
@@ -93,7 +133,7 @@ impl<'a> QEhviCriterion<'a> {
         objs: &ArrayBase<impl Data<Elem = f64>, Ix2>,
         front_rows: &[usize],
         selected: &ArrayBase<impl Data<Elem = f64>, Ix2>,
-        fd_steps: Vec<Option<f64>>,
+        fd_steps: Vec<FdStep>,
         seed: u64,
     ) -> Result<Self, MoeError> {
         Self::with_samples(
@@ -113,7 +153,7 @@ impl<'a> QEhviCriterion<'a> {
         objs: &ArrayBase<impl Data<Elem = f64>, Ix2>,
         front_rows: &[usize],
         selected: &ArrayBase<impl Data<Elem = f64>, Ix2>,
-        fd_steps: Vec<Option<f64>>,
+        fd_steps: Vec<FdStep>,
         seed: u64,
         n_samples: usize,
     ) -> Result<Self, MoeError> {
@@ -162,22 +202,21 @@ impl<'a> QEhviCriterion<'a> {
     }
 
     /// Criterion value and gradient (central finite differences) at `x`: for discrete variables,
-    /// slope between the adjacent levels
+    /// slope between the adjacent valid levels (one-sided at a domain bound)
     pub(crate) fn value_grad(&self, x: &[f64]) -> (f64, Array1<f64>) {
         let value = self.value(x);
         let mut grad = Array1::zeros(x.len());
         let mut xh = x.to_vec();
         for i in 0..x.len() {
-            let h = match self.fd_steps.get(i) {
-                Some(Some(step)) => *step,
-                _ => FD_STEP * (1. + x[i].abs()),
-            };
-            xh[i] = x[i] + h;
-            let forward = self.value(&xh);
-            xh[i] = x[i] - h;
-            let backward = self.value(&xh);
-            xh[i] = x[i];
-            grad[i] = (forward - backward) / (2. * h);
+            let step = self.fd_steps.get(i).unwrap_or(&FdStep::Continuous);
+            if let Some((backward, forward)) = step.points(x[i]) {
+                xh[i] = forward;
+                let f_forward = self.value(&xh);
+                xh[i] = backward;
+                let f_backward = self.value(&xh);
+                xh[i] = x[i];
+                grad[i] = (f_forward - f_backward) / (forward - backward);
+            }
         }
         (value, grad)
     }
@@ -409,8 +448,33 @@ mod tests {
         ];
         assert_eq!(
             fd_steps(&xtypes),
-            vec![None, Some(1.), Some(5.), Some(1.), Some(1.), Some(1.)]
+            vec![
+                FdStep::Continuous,
+                FdStep::Int(0., 5.),
+                FdStep::Ord(vec![1., 5., 10.]),
+                FdStep::OneHot,
+                FdStep::OneHot,
+                FdStep::OneHot
+            ]
         );
+    }
+
+    #[test]
+    fn test_fd_points_within_domain() {
+        let int = FdStep::Int(0., 9.);
+        assert_eq!(int.points(4.3), Some((3., 5.)));
+        assert_eq!(int.points(0.), Some((0., 1.)));
+        assert_eq!(int.points(-0.4), Some((0., 1.)));
+        assert_eq!(int.points(9.), Some((8., 9.)));
+        assert_eq!(FdStep::Int(2., 2.).points(2.), None);
+        let ord = FdStep::Ord(vec![1., 5., 10.]);
+        assert_eq!(ord.points(4.), Some((1., 10.)));
+        assert_eq!(ord.points(1.2), Some((1., 5.)));
+        assert_eq!(ord.points(10.), Some((5., 10.)));
+        assert_eq!(FdStep::Ord(vec![3.]).points(3.), None);
+        assert_eq!(FdStep::OneHot.points(0.3), Some((0., 1.)));
+        let (b, f) = FdStep::Continuous.points(2.).unwrap();
+        assert!(b < 2. && f > 2. && f - b < 1e-4);
     }
 
     #[test]
@@ -446,9 +510,14 @@ mod tests {
         // small steps do not cross levels: null derivative
         assert_eq!(continuous.value_grad(&x).1[0], 0.);
         // slope between adjacent levels
-        let expected = (qehvi.value(&[7.2]) - qehvi.value(&[5.2])) / 2.;
+        let expected = (qehvi.value(&[7.]) - qehvi.value(&[5.])) / 2.;
         assert!(expected != 0.);
         assert_abs_diff_eq!(qehvi.value_grad(&x).1[0], expected, epsilon = 1e-12);
+        // one-sided slope at the domain bounds (no out-of-domain level)
+        let expected = qehvi.value(&[1.]) - qehvi.value(&[0.]);
+        assert_abs_diff_eq!(qehvi.value_grad(&[0.]).1[0], expected, epsilon = 1e-12);
+        let expected = qehvi.value(&[10.]) - qehvi.value(&[9.]);
+        assert_abs_diff_eq!(qehvi.value_grad(&[10.]).1[0], expected, epsilon = 1e-12);
     }
 
     #[test]
