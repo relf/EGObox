@@ -8,6 +8,11 @@
 * Multi-objective `MooStrategy::Eim`: one surrogate per objective and Expected Improvement Matrix infill
   criterion (Zhan et al. 2017) with Euclidean, maximin or hypervolume aggregation
   (`MooConfig::eim_aggregation()`)
+* Multi-objective `MooStrategy::Ehvi`: one surrogate per objective and Expected Hypervolume Improvement
+  infill criterion (Emmerich et al. 2006) in closed form, up to 8 objectives; large Pareto fronts are
+  approximated by a spread subset of their points
+* Multi-objective optional stop when the Pareto front hypervolume improvement over the last iterations
+  falls below a tolerance (`MooConfig::hv_stop()`), reported as `TerminationReason::SolverConverged`
 * `EgorState::param` and `EgorState::cost` (current point) now hold the first evaluated point of the
   iteration and its evaluated value (instead of the first proposed point and its surrogate prediction)
 * Fix gradient of the probability of feasibility (used with `cstr_infill`) when a non-zero constraint

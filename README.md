@@ -236,6 +236,10 @@ Zhan, D., Cheng, Y., & Liu, J. (2017).
 [Expected improvement matrix-based infill criteria for expensive multiobjective optimization](https://doi.org/10.1109/TEVC.2017.2697503).
 IEEE Transactions on Evolutionary Computation, 21(6), 956–975.
 
+Emmerich, M. T. M., Giannakoglou, K. C., & Naujoks, B. (2006).
+[Single- and multiobjective evolutionary optimization assisted by Gaussian random field metamodels](https://doi.org/10.1109/TEVC.2005.859463).
+IEEE Transactions on Evolutionary Computation, 10(4), 421–439.
+
 Diouane, Youssef, et al. (2023).
 [TREGO: a trust-region framework for efficient global optimization](https://arxiv.org/pdf/2101.06808).
 Journal of Global Optimization 86.1 (2023): 1-23.

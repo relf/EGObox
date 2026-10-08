@@ -253,12 +253,43 @@ Each step is one PR or a few PRs. Each keeps CI green and respects the contract 
   (maximin), 95 % (hypervolume aggregation) of the true-front hypervolume vs 96 % with ParEGO; DTLZ2 mean
   distance to the true front 0.06 vs 0.23 with ParEGO.
 
-### Step 5 — EHVI and a hypervolume-based stop
-- EHVI: closed form for m = 2; Monte Carlo with common random numbers for m ≥ 3, using
-  finite-difference gradients or Cobyla.
-- Optional stop when the hypervolume gain stays below a tolerance for k iterations. It is reported
-  as the existing `TerminationReason::SolverConverged`.
-- Decide whether to publish the MOO criterion trait, typetag-serialized like `InfillCriterion`.
+### Step 5 — EHVI and a hypervolume-based stop — done
+- `MooStrategy::Ehvi` (`moo/ehvi.rs`), in closed form for any number of objectives instead of a
+  closed form for m = 2 and Monte Carlo above: the region below the reference point not dominated
+  by the front is decomposed into boxes built on the grid of the front coordinates (for each
+  cell of the grid of the first m - 1 objectives, the non-dominated part is a single box
+  `]-inf, u_m]` along the last objective, so at most `(n_front + 1)^(m - 1)` boxes; for m = 2,
+  the classic `n + 1` stripes of the staircase); the hypervolume improvement of `y` is
+  `sum_boxes prod_j (u_j - max(y_j, l_j))^+`, whose expectation factorizes per objective as
+  `EI_j(u_j) - EI_j(l_j)` with independent normal predictions. Analytic gradients by the product
+  rule. Boxes are built once per infill optimization; it matches a Monte Carlo estimate to
+  ~1e-5 for 2 and 3 objectives (unit test). The decomposition work (boxes × front size ×
+  objectives) is bounded to 2^26 and the evaluation work (boxes × objectives) to 2^16: beyond
+  (front of more than 5792 points for 2 objectives, 146 for 3, 24 for 4, 9 for 5), the region
+  dominated by a spread subset of the front (best point of each objective, then farthest point
+  sampling) is used, with a warning. EHVI is limited to 8 objectives; EIM is the alternative
+  beyond.
+- EIM and EHVI share the normalized predictions, normalized front and reference point
+  (`moo/criterion.rs`) and are dispatched by a crate-private `MooCriterion` enum in
+  `InfillOptProblem`. The criterion is not published as a public trait: two concrete strategies
+  are enough for now.
+- `MooConfig::hv_stop(tol, n_iters)`: stop when the hypervolume of the constrained front
+  increased by less than `tol` (relative) over the last `n_iters` iterations, both fronts being
+  measured with the same normalization and reference point and recomputed from the data (the
+  previous front uses the data without the last `n_iters * batch` rows: rejected or failed
+  points make the window longer, which only delays the stop, as iteration boundaries are not
+  kept in the state), reported as `TerminationReason::SolverConverged`. Only feasible points
+  count: without feasible point the hypervolume is zero, so the stop never triggers before
+  feasibility is reached. Hypervolumes are exact when the recursive computation is affordable
+  (`front_size^(m - 1)` up to 2^22), estimated otherwise by Monte Carlo with 2^16 uniform samples
+  shared by both fronts (low variance of their difference).
+- Batches (`configure_qei`) use the Kriging believer heuristic, as with EIM: each batch point
+  maximizes the single-point EHVI wrt the front augmented with the virtual points (predicted
+  means) already chosen. This is not qEHVI (joint expected hypervolume improvement of the batch,
+  Daulton et al. 2020), see step 6.
+- Results (30 iterations): ZDT1 hypervolume 93.7 % of the true-front hypervolume (91.7 % with
+  Kriging believer batches of 3), DTLZ2 mean distance 0.08 to the true front; with `hv_stop(1e-3, 5)` a ZDT1
+  run with a budget of 100 iterations stops after 38.
 
 ### Step 6 — Feature coverage
 - Failsafe imputation for m > 1: per-objective pessimistic prediction, or the worst observed value
@@ -268,6 +299,11 @@ Each step is one PR or a few PRs. Each keeps CI green and respects the contract 
   ideal point as the lie.
 - TREGO and CoEGO: either define them around the compromise point (trust region center or CoEGO
   context vector) or keep rejecting them.
+- qEHVI (Daulton et al. 2020): joint expected hypervolume improvement of a batch of points, as an
+  alternative to the Kriging believer heuristic. It needs joint posterior samples across the
+  batch points (`MixtureGpSurrogate` only predicts marginal variances: a joint covariance
+  prediction is required, at least within a cluster) and a Monte Carlo estimate with
+  reparameterized gradients.
 - Function constraint values stored for points added by iterations (`c_data`) come from the
   scaled optimizer closures (divided by the function constraint scale), unlike the initial DOE
   ones; the EIM front of qEI virtual points uses them too. Storing raw values is the fix, but it

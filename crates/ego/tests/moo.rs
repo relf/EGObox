@@ -1,8 +1,8 @@
 //! Multi-objective optimization (ParEGO) tests
 
 use egobox_ego::{
-    CstrSpec, EgorBuilder, EgorServiceBuilder, EimAggregation, FailsafeStrategy, HotStartMode,
-    MooStrategy, ParetoResult, TerminationReason, TerminationStatus, XType,
+    CstrSpec, EgorBuilder, EgorConfig, EgorServiceBuilder, EimAggregation, FailsafeStrategy,
+    HotStartMode, MooStrategy, ParetoResult, TerminationReason, TerminationStatus, XType,
 };
 use ndarray::{Array1, Array2, ArrayView2, Axis, Zip, array};
 use serial_test::serial;
@@ -436,7 +436,7 @@ fn test_solver_suggest_with_several_objectives() {
     use egobox_moe::GpMixtureParams;
 
     let xlimits = array![[0., 5.], [0., 3.]];
-    for strategy in [MooStrategy::ParEgo, MooStrategy::Eim] {
+    for strategy in [MooStrategy::ParEgo, MooStrategy::Eim, MooStrategy::Ehvi] {
         let config = EgorConfig::default()
             .xtypes(&to_xtypes(&xlimits))
             .n_obj(2)
@@ -608,7 +608,7 @@ fn test_dtlz2_eim() {
 
 #[test]
 #[serial]
-fn test_zdt1_eim_qei() {
+fn test_zdt1_eim_kriging_believer_batch() {
     let res = EgorBuilder::optimize(zdt1)
         .configure(|cfg| {
             cfg.n_obj(2)
@@ -630,7 +630,7 @@ fn test_zdt1_eim_qei() {
     assert!(res.x_doe.nrows() > 10 + 8);
     let hv = hypervolume_2d(&res.y_pareto, [1.1, 1.1]);
     println!(
-        "ZDT1 EIM qEI front HV = {hv} ({:.1}% of true front HV)",
+        "ZDT1 EIM Kriging believer batch front HV = {hv} ({:.1}% of true front HV)",
         100. * hv / ZDT1_HV_REF
     );
     assert!(hv > 0.7 * ZDT1_HV_REF);
@@ -652,4 +652,141 @@ fn test_eim_unsupported_configurations() {
             .min_within(&array![[0., 1.], [0., 1.]])
             .is_err()
     );
+}
+
+fn ehvi(cfg: EgorConfig) -> EgorConfig {
+    cfg.configure_moo(|moo| moo.strategy(MooStrategy::Ehvi))
+}
+
+#[test]
+#[serial]
+fn test_zdt1_ehvi() {
+    let res = EgorBuilder::optimize(zdt1)
+        .configure(|cfg| ehvi(cfg.n_obj(2).n_doe(10).max_iters(30).seed(42)))
+        .min_within(&array![[0., 1.], [0., 1.]])
+        .expect("Egor configured")
+        .run_pareto()
+        .expect("ZDT1 optimization");
+    assert_max_iters_reached(&res);
+    assert_non_dominated(&res.y_pareto, 2);
+    let hv = hypervolume_2d(&res.y_pareto, [1.1, 1.1]);
+    println!(
+        "ZDT1 EHVI front ({} points) HV = {hv} ({:.1}% of true front HV)",
+        res.y_pareto.nrows(),
+        100. * hv / ZDT1_HV_REF
+    );
+    assert!(hv > 0.85 * ZDT1_HV_REF);
+}
+
+#[test]
+#[serial]
+fn test_dtlz2_ehvi() {
+    let xlimits = Array2::from_shape_vec((4, 2), [0., 1.].repeat(4)).unwrap();
+    let res = EgorBuilder::optimize(dtlz2)
+        .configure(|cfg| ehvi(cfg.n_obj(3).n_doe(15).max_iters(30).seed(42)))
+        .min_within(&xlimits)
+        .expect("Egor configured")
+        .run_pareto()
+        .expect("DTLZ2 optimization");
+    assert_max_iters_reached(&res);
+    assert_non_dominated(&res.y_pareto, 3);
+    let mean_dist = res
+        .y_pareto
+        .rows()
+        .into_iter()
+        .map(|y| y.dot(&y).sqrt() - 1.)
+        .sum::<f64>()
+        / res.y_pareto.nrows() as f64;
+    println!(
+        "DTLZ2 EHVI front ({} points) mean distance to true front = {mean_dist}",
+        res.y_pareto.nrows()
+    );
+    assert!(res.y_pareto.nrows() >= 5);
+    assert!(mean_dist < 0.35);
+}
+
+#[test]
+#[serial]
+fn test_bnh_ehvi() {
+    let res = EgorBuilder::optimize(bnh)
+        .configure(|cfg| ehvi(cfg.n_obj(2).n_cstr(2).n_doe(10).max_iters(30).seed(42)))
+        .min_within(&array![[0., 5.], [0., 3.]])
+        .expect("Egor configured")
+        .run_pareto()
+        .expect("BNH optimization");
+    assert_bnh_front(&res, |y| y[2] <= 1e-4 && y[3] <= 1e-4);
+}
+
+#[test]
+#[serial]
+fn test_zdt1_ehvi_kriging_believer_batch() {
+    let res = EgorBuilder::optimize(zdt1)
+        .configure(|cfg| {
+            ehvi(cfg.n_obj(2).n_doe(10).max_iters(8).seed(42)).configure_qei(|qei| qei.batch(3))
+        })
+        .min_within(&array![[0., 1.], [0., 1.]])
+        .expect("Egor configured")
+        .run_pareto()
+        .expect("ZDT1 optimization");
+    assert_max_iters_reached(&res);
+    assert!(res.x_doe.nrows() > 10 + 8);
+    let hv = hypervolume_2d(&res.y_pareto, [1.1, 1.1]);
+    println!(
+        "ZDT1 EHVI Kriging believer batch front HV = {hv} ({:.1}% of true front HV)",
+        100. * hv / ZDT1_HV_REF
+    );
+    assert!(hv > 0.7 * ZDT1_HV_REF);
+}
+
+#[test]
+#[serial]
+fn test_zdt1_hv_stop() {
+    let max_iters = 100;
+    let res = EgorBuilder::optimize(zdt1)
+        .configure(|cfg| {
+            cfg.n_obj(2)
+                .n_doe(10)
+                .max_iters(max_iters)
+                .seed(42)
+                .configure_moo(|moo| moo.strategy(MooStrategy::Ehvi).hv_stop(1e-3, 5))
+        })
+        .min_within(&array![[0., 1.], [0., 1.]])
+        .expect("Egor configured")
+        .run_pareto()
+        .expect("ZDT1 optimization");
+    println!(
+        "ZDT1 EHVI with hv_stop: {} after {} iterations",
+        res.state.termination_status, res.state.iter
+    );
+    assert_eq!(
+        res.state.termination_status,
+        TerminationStatus::Terminated(TerminationReason::SolverConverged)
+    );
+    assert!((res.state.iter as usize) < max_iters);
+    let hv = hypervolume_2d(&res.y_pareto, [1.1, 1.1]);
+    assert!(hv > 0.85 * ZDT1_HV_REF);
+}
+
+#[test]
+fn test_ehvi_too_many_objectives() {
+    let xlimits = array![[0., 1.], [0., 1.]];
+    let config = |n_obj: usize| {
+        EgorBuilder::optimize(zdt1)
+            .configure(|cfg| ehvi(cfg.n_obj(n_obj)))
+            .min_within(&xlimits)
+    };
+    assert!(config(8).is_ok());
+    assert!(config(9).is_err());
+}
+
+#[test]
+fn test_hv_stop_invalid_configurations() {
+    for (tol, n_iters) in [(-1., 3), (f64::NAN, 3), (1e-3, 0)] {
+        assert!(
+            EgorBuilder::optimize(zdt1)
+                .configure(|cfg| cfg.n_obj(2).configure_moo(|moo| moo.hv_stop(tol, n_iters)))
+                .min_within(&array![[0., 1.], [0., 1.]])
+                .is_err()
+        );
+    }
 }

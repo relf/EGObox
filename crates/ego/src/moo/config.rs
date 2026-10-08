@@ -17,6 +17,17 @@ pub enum MooStrategy {
     /// (objectives normalized with their observed bounds) are aggregated into an infill
     /// criterion (see [`MooConfig::eim_aggregation`]).
     Eim,
+    /// Expected Hypervolume Improvement (Emmerich et al. 2006): one surrogate per objective,
+    /// expected improvement of the hypervolume dominated by the current Pareto front
+    /// (objectives normalized with their observed bounds, reference point at the front nadir
+    /// plus 10 % of its range), computed in closed form.
+    ///
+    /// The computation decomposes the region not dominated by the front into up to
+    /// `(front_size + 1)^(n_obj - 1)` boxes: with large fronts (more than 5792 points for
+    /// 2 objectives, 146 for 3, 24 for 4, 9 for 5), the front is approximated by a spread subset
+    /// of its points, which overestimates the improvement near the left out points. At most
+    /// 8 objectives are supported (use [`MooStrategy::Eim`] beyond).
+    Ehvi,
 }
 
 /// Aggregation of the expected improvement matrix used by [`MooStrategy::Eim`]
@@ -47,6 +58,9 @@ pub struct MooConfig {
     /// EIM aggregation of the expected improvement matrix
     #[serde(default)]
     pub(crate) eim_aggregation: EimAggregation,
+    /// Optional hypervolume-based stop: (relative tolerance, number of iterations)
+    #[serde(default)]
+    pub(crate) hv_stop: Option<(f64, usize)>,
 }
 
 impl Default for MooConfig {
@@ -56,6 +70,7 @@ impl Default for MooConfig {
             rho: crate::moo::scalarization::PAREGO_RHO,
             n_divisions: None,
             eim_aggregation: EimAggregation::default(),
+            hv_stop: None,
         }
     }
 }
@@ -82,6 +97,19 @@ impl MooConfig {
     /// Sets the aggregation of the expected improvement matrix (EIM strategy, default Euclidean)
     pub fn eim_aggregation(mut self, aggregation: EimAggregation) -> Self {
         self.eim_aggregation = aggregation;
+        self
+    }
+
+    /// Stops the optimization when the hypervolume of the (feasible) Pareto front increased by less
+    /// than `tol` (relative to its current value) during the last `n_iters` iterations.
+    /// The termination reason is then [`crate::TerminationReason::SolverConverged`].
+    ///
+    /// The front of `n_iters` iterations ago is the one of the data without the last
+    /// `n_iters * batch` points (`batch` being the qEI batch size): when proposed points are
+    /// rejected (too close to existing ones) or fail, the window covers more iterations, which
+    /// only delays the stop.
+    pub fn hv_stop(mut self, tol: f64, n_iters: usize) -> Self {
+        self.hv_stop = Some((tol, n_iters));
         self
     }
 }

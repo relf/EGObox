@@ -858,6 +858,13 @@ impl EgorConfig {
                 config.moo.rho
             )));
         }
+        if let Some((tol, n_iters)) = config.moo.hv_stop
+            && (!tol.is_finite() || tol < 0. || n_iters == 0)
+        {
+            return Err(crate::EgoError::InvalidConfigError(format!(
+                "EgorConfig invalid: MOO hv_stop expects a finite non-negative tolerance and at least one iteration, got ({tol}, {n_iters})"
+            )));
+        }
         if config.n_obj > 1 {
             let unsupported = if config.iteration_strategy.name() != StandardEgoStrategy.name() {
                 Some(format!(
@@ -870,6 +877,13 @@ impl EgorConfig {
                 Some("target".to_string())
             } else if config.failsafe_strategy == FailsafeStrategy::Imputation {
                 Some("Imputation failsafe strategy".to_string())
+            } else if config.moo.strategy == crate::MooStrategy::Ehvi
+                && config.n_obj > crate::moo::ehvi::MAX_EHVI_OBJECTIVES
+            {
+                Some(format!(
+                    "EHVI with more than {} objectives (use EIM)",
+                    crate::moo::ehvi::MAX_EHVI_OBJECTIVES
+                ))
             } else if config.feasibility_infill.is_enabled() && !config.is_scalarized() {
                 Some(format!(
                     "{:?} feasible infill strategy with {:?}",
