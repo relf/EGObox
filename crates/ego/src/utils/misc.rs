@@ -70,6 +70,25 @@ pub fn usable_data(
     appended
 }
 
+/// Returns the indices of the rows of `x_data` which are failed points (`x_fail`), i.e. points
+/// stored with imputed output values (failsafe imputation strategy)
+pub(crate) fn failed_rows(
+    x_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+    x_fail: Option<&Array2<f64>>,
+) -> Vec<usize> {
+    match x_fail {
+        Some(x_fail) if x_fail.nrows() > 0 => (0..x_data.nrows())
+            .filter(|&i| {
+                x_fail
+                    .rows()
+                    .into_iter()
+                    .any(|xf| xf.l1_dist(&x_data.row(i)).unwrap() < MIN_DISTANCE)
+            })
+            .collect(),
+        _ => vec![],
+    }
+}
+
 /// Returns the indices of valid (not containing NaN) and invalid rows in `ydata`
 pub fn filter_nans(ydata: &ArrayBase<impl Data<Elem = f64>, Ix2>) -> (Vec<usize>, Vec<usize>) {
     let mut valid_idxs = vec![];
@@ -154,6 +173,13 @@ mod tests {
     fn test_usable_data() {
         let xdata = array![[0., 1.], [2., 3.]];
         assert_eq!(usable_data(&xdata, &array![[3., 4.], [1e-15, 1.]],), &[0]);
+    }
+
+    #[test]
+    fn test_failed_rows() {
+        let xdata = array![[0., 1.], [2., 3.], [4., 5.]];
+        assert!(failed_rows(&xdata, None).is_empty());
+        assert_eq!(failed_rows(&xdata, Some(&array![[4., 5.], [7., 7.]])), vec![2]);
     }
 
     #[test]

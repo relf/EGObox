@@ -9,8 +9,8 @@ use crate::moo::scalarization::compromise_index;
 use crate::solver::solver_computations::MiddlePickerMultiStarter;
 use crate::solver::solver_infill_optim::InfillOptProblem;
 use crate::utils::{
-    EGOBOX_LOG, find_best_result_index_from, is_feasible_at, select_from_portfolio, update_data,
-    usable_data,
+    EGOBOX_LOG, failed_rows, find_best_result_index_from, is_feasible_at, select_from_portfolio,
+    update_data, usable_data,
 };
 use crate::{ActivityStrategy, FullActivity, find_best_result_index};
 use crate::{DEFAULT_CSTR_TOL, EgorSolver, ValidEgorConfig};
@@ -113,7 +113,7 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
         };
 
         let best_index = if self.config.is_per_objective() {
-            compromise_index(y_data, &c_data, n_obj, &cstr_tol).unwrap_or(0)
+            compromise_index(y_data, &c_data, n_obj, &cstr_tol, &[]).unwrap_or(0)
         } else {
             find_best_result_index(y_data, &c_data, &cstr_tol)
         };
@@ -867,7 +867,9 @@ where
 
         let best_index = if n_obj > 1 {
             // Compromise point of the Pareto front (recomputed as normalization changes)
-            compromise_index(&y_data, &c_data, n_obj, &new_state.doe.cstr_tol)
+            // failed points with imputed values are never the compromise point
+            let excluded = failed_rows(&x_data, new_state.surrogate.x_fail.as_ref());
+            compromise_index(&y_data, &c_data, n_obj, &new_state.doe.cstr_tol, &excluded)
                 .unwrap_or(state.surrogate.best_index.unwrap())
         } else {
             // Only actually evaluated points (appended last) are candidates for the best,
@@ -909,6 +911,7 @@ where
                 n_obj,
                 &new_state.doe.cstr_tol,
                 n_prev_rows,
+                &failed_rows(&x_data, new_state.surrogate.x_fail.as_ref()),
             );
             info!("Hypervolume over the last {n_iters} iteration(s): {hv_prev} -> {hv_now}");
             if hv_now > 0. && hv_now - hv_prev <= tol * hv_now {
@@ -1173,7 +1176,9 @@ where
                 let moo_criterion = if self.config.is_per_objective() {
                     let n_obj = self.config.n_obj();
                     let ct = concatenate![Axis(0), c_data.to_owned(), c_dat.to_owned()];
-                    let front = pareto_front_indices(&yt, &ct, n_obj, cstr_tol);
+                    // failed points with imputed values are never part of the front
+                    let excluded = failed_rows(x_data, x_fail_points);
+                    let front = pareto_front_indices(&yt, &ct, n_obj, cstr_tol, &excluded);
                     let objs = yt.slice(s![.., ..n_obj]);
                     match self.config.moo.strategy {
                         crate::MooStrategy::Ehvi => Some(MooCriterion::Ehvi(EhviCriterion::new(

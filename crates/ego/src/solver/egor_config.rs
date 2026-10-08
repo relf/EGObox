@@ -875,8 +875,10 @@ impl EgorConfig {
                 Some("CoEGO".to_string())
             } else if config.target != f64::MIN {
                 Some("target".to_string())
-            } else if config.failsafe_strategy == FailsafeStrategy::Imputation {
-                Some("Imputation failsafe strategy".to_string())
+            } else if config.failsafe_strategy == FailsafeStrategy::Imputation
+                && config.is_scalarized()
+            {
+                Some("Imputation failsafe strategy with ParEGO (use EIM or EHVI)".to_string())
             } else if config.moo.strategy == crate::MooStrategy::Ehvi
                 && config.n_obj > crate::moo::ehvi::MAX_EHVI_OBJECTIVES
             {

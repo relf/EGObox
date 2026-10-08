@@ -833,3 +833,58 @@ fn test_zdt1_ask_and_tell() {
         assert!(hv > 0.6 * ZDT1_HV_REF);
     }
 }
+
+/// Branin-like objective failing (NaN) in the lower left corner, and distance to (1, 1)
+fn branin_distance_with_nans(x: &ArrayView2<f64>) -> Array2<f64> {
+    let mut y = Array2::zeros((x.nrows(), 2));
+    Zip::from(y.rows_mut())
+        .and(x.rows())
+        .for_each(|mut yi, xi| {
+            if xi[0] * xi[1] >= 0.2 {
+                let (x0, x1) = (15. * xi[0] - 5., 15. * xi[1]);
+                let a = x1 - 5.1 / (4. * PI * PI) * x0 * x0 + 5. / PI * x0 - 6.;
+                let f1 = a * a + 10. * (1. - 1. / (8. * PI)) * x0.cos() + 10.;
+                let f2 = (xi[0] - 1.).powi(2) + (xi[1] - 1.).powi(2);
+                yi.assign(&array![f1, f2]);
+            } else {
+                yi.fill(f64::NAN);
+            }
+        });
+    y
+}
+
+#[test]
+#[serial]
+fn test_imputation_with_per_objective_strategies() {
+    let xlimits = array![[0., 1.], [0., 1.]];
+    for strategy in [MooStrategy::Eim, MooStrategy::Ehvi] {
+        let res = EgorBuilder::optimize(branin_distance_with_nans)
+            .configure(|cfg| {
+                cfg.n_obj(2)
+                    .configure_moo(|moo| moo.strategy(strategy.clone()))
+                    .failsafe_strategy(FailsafeStrategy::Imputation)
+                    .n_doe(10)
+                    .max_iters(15)
+                    .seed(42)
+            })
+            .min_within(&xlimits)
+            .expect("Egor configured")
+            .run_pareto()
+            .expect("optimization with failures");
+        let x_fail = res.state.surrogate.x_fail.clone().expect("failed points");
+        println!(
+            "{strategy:?} with imputation: {} points, {} failed, front of {} points, {}",
+            res.x_doe.nrows(),
+            x_fail.nrows(),
+            res.x_pareto.nrows(),
+            res.state.termination_status
+        );
+        assert!(x_fail.nrows() > 0);
+        assert!(res.x_pareto.nrows() > 0);
+        assert_non_dominated(&res.y_pareto, 2);
+        // failed points (stored with imputed values) are never Pareto points
+        for x in res.x_pareto.rows() {
+            assert!(x[0] * x[1] >= 0.2, "failed point {x} in the Pareto set");
+        }
+    }
+}
