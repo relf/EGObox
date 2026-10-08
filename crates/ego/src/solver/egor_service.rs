@@ -61,7 +61,9 @@ pub struct EgorServiceFactory<C: CstrFn = Cstr> {
 impl<C: CstrFn> EgorServiceFactory<C> {
     /// Function to be minimized domain should be basically R^nx -> R^ny
     /// where nx is the dimension of input x and ny the output dimension
-    /// equal to 1 (obj) + n (cstrs).
+    /// equal to `n_obj` objectives (1 by default) + `n_cstr` constraints.
+    /// With several objectives (see `EgorConfig::n_obj`), suggested points are chosen with the
+    /// configured multi-objective strategy (see `EgorConfig::configure_moo`).
     /// But function has to be able to evaluate several points in one go
     /// hence take an (p, nx) matrix and return an (p, ny) matrix
     pub fn optimize() -> Self {
@@ -88,7 +90,7 @@ impl<C: CstrFn> EgorServiceFactory<C> {
     ) -> Result<EgorServiceApi<GpMixtureParams<f64>, C>> {
         let config = self.config.xtypes(&to_xtypes(xlimits));
         Ok(EgorServiceApi {
-            solver: EgorSolver::new(check_service_config(config)?),
+            solver: EgorSolver::new(config.check()?),
         })
     }
 
@@ -101,20 +103,9 @@ impl<C: CstrFn> EgorServiceFactory<C> {
     ) -> Result<EgorServiceApi<MixintGpMixtureParams, C>> {
         let config = self.config.xtypes(xtypes);
         Ok(EgorServiceApi {
-            solver: EgorSolver::new(check_service_config(config)?),
+            solver: EgorSolver::new(config.check()?),
         })
     }
-}
-
-/// Checks the configuration for the ask-and-tell interface
-fn check_service_config(config: EgorConfig) -> Result<crate::ValidEgorConfig> {
-    let config = config.check()?;
-    if config.n_obj() > 1 {
-        return Err(crate::EgoError::InvalidConfigError(
-            "Ask-and-tell interface does not support several objectives yet".to_string(),
-        ));
-    }
-    Ok(config)
 }
 
 /// Egor optimizer service API.

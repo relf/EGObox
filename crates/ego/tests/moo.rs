@@ -326,7 +326,7 @@ fn test_moo_unsupported_configurations() {
         EgorServiceBuilder::optimize()
             .configure(|cfg| cfg.n_obj(2))
             .min_within(&xlimits)
-            .is_err()
+            .is_ok()
     );
     assert!(
         EgorBuilder::optimize(zdt1)
@@ -788,5 +788,48 @@ fn test_hv_stop_invalid_configurations() {
                 .min_within(&array![[0., 1.], [0., 1.]])
                 .is_err()
         );
+    }
+}
+
+#[test]
+#[serial]
+fn test_zdt1_ask_and_tell() {
+    use egobox_doe::SamplingMethod;
+    for strategy in [MooStrategy::ParEgo, MooStrategy::Eim, MooStrategy::Ehvi] {
+        let egor = EgorServiceBuilder::optimize()
+            .configure(|cfg| {
+                cfg.n_obj(2)
+                    .configure_moo(|moo| moo.strategy(strategy.clone()))
+                    .seed(42)
+            })
+            .min_within(&array![[0., 1.], [0., 1.]])
+            .expect("Egor service configured");
+        let mut x = egobox_doe::Lhs::new(&array![[0., 1.], [0., 1.]])
+            .with_rng(
+                <rand_xoshiro::Xoshiro256Plus as ndarray_rand::rand::SeedableRng>::seed_from_u64(
+                    42,
+                ),
+            )
+            .sample(10);
+        for _ in 0..15 {
+            let y = zdt1(&x.view());
+            let x_new = egor.suggest(&x, &y);
+            x = ndarray::concatenate![Axis(0), x, x_new];
+        }
+        let y = zdt1(&x.view());
+        let front: Vec<usize> = (0..y.nrows())
+            .filter(|&i| {
+                !(0..y.nrows()).any(|j| {
+                    (0..2).all(|k| y[[j, k]] <= y[[i, k]]) && (0..2).any(|k| y[[j, k]] < y[[i, k]])
+                })
+            })
+            .collect();
+        let hv = hypervolume_2d(&y.select(Axis(0), &front), [1.1, 1.1]);
+        println!(
+            "ZDT1 ask-and-tell {strategy:?}: front of {} points, HV = {hv} ({:.1}% of true front HV)",
+            front.len(),
+            100. * hv / ZDT1_HV_REF
+        );
+        assert!(hv > 0.6 * ZDT1_HV_REF);
     }
 }
