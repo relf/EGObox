@@ -290,8 +290,22 @@ where
         cstr_models: &[Box<dyn MixtureGpSurrogate>],
     ) -> Result<Vec<f64>> {
         if self.config.qei_config.strategy == QEiStrategy::ConstantLiarMinimum {
-            let index_min = y_data.slice(s![.., 0]).argmin().unwrap();
-            Ok(y_data.row(index_min).to_vec())
+            if self.config.is_per_objective() {
+                // With one surrogate per objective, lie with the ideal point: minimum of each
+                // column (objectives and constraints) over the finite values
+                Ok(y_data
+                    .columns()
+                    .into_iter()
+                    .map(|col| {
+                        col.iter()
+                            .filter(|v| v.is_finite())
+                            .fold(f64::INFINITY, |m, &v| m.min(v))
+                    })
+                    .collect())
+            } else {
+                let index_min = y_data.slice(s![.., 0]).argmin().unwrap();
+                Ok(y_data.row(index_min).to_vec())
+            }
         } else {
             let mut res: Vec<f64> = vec![];
 

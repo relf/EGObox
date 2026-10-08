@@ -179,7 +179,10 @@ mod tests {
     fn test_failed_rows() {
         let xdata = array![[0., 1.], [2., 3.], [4., 5.]];
         assert!(failed_rows(&xdata, None).is_empty());
-        assert_eq!(failed_rows(&xdata, Some(&array![[4., 5.], [7., 7.]])), vec![2]);
+        assert_eq!(
+            failed_rows(&xdata, Some(&array![[4., 5.], [7., 7.]])),
+            vec![2]
+        );
     }
 
     #[test]

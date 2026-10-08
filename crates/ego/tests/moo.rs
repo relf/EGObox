@@ -888,3 +888,34 @@ fn test_imputation_with_per_objective_strategies() {
         }
     }
 }
+
+#[test]
+#[serial]
+fn test_zdt1_eim_constant_liar_batch() {
+    let res = EgorBuilder::optimize(zdt1)
+        .configure(|cfg| {
+            cfg.n_obj(2)
+                .configure_moo(|moo| moo.strategy(MooStrategy::Eim))
+                .configure_qei(|qei| {
+                    qei.batch(3)
+                        .strategy(egobox_ego::QEiStrategy::ConstantLiarMinimum)
+                })
+                .n_doe(10)
+                .max_iters(8)
+                .seed(42)
+        })
+        .min_within(&array![[0., 1.], [0., 1.]])
+        .expect("Egor configured")
+        .run_pareto()
+        .expect("ZDT1 optimization");
+    assert_max_iters_reached(&res);
+    assert!(res.x_doe.nrows() > 10 + 8);
+    assert_non_dominated(&res.y_pareto, 2);
+    let hv = hypervolume_2d(&res.y_pareto, [1.1, 1.1]);
+    println!(
+        "ZDT1 EIM constant liar batch: {} points, HV = {hv} ({:.1}% of true front HV)",
+        res.x_doe.nrows(),
+        100. * hv / ZDT1_HV_REF
+    );
+    assert!(hv > 0.7 * ZDT1_HV_REF);
+}
