@@ -10,6 +10,7 @@ pub(crate) mod eim;
 pub(crate) mod hypervolume;
 pub(crate) mod parego;
 pub(crate) mod pareto;
+pub(crate) mod qehvi;
 mod result;
 pub(crate) mod scalarization;
 
