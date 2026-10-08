@@ -17,7 +17,7 @@
 use super::criterion::normalized_front;
 use super::ehvi::{BoxDecomposition, bounded_front};
 use super::scalarization::Normalization;
-use egobox_moe::MixtureGpSurrogate;
+use egobox_moe::{MixtureGpSurrogate, MoeError, XType};
 use ndarray::{Array1, Array2, Array3, ArrayBase, ArrayView1, ArrayView2, Data, Ix2, s};
 use ndarray_rand::RandomExt;
 use ndarray_rand::rand::SeedableRng;
@@ -36,8 +36,30 @@ pub(crate) const QEHVI_SCALING_POINTS: usize = 50;
 /// Max work of a criterion evaluation: samples times subsets times boxes times objectives
 const MAX_QEHVI_EVALUATION_WORK: usize = 1 << 22;
 
-/// Relative step of the central finite differences used for the gradient
+/// Relative step of the central finite differences used for the gradient (continuous variables)
 const FD_STEP: f64 = 1e-6;
+
+/// Finite difference steps of the dimensions of the continuous relaxed space of `xtypes`:
+/// `None` for continuous variables (relative step), a step reaching the adjacent levels for
+/// discrete variables, whose values are snapped by the surrogates before prediction
+/// (a small step would give null derivatives)
+pub(crate) fn fd_steps(xtypes: &[XType]) -> Vec<Option<f64>> {
+    let mut steps = vec![];
+    for xtype in xtypes {
+        match xtype {
+            XType::Float(_, _) => steps.push(None),
+            XType::Int(_, _) => steps.push(Some(1.)),
+            XType::Ord(values) => {
+                let mut values = values.clone();
+                values.sort_by(f64::total_cmp);
+                let gap = values.windows(2).map(|w| w[1] - w[0]).fold(0., f64::max);
+                steps.push(Some(if gap > 0. { gap } else { 1. }));
+            }
+            XType::Enum(n) => steps.extend(std::iter::repeat_n(Some(1.), *n)),
+        }
+    }
+    steps
+}
 
 /// Batch Expected Hypervolume Improvement criterion of the objective surrogates wrt a Pareto
 /// front, given the points already selected in the batch.
@@ -52,6 +74,8 @@ pub(crate) struct QEhviCriterion<'a> {
     upper: Array2<f64>,
     /// Points already selected in the batch (one row per point)
     selected: Array2<f64>,
+    /// Finite difference steps per dimension (see [`fd_steps`], continuous if missing)
+    fd_steps: Vec<Option<f64>>,
     /// Standard normal base samples: (sample, objective, point) with the selected points first
     base_samples: Array3<f64>,
     front_size: usize,
@@ -60,19 +84,24 @@ pub(crate) struct QEhviCriterion<'a> {
 impl<'a> QEhviCriterion<'a> {
     /// qEHVI criterion given the objective surrogates, the objective values `objs` of the data
     /// (used to normalize the objectives), the rows of `objs` forming the Pareto front, the points
-    /// already `selected` in the batch and the `seed` of the base samples
+    /// already `selected` in the batch, the finite difference steps (see [`fd_steps`]) and the
+    /// `seed` of the base samples.
+    ///
+    /// Fails when the surrogates can not predict the posterior covariance at the selected points.
     pub(crate) fn new(
         obj_models: &'a [Box<dyn MixtureGpSurrogate>],
         objs: &ArrayBase<impl Data<Elem = f64>, Ix2>,
         front_rows: &[usize],
         selected: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+        fd_steps: Vec<Option<f64>>,
         seed: u64,
-    ) -> Self {
+    ) -> Result<Self, MoeError> {
         Self::with_samples(
             obj_models,
             objs,
             front_rows,
             selected,
+            fd_steps,
             seed,
             QEHVI_N_SAMPLES,
         )
@@ -84,9 +113,16 @@ impl<'a> QEhviCriterion<'a> {
         objs: &ArrayBase<impl Data<Elem = f64>, Ix2>,
         front_rows: &[usize],
         selected: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+        fd_steps: Vec<Option<f64>>,
         seed: u64,
         n_samples: usize,
-    ) -> Self {
+    ) -> Result<Self, MoeError> {
+        // the criterion vanishes where predictions fail: check the joint posterior is available
+        if selected.nrows() > 0 {
+            for model in obj_models {
+                model.predict_covariance(&selected.view())?;
+            }
+        }
         let n_obj = objs.ncols();
         let n_selected = selected.nrows();
         let (normalization, front, ref_point) = normalized_front(objs, front_rows);
@@ -101,15 +137,16 @@ impl<'a> QEhviCriterion<'a> {
         let mut rng = Xoshiro256Plus::seed_from_u64(seed);
         let base_samples =
             Array3::random_using((n_samples, n_obj, n_selected + 1), StandardNormal, &mut rng);
-        QEhviCriterion {
+        Ok(QEhviCriterion {
             obj_models,
             normalization,
             lower,
             upper,
             selected: selected.to_owned(),
+            fd_steps,
             base_samples,
             front_size,
-        }
+        })
     }
 
     /// Criterion value at `x`
@@ -124,13 +161,17 @@ impl<'a> QEhviCriterion<'a> {
         sum / samples.len_of(ndarray::Axis(0)) as f64
     }
 
-    /// Criterion value and gradient (central finite differences) at `x`
+    /// Criterion value and gradient (central finite differences) at `x`: for discrete variables,
+    /// slope between the adjacent levels
     pub(crate) fn value_grad(&self, x: &[f64]) -> (f64, Array1<f64>) {
         let value = self.value(x);
         let mut grad = Array1::zeros(x.len());
         let mut xh = x.to_vec();
         for i in 0..x.len() {
-            let h = FD_STEP * (1. + x[i].abs());
+            let h = match self.fd_steps.get(i) {
+                Some(Some(step)) => *step,
+                _ => FD_STEP * (1. + x[i].abs()),
+            };
             xh[i] = x[i] + h;
             let forward = self.value(&xh);
             xh[i] = x[i] - h;
@@ -306,7 +347,9 @@ mod tests {
             let front_rows = non_dominated_indices(&objs);
             let ehvi = EhviCriterion::new(&models, &objs, &front_rows);
             let none = Array2::<f64>::zeros((0, 1));
-            let qehvi = QEhviCriterion::with_samples(&models, &objs, &front_rows, &none, 0, 20_000);
+            let qehvi =
+                QEhviCriterion::with_samples(&models, &objs, &front_rows, &none, vec![], 0, 20_000)
+                    .unwrap();
             for x in [0.1, 0.4, 0.62] {
                 let expected = ehvi.value(&[x]);
                 let v = qehvi.value(&[x]);
@@ -321,7 +364,9 @@ mod tests {
         let front_rows = non_dominated_indices(&objs);
         let ehvi = EhviCriterion::new(&models, &objs, &front_rows);
         let selected = array![[0.4]];
-        let qehvi = QEhviCriterion::with_samples(&models, &objs, &front_rows, &selected, 0, 4096);
+        let qehvi =
+            QEhviCriterion::with_samples(&models, &objs, &front_rows, &selected, vec![], 0, 4096)
+                .unwrap();
         // no improvement over a selected point (perfectly correlated)
         assert!(ehvi.value(&[0.4]) > 1e-4);
         assert_abs_diff_eq!(qehvi.value(&[0.4]), 0., epsilon = 1e-12);
@@ -329,7 +374,9 @@ mod tests {
         assert!(qehvi.value(&[0.42]) < 0.5 * ehvi.value(&[0.42]));
         // improvement nearly unchanged far from the selected point
         let none = Array2::<f64>::zeros((0, 1));
-        let alone = QEhviCriterion::with_samples(&models, &objs, &front_rows, &none, 0, 4096);
+        let alone =
+            QEhviCriterion::with_samples(&models, &objs, &front_rows, &none, vec![], 0, 4096)
+                .unwrap();
         for far in [0.1, 0.7] {
             let expected = alone.value(&[far]);
             assert_abs_diff_eq!(qehvi.value(&[far]), expected, epsilon = 5e-2 * expected);
@@ -341,7 +388,8 @@ mod tests {
         let (models, objs) = models(2);
         let front_rows = non_dominated_indices(&objs);
         let selected = array![[0.3], [0.85]];
-        let qehvi = QEhviCriterion::new(&models, &objs, &front_rows, &selected, 42);
+        let qehvi =
+            QEhviCriterion::new(&models, &objs, &front_rows, &selected, vec![], 42).unwrap();
         for x in [0.1, 0.55, 0.62] {
             let (v, g) = qehvi.value_grad(&[x]);
             assert_eq!(v, qehvi.value(&[x]));
@@ -352,13 +400,90 @@ mod tests {
     }
 
     #[test]
+    fn test_fd_steps() {
+        let xtypes = [
+            XType::Float(0., 1.),
+            XType::Int(0, 5),
+            XType::Ord(vec![10., 1., 5.]),
+            XType::Enum(3),
+        ];
+        assert_eq!(
+            fd_steps(&xtypes),
+            vec![None, Some(1.), Some(5.), Some(1.), Some(1.), Some(1.)]
+        );
+    }
+
+    #[test]
+    fn test_qehvi_discrete_gradients() {
+        use egobox_moe::{MixintContext, MoeBuilder};
+        use linfa::Dataset;
+        // integer variable in [0, 10]
+        let xtypes = [XType::Int(0, 10)];
+        let mixi = MixintContext::new(&xtypes);
+        let xt: Array2<f64> = array![[0.], [3.], [5.], [8.], [10.]];
+        let fs = [
+            xt.column(0).mapv(|v| v / 10.),
+            xt.column(0).mapv(|v| 1. - (v / 10.).sqrt() + 0.1 * v.sin()),
+        ];
+        let mut models: Vec<Box<dyn MixtureGpSurrogate>> = vec![];
+        let mut objs = Array2::zeros((xt.nrows(), 0));
+        for f in fs.iter() {
+            let ds = Dataset::new(xt.clone(), f.clone());
+            let model = mixi
+                .create_surrogate(&MoeBuilder::new(), &ds)
+                .expect("Mixint surrogate");
+            models.push(Box::new(model));
+            objs = concatenate![Axis(1), objs, f.clone().insert_axis(Axis(0)).t()];
+        }
+        let front_rows = non_dominated_indices(&objs);
+        let selected = array![[2.]];
+        let qehvi =
+            QEhviCriterion::new(&models, &objs, &front_rows, &selected, fd_steps(&xtypes), 0)
+                .unwrap();
+        let continuous =
+            QEhviCriterion::new(&models, &objs, &front_rows, &selected, vec![], 0).unwrap();
+        let x = [6.2];
+        // small steps do not cross levels: null derivative
+        assert_eq!(continuous.value_grad(&x).1[0], 0.);
+        // slope between adjacent levels
+        let expected = (qehvi.value(&[7.2]) - qehvi.value(&[5.2])) / 2.;
+        assert!(expected != 0.);
+        assert_abs_diff_eq!(qehvi.value_grad(&x).1[0], expected, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_qehvi_requires_covariance() {
+        use egobox_moe::{GpMixture, NbClusters};
+        use linfa::{Dataset, traits::Fit};
+        let (_, objs) = models(2);
+        let xt = Array2::random_using(
+            (20, 1),
+            Uniform::new(0., 1.),
+            &mut Xoshiro256Plus::seed_from_u64(0),
+        );
+        let mut models: Vec<Box<dyn MixtureGpSurrogate>> = vec![];
+        for j in 0..2 {
+            let yt = xt.column(0).mapv(|v| (v + j as f64 * 0.5).sin() * v);
+            let gp = GpMixture::params()
+                .n_clusters(NbClusters::fixed(2))
+                .with_rng(Xoshiro256Plus::seed_from_u64(0))
+                .fit(&Dataset::new(xt.clone(), yt))
+                .unwrap();
+            models.push(Box::new(gp));
+        }
+        let front_rows = non_dominated_indices(&objs);
+        let selected = array![[0.3]];
+        assert!(QEhviCriterion::new(&models, &objs, &front_rows, &selected, vec![], 0).is_err());
+    }
+
+    #[test]
     fn test_qehvi_determinism() {
         let (models, objs) = models(3);
         let front_rows = non_dominated_indices(&objs);
         let selected = array![[0.3]];
-        let a = QEhviCriterion::new(&models, &objs, &front_rows, &selected, 7);
-        let b = QEhviCriterion::new(&models, &objs, &front_rows, &selected, 7);
-        let c = QEhviCriterion::new(&models, &objs, &front_rows, &selected, 8);
+        let a = QEhviCriterion::new(&models, &objs, &front_rows, &selected, vec![], 7).unwrap();
+        let b = QEhviCriterion::new(&models, &objs, &front_rows, &selected, vec![], 7).unwrap();
+        let c = QEhviCriterion::new(&models, &objs, &front_rows, &selected, vec![], 8).unwrap();
         let x = [0.62];
         assert_eq!(a.value(&x), b.value(&x));
         assert_ne!(a.value(&x), c.value(&x));

@@ -1100,3 +1100,34 @@ fn test_qehvi_unsupported_configurations() {
     assert!(config(2, 2, NbClusters::fixed(2)).is_err());
     assert!(config(2, 2, NbClusters::auto()).is_err());
 }
+
+#[test]
+#[serial]
+fn test_zdt1_mixint_qehvi_batch() {
+    // second variable is an integer level in 0..=9 mapped to [0, 1]
+    let f = |x: &ArrayView2<f64>| {
+        let mut xr = x.to_owned();
+        xr.column_mut(1).mapv_inplace(|v| v / 9.);
+        zdt1(&xr.view())
+    };
+    let res = EgorBuilder::optimize(f)
+        .configure(|cfg| {
+            qehvi(cfg.n_obj(2).n_doe(10).max_iters(6).seed(42)).configure_qei(|qei| qei.batch(2))
+        })
+        .min_within_mixint_space(&[XType::Float(0., 1.), XType::Int(0, 9)])
+        .expect("Egor configured")
+        .run_pareto()
+        .expect("mixed-integer ZDT1 optimization");
+    assert_non_dominated(&res.y_pareto, 2);
+    for x in res.x_pareto.rows() {
+        assert_eq!(x[1], x[1].round());
+    }
+    // the front is found at the lowest level of the integer variable
+    let best_level = res.x_pareto.column(1).fold(f64::INFINITY, |m, v| m.min(*v));
+    println!(
+        "Mixed-integer ZDT1 qEHVI front of {} points, levels {}",
+        res.x_pareto.nrows(),
+        res.x_pareto.column(1)
+    );
+    assert_eq!(best_level, 0.);
+}

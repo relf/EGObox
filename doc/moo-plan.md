@@ -318,7 +318,11 @@ Done (easy wins):
     samples of the selected points is computed by inclusion–exclusion over the subsets of the
     selected points (`2^k` terms) on the EHVI box decomposition (`BoxDecomposition`, shared with
     EHVI, front reduced to a spread subset beyond a qEHVI evaluation budget of 2^22).
-  - Gradients by central finite differences; the scaling uses 50 points.
+  - Gradients by central finite differences; for discrete variables (snapped by the mixed-integer
+    surrogates before prediction), the step reaches the adjacent levels (1 for integer and enum
+    one-hot dimensions, largest gap for ordinal ones). The scaling uses 50 points.
+  - The covariance support is checked when the criterion is built: on failure, the batch stops
+    with an error logged instead of optimizing a vanishing criterion.
   - Limits: batches of at most 4 points, at most 8 objectives, single-cluster surrogates.
   - Results (ZDT1, batch of 3, 8 iterations): hypervolume 88.9 % of the true-front hypervolume
     (91.7 % with EHVI Kriging believer batches on the same run): no clear gain on this small

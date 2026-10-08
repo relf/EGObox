@@ -5,7 +5,7 @@ use crate::moo::criterion::MooCriterion;
 use crate::moo::ehvi::EhviCriterion;
 use crate::moo::eim::EimCriterion;
 use crate::moo::pareto::pareto_front_indices;
-use crate::moo::qehvi::QEhviCriterion;
+use crate::moo::qehvi::{QEhviCriterion, fd_steps};
 use crate::moo::scalarization::compromise_index;
 use crate::solver::solver_computations::MiddlePickerMultiStarter;
 use crate::solver::solver_infill_optim::InfillOptProblem;
@@ -1196,15 +1196,22 @@ where
                     let front = pareto_front_indices(&yt, &ct, n_obj, cstr_tol, &excluded);
                     let objs = yt.slice(s![.., ..n_obj]);
                     match self.config.moo_strategy() {
-                        crate::MooStrategy::QEhvi if i > 0 => {
-                            Some(MooCriterion::QEhvi(QEhviCriterion::new(
-                                obj_models,
-                                &objs,
-                                &front,
-                                &x_dat.slice(s![n_imputed.., ..]),
-                                rng.r#gen(),
-                            )))
-                        }
+                        crate::MooStrategy::QEhvi if i > 0 => match QEhviCriterion::new(
+                            obj_models,
+                            &objs,
+                            &front,
+                            &x_dat.slice(s![n_imputed.., ..]),
+                            fd_steps(&self.config.xtypes),
+                            rng.r#gen(),
+                        ) {
+                            Ok(criterion) => Some(MooCriterion::QEhvi(criterion)),
+                            Err(err) => {
+                                log::error!(
+                                    "qEHVI criterion not available, batch stopped at {i} points: {err}"
+                                );
+                                break;
+                            }
+                        },
                         crate::MooStrategy::Ehvi | crate::MooStrategy::QEhvi => Some(
                             MooCriterion::Ehvi(EhviCriterion::new(obj_models, &objs, &front)),
                         ),
