@@ -94,9 +94,14 @@ impl MooConfig {
         self
     }
 
-    /// Stops the optimization when the hypervolume of the Pareto front increased by less than
-    /// `tol` (relative to its current value) during the last `n_iters` iterations.
+    /// Stops the optimization when the hypervolume of the (feasible) Pareto front increased by less
+    /// than `tol` (relative to its current value) during the last `n_iters` iterations.
     /// The termination reason is then [`crate::TerminationReason::SolverConverged`].
+    ///
+    /// The front of `n_iters` iterations ago is the one of the data without the last
+    /// `n_iters * batch` points (`batch` being the qEI batch size): when proposed points are
+    /// rejected (too close to existing ones) or fail, the window covers more iterations, which
+    /// only delays the stop.
     pub fn hv_stop(mut self, tol: f64, n_iters: usize) -> Self {
         self.hv_stop = Some((tol, n_iters));
         self

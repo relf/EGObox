@@ -896,6 +896,9 @@ where
             && let Some((tol, n_iters)) = self.config.moo.hv_stop
             && state.get_iter() as usize + 1 >= n_iters
         {
+            // Each iteration adds at most `batch` points: when points are rejected or fail,
+            // this window covers more iterations, which only delays the stop
+            // (iteration boundaries are not kept in the state)
             let n_prev_rows = y_data
                 .nrows()
                 .saturating_sub(n_iters * self.config.qei_config.batch)

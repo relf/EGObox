@@ -69,6 +69,7 @@ fn hv_rec(mut points: Vec<Vec<f64>>, ref_point: &[f64]) -> f64 {
 /// Hypervolumes of the constrained Pareto fronts of the first `n_prev_rows` rows of the data
 /// and of the whole data, in the objective space normalized with the data bounds and wrt a common
 /// reference point (nadir of both fronts + 10 % of their range).
+/// Only feasible points count: without feasible point, the hypervolume is zero.
 /// See [`crate::moo::pareto::pareto_front_indices`] for the data layout.
 pub(crate) fn hypervolume_progress(
     y_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
@@ -79,6 +80,7 @@ pub(crate) fn hypervolume_progress(
 ) -> (f64, f64) {
     use super::pareto::{ideal_and_nadir, pareto_front_indices};
     use super::scalarization::Normalization;
+    use crate::utils::is_feasible_at;
     use ndarray::{Array2, s};
 
     let objs = y_data.slice(s![.., ..n_obj]);
@@ -86,13 +88,24 @@ pub(crate) fn hypervolume_progress(
         .filter(|&i| objs.row(i).iter().all(|v| v.is_finite()))
         .collect();
     let normalization = Normalization::from_rows(&objs, &finite);
-    let front_now = pareto_front_indices(y_data, c_data, n_obj, cstr_tol);
-    let front_prev = pareto_front_indices(
-        &y_data.slice(s![..n_prev_rows, ..]),
-        &c_data.slice(s![..n_prev_rows, ..]),
-        n_obj,
-        cstr_tol,
-    );
+    // Feasible Pareto front of the first rows (pareto_front_indices falls back to the least
+    // infeasible point when no point is feasible)
+    let feasible_front = |n_rows: usize| -> Vec<usize> {
+        pareto_front_indices(
+            &y_data.slice(s![..n_rows, ..]),
+            &c_data.slice(s![..n_rows, ..]),
+            n_obj,
+            cstr_tol,
+        )
+        .into_iter()
+        .filter(|&i| is_feasible_at(&y_data.row(i), &c_data.row(i), n_obj, cstr_tol))
+        .collect()
+    };
+    let front_now = feasible_front(y_data.nrows());
+    if front_now.is_empty() {
+        return (0., 0.);
+    }
+    let front_prev = feasible_front(n_prev_rows);
     let normalized = |rows: &[usize]| {
         let mut front = Array2::zeros((rows.len(), n_obj));
         for (k, &i) in rows.iter().enumerate() {
@@ -186,6 +199,30 @@ mod tests {
             2. / 3.,
             epsilon = 2e-3
         );
+    }
+
+    #[test]
+    fn test_hypervolume_progress_counts_feasible_points_only() {
+        // [f1, f2, c] with c <= 0 feasible
+        let y = array![[0., 0., 1.], [0.5, 0.5, -1.], [0.2, 0.8, -1.]];
+        let c = Array2::zeros((3, 0));
+        let tol = array![1e-4];
+        // no feasible point among the first row
+        let (hv_prev, hv_now) = hypervolume_progress(&y, &c, 2, &tol, 1);
+        assert_eq!(hv_prev, 0.);
+        assert!(hv_now > 0.);
+        // no feasible point at all
+        let (hv_prev, hv_now) = hypervolume_progress(
+            &y.slice(ndarray::s![..1, ..]),
+            &c.slice(ndarray::s![..1, ..]),
+            2,
+            &tol,
+            1,
+        );
+        assert_eq!((hv_prev, hv_now), (0., 0.));
+        // no progress
+        let (hv_prev, hv_now) = hypervolume_progress(&y, &c, 2, &tol, 3);
+        assert_eq!(hv_prev, hv_now);
     }
 
     #[test]

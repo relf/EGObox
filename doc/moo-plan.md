@@ -261,7 +261,10 @@ Each step is one PR or a few PRs. Each keeps CI green and respects the contract 
   factorizes per objective as `EI_j(u_j) - EI_j(l_j)` with independent normal predictions.
   Analytic gradients by the product rule. Cells are built once per infill optimization
   (`(n_front + 1)^m` candidates), so evaluations are cheap; it matches a Monte Carlo estimate
-  to ~1e-5 for 2 and 3 objectives (unit test).
+  to ~1e-5 for 2 and 3 objectives (unit test). The decomposition work (cells × front size) is
+  bounded to 2^26: beyond (front of more than 405 points for 2 objectives, 89 for 3, 19 for 5),
+  the region dominated by a spread subset of the front (best point of each objective, then
+  farthest point sampling) is used, with a warning.
 - EIM and EHVI share the normalized predictions, normalized front and reference point
   (`moo/criterion.rs`) and are dispatched by a crate-private `MooCriterion` enum in
   `InfillOptProblem`. The criterion is not published as a public trait: two concrete strategies
@@ -269,8 +272,11 @@ Each step is one PR or a few PRs. Each keeps CI green and respects the contract 
 - `MooConfig::hv_stop(tol, n_iters)`: stop when the hypervolume of the constrained front
   increased by less than `tol` (relative) over the last `n_iters` iterations, both fronts being
   measured with the same normalization and reference point and recomputed from the data (the
-  previous front uses the data without the last `n_iters * batch` rows), reported as
-  `TerminationReason::SolverConverged`.
+  previous front uses the data without the last `n_iters * batch` rows: rejected or failed
+  points make the window longer, which only delays the stop, as iteration boundaries are not
+  kept in the state), reported as `TerminationReason::SolverConverged`. Only feasible points
+  count: without feasible point the hypervolume is zero, so the stop never triggers before
+  feasibility is reached.
 - Results (30 iterations): ZDT1 hypervolume 93.7 % of the true-front hypervolume (91.7 % with
   qEI batch of 3), DTLZ2 mean distance 0.08 to the true front; with `hv_stop(1e-3, 5)` a ZDT1
   run with a budget of 100 iterations stops after 38.
