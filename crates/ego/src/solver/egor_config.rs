@@ -419,9 +419,17 @@ impl ValidEgorConfig {
         self.n_obj
     }
 
+    /// Multi-objective strategy: the configured one or the default given the number of objectives
+    pub(crate) fn moo_strategy(&self) -> crate::MooStrategy {
+        self.moo
+            .strategy
+            .clone()
+            .unwrap_or_else(|| crate::moo::config::default_strategy(self.n_obj))
+    }
+
     /// Whether several objectives are scalarized into one surrogate (ParEGO)
     pub(crate) fn is_scalarized(&self) -> bool {
-        self.n_obj > 1 && matches!(self.moo.strategy, crate::MooStrategy::ParEgo)
+        self.n_obj > 1 && self.moo_strategy() == crate::MooStrategy::ParEgo
     }
 
     /// Whether several objectives are each modeled with a surrogate
@@ -895,7 +903,7 @@ impl EgorConfig {
                 && config.is_scalarized()
             {
                 Some("Imputation failsafe strategy with ParEGO (use EIM or EHVI)".to_string())
-            } else if config.moo.strategy == crate::MooStrategy::Ehvi
+            } else if config.moo_strategy() == crate::MooStrategy::Ehvi
                 && config.n_obj > crate::moo::ehvi::MAX_EHVI_OBJECTIVES
             {
                 Some(format!(
@@ -905,7 +913,8 @@ impl EgorConfig {
             } else if config.feasibility_infill.is_enabled() && !config.is_scalarized() {
                 Some(format!(
                     "{:?} feasible infill strategy with {:?}",
-                    config.feasibility_infill, config.moo.strategy
+                    config.feasibility_infill,
+                    config.moo_strategy()
                 ))
             } else {
                 None

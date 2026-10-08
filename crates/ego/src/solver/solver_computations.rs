@@ -753,6 +753,30 @@ mod tests {
     }
 
     #[test]
+    fn test_default_moo_strategy() {
+        let strategy = |n_obj: usize| {
+            EgorConfig::default()
+                .xtypes(&to_xtypes(&array![[0., 1.]]))
+                .n_obj(n_obj)
+                .check()
+                .unwrap()
+                .moo_strategy()
+        };
+        assert_eq!(strategy(2), MooStrategy::Ehvi);
+        assert_eq!(strategy(3), MooStrategy::Ehvi);
+        assert_eq!(strategy(4), MooStrategy::ParEgo);
+        assert_eq!(strategy(6), MooStrategy::ParEgo);
+        // an explicit strategy takes precedence
+        let config = EgorConfig::default()
+            .xtypes(&to_xtypes(&array![[0., 1.]]))
+            .n_obj(2)
+            .configure_moo(|moo| moo.strategy(MooStrategy::ParEgo))
+            .check()
+            .unwrap();
+        assert_eq!(config.moo_strategy(), MooStrategy::ParEgo);
+    }
+
+    #[test]
     fn test_imputed_rows_only_with_imputation() {
         let x_data = array![[0.1], [0.5], [0.9]];
         let x_fail = array![[0.5]];

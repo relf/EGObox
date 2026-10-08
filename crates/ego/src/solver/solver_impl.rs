@@ -1184,7 +1184,7 @@ where
                     let excluded = self.config.imputed_rows(x_data, x_fail_points);
                     let front = pareto_front_indices(&yt, &ct, n_obj, cstr_tol, &excluded);
                     let objs = yt.slice(s![.., ..n_obj]);
-                    match self.config.moo.strategy {
+                    match self.config.moo_strategy() {
                         crate::MooStrategy::Ehvi => Some(MooCriterion::Ehvi(EhviCriterion::new(
                             obj_models, &objs, &front,
                         ))),

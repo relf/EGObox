@@ -3,7 +3,7 @@
 //!
 //! All objectives are minimized.
 
-mod config;
+pub(crate) mod config;
 pub(crate) mod criterion;
 pub(crate) mod ehvi;
 pub(crate) mod eim;
