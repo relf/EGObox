@@ -608,7 +608,7 @@ fn test_dtlz2_eim() {
 
 #[test]
 #[serial]
-fn test_zdt1_eim_qei() {
+fn test_zdt1_eim_kriging_believer_batch() {
     let res = EgorBuilder::optimize(zdt1)
         .configure(|cfg| {
             cfg.n_obj(2)
@@ -630,7 +630,7 @@ fn test_zdt1_eim_qei() {
     assert!(res.x_doe.nrows() > 10 + 8);
     let hv = hypervolume_2d(&res.y_pareto, [1.1, 1.1]);
     println!(
-        "ZDT1 EIM qEI front HV = {hv} ({:.1}% of true front HV)",
+        "ZDT1 EIM Kriging believer batch front HV = {hv} ({:.1}% of true front HV)",
         100. * hv / ZDT1_HV_REF
     );
     assert!(hv > 0.7 * ZDT1_HV_REF);
@@ -719,7 +719,7 @@ fn test_bnh_ehvi() {
 
 #[test]
 #[serial]
-fn test_zdt1_ehvi_qei() {
+fn test_zdt1_ehvi_kriging_believer_batch() {
     let res = EgorBuilder::optimize(zdt1)
         .configure(|cfg| {
             ehvi(cfg.n_obj(2).n_doe(10).max_iters(8).seed(42)).configure_qei(|qei| qei.batch(3))
@@ -732,7 +732,7 @@ fn test_zdt1_ehvi_qei() {
     assert!(res.x_doe.nrows() > 10 + 8);
     let hv = hypervolume_2d(&res.y_pareto, [1.1, 1.1]);
     println!(
-        "ZDT1 EHVI qEI front HV = {hv} ({:.1}% of true front HV)",
+        "ZDT1 EHVI Kriging believer batch front HV = {hv} ({:.1}% of true front HV)",
         100. * hv / ZDT1_HV_REF
     );
     assert!(hv > 0.7 * ZDT1_HV_REF);

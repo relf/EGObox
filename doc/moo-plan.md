@@ -283,8 +283,12 @@ Each step is one PR or a few PRs. Each keeps CI green and respects the contract 
   feasibility is reached. Hypervolumes are exact when the recursive computation is affordable
   (`front_size^(m - 1)` up to 2^22), estimated otherwise by Monte Carlo with 2^16 uniform samples
   shared by both fronts (low variance of their difference).
+- Batches (`configure_qei`) use the Kriging believer heuristic, as with EIM: each batch point
+  maximizes the single-point EHVI wrt the front augmented with the virtual points (predicted
+  means) already chosen. This is not qEHVI (joint expected hypervolume improvement of the batch,
+  Daulton et al. 2020), see step 6.
 - Results (30 iterations): ZDT1 hypervolume 93.7 % of the true-front hypervolume (91.7 % with
-  qEI batch of 3), DTLZ2 mean distance 0.08 to the true front; with `hv_stop(1e-3, 5)` a ZDT1
+  Kriging believer batches of 3), DTLZ2 mean distance 0.08 to the true front; with `hv_stop(1e-3, 5)` a ZDT1
   run with a budget of 100 iterations stops after 38.
 
 ### Step 6 — Feature coverage
@@ -295,6 +299,11 @@ Each step is one PR or a few PRs. Each keeps CI green and respects the contract 
   ideal point as the lie.
 - TREGO and CoEGO: either define them around the compromise point (trust region center or CoEGO
   context vector) or keep rejecting them.
+- qEHVI (Daulton et al. 2020): joint expected hypervolume improvement of a batch of points, as an
+  alternative to the Kriging believer heuristic. It needs joint posterior samples across the
+  batch points (`MixtureGpSurrogate` only predicts marginal variances: a joint covariance
+  prediction is required, at least within a cluster) and a Monte Carlo estimate with
+  reparameterized gradients.
 - Function constraint values stored for points added by iterations (`c_data`) come from the
   scaled optimizer closures (divided by the function constraint scale), unlike the initial DOE
   ones; the EIM front of qEI virtual points uses them too. Storing raw values is the fix, but it
