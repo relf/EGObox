@@ -7,7 +7,8 @@
 //! Objective and contraints are expected to computed grouped at the same time
 //! hence the given function should return a vector where the first component
 //! is the objective value and the remaining ones constraints values intended
-//! to be negative in the end.   
+//! to be negative in the end. With several objectives (experimental, see below),
+//! the first components are the objective values.   
 //! The optimizer comes with a set of options to:
 //! * specify the initial doe,
 //! * parameterize internal optimization,
@@ -16,6 +17,7 @@
 //! * handling of mixed-integer variables
 //! * activation of TREGO algorithm variation
 //! * activation of CoEGO algorithm variation
+//! * multi-objective optimization (experimental)
 //!
 //! # Examples
 //!
@@ -87,6 +89,59 @@
 //!     .expect("Egor minimization");
 //! println!("min f(x)={} at x={}", res.y_opt, res.x_opt);
 //! ```  
+//!
+//! ## Multi-objective optimization (experimental)
+//!
+//! With `n_obj` objectives (see [`EgorConfig::n_obj`]), the function returns rows
+//! `[obj_1, ..., obj_n_obj, cstr_1, ..., cstr_n_cstr]` and [`Egor::run_pareto`] returns an
+//! approximation of the (constrained) Pareto front, all objectives being minimized.
+//! [`Egor::run`] still works and returns a compromise point of the front.
+//!
+//! ```
+//! use ndarray::{array, Array2, ArrayView2, Axis, concatenate};
+//! use egobox_ego::EgorBuilder;
+//!
+//! // ZDT1 bi-objective test function: the Pareto front is f2 = 1 - sqrt(f1) with x2 = 0
+//! fn zdt1(x: &ArrayView2<f64>) -> Array2<f64> {
+//!     let f1 = x.column(0).to_owned();
+//!     let g = x.column(1).mapv(|v| 1. + 9. * v);
+//!     let f2 = &g * (1. - (&f1 / &g).mapv(f64::sqrt));
+//!     concatenate![Axis(1), f1.insert_axis(Axis(1)), f2.insert_axis(Axis(1))]
+//! }
+//!
+//! let res = EgorBuilder::optimize(zdt1)
+//!     .configure(|config| config.n_obj(2).max_iters(10).seed(42))
+//!     .min_within(&array![[0., 1.], [0., 1.]])
+//!     .expect("optimizer configured")
+//!     .run_pareto()
+//!     .expect("ZDT1 optimized");
+//! println!("Pareto front approximation: {}", res.y_pareto);
+//! ```
+//!
+//! The multi-objective strategy is set with [`EgorConfig::configure_moo`] (see [`MooConfig`]):
+//! * [`MooStrategy::Ehvi`] (default for 2 or 3 objectives): one surrogate per objective and
+//!   Expected Hypervolume Improvement infill criterion \[[Emmerich2006](#Emmerich2006)\],
+//! * [`MooStrategy::Eim`]: one surrogate per objective and Expected Improvement Matrix infill
+//!   criterion \[[Zhan2017](#Zhan2017)\] (Euclidean, maximin or hypervolume aggregation),
+//! * [`MooStrategy::ParEgo`] (default beyond 3 objectives): the objectives are scalarized with
+//!   random weights at each iteration and the mono-objective machinery applies to a single
+//!   surrogate \[[Knowles2006](#Knowles2006)\].
+//!
+//! ```no_run
+//! # use egobox_ego::{EgorConfig, EimAggregation, MooStrategy};
+//! # let egor_config = EgorConfig::default();
+//!     egor_config.n_obj(3).configure_moo(|moo| {
+//!         moo.strategy(MooStrategy::Eim)
+//!            .eim_aggregation(EimAggregation::Hypervolume)
+//!            // stop when the hypervolume of the front improves by less than 0.1%
+//!            // over the last 5 iterations
+//!            .hv_stop(1e-3, 5)
+//!     });
+//! ```
+//!
+//! Constraints, function constraints, mixed-integer variables, qEI batches, warm/hot start and
+//! the ask-and-tell interface work with several objectives (failsafe imputation with EIM and
+//! EHVI only); TREGO, CoEGO and `target` are not supported.
 //!
 //! # Usage
 //!
@@ -262,6 +317,8 @@
 //! * Theta bounds are implemented as in \[[Appriou2023](#Appriou2023)\]
 //! * Logarithm of Expected Improvement is implemented as in \[[Ament2025](#Ament2025)\]
 //! * Hidden constraints handling is implemented as in \[[Bussemaker2024](#Bussemaker2024)\] and \[[Tfaily2024](#Tfaily2024)\]
+//! * Multi-objective optimization is implemented with ParEGO \[[Knowles2006](#Knowles2006)\], EIM \[[Zhan2017](#Zhan2017)\]
+//!   and EHVI \[[Emmerich2006](#Emmerich2006)\] (computed in closed form on a box decomposition of the non-dominated region)
 //!
 //! # References
 //!
@@ -332,6 +389,18 @@
 //! \[<a id="Tfaily2024">Tfaily2024</a>\]: Tfaily, Ali, et al. (2024)
 //! [Bayesian optimization with hidden constraints for aircraft design.](https://hal.science/hal-04673615/)
 //! Structural and Multidisciplinary Optimization 67.7 (2024): 123.
+//!
+//! \[<a id="Knowles2006">Knowles2006</a>\]: Knowles, J. (2006).
+//! [ParEGO: a hybrid algorithm with on-line landscape approximation for expensive multiobjective optimization problems](https://doi.org/10.1109/TEVC.2005.851274).
+//! IEEE Transactions on Evolutionary Computation, 10(1), 50–66.
+//!
+//! \[<a id="Zhan2017">Zhan2017</a>\]: Zhan, D., Cheng, Y., & Liu, J. (2017).
+//! [Expected improvement matrix-based infill criteria for expensive multiobjective optimization](https://doi.org/10.1109/TEVC.2017.2697503).
+//! IEEE Transactions on Evolutionary Computation, 21(6), 956–975.
+//!
+//! \[<a id="Emmerich2006">Emmerich2006</a>\]: Emmerich, M. T. M., Giannakoglou, K. C., & Naujoks, B. (2006).
+//! [Single- and multiobjective evolutionary optimization assisted by Gaussian random field metamodels](https://doi.org/10.1109/TEVC.2005.859463).
+//! IEEE Transactions on Evolutionary Computation, 10(4), 421–439.
 //!
 //! smtorg. (2018). Surrogate modeling toolbox. In [GitHub repository](https://github.com/SMTOrg/smt)
 //!

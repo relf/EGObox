@@ -44,7 +44,8 @@
 //!
 //! Constraints are expected to be evaluated with the objective function
 //! meaning that the function passed to the optimizer has to return
-//! a vector consisting of [obj, cstr_1, ..., cstr_n] and the cstr values
+//! a vector consisting of [obj, cstr_1, ..., cstr_n] (or [obj_1, ..., obj_n_obj, cstr_1, ...]
+//! with several objectives, see `EgorConfig::n_obj`) and the cstr values
 //! are intended to be negative at the end of the optimization.
 //! Constraint number should be declared with `n_cstr` setter.
 //! A tolerance can be adjust with `cstr_tol` setter for relaxing constraint violation
@@ -211,7 +212,7 @@ pub struct EgorFactory<O: ObjFn, C: CstrFn = Cstr> {
 impl<O: ObjFn, C: CstrFn> EgorFactory<O, C> {
     /// Function to be minimized domain should be basically R^nx -> R^ny
     /// where nx is the dimension of input x and ny the output dimension
-    /// equal to 1 (obj) + n (cstrs).
+    /// equal to `n_obj` (objectives, 1 by default) + `n_cstr` (constraints).
     /// But function has to be able to evaluate several points in one go
     /// hence take an (p, nx) matrix and return an (p, ny) matrix
     pub fn optimize(fobj: O) -> Self {

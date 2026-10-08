@@ -19,6 +19,8 @@
 * Mixed integer optimization available through continuous relaxation
 * Trust region EGO algorithm
 * CoEGO method with CCBO setting
+* Multi-objective optimization (experimental): Pareto front approximation with ParEGO,
+  Expected Improvement Matrix (EIM) or Expected Hypervolume Improvement (EHVI) strategies
 
 ## Examples
 
@@ -26,6 +28,7 @@ There is some usage examples in the examples/ directory. To run, use:
 
 ``` bash
 cargo run --release --example ackley
+cargo run --release --example zdt1  # multi-objective optimization
 ```
 
 ## License

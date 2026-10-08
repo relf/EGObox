@@ -326,12 +326,17 @@ Remaining:
   raw units, which the scaled values accidentally accept within `cstr_tol` (attempted in #477
   and reverted, as C COBYLA runs with function constraints then stalled).
 
-### Step 7 — Docs and stabilization
-- Update the docs that say "1 objective + n_cstr": `lib.rs`, `egor.rs`, `types.rs` (`ObjFn`) and
-  `egor_config.rs` (`n_cstr`). Also update the README and CHANGELOG.
-- Add ZDT/DTLZ benches to `crates/ego/benches/ego.rs`.
-- Drop the "experimental" label once the defaults (strategy, ρ, reference point) are settled; they
-  become part of the contract at that point.
+### Step 7 — Docs and stabilization — done (still experimental)
+- Docs updated for several objectives: crate docs (`lib.rs`: multi-objective section with a ZDT1
+  example, strategies, references), module docs (`egor.rs`, `egor_solver.rs`), `ObjFn`,
+  `OptimResult` (compromise point), `EgorState::cost`, `EgorFactory::optimize`, `target`
+  (mono-objective only). READMEs mention multi-objective optimization and the `zdt1` example.
+- Default strategy when not set: EHVI for 2 or 3 objectives, ParEGO beyond (`MooConfig` stores an
+  optional strategy resolved with `n_obj`); LogEI stays the mono-objective default.
+- ZDT1 (2 objectives) and DTLZ2 (3 objectives) benches with each strategy in
+  `crates/ego/benches/ego.rs` (`moo` group).
+- The "experimental" label is kept for a release to gather feedback before freezing the defaults
+  (strategy, ρ, reference point margin): they become part of the contract once it is dropped.
 
 ## 6. Suggested sequencing
 

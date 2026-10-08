@@ -617,7 +617,8 @@ impl EgorConfig {
         self
     }
 
-    /// Sets a known target minimum to be used as a stopping criterion.
+    /// Sets a known target minimum to be used as a stopping criterion
+    /// (mono-objective optimization only).
     pub fn target(mut self, target: f64) -> Self {
         self.0.target = target;
         self
