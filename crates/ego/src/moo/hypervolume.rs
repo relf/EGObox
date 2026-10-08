@@ -70,6 +70,7 @@ fn hv_rec(mut points: Vec<Vec<f64>>, ref_point: &[f64]) -> f64 {
 /// and of the whole data, in the objective space normalized with the data bounds and wrt a common
 /// reference point (nadir of both fronts + 10 % of their range).
 /// Only feasible points count: without feasible point, the hypervolume is zero.
+/// `excluded` rows (e.g. failed points with imputed values) never count.
 /// See [`crate::moo::pareto::pareto_front_indices`] for the data layout.
 pub(crate) fn hypervolume_progress(
     y_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
@@ -77,6 +78,7 @@ pub(crate) fn hypervolume_progress(
     n_obj: usize,
     cstr_tol: &Array1<f64>,
     n_prev_rows: usize,
+    excluded: &[usize],
 ) -> (f64, f64) {
     use super::pareto::{ideal_and_nadir, pareto_front_indices};
     use super::scalarization::Normalization;
@@ -96,6 +98,7 @@ pub(crate) fn hypervolume_progress(
             &c_data.slice(s![..n_rows, ..]),
             n_obj,
             cstr_tol,
+            excluded,
         )
         .into_iter()
         .filter(|&i| is_feasible_at(&y_data.row(i), &c_data.row(i), n_obj, cstr_tol))
@@ -266,7 +269,7 @@ mod tests {
         let c = Array2::zeros((3, 0));
         let tol = array![1e-4];
         // no feasible point among the first row
-        let (hv_prev, hv_now) = hypervolume_progress(&y, &c, 2, &tol, 1);
+        let (hv_prev, hv_now) = hypervolume_progress(&y, &c, 2, &tol, 1, &[]);
         assert_eq!(hv_prev, 0.);
         assert!(hv_now > 0.);
         // no feasible point at all
@@ -276,10 +279,26 @@ mod tests {
             2,
             &tol,
             1,
+            &[],
         );
         assert_eq!((hv_prev, hv_now), (0., 0.));
         // no progress
-        let (hv_prev, hv_now) = hypervolume_progress(&y, &c, 2, &tol, 3);
+        let (hv_prev, hv_now) = hypervolume_progress(&y, &c, 2, &tol, 3, &[]);
+        assert_eq!(hv_prev, hv_now);
+    }
+
+    #[test]
+    fn test_hypervolume_progress_ignores_excluded_rows() {
+        // the last row (e.g. a failed point with imputed values) dominates the others
+        let y = array![[0.5, 0.5], [0.8, 0.2], [0.1, 0.1]];
+        let c = Array2::zeros((3, 0));
+        let tol = Array1::zeros(0);
+        // without exclusion, the last row increases the hypervolume
+        let (hv_prev, hv_now) = hypervolume_progress(&y, &c, 2, &tol, 2, &[]);
+        assert!(hv_now > hv_prev);
+        // excluded, it changes neither the front nor the hypervolume: no progress
+        let (hv_prev, hv_now) = hypervolume_progress(&y, &c, 2, &tol, 2, &[2]);
+        assert!(hv_prev > 0.);
         assert_eq!(hv_prev, hv_now);
     }
 

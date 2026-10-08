@@ -54,16 +54,19 @@ pub(crate) fn non_dominated_indices(objs: &ArrayBase<impl Data<Elem = f64>, Ix2>
 ///
 /// Feasible points dominate infeasible ones: the front is the set of non-dominated feasible points.
 /// When no point is feasible, the front reduces to the point with the smallest constraint violation.
-/// Rows with non finite values are never part of the front.
+/// Rows with non finite values and `excluded` rows (e.g. failed points with imputed values)
+/// are never part of the front.
 pub(crate) fn pareto_front_indices(
     y_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
     c_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
     n_obj: usize,
     cstr_tol: &Array1<f64>,
+    excluded: &[usize],
 ) -> Vec<usize> {
     let finite: Vec<usize> = (0..y_data.nrows())
         .filter(|&i| {
-            y_data.row(i).iter().all(|v| v.is_finite())
+            !excluded.contains(&i)
+                && y_data.row(i).iter().all(|v| v.is_finite())
                 && c_data.row(i).iter().all(|v| v.is_finite())
         })
         .collect();
@@ -138,7 +141,9 @@ mod tests {
         let y = array![[1., 3., 0.5], [2., 2., -1.], [3., 1., -1.], [2.5, 2.5, -1.]];
         let c = Array2::zeros((4, 0));
         let tol = array![1e-4];
-        assert_eq!(pareto_front_indices(&y, &c, 2, &tol), vec![1, 2]);
+        assert_eq!(pareto_front_indices(&y, &c, 2, &tol, &[]), vec![1, 2]);
+        // excluded rows are never part of the front
+        assert_eq!(pareto_front_indices(&y, &c, 2, &tol, &[1]), vec![2, 3]);
     }
 
     #[test]
@@ -146,7 +151,7 @@ mod tests {
         let y = array![[1., 3.], [2., 2.], [3., 1.]];
         let c = array![[-1.], [1.], [-1.]];
         let tol = array![1e-4];
-        assert_eq!(pareto_front_indices(&y, &c, 2, &tol), vec![0, 2]);
+        assert_eq!(pareto_front_indices(&y, &c, 2, &tol, &[]), vec![0, 2]);
     }
 
     #[test]
@@ -154,7 +159,7 @@ mod tests {
         let y = array![[1., 3., 0.5], [2., 2., 0.2], [3., 1., 0.3]];
         let c = Array2::zeros((3, 0));
         let tol = array![1e-4];
-        assert_eq!(pareto_front_indices(&y, &c, 2, &tol), vec![1]);
+        assert_eq!(pareto_front_indices(&y, &c, 2, &tol, &[]), vec![1]);
     }
 
     #[test]

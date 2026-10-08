@@ -291,12 +291,26 @@ Each step is one PR or a few PRs. Each keeps CI green and respects the contract 
   Kriging believer batches of 3), DTLZ2 mean distance 0.08 to the true front; with `hv_stop(1e-3, 5)` a ZDT1
   run with a budget of 100 iterations stops after 38.
 
-### Step 6 — Feature coverage
-- Failsafe imputation for m > 1: per-objective pessimistic prediction, or the worst observed value
-  per objective in ParEGO mode.
-- Ask-and-tell: `EgorServiceApi::suggest` with `n_obj` columns, plus a front helper.
-- ParEGO batch with one λ per batch point. In PerObjective mode, `ConstantLiarMinimum` uses the
-  ideal point as the lie.
+### Step 6 — Feature coverage — partly done
+Done (easy wins):
+- Ask-and-tell: `EgorServiceBuilder` accepts `n_obj > 1`, `EgorSolver::suggest` handling ParEGO,
+  EIM and EHVI. Like in mono-objective, the ask-and-tell loop has no rejection of points too close
+  to the data: when the criterion has nothing better, the current best (compromise) point may be
+  suggested again.
+- Failsafe imputation with per-objective strategies (EIM, EHVI): per-objective pessimistic
+  prediction (`compute_penalized_point` with objective-model slices). Failed points stored with
+  imputed values (`failed_rows`) are excluded from the Pareto front, the compromise point and the
+  hypervolume progress, as imputed points are never the best in mono-objective.
+- In PerObjective mode, `ConstantLiarMinimum` uses the ideal point (minimum of each objective
+  and constraint column) as the lie.
+
+Remaining:
+- Failsafe imputation with ParEGO: the surrogates are trained on the scalarized view, so the
+  penalized rows (view layout) do not match the raw data layout; e.g. worst observed value per
+  objective.
+- A front helper for ask-and-tell users (e.g. a public `pareto_front_indices`).
+- ParEGO batch with one λ per batch point (retraining the scalarized model inside the batch
+  loop).
 - TREGO and CoEGO: either define them around the compromise point (trust region center or CoEGO
   context vector) or keep rejecting them.
 - qEHVI (Daulton et al. 2020): joint expected hypervolume improvement of a batch of points, as an

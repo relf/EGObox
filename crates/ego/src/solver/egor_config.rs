@@ -459,6 +459,22 @@ impl ValidEgorConfig {
         }
     }
 
+    /// Indices of the rows of `x_data` holding failed points with imputed output values: only
+    /// with the failsafe imputation strategy, the other strategies never storing failed points in
+    /// the data (a later successful evaluation at a failed location is then a regular point).
+    /// With imputation, no other point can be that close to a stored failed point.
+    pub(crate) fn imputed_rows(
+        &self,
+        x_data: &ndarray::ArrayBase<impl ndarray::Data<Elem = f64>, ndarray::Ix2>,
+        x_fail: Option<&Array2<f64>>,
+    ) -> Vec<usize> {
+        if self.failsafe_strategy == FailsafeStrategy::Imputation {
+            crate::utils::failed_rows(x_data, x_fail)
+        } else {
+            vec![]
+        }
+    }
+
     /// Number of columns of the internal output data: objectives then internal constraints
     pub(crate) fn ny_internal(&self) -> usize {
         self.n_obj + self.n_internal_cstr()
@@ -875,8 +891,10 @@ impl EgorConfig {
                 Some("CoEGO".to_string())
             } else if config.target != f64::MIN {
                 Some("target".to_string())
-            } else if config.failsafe_strategy == FailsafeStrategy::Imputation {
-                Some("Imputation failsafe strategy".to_string())
+            } else if config.failsafe_strategy == FailsafeStrategy::Imputation
+                && config.is_scalarized()
+            {
+                Some("Imputation failsafe strategy with ParEGO (use EIM or EHVI)".to_string())
             } else if config.moo.strategy == crate::MooStrategy::Ehvi
                 && config.n_obj > crate::moo::ehvi::MAX_EHVI_OBJECTIVES
             {

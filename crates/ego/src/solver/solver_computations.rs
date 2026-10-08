@@ -276,12 +276,12 @@ where
         (cstr_val + CSTR_DOUBT * sigma) / scale_cstr
     }
 
-    /// Return the virtual point regarding the qei strategy as a tuple:
-    /// * First element of the tuple is the objective function values
-    /// * Second element of the tuple is the penalized objective function values
-    ///   used in case of true evaluation crash
-    ///   This is the penalized prediction (pred + var) for objective
-    ///   See Forrester - Engineering Design via Surrogate Modelling (2008) Section 5.5.1
+    /// Virtual output values of the point `xk` used to select the next points of a qEI batch
+    /// (layout of the surrogates: objective(s) then constraints), depending on the qEI strategy:
+    /// * Kriging believer: prediction of each objective model (`mean`, `mean - 3 std` or
+    ///   `mean + 3 std` for the lower/upper bound variants) and constraint model predictions,
+    /// * constant liar minimum: the row of `y_data` minimizing the first objective, or with one
+    ///   surrogate per objective (EIM, EHVI) the ideal point (minimum of each column).
     pub(crate) fn compute_virtual_point(
         &self,
         xk: &ArrayBase<impl Data<Elem = f64>, Ix1>,
@@ -290,8 +290,22 @@ where
         cstr_models: &[Box<dyn MixtureGpSurrogate>],
     ) -> Result<Vec<f64>> {
         if self.config.qei_config.strategy == QEiStrategy::ConstantLiarMinimum {
-            let index_min = y_data.slice(s![.., 0]).argmin().unwrap();
-            Ok(y_data.row(index_min).to_vec())
+            if self.config.is_per_objective() {
+                // With one surrogate per objective, lie with the ideal point: minimum of each
+                // column (objectives and constraints) over the finite values
+                Ok(y_data
+                    .columns()
+                    .into_iter()
+                    .map(|col| {
+                        col.iter()
+                            .filter(|v| v.is_finite())
+                            .fold(f64::INFINITY, |m, &v| m.min(v))
+                    })
+                    .collect())
+            } else {
+                let index_min = y_data.slice(s![.., 0]).argmin().unwrap();
+                Ok(y_data.row(index_min).to_vec())
+            }
         } else {
             let mut res: Vec<f64> = vec![];
 
@@ -320,6 +334,8 @@ where
     ///
     /// Clamping keeps imputed values in the observed range: as they are fed back
     /// to the surrogates, unbounded values would otherwise blow up iteration after iteration.
+    ///
+    /// See Forrester et al., Engineering Design via Surrogate Modelling (2008), section 5.5.1.
     pub(crate) fn compute_penalized_point(
         &self,
         xk: &ArrayBase<impl Data<Elem = f64>, Ix1>,
@@ -720,6 +736,64 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{EgorConfig, MooStrategy, to_xtypes};
+    use egobox_moe::GpMixtureParams;
+    use ndarray::array;
+
+    fn solver(n_obj: usize, strategy: MooStrategy) -> EgorSolver<GpMixtureParams<f64>, Cstr> {
+        let config = EgorConfig::default()
+            .xtypes(&to_xtypes(&array![[0., 1.]]))
+            .n_obj(n_obj)
+            .n_cstr(1)
+            .configure_moo(|moo| moo.strategy(strategy))
+            .configure_qei(|qei| qei.batch(2).strategy(QEiStrategy::ConstantLiarMinimum))
+            .check()
+            .unwrap();
+        EgorSolver::new(config)
+    }
+
+    #[test]
+    fn test_imputed_rows_only_with_imputation() {
+        let x_data = array![[0.1], [0.5], [0.9]];
+        let x_fail = array![[0.5]];
+        for (strategy, expected) in [
+            (FailsafeStrategy::Imputation, vec![1]),
+            (FailsafeStrategy::Rejection, vec![]),
+            (FailsafeStrategy::Viability, vec![]),
+        ] {
+            let config = EgorConfig::default()
+                .xtypes(&to_xtypes(&array![[0., 1.]]))
+                .n_obj(2)
+                .configure_moo(|moo| moo.strategy(MooStrategy::Eim))
+                .failsafe_strategy(strategy)
+                .check()
+                .unwrap();
+            assert_eq!(config.imputed_rows(&x_data, Some(&x_fail)), expected);
+        }
+    }
+
+    #[test]
+    fn test_constant_liar_virtual_point() {
+        // [f1, f2, c] with minima in different rows (and a non finite value)
+        let y = array![
+            [1., 5., 0.3],
+            [3., 2., -0.5],
+            [2., 4., f64::NAN],
+            [4., 1., 0.1]
+        ];
+        let xk = array![0.5];
+        // per-objective strategies: ideal point
+        let virtual_point = solver(2, MooStrategy::Eim)
+            .compute_virtual_point(&xk, &y, &[], &[])
+            .unwrap();
+        assert_eq!(virtual_point, vec![1., 1., -0.5]);
+        // mono-objective: row minimizing the first column
+        let y = array![[1., 0.3], [3., -0.5], [2., 0.1]];
+        let virtual_point = solver(1, MooStrategy::ParEgo)
+            .compute_virtual_point(&xk, &y, &[], &[])
+            .unwrap();
+        assert_eq!(virtual_point, vec![1., 0.3]);
+    }
 
     #[test]
     fn test_infeasible_infill_obj_matches_composition() {

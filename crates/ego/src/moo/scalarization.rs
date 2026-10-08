@@ -83,13 +83,15 @@ pub(crate) fn default_divisions(n_obj: usize) -> usize {
 /// minimizing the uniform-weight augmented Tchebycheff function of the objectives normalized
 /// with the front bounds (ties go to the lowest index).
 /// When no point is feasible, it is the point with the smallest constraint violation.
+/// `excluded` rows (e.g. failed points with imputed values) are never chosen.
 pub(crate) fn compromise_index(
     y_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
     c_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
     n_obj: usize,
     cstr_tol: &Array1<f64>,
+    excluded: &[usize],
 ) -> Option<usize> {
-    let front = pareto_front_indices(y_data, c_data, n_obj, cstr_tol);
+    let front = pareto_front_indices(y_data, c_data, n_obj, cstr_tol, excluded);
     let objs = y_data.slice(s![.., ..n_obj]);
     let normalization = Normalization::from_rows(&objs, &front);
     let weights = Array1::from_elem(n_obj, 1. / n_obj as f64);
@@ -145,7 +147,7 @@ mod tests {
         let y = array![[0., 1.], [0.4, 0.4], [1., 0.], [0.9, 0.9]];
         let c = Array2::zeros((4, 0));
         let tol = Array1::zeros(0);
-        assert_eq!(compromise_index(&y, &c, 2, &tol), Some(1));
+        assert_eq!(compromise_index(&y, &c, 2, &tol, &[]), Some(1));
     }
 
     #[test]
@@ -153,6 +155,6 @@ mod tests {
         let y = array![[0., 1., 2.], [0.4, 0.4, 0.5], [1., 0., 1.]];
         let c = Array2::zeros((3, 0));
         let tol = array![1e-4];
-        assert_eq!(compromise_index(&y, &c, 2, &tol), Some(1));
+        assert_eq!(compromise_index(&y, &c, 2, &tol, &[]), Some(1));
     }
 }

@@ -321,6 +321,7 @@ where
                 &c_data,
                 self.config.n_obj(),
                 &initial_state.doe.cstr_tol,
+                &[],
             )
             .unwrap_or(0)
         } else {
