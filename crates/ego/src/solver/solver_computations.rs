@@ -276,12 +276,12 @@ where
         (cstr_val + CSTR_DOUBT * sigma) / scale_cstr
     }
 
-    /// Return the virtual point regarding the qei strategy as a tuple:
-    /// * First element of the tuple is the objective function values
-    /// * Second element of the tuple is the penalized objective function values
-    ///   used in case of true evaluation crash
-    ///   This is the penalized prediction (pred + var) for objective
-    ///   See Forrester - Engineering Design via Surrogate Modelling (2008) Section 5.5.1
+    /// Virtual output values of the point `xk` used to select the next points of a qEI batch
+    /// (layout of the surrogates: objective(s) then constraints), depending on the qEI strategy:
+    /// * Kriging believer: prediction of each objective model (`mean`, `mean - 3 std` or
+    ///   `mean + 3 std` for the lower/upper bound variants) and constraint model predictions,
+    /// * constant liar minimum: the row of `y_data` minimizing the first objective, or with one
+    ///   surrogate per objective (EIM, EHVI) the ideal point (minimum of each column).
     pub(crate) fn compute_virtual_point(
         &self,
         xk: &ArrayBase<impl Data<Elem = f64>, Ix1>,
@@ -334,6 +334,8 @@ where
     ///
     /// Clamping keeps imputed values in the observed range: as they are fed back
     /// to the surrogates, unbounded values would otherwise blow up iteration after iteration.
+    ///
+    /// See Forrester et al., Engineering Design via Surrogate Modelling (2008), section 5.5.1.
     pub(crate) fn compute_penalized_point(
         &self,
         xk: &ArrayBase<impl Data<Elem = f64>, Ix1>,
