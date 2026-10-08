@@ -288,6 +288,21 @@ mod tests {
     }
 
     #[test]
+    fn test_hypervolume_progress_ignores_excluded_rows() {
+        // the last row (e.g. a failed point with imputed values) dominates the others
+        let y = array![[0.5, 0.5], [0.8, 0.2], [0.1, 0.1]];
+        let c = Array2::zeros((3, 0));
+        let tol = Array1::zeros(0);
+        // without exclusion, the last row increases the hypervolume
+        let (hv_prev, hv_now) = hypervolume_progress(&y, &c, 2, &tol, 2, &[]);
+        assert!(hv_now > hv_prev);
+        // excluded, it changes neither the front nor the hypervolume: no progress
+        let (hv_prev, hv_now) = hypervolume_progress(&y, &c, 2, &tol, 2, &[2]);
+        assert!(hv_prev > 0.);
+        assert_eq!(hv_prev, hv_now);
+    }
+
+    #[test]
     fn test_hypervolumes_monte_carlo() {
         let front = array![[1., 3.], [2., 2.], [3., 1.]];
         let hvs = hypervolumes_monte_carlo(&[&front], &array![0., 0.], &array![4., 4.]);
