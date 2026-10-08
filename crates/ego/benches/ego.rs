@@ -1,5 +1,5 @@
 use criterion::{Criterion, criterion_group, criterion_main};
-use egobox_ego::{EgorBuilder, InfillStrategy};
+use egobox_ego::{EgorBuilder, InfillStrategy, MooStrategy};
 use egobox_moe::{CorrelationSpec, RegressionSpec};
 use ndarray::{Array2, ArrayView2, Zip, array};
 
@@ -105,5 +105,83 @@ fn criterion_ego(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, criterion_ego);
+/// ZDT1 bi-objective test function with x in [0, 1]^nx
+fn zdt1(x: &ArrayView2<f64>) -> Array2<f64> {
+    let mut y = Array2::zeros((x.nrows(), 2));
+    Zip::from(y.rows_mut())
+        .and(x.rows())
+        .for_each(|mut yi, xi| {
+            let f1 = xi[0];
+            let g = 1. + 9. * xi.slice(ndarray::s![1..]).mean().unwrap();
+            yi.assign(&array![f1, g * (1. - (f1 / g).sqrt())]);
+        });
+    y
+}
+
+/// DTLZ2 three-objective test function with x in [0, 1]^nx
+fn dtlz2(x: &ArrayView2<f64>) -> Array2<f64> {
+    let mut y = Array2::zeros((x.nrows(), 3));
+    Zip::from(y.rows_mut())
+        .and(x.rows())
+        .for_each(|mut yi, xi| {
+            let g: f64 = xi
+                .slice(ndarray::s![2..])
+                .iter()
+                .map(|v| (v - 0.5).powi(2))
+                .sum();
+            let (a, b) = (
+                xi[0] * std::f64::consts::FRAC_PI_2,
+                xi[1] * std::f64::consts::FRAC_PI_2,
+            );
+            yi.assign(&array![
+                (1. + g) * a.cos() * b.cos(),
+                (1. + g) * a.cos() * b.sin(),
+                (1. + g) * a.sin()
+            ]);
+        });
+    y
+}
+
+/// Multi-objective test function
+type Problem = fn(&ArrayView2<f64>) -> Array2<f64>;
+
+fn criterion_moo(c: &mut Criterion) {
+    let mut group = c.benchmark_group("moo");
+    group.sample_size(10);
+    let strategies = [
+        ("parego", MooStrategy::ParEgo),
+        ("eim", MooStrategy::Eim),
+        ("ehvi", MooStrategy::Ehvi),
+    ];
+    // (name, function, number of objectives, number of variables)
+    let problems: [(&str, Problem, usize, usize); 2] =
+        [("zdt1", zdt1, 2, 3), ("dtlz2", dtlz2, 3, 4)];
+    for (pb_name, f, n_obj, nx) in problems {
+        let xlimits = Array2::from_shape_vec((nx, 2), [0., 1.].repeat(nx)).unwrap();
+        for (name, strategy) in strategies.iter() {
+            group.bench_function(format!("moo {pb_name} {name}"), |b| {
+                b.iter(|| {
+                    std::hint::black_box(
+                        EgorBuilder::optimize(f)
+                            .configure(|config| {
+                                config
+                                    .n_obj(n_obj)
+                                    .configure_moo(|moo| moo.strategy(strategy.clone()))
+                                    .n_doe(10)
+                                    .max_iters(5)
+                                    .seed(42)
+                            })
+                            .min_within(&xlimits)
+                            .expect("Egor configured")
+                            .run_pareto()
+                            .expect("Multi-objective optimization"),
+                    )
+                });
+            });
+        }
+    }
+    group.finish();
+}
+
+criterion_group!(benches, criterion_ego, criterion_moo);
 criterion_main!(benches);

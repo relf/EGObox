@@ -3,6 +3,9 @@
 use serde::{Deserialize, Serialize};
 
 /// Strategy used to optimize several objectives
+///
+/// When not set with [`MooConfig::strategy`], the strategy depends on the number of objectives:
+/// [`MooStrategy::Ehvi`] for 2 or 3 objectives, [`MooStrategy::ParEgo`] beyond.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum MooStrategy {
@@ -48,8 +51,10 @@ pub enum EimAggregation {
 /// greater than 1 (see [`crate::EgorConfig::n_obj`])
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MooConfig {
-    /// Strategy used to optimize the objectives
-    pub(crate) strategy: MooStrategy,
+    /// Strategy used to optimize the objectives (`None` for the default depending on the number
+    /// of objectives, see [`MooStrategy`])
+    #[serde(default)]
+    pub(crate) strategy: Option<MooStrategy>,
     /// ParEGO augmented Tchebycheff coefficient
     pub(crate) rho: f64,
     /// ParEGO number of divisions of the weight simplex lattice
@@ -63,10 +68,19 @@ pub struct MooConfig {
     pub(crate) hv_stop: Option<(f64, usize)>,
 }
 
+/// Default multi-objective strategy given the number of objectives
+pub(crate) fn default_strategy(n_obj: usize) -> MooStrategy {
+    if n_obj <= 3 {
+        MooStrategy::Ehvi
+    } else {
+        MooStrategy::ParEgo
+    }
+}
+
 impl Default for MooConfig {
     fn default() -> Self {
         MooConfig {
-            strategy: MooStrategy::default(),
+            strategy: None,
             rho: crate::moo::scalarization::PAREGO_RHO,
             n_divisions: None,
             eim_aggregation: EimAggregation::default(),
@@ -76,9 +90,10 @@ impl Default for MooConfig {
 }
 
 impl MooConfig {
-    /// Sets the multi-objective strategy
+    /// Sets the multi-objective strategy (by default, [`MooStrategy::Ehvi`] for 2 or 3 objectives,
+    /// [`MooStrategy::ParEgo`] beyond)
     pub fn strategy(mut self, strategy: MooStrategy) -> Self {
-        self.strategy = strategy;
+        self.strategy = Some(strategy);
         self
     }
 

@@ -9,8 +9,10 @@ pub use egobox_moe::XType;
 
 /// Optimization result
 ///
-/// `y_opt` and `y_doe` hold the objective and the raw constraint values as returned by
-/// the objective function, i.e. `1 + n_cstr` columns, even when `cstr_specs` is set.
+/// `y_opt` and `y_doe` hold the objective(s) and the raw constraint values as returned by
+/// the objective function, i.e. `n_obj + n_cstr` columns (`n_obj` being 1 by default),
+/// even when `cstr_specs` is set. With several objectives, `x_opt`/`y_opt` is a compromise
+/// point of the Pareto front (see [`crate::Egor::run_pareto`] to get the front).
 /// The solver `state` (as the DOE files saved in `outdir`) keeps the internal `<= 0`
 /// constraint layout (see [`transform_constraints`]).
 #[derive(Clone, Debug)]
@@ -424,7 +426,9 @@ impl<E: std::fmt::Display> ObjFnResponse for std::result::Result<Array2<f64>, E>
 /// An interface for objective function to be optimized
 ///
 /// The function is expected to return a matrix allowing nrows evaluations at once.
-/// A row of the output matrix is expected to contain [objective, cstr_1, ... cstr_n] values.
+/// A row of the output matrix is expected to contain [objective, cstr_1, ... cstr_n] values,
+/// or [obj_1, ..., obj_n_obj, cstr_1, ... cstr_n] with several objectives
+/// (see [`crate::EgorConfig::n_obj`]).
 ///
 /// The function can return either `Array2<f64>` directly (infallible evaluation)
 /// or `Result<Array2<f64>, E>` (fallible evaluation) where `E` implements `Display`.

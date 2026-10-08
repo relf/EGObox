@@ -13,6 +13,8 @@
   approximated by a spread subset of their points
 * Multi-objective optional stop when the Pareto front hypervolume improvement over the last iterations
   falls below a tolerance (`MooConfig::hv_stop()`), reported as `TerminationReason::SolverConverged`
+* Multi-objective default strategy depends on the number of objectives: EHVI for 2 or 3 objectives,
+  ParEGO beyond (set it explicitly with `MooConfig::strategy()`)
 * Multi-objective ask-and-tell interface (`EgorServiceBuilder` with `n_obj > 1`), failsafe imputation with
   EIM/EHVI (failed points never in the Pareto front) and ideal point constant liar batches with EIM/EHVI
 * `EgorState::param` and `EgorState::cost` (current point) now hold the first evaluated point of the

@@ -217,8 +217,8 @@ pub struct EgorState<F: Float> {
     pub feasibility: bool,
 
     /// Current cost function value
-    /// The first component is the actual cost value
-    /// while the remaining ones are the constraints values
+    /// The first component is the actual cost value (the first objective value with several
+    /// objectives) while the remaining ones are the other objectives and the constraints values
     pub cost: Option<Array1<F>>,
     /// Previous cost function value
     pub prev_cost: Option<Array1<F>>,

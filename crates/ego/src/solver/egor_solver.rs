@@ -28,7 +28,8 @@
 //!
 //! Constraints are expected to be evaluated with the objective function
 //! meaning that the function passed to the optimizer has to return
-//! a vector consisting of [obj, cstr_1, ..., cstr_n] and the cstr values
+//! a vector consisting of [obj, cstr_1, ..., cstr_n] (or [obj_1, ..., obj_n_obj, cstr_1, ...]
+//! with several objectives, see `EgorConfig::n_obj`) and the cstr values
 //! are intended to be negative at the end of the optimization.
 //! Constraint number should be declared with `n_cstr` setter.
 //! A tolerance can be adjust with `cstr_tol` setter for relaxing constraint violation

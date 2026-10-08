@@ -113,7 +113,13 @@ fn dtlz2(x: &ArrayView2<f64>) -> Array2<f64> {
 
 fn run_zdt1(max_iters: usize) -> ParetoResult<f64> {
     EgorBuilder::optimize(zdt1)
-        .configure(|cfg| cfg.n_obj(2).n_doe(10).max_iters(max_iters).seed(42))
+        .configure(|cfg| {
+            cfg.n_obj(2)
+                .configure_moo(|moo| moo.strategy(MooStrategy::ParEgo))
+                .n_doe(10)
+                .max_iters(max_iters)
+                .seed(42)
+        })
         .min_within(&array![[0., 1.], [0., 1.]])
         .expect("Egor configured")
         .run_pareto()
@@ -173,6 +179,7 @@ fn test_zdt1_parego_hot_start_continues_like_uninterrupted_run() {
         EgorBuilder::optimize(zdt1)
             .configure(|cfg| {
                 cfg.n_obj(2)
+                    .configure_moo(|moo| moo.strategy(MooStrategy::ParEgo))
                     .n_doe(10)
                     .max_iters(max_iters)
                     .hot_start(hot_start)
@@ -218,7 +225,14 @@ fn assert_bnh_front(res: &ParetoResult<f64>, feasible: impl Fn(&ndarray::ArrayVi
 #[serial]
 fn test_bnh_parego() {
     let res = EgorBuilder::optimize(bnh)
-        .configure(|cfg| cfg.n_obj(2).n_cstr(2).n_doe(10).max_iters(30).seed(42))
+        .configure(|cfg| {
+            cfg.n_obj(2)
+                .configure_moo(|moo| moo.strategy(MooStrategy::ParEgo))
+                .n_cstr(2)
+                .n_doe(10)
+                .max_iters(30)
+                .seed(42)
+        })
         .min_within(&array![[0., 5.], [0., 3.]])
         .expect("Egor configured")
         .run_pareto()
@@ -233,6 +247,7 @@ fn test_bnh_parego_with_cstr_specs() {
     let res = EgorBuilder::optimize(bnh_raw)
         .configure(|cfg| {
             cfg.n_obj(2)
+                .configure_moo(|moo| moo.strategy(MooStrategy::ParEgo))
                 .cstr_specs(vec![CstrSpec::Leq(25.), CstrSpec::Geq(7.7)])
                 .n_doe(10)
                 .max_iters(30)
@@ -252,7 +267,13 @@ fn test_bnh_parego_with_cstr_specs() {
 fn test_dtlz2_parego() {
     let xlimits = Array2::from_shape_vec((4, 2), [0., 1.].repeat(4)).unwrap();
     let res = EgorBuilder::optimize(dtlz2)
-        .configure(|cfg| cfg.n_obj(3).n_doe(15).max_iters(30).seed(42))
+        .configure(|cfg| {
+            cfg.n_obj(3)
+                .configure_moo(|moo| moo.strategy(MooStrategy::ParEgo))
+                .n_doe(15)
+                .max_iters(30)
+                .seed(42)
+        })
         .min_within(&xlimits)
         .expect("Egor configured")
         .run_pareto()
@@ -284,7 +305,13 @@ fn test_zdt1_mixint_parego() {
         zdt1(&xr.view())
     };
     let res = EgorBuilder::optimize(f)
-        .configure(|cfg| cfg.n_obj(2).n_doe(10).max_iters(10).seed(42))
+        .configure(|cfg| {
+            cfg.n_obj(2)
+                .configure_moo(|moo| moo.strategy(MooStrategy::ParEgo))
+                .n_doe(10)
+                .max_iters(10)
+                .seed(42)
+        })
         .min_within_mixint_space(&[XType::Float(0., 1.), XType::Int(0, 9)])
         .expect("Egor configured")
         .run_pareto()
@@ -318,7 +345,11 @@ fn test_moo_unsupported_configurations() {
     );
     assert!(
         EgorBuilder::optimize(zdt1)
-            .configure(|cfg| cfg.n_obj(2).failsafe_strategy(FailsafeStrategy::Imputation))
+            .configure(|cfg| {
+                cfg.n_obj(2)
+                    .configure_moo(|moo| moo.strategy(MooStrategy::ParEgo))
+                    .failsafe_strategy(FailsafeStrategy::Imputation)
+            })
             .min_within(&xlimits)
             .is_err()
     );
@@ -358,6 +389,7 @@ fn test_zdt1_parego_qei_state_param_and_cost_match() {
     let res = EgorBuilder::optimize(zdt1)
         .configure(|cfg| {
             cfg.n_obj(2)
+                .configure_moo(|moo| moo.strategy(MooStrategy::ParEgo))
                 .n_doe(10)
                 .configure_qei(|qei| qei.batch(3))
                 .max_iters(3)
@@ -402,6 +434,7 @@ fn test_parego_rejected_tries_keep_raw_state() {
     let res = EgorBuilder::optimize(f)
         .configure(|cfg| {
             cfg.n_obj(2)
+                .configure_moo(|moo| moo.strategy(MooStrategy::ParEgo))
                 .doe(&array![[0.], [0.5], [1.]])
                 .max_iters(3)
                 .seed(42)
