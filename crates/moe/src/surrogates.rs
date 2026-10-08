@@ -67,6 +67,15 @@ pub trait GpSurrogateExt {
     fn predict_valvar_gradients(&self, x: &ArrayView2<f64>) -> Result<(Array2<f64>, Array2<f64>)>;
     /// Sample trajectories
     fn sample(&self, x: &ArrayView2<f64>, n_traj: usize) -> Result<Array2<f64>>;
+    /// Predict the posterior covariance matrix between n points given as (n, xdim) matrix:
+    /// returns a (n, n) matrix whose diagonal is the predicted variance.
+    /// Not supported by default.
+    fn predict_covariance(&self, _x: &ArrayView2<f64>) -> Result<Array2<f64>> {
+        Err(MoeError::SampleError(format!(
+            "Posterior covariance not supported by {}",
+            std::any::type_name::<Self>()
+        )))
+    }
 }
 
 /// A trait for a GP surrogate.
@@ -205,6 +214,9 @@ macro_rules! declare_surrogate {
                 }
                 fn sample(&self, x: &ArrayView2<f64>, n_traj: usize) -> Result<Array2<f64>> {
                     Ok(self.0.sample(x, n_traj))
+                }
+                fn predict_covariance(&self, x: &ArrayView2<f64>) -> Result<Array2<f64>> {
+                    Ok(self.0.predict_covariance(x)?)
                 }
             }
 
