@@ -268,6 +268,13 @@ Each step is one PR or a few PRs. Each keeps CI green and respects the contract 
   ideal point as the lie.
 - TREGO and CoEGO: either define them around the compromise point (trust region center or CoEGO
   context vector) or keep rejecting them.
+- Function constraint values stored for points added by iterations (`c_data`) come from the
+  scaled optimizer closures (divided by the function constraint scale), unlike the initial DOE
+  ones; the EIM front of qEI virtual points uses them too. Storing raw values is the fix, but it
+  has to come with infill points feasible in raw units: the C-ported COBYLA (no constraint
+  tolerance) returns boundary points violating the scaled constraints by ~2e-5, i.e. ~5e-4 in
+  raw units, which the scaled values accidentally accept within `cstr_tol` (attempted in #477
+  and reverted, as C COBYLA runs with function constraints then stalled).
 
 ### Step 7 — Docs and stabilization
 - Update the docs that say "1 objective + n_cstr": `lib.rs`, `egor.rs`, `types.rs` (`ObjFn`) and

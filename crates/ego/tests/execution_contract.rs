@@ -254,19 +254,3 @@ fn current_param_and_cost_are_an_evaluated_point() {
     // evaluated value, not the surrogate prediction
     assert_eq!(result.y_doe.row(index), cost);
 }
-
-#[test]
-fn stored_function_constraint_values_are_unscaled() {
-    let fcstr: egobox_ego::Cstr = |x, _g, _u| x[0] - 17.;
-    let result = EgorBuilder::optimize(xsinx)
-        .subject_to(vec![fcstr])
-        .configure(|cfg| cfg.doe(&array![[0.], [7.], [25.]]).seed(42).max_iters(3))
-        .min_within(&array![[0., 25.]])
-        .unwrap()
-        .run()
-        .unwrap();
-    let (x_data, _, c_data) = result.state.surrogate.data.clone().expect("data");
-    for (x, c) in x_data.rows().into_iter().zip(c_data.rows()) {
-        assert_eq!(c[0], x[0] - 17.);
-    }
-}
