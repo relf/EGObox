@@ -5,6 +5,7 @@ use crate::moo::criterion::MooCriterion;
 use crate::moo::ehvi::EhviCriterion;
 use crate::moo::eim::EimCriterion;
 use crate::moo::pareto::pareto_front_indices;
+use crate::moo::qehvi::QEhviCriterion;
 use crate::moo::scalarization::compromise_index;
 use crate::solver::solver_computations::MiddlePickerMultiStarter;
 use crate::solver::solver_infill_optim::InfillOptProblem;
@@ -1014,9 +1015,14 @@ where
             let mut c_dat = Array2::zeros((0, c_data.ncols()));
             let mut y_penalized = Array2::zeros((0, y_data.ncols()));
             let mut infill_val = f64::INFINITY;
+            // qEHVI: surrogates of the actual data only (no virtual points), the points
+            // already selected in the batch (after imputed failed points) entering the criterion
+            let qehvi = self.config.is_per_objective()
+                && self.config.moo_strategy() == crate::MooStrategy::QEhvi;
+            let mut n_imputed = 0;
 
             for i in 0..self.config.qei_config.batch {
-                let (xt, yt) = if i == 0 {
+                let (xt, yt) = if i == 0 || qehvi {
                     (x_data.to_owned(), y_data.to_owned())
                 } else {
                     (
@@ -1097,6 +1103,7 @@ where
                                     );
                                     y_row.assign(&y_pred);
                                 });
+                            n_imputed = xfail_points.nrows();
                             (x_dat, y_dat, c_dat, y_penalized) = (
                                 xfail_points.to_owned(),
                                 Array2::from_elem((xfail_points.nrows(), y_data.ncols()), f64::NAN),
@@ -1175,19 +1182,32 @@ where
                     fmin,
                     *sigma_weight,
                 );
-                // Multi-objective criterion (EIM, EHVI) wrt the Pareto front of the data,
-                // including virtual points of the batch so far
+                // Multi-objective criterion (EIM, EHVI, qEHVI) wrt the Pareto front of the data,
+                // including virtual points of the batch so far (actual data only with qEHVI)
                 let moo_criterion = if self.config.is_per_objective() {
                     let n_obj = self.config.n_obj();
-                    let ct = concatenate![Axis(0), c_data.to_owned(), c_dat.to_owned()];
+                    let ct = if qehvi {
+                        c_data.to_owned()
+                    } else {
+                        concatenate![Axis(0), c_data.to_owned(), c_dat.to_owned()]
+                    };
                     // failed points with imputed values are never part of the front
                     let excluded = self.config.imputed_rows(x_data, x_fail_points);
                     let front = pareto_front_indices(&yt, &ct, n_obj, cstr_tol, &excluded);
                     let objs = yt.slice(s![.., ..n_obj]);
                     match self.config.moo_strategy() {
-                        crate::MooStrategy::Ehvi => Some(MooCriterion::Ehvi(EhviCriterion::new(
-                            obj_models, &objs, &front,
-                        ))),
+                        crate::MooStrategy::QEhvi if i > 0 => {
+                            Some(MooCriterion::QEhvi(QEhviCriterion::new(
+                                obj_models,
+                                &objs,
+                                &front,
+                                &x_dat.slice(s![n_imputed.., ..]),
+                                rng.r#gen(),
+                            )))
+                        }
+                        crate::MooStrategy::Ehvi | crate::MooStrategy::QEhvi => Some(
+                            MooCriterion::Ehvi(EhviCriterion::new(obj_models, &objs, &front)),
+                        ),
                         _ => Some(MooCriterion::Eim(EimCriterion::new(
                             obj_models,
                             &objs,
