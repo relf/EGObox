@@ -736,6 +736,64 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{EgorConfig, MooStrategy, to_xtypes};
+    use egobox_moe::GpMixtureParams;
+    use ndarray::array;
+
+    fn solver(n_obj: usize, strategy: MooStrategy) -> EgorSolver<GpMixtureParams<f64>, Cstr> {
+        let config = EgorConfig::default()
+            .xtypes(&to_xtypes(&array![[0., 1.]]))
+            .n_obj(n_obj)
+            .n_cstr(1)
+            .configure_moo(|moo| moo.strategy(strategy))
+            .configure_qei(|qei| qei.batch(2).strategy(QEiStrategy::ConstantLiarMinimum))
+            .check()
+            .unwrap();
+        EgorSolver::new(config)
+    }
+
+    #[test]
+    fn test_imputed_rows_only_with_imputation() {
+        let x_data = array![[0.1], [0.5], [0.9]];
+        let x_fail = array![[0.5]];
+        for (strategy, expected) in [
+            (FailsafeStrategy::Imputation, vec![1]),
+            (FailsafeStrategy::Rejection, vec![]),
+            (FailsafeStrategy::Viability, vec![]),
+        ] {
+            let config = EgorConfig::default()
+                .xtypes(&to_xtypes(&array![[0., 1.]]))
+                .n_obj(2)
+                .configure_moo(|moo| moo.strategy(MooStrategy::Eim))
+                .failsafe_strategy(strategy)
+                .check()
+                .unwrap();
+            assert_eq!(config.imputed_rows(&x_data, Some(&x_fail)), expected);
+        }
+    }
+
+    #[test]
+    fn test_constant_liar_virtual_point() {
+        // [f1, f2, c] with minima in different rows (and a non finite value)
+        let y = array![
+            [1., 5., 0.3],
+            [3., 2., -0.5],
+            [2., 4., f64::NAN],
+            [4., 1., 0.1]
+        ];
+        let xk = array![0.5];
+        // per-objective strategies: ideal point
+        let virtual_point = solver(2, MooStrategy::Eim)
+            .compute_virtual_point(&xk, &y, &[], &[])
+            .unwrap();
+        assert_eq!(virtual_point, vec![1., 1., -0.5]);
+        // mono-objective: row minimizing the first column
+        let y = array![[1., 0.3], [3., -0.5], [2., 0.1]];
+        let virtual_point = solver(1, MooStrategy::ParEgo)
+            .compute_virtual_point(&xk, &y, &[], &[])
+            .unwrap();
+        assert_eq!(virtual_point, vec![1., 0.3]);
+    }
 
     #[test]
     fn test_infeasible_infill_obj_matches_composition() {

@@ -70,8 +70,9 @@ pub fn usable_data(
     appended
 }
 
-/// Returns the indices of the rows of `x_data` which are failed points (`x_fail`), i.e. points
-/// stored with imputed output values (failsafe imputation strategy)
+/// Returns the indices of the rows of `x_data` located at failed points (`x_fail`).
+/// Only meaningful with the failsafe imputation strategy, where failed points are stored in the
+/// data with imputed output values (see `ValidEgorConfig::imputed_rows`).
 pub(crate) fn failed_rows(
     x_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
     x_fail: Option<&Array2<f64>>,

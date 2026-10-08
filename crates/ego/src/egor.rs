@@ -447,8 +447,10 @@ impl<O: ObjFn, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> E
         let indices = match (n_obj > 1, res.state.surrogate.data.as_ref()) {
             (true, Some((x_data, y_data, c_data))) => {
                 // failed points with imputed values are never part of the front
-                let excluded =
-                    crate::utils::failed_rows(x_data, res.state.surrogate.x_fail.as_ref());
+                let excluded = self
+                    .solver
+                    .config
+                    .imputed_rows(x_data, res.state.surrogate.x_fail.as_ref());
                 pareto_front_indices(y_data, c_data, n_obj, &res.state.doe.cstr_tol, &excluded)
             }
             _ => res.state.surrogate.best_index.into_iter().collect(),
