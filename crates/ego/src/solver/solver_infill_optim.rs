@@ -2,7 +2,7 @@ use crate::optimizers::*;
 use crate::types::*;
 
 use crate::EgorSolver;
-use crate::moo::eim::EimCriterion;
+use crate::moo::criterion::MooCriterion;
 use crate::utils::{pofs, pofs_grad};
 
 use egobox_moe::MixtureGpSurrogate;
@@ -40,8 +40,8 @@ pub(crate) struct InfillOptProblem<'a, CstrFn> {
     pub alpha: Option<f64>,
     pub infill_data: &'a InfillObjData<f64>,
     pub actives: &'a Array2<usize>,
-    /// Multi-objective EIM criterion replacing the mono-objective infill criterion (if any)
-    pub eim: Option<&'a EimCriterion<'a>>,
+    /// Multi-objective criterion replacing the mono-objective infill criterion (if any)
+    pub moo_criterion: Option<&'a MooCriterion<'a>>,
 }
 
 impl<'a, CstrFn> InfillOptProblem<'a, CstrFn> {
@@ -55,7 +55,7 @@ impl<'a, CstrFn> InfillOptProblem<'a, CstrFn> {
         alpha: Option<f64>,
         infill_data: &'a InfillObjData<f64>,
         actives: &'a Array2<usize>,
-        eim: Option<&'a EimCriterion<'a>>,
+        moo_criterion: Option<&'a MooCriterion<'a>>,
     ) -> Self {
         Self {
             obj_model,
@@ -66,7 +66,7 @@ impl<'a, CstrFn> InfillOptProblem<'a, CstrFn> {
             alpha,
             infill_data,
             actives,
-            eim,
+            moo_criterion,
         }
     }
 }
@@ -98,7 +98,7 @@ where
             alpha,
             infill_data,
             actives,
-            eim,
+            moo_criterion,
         } = infill_optpb;
         let mut infill_data = infill_data.clone();
 
@@ -138,18 +138,18 @@ where
                         return f64::INFINITY;
                     }
 
-                    if let Some(eim) = eim {
-                        // Multi-objective EIM criterion (linear composition with PoF)
+                    if let Some(criterion) = moo_criterion {
+                        // Multi-objective criterion (linear composition with PoF)
                         let with_grad = gradient.is_some();
                         let (mut obj, mut g_obj) = if cstr_infill && !*feasibility {
                             // neutral factor: only use the probability of feasibility
                             (-1., Array1::zeros(xcoop.len()))
                         } else if with_grad {
-                            let (v, g) = eim.value_grad(&xcoop);
+                            let (v, g) = criterion.value_grad(&xcoop);
                             (-v / *scale_infill_obj, -g / *scale_infill_obj)
                         } else {
                             (
-                                -eim.value(&xcoop) / *scale_infill_obj,
+                                -criterion.value(&xcoop) / *scale_infill_obj,
                                 Array1::zeros(xcoop.len()),
                             )
                         };

@@ -253,12 +253,27 @@ Each step is one PR or a few PRs. Each keeps CI green and respects the contract 
   (maximin), 95 % (hypervolume aggregation) of the true-front hypervolume vs 96 % with ParEGO; DTLZ2 mean
   distance to the true front 0.06 vs 0.23 with ParEGO.
 
-### Step 5 — EHVI and a hypervolume-based stop
-- EHVI: closed form for m = 2; Monte Carlo with common random numbers for m ≥ 3, using
-  finite-difference gradients or Cobyla.
-- Optional stop when the hypervolume gain stays below a tolerance for k iterations. It is reported
-  as the existing `TerminationReason::SolverConverged`.
-- Decide whether to publish the MOO criterion trait, typetag-serialized like `InfillCriterion`.
+### Step 5 — EHVI and a hypervolume-based stop — done
+- `MooStrategy::Ehvi` (`moo/ehvi.rs`), exact for any number of objectives instead of a closed form
+  for m = 2 and Monte Carlo above: the region below the reference point not dominated by the
+  front is decomposed into the cells of the grid built with the front coordinates; the
+  hypervolume improvement of `y` is `sum_cells prod_j (u_j - max(y_j, l_j))^+`, whose expectation
+  factorizes per objective as `EI_j(u_j) - EI_j(l_j)` with independent normal predictions.
+  Analytic gradients by the product rule. Cells are built once per infill optimization
+  (`(n_front + 1)^m` candidates), so evaluations are cheap; it matches a Monte Carlo estimate
+  to ~1e-5 for 2 and 3 objectives (unit test).
+- EIM and EHVI share the normalized predictions, normalized front and reference point
+  (`moo/criterion.rs`) and are dispatched by a crate-private `MooCriterion` enum in
+  `InfillOptProblem`. The criterion is not published as a public trait: two concrete strategies
+  are enough for now.
+- `MooConfig::hv_stop(tol, n_iters)`: stop when the hypervolume of the constrained front
+  increased by less than `tol` (relative) over the last `n_iters` iterations, both fronts being
+  measured with the same normalization and reference point and recomputed from the data (the
+  previous front uses the data without the last `n_iters * batch` rows), reported as
+  `TerminationReason::SolverConverged`.
+- Results (30 iterations): ZDT1 hypervolume 93.7 % of the true-front hypervolume (91.7 % with
+  qEI batch of 3), DTLZ2 mean distance 0.08 to the true front; with `hv_stop(1e-3, 5)` a ZDT1
+  run with a budget of 100 iterations stops after 38.
 
 ### Step 6 — Feature coverage
 - Failsafe imputation for m > 1: per-objective pessimistic prediction, or the worst observed value

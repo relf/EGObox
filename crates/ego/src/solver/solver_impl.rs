@@ -1,6 +1,8 @@
 use std::marker::PhantomData;
 
 use crate::errors::{EgoError, Result};
+use crate::moo::criterion::MooCriterion;
+use crate::moo::ehvi::EhviCriterion;
 use crate::moo::eim::EimCriterion;
 use crate::moo::pareto::pareto_front_indices;
 use crate::moo::scalarization::compromise_index;
@@ -889,6 +891,28 @@ where
                 n_obj,
                 &new_state.doe.cstr_tol,
             );
+        // Multi-objective optional stop on hypervolume progress over the last iterations
+        if n_obj > 1
+            && let Some((tol, n_iters)) = self.config.moo.hv_stop
+            && state.get_iter() as usize + 1 >= n_iters
+        {
+            let n_prev_rows = y_data
+                .nrows()
+                .saturating_sub(n_iters * self.config.qei_config.batch)
+                .max(1);
+            let (hv_prev, hv_now) = crate::moo::hypervolume::hypervolume_progress(
+                &y_data,
+                &c_data,
+                n_obj,
+                &new_state.doe.cstr_tol,
+                n_prev_rows,
+            );
+            info!("Hypervolume over the last {n_iters} iteration(s): {hv_prev} -> {hv_now}");
+            if hv_now > 0. && hv_now - hv_prev <= tol * hv_now {
+                info!("Hypervolume improvement below {tol}: consider solver has converged");
+                new_state = new_state.terminate_with(crate::TerminationReason::SolverConverged);
+            }
+        }
         if self.config.is_scalarized() {
             // Surrogates are retrained on the next scalarized view at next iteration
             new_state = new_state
@@ -1141,26 +1165,34 @@ where
                     fmin,
                     *sigma_weight,
                 );
-                // Multi-objective EIM criterion wrt the Pareto front of the data, including
-                // virtual points of the batch so far
-                let eim = if self.config.moo.strategy == crate::MooStrategy::Eim
-                    && self.config.is_per_objective()
-                {
-                    let aggregation = self.config.moo.eim_aggregation;
+                // Multi-objective criterion (EIM, EHVI) wrt the Pareto front of the data,
+                // including virtual points of the batch so far
+                let moo_criterion = if self.config.is_per_objective() {
                     let n_obj = self.config.n_obj();
                     let ct = concatenate![Axis(0), c_data.to_owned(), c_dat.to_owned()];
                     let front = pareto_front_indices(&yt, &ct, n_obj, cstr_tol);
                     let objs = yt.slice(s![.., ..n_obj]);
-                    Some(EimCriterion::new(obj_models, &objs, &front, aggregation))
+                    match self.config.moo.strategy {
+                        crate::MooStrategy::Ehvi => Some(MooCriterion::Ehvi(EhviCriterion::new(
+                            obj_models, &objs, &front,
+                        ))),
+                        _ => Some(MooCriterion::Eim(EimCriterion::new(
+                            obj_models,
+                            &objs,
+                            &front,
+                            self.config.moo.eim_aggregation,
+                        ))),
+                    }
                 } else {
                     None
                 };
-                let scale_infill_obj = if let Some(eim) = eim.as_ref() {
+                let scale_infill_obj = if let Some(criterion) = moo_criterion.as_ref() {
                     let npts = (100 * self.xlimits.nrows()).min(1000);
-                    let scale = eim.scaling(&sampling.sample(npts));
+                    let scale = criterion.scaling(&sampling.sample(npts));
                     info!(
-                        "EIM criterion ({} front points) scaling is updated to {scale}",
-                        eim.front_size()
+                        "{} criterion ({} front points) scaling is updated to {scale}",
+                        criterion.name(),
+                        criterion.front_size()
                     );
                     scale
                 } else {
@@ -1244,7 +1276,7 @@ where
                     self.config.feasibility_infill.alpha(),
                     &infill_data,
                     actives,
-                    eim.as_ref(),
+                    moo_criterion.as_ref(),
                 );
 
                 let (infill_obj, xk) = self.optimize_infill_criterion(

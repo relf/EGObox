@@ -17,6 +17,11 @@ pub enum MooStrategy {
     /// (objectives normalized with their observed bounds) are aggregated into an infill
     /// criterion (see [`MooConfig::eim_aggregation`]).
     Eim,
+    /// Expected Hypervolume Improvement (Emmerich et al. 2006): one surrogate per objective,
+    /// expected improvement of the hypervolume dominated by the current Pareto front
+    /// (objectives normalized with their observed bounds, reference point at the front nadir
+    /// plus 10 % of its range), computed exactly for any number of objectives.
+    Ehvi,
 }
 
 /// Aggregation of the expected improvement matrix used by [`MooStrategy::Eim`]
@@ -47,6 +52,9 @@ pub struct MooConfig {
     /// EIM aggregation of the expected improvement matrix
     #[serde(default)]
     pub(crate) eim_aggregation: EimAggregation,
+    /// Optional hypervolume-based stop: (relative tolerance, number of iterations)
+    #[serde(default)]
+    pub(crate) hv_stop: Option<(f64, usize)>,
 }
 
 impl Default for MooConfig {
@@ -56,6 +64,7 @@ impl Default for MooConfig {
             rho: crate::moo::scalarization::PAREGO_RHO,
             n_divisions: None,
             eim_aggregation: EimAggregation::default(),
+            hv_stop: None,
         }
     }
 }
@@ -82,6 +91,14 @@ impl MooConfig {
     /// Sets the aggregation of the expected improvement matrix (EIM strategy, default Euclidean)
     pub fn eim_aggregation(mut self, aggregation: EimAggregation) -> Self {
         self.eim_aggregation = aggregation;
+        self
+    }
+
+    /// Stops the optimization when the hypervolume of the Pareto front increased by less than
+    /// `tol` (relative to its current value) during the last `n_iters` iterations.
+    /// The termination reason is then [`crate::TerminationReason::SolverConverged`].
+    pub fn hv_stop(mut self, tol: f64, n_iters: usize) -> Self {
+        self.hv_stop = Some((tol, n_iters));
         self
     }
 }

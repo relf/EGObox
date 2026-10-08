@@ -66,6 +66,51 @@ fn hv_rec(mut points: Vec<Vec<f64>>, ref_point: &[f64]) -> f64 {
     }
 }
 
+/// Hypervolumes of the constrained Pareto fronts of the first `n_prev_rows` rows of the data
+/// and of the whole data, in the objective space normalized with the data bounds and wrt a common
+/// reference point (nadir of both fronts + 10 % of their range).
+/// See [`crate::moo::pareto::pareto_front_indices`] for the data layout.
+pub(crate) fn hypervolume_progress(
+    y_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+    c_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+    n_obj: usize,
+    cstr_tol: &Array1<f64>,
+    n_prev_rows: usize,
+) -> (f64, f64) {
+    use super::pareto::{ideal_and_nadir, pareto_front_indices};
+    use super::scalarization::Normalization;
+    use ndarray::{Array2, s};
+
+    let objs = y_data.slice(s![.., ..n_obj]);
+    let finite: Vec<usize> = (0..objs.nrows())
+        .filter(|&i| objs.row(i).iter().all(|v| v.is_finite()))
+        .collect();
+    let normalization = Normalization::from_rows(&objs, &finite);
+    let front_now = pareto_front_indices(y_data, c_data, n_obj, cstr_tol);
+    let front_prev = pareto_front_indices(
+        &y_data.slice(s![..n_prev_rows, ..]),
+        &c_data.slice(s![..n_prev_rows, ..]),
+        n_obj,
+        cstr_tol,
+    );
+    let normalized = |rows: &[usize]| {
+        let mut front = Array2::zeros((rows.len(), n_obj));
+        for (k, &i) in rows.iter().enumerate() {
+            front.row_mut(k).assign(&normalization.apply(&objs.row(i)));
+        }
+        front
+    };
+    let (front_now, front_prev) = (normalized(&front_now), normalized(&front_prev));
+    let both = ndarray::concatenate![ndarray::Axis(0), front_now, front_prev];
+    let all: Vec<usize> = (0..both.nrows()).collect();
+    let (ideal, nadir) = ideal_and_nadir(&both, &all);
+    let ref_point = reference_point(&ideal, &nadir, 0.1);
+    (
+        hypervolume(&front_prev, &ref_point),
+        hypervolume(&front_now, &ref_point),
+    )
+}
+
 /// Reference point built from the nadir point of the front with a relative `margin`
 /// of the front range (the range being taken as 1 when degenerated).
 pub(crate) fn reference_point(
