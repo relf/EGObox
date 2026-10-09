@@ -904,12 +904,30 @@ impl EgorConfig {
                 && config.is_scalarized()
             {
                 Some("Imputation failsafe strategy with ParEGO (use EIM or EHVI)".to_string())
-            } else if config.moo_strategy() == crate::MooStrategy::Ehvi
-                && config.n_obj > crate::moo::ehvi::MAX_EHVI_OBJECTIVES
+            } else if matches!(
+                config.moo_strategy(),
+                crate::MooStrategy::Ehvi | crate::MooStrategy::QEhvi
+            ) && config.n_obj > crate::moo::ehvi::MAX_EHVI_OBJECTIVES
             {
                 Some(format!(
-                    "EHVI with more than {} objectives (use EIM)",
+                    "{:?} with more than {} objectives (use EIM)",
+                    config.moo_strategy(),
                     crate::moo::ehvi::MAX_EHVI_OBJECTIVES
+                ))
+            } else if config.moo_strategy() == crate::MooStrategy::QEhvi
+                && config.gp.n_clusters != NbClusters::fixed(1)
+            {
+                Some(format!(
+                    "QEhvi with {:?} clusters (single-cluster surrogates required)",
+                    config.gp.n_clusters
+                ))
+            } else if config.moo_strategy() == crate::MooStrategy::QEhvi
+                && config.qei_config.batch > crate::moo::qehvi::MAX_QEHVI_BATCH
+            {
+                Some(format!(
+                    "QEhvi with a batch of {} points (at most {})",
+                    config.qei_config.batch,
+                    crate::moo::qehvi::MAX_QEHVI_BATCH
                 ))
             } else if config.feasibility_infill.is_enabled() && !config.is_scalarized() {
                 Some(format!(

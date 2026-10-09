@@ -952,3 +952,182 @@ fn test_zdt1_eim_constant_liar_batch() {
     );
     assert!(hv > 0.7 * ZDT1_HV_REF);
 }
+
+fn qehvi(cfg: EgorConfig) -> EgorConfig {
+    cfg.configure_moo(|moo| moo.strategy(MooStrategy::QEhvi))
+}
+
+fn run_zdt1_qehvi(batch: usize, max_iters: usize) -> ParetoResult<f64> {
+    EgorBuilder::optimize(zdt1)
+        .configure(|cfg| {
+            qehvi(cfg.n_obj(2).n_doe(10).max_iters(max_iters).seed(42))
+                .configure_qei(|qei| qei.batch(batch))
+        })
+        .min_within(&array![[0., 1.], [0., 1.]])
+        .expect("Egor configured")
+        .run_pareto()
+        .expect("ZDT1 optimization")
+}
+
+#[test]
+#[serial]
+fn test_zdt1_qehvi_batch() {
+    let res = run_zdt1_qehvi(3, 8);
+    assert_max_iters_reached(&res);
+    assert!(res.x_doe.nrows() > 10 + 8);
+    // points of a batch are distinct
+    for i in 0..res.x_doe.nrows() {
+        for j in 0..i {
+            let d = (&res.x_doe.row(i) - &res.x_doe.row(j)).mapv(f64::abs).sum();
+            assert!(
+                d > 1e-6,
+                "duplicated points {} and {}",
+                res.x_doe.row(i),
+                res.x_doe.row(j)
+            );
+        }
+    }
+    assert_non_dominated(&res.y_pareto, 2);
+    let hv = hypervolume_2d(&res.y_pareto, [1.1, 1.1]);
+    println!(
+        "ZDT1 qEHVI batch: {} points, front of {} points, HV = {hv} ({:.1}% of true front HV)",
+        res.x_doe.nrows(),
+        res.y_pareto.nrows(),
+        100. * hv / ZDT1_HV_REF
+    );
+    assert!(hv > 0.7 * ZDT1_HV_REF);
+}
+
+#[test]
+#[serial]
+fn test_zdt1_qehvi_is_deterministic() {
+    let res1 = run_zdt1_qehvi(3, 3);
+    let res2 = run_zdt1_qehvi(3, 3);
+    assert_eq!(res1.x_doe, res2.x_doe);
+}
+
+#[test]
+#[serial]
+fn test_zdt1_qehvi_without_batch_is_ehvi() {
+    let res = run_zdt1_qehvi(1, 5);
+    let ehvi_res = EgorBuilder::optimize(zdt1)
+        .configure(|cfg| ehvi(cfg.n_obj(2).n_doe(10).max_iters(5).seed(42)))
+        .min_within(&array![[0., 1.], [0., 1.]])
+        .expect("Egor configured")
+        .run_pareto()
+        .expect("ZDT1 optimization");
+    assert_eq!(res.x_doe, ehvi_res.x_doe);
+}
+
+#[test]
+#[serial]
+fn test_zdt1_qehvi_hot_start_continues_like_uninterrupted_run() {
+    let outdir = "target/test_moo_qehvi_hot_start";
+    let _ = std::fs::remove_dir_all(outdir);
+    let run = |hot_start: HotStartMode, max_iters: usize| {
+        EgorBuilder::optimize(zdt1)
+            .configure(|cfg| {
+                qehvi(cfg.n_obj(2).n_doe(10).max_iters(max_iters))
+                    .configure_qei(|qei| qei.batch(2))
+                    .hot_start(hot_start)
+                    .outdir(outdir)
+                    .seed(42)
+            })
+            .min_within(&array![[0., 1.], [0., 1.]])
+            .expect("Egor configured")
+            .run_pareto()
+            .expect("ZDT1 optimization")
+    };
+    let _ = run(HotStartMode::Enabled, 2);
+    let resumed = run(HotStartMode::ExtendedIters(2), 2);
+    let _ = std::fs::remove_dir_all(outdir);
+    let straight = run(HotStartMode::Disabled, 4);
+    assert_eq!(resumed.x_doe, straight.x_doe);
+}
+
+#[test]
+#[serial]
+fn test_bnh_qehvi_batch() {
+    let res = EgorBuilder::optimize(bnh)
+        .configure(|cfg| {
+            qehvi(cfg.n_obj(2).n_cstr(2).n_doe(10).max_iters(12).seed(42))
+                .configure_qei(|qei| qei.batch(2))
+        })
+        .min_within(&array![[0., 5.], [0., 3.]])
+        .expect("Egor configured")
+        .run_pareto()
+        .expect("BNH optimization");
+    assert_bnh_front(&res, |y| y[2] <= 1e-4 && y[3] <= 1e-4);
+}
+
+#[test]
+#[serial]
+fn test_qehvi_batch_with_imputation() {
+    let res = EgorBuilder::optimize(branin_distance_with_nans)
+        .configure(|cfg| {
+            qehvi(cfg.n_obj(2).n_doe(10).max_iters(5).seed(42))
+                .configure_qei(|qei| qei.batch(2))
+                .failsafe_strategy(FailsafeStrategy::Imputation)
+        })
+        .min_within(&array![[0., 1.], [0., 1.]])
+        .expect("Egor configured")
+        .run_pareto()
+        .expect("optimization with failures");
+    assert!(res.x_pareto.nrows() > 0);
+    assert_non_dominated(&res.y_pareto, 2);
+    for x in res.x_pareto.rows() {
+        assert!(x[0] * x[1] >= 0.2, "failed point {x} in the Pareto set");
+    }
+}
+
+#[test]
+fn test_qehvi_unsupported_configurations() {
+    use egobox_moe::NbClusters;
+    let xlimits = array![[0., 1.], [0., 1.]];
+    let config = |n_obj: usize, batch: usize, n_clusters: NbClusters| {
+        EgorBuilder::optimize(zdt1)
+            .configure(|cfg| {
+                qehvi(cfg.n_obj(n_obj))
+                    .configure_qei(|qei| qei.batch(batch))
+                    .configure_gp(|gp| gp.n_clusters(n_clusters))
+            })
+            .min_within(&xlimits)
+    };
+    assert!(config(2, 4, NbClusters::fixed(1)).is_ok());
+    assert!(config(8, 2, NbClusters::fixed(1)).is_ok());
+    assert!(config(2, 5, NbClusters::fixed(1)).is_err());
+    assert!(config(9, 2, NbClusters::fixed(1)).is_err());
+    assert!(config(2, 2, NbClusters::fixed(2)).is_err());
+    assert!(config(2, 2, NbClusters::auto()).is_err());
+}
+
+#[test]
+#[serial]
+fn test_zdt1_mixint_qehvi_batch() {
+    // second variable is an integer level in 0..=9 mapped to [0, 1]
+    let f = |x: &ArrayView2<f64>| {
+        let mut xr = x.to_owned();
+        xr.column_mut(1).mapv_inplace(|v| v / 9.);
+        zdt1(&xr.view())
+    };
+    let res = EgorBuilder::optimize(f)
+        .configure(|cfg| {
+            qehvi(cfg.n_obj(2).n_doe(10).max_iters(6).seed(42)).configure_qei(|qei| qei.batch(2))
+        })
+        .min_within_mixint_space(&[XType::Float(0., 1.), XType::Int(0, 9)])
+        .expect("Egor configured")
+        .run_pareto()
+        .expect("mixed-integer ZDT1 optimization");
+    assert_non_dominated(&res.y_pareto, 2);
+    for x in res.x_pareto.rows() {
+        assert_eq!(x[1], x[1].round());
+    }
+    // the front is found at the lowest level of the integer variable
+    let best_level = res.x_pareto.column(1).fold(f64::INFINITY, |m, v| m.min(*v));
+    println!(
+        "Mixed-integer ZDT1 qEHVI front of {} points, levels {}",
+        res.x_pareto.nrows(),
+        res.x_pareto.column(1)
+    );
+    assert_eq!(best_level, 0.);
+}

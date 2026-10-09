@@ -125,7 +125,12 @@
 //!   criterion \[[Zhan2017](#Zhan2017)\] (Euclidean, maximin or hypervolume aggregation),
 //! * [`MooStrategy::ParEgo`] (default beyond 3 objectives): the objectives are scalarized with
 //!   random weights at each iteration and the mono-objective machinery applies to a single
-//!   surrogate \[[Knowles2006](#Knowles2006)\].
+//!   surrogate \[[Knowles2006](#Knowles2006)\],
+//! * [`MooStrategy::QEhvi`]: for batches of points (see [`EgorConfig::configure_qei`]), EHVI for
+//!   the first point of a batch then batch Expected Hypervolume Improvement
+//!   \[[Daulton2020](#Daulton2020)\] of each following point given the points already selected,
+//!   under the joint posterior of the surrogates (single-cluster surrogates, batches of at most
+//!   4 points).
 //!
 //! ```no_run
 //! # use egobox_ego::{EgorConfig, EimAggregation, MooStrategy};
@@ -140,8 +145,8 @@
 //! ```
 //!
 //! Constraints, function constraints, mixed-integer variables, qEI batches, warm/hot start and
-//! the ask-and-tell interface work with several objectives (failsafe imputation with EIM and
-//! EHVI only); TREGO, CoEGO and `target` are not supported.
+//! the ask-and-tell interface work with several objectives (failsafe imputation with EIM,
+//! EHVI and qEHVI only); TREGO, CoEGO and `target` are not supported.
 //!
 //! # Usage
 //!
@@ -318,7 +323,8 @@
 //! * Logarithm of Expected Improvement is implemented as in \[[Ament2025](#Ament2025)\]
 //! * Hidden constraints handling is implemented as in \[[Bussemaker2024](#Bussemaker2024)\] and \[[Tfaily2024](#Tfaily2024)\]
 //! * Multi-objective optimization is implemented with ParEGO \[[Knowles2006](#Knowles2006)\], EIM \[[Zhan2017](#Zhan2017)\]
-//!   and EHVI \[[Emmerich2006](#Emmerich2006)\] (computed in closed form on a box decomposition of the non-dominated region)
+//!   and EHVI \[[Emmerich2006](#Emmerich2006)\] (computed in closed form on a box decomposition of the non-dominated region),
+//!   batches of points with qEHVI \[[Daulton2020](#Daulton2020)\] (sequential greedy selection, Monte Carlo estimate)
 //!
 //! # References
 //!
@@ -397,6 +403,10 @@
 //! \[<a id="Zhan2017">Zhan2017</a>\]: Zhan, D., Cheng, Y., & Liu, J. (2017).
 //! [Expected improvement matrix-based infill criteria for expensive multiobjective optimization](https://doi.org/10.1109/TEVC.2017.2697503).
 //! IEEE Transactions on Evolutionary Computation, 21(6), 956–975.
+//!
+//! \[<a id="Daulton2020">Daulton2020</a>\]: Daulton, S., Balandat, M., & Bakshy, E. (2020).
+//! [Differentiable Expected Hypervolume Improvement for Parallel Multi-Objective Bayesian Optimization](https://arxiv.org/abs/2006.05078).
+//! Advances in Neural Information Processing Systems 33 (NeurIPS 2020), 9851–9864.
 //!
 //! \[<a id="Emmerich2006">Emmerich2006</a>\]: Emmerich, M. T. M., Giannakoglou, K. C., & Naujoks, B. (2006).
 //! [Single- and multiobjective evolutionary optimization assisted by Gaussian random field metamodels](https://doi.org/10.1109/TEVC.2005.859463).

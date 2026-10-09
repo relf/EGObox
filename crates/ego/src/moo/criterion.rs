@@ -4,10 +4,11 @@ use super::ehvi::EhviCriterion;
 use super::eim::EimCriterion;
 use super::hypervolume::reference_point;
 use super::pareto::ideal_and_nadir;
+use super::qehvi::{QEHVI_SCALING_POINTS, QEhviCriterion};
 use super::scalarization::Normalization;
 use crate::utils::{norm_cdf, norm_pdf};
 use egobox_moe::MixtureGpSurrogate;
-use ndarray::{Array1, Array2, ArrayBase, ArrayView, Data, Ix2};
+use ndarray::{Array1, Array2, ArrayBase, ArrayView, Data, Ix2, s};
 
 /// Expected improvement of a normal variable `N(mu, sigma^2)` below `fmin`
 /// and its derivatives wrt `mu` and `sigma`
@@ -94,6 +95,7 @@ pub(crate) fn normalized_front(
 pub(crate) enum MooCriterion<'a> {
     Eim(EimCriterion<'a>),
     Ehvi(EhviCriterion<'a>),
+    QEhvi(QEhviCriterion<'a>),
 }
 
 impl MooCriterion<'_> {
@@ -102,6 +104,7 @@ impl MooCriterion<'_> {
         match self {
             MooCriterion::Eim(_) => "EIM",
             MooCriterion::Ehvi(_) => "EHVI",
+            MooCriterion::QEhvi(_) => "qEHVI",
         }
     }
 
@@ -110,6 +113,7 @@ impl MooCriterion<'_> {
         match self {
             MooCriterion::Eim(c) => c.value(x),
             MooCriterion::Ehvi(c) => c.value(x),
+            MooCriterion::QEhvi(c) => c.value(x),
         }
     }
 
@@ -118,6 +122,7 @@ impl MooCriterion<'_> {
         match self {
             MooCriterion::Eim(c) => c.value_grad(x),
             MooCriterion::Ehvi(c) => c.value_grad(x),
+            MooCriterion::QEhvi(c) => c.value_grad(x),
         }
     }
 
@@ -126,13 +131,19 @@ impl MooCriterion<'_> {
         match self {
             MooCriterion::Eim(c) => c.front_size(),
             MooCriterion::Ehvi(c) => c.front_size(),
+            MooCriterion::QEhvi(c) => c.front_size(),
         }
     }
 
     /// Scaling factor of the criterion: max of the criterion over the given points
-    /// (1 if the criterion vanishes)
+    /// (1 if the criterion vanishes), the first ones only for the Monte Carlo qEHVI
     pub(crate) fn scaling(&self, x: &ArrayBase<impl Data<Elem = f64>, Ix2>) -> f64 {
+        let n = match self {
+            MooCriterion::QEhvi(_) => x.nrows().min(QEHVI_SCALING_POINTS),
+            _ => x.nrows(),
+        };
         let max = x
+            .slice(s![..n, ..])
             .rows()
             .into_iter()
             .map(|xi| self.value(&xi.to_vec()))

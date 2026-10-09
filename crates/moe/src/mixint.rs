@@ -926,6 +926,12 @@ impl GpSurrogateExt for MixintGpMixture {
         let xcast = self.cast_to_model_space(&cow_x);
         self.moe.sample(&xcast, n_traj)
     }
+
+    fn predict_covariance(&self, x: &ArrayView2<f64>) -> Result<Array2<f64>> {
+        let cow_x = CowArray::from(x);
+        let xcast = self.cast_to_model_space(&cow_x);
+        self.moe.predict_covariance(&xcast.view())
+    }
 }
 
 impl GpMetrics<MoeError, MixintGpMixtureParams, Self> for MixintGpMixture {

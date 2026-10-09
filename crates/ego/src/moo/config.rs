@@ -31,6 +31,18 @@ pub enum MooStrategy {
     /// of its points, which overestimates the improvement near the left out points. At most
     /// 8 objectives are supported (use [`MooStrategy::Eim`] beyond).
     Ehvi,
+    /// Batch Expected Hypervolume Improvement (qEHVI, Daulton et al. 2020) for batches of points
+    /// (see [`crate::EgorConfig::configure_qei`]): the first point of a batch maximizes
+    /// [`MooStrategy::Ehvi`], each following point maximizes the expected hypervolume improvement
+    /// it brings to the points already selected in the batch, under the joint posterior of the
+    /// objective surrogates at these points (sequential greedy optimization).
+    ///
+    /// The surrogates are not updated with virtual points within a batch (the qEI strategy
+    /// is not used). The criterion is estimated by Monte Carlo with 128 fixed base samples and
+    /// optimized with finite difference gradients. Requires single-cluster surrogates
+    /// (see [`crate::GpConfig::n_clusters`]), batches of at most 4 points and at most
+    /// 8 objectives. With one point per iteration, it is the same as [`MooStrategy::Ehvi`].
+    QEhvi,
 }
 
 /// Aggregation of the expected improvement matrix used by [`MooStrategy::Eim`]

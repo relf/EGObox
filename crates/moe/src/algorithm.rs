@@ -552,6 +552,16 @@ impl GpSurrogateExt for GpMixture {
         }
         self.sample_expert(0, x, n_traj)
     }
+
+    fn predict_covariance(&self, x: &ArrayView2<f64>) -> Result<Array2<f64>> {
+        if self.n_clusters() != 1 {
+            return Err(MoeError::SampleError(format!(
+                "Can not compute posterior covariance when several clusters {}",
+                self.n_clusters()
+            )));
+        }
+        self.experts[0].predict_covariance(x)
+    }
 }
 
 impl GpMetrics<MoeError, GpMixtureParams<f64>, Self> for GpMixture {
@@ -1354,6 +1364,40 @@ mod tests {
                 }
             });
         y
+    }
+
+    #[test]
+    fn test_moe_predict_covariance() {
+        let mut rng = Xoshiro256Plus::seed_from_u64(0);
+        let xt = Array2::random_using((20, 1), Uniform::new(0., 1.), &mut rng);
+        let yt = f_test_1d(&xt.to_owned());
+        let x = array![[0.1], [0.12], [0.5], [0.9]];
+        // one cluster: the covariance of the expert
+        let moe = GpMixture::params()
+            .n_clusters(NbClusters::fixed(1))
+            .with_rng(rng.clone())
+            .fit(&Dataset::new(xt.clone(), yt.clone()))
+            .expect("MOE fitted");
+        let cov =
+            <GpMixture as GpSurrogateExt>::predict_covariance(&moe, &x.view()).expect("covariance");
+        assert_eq!(cov.dim(), (4, 4));
+        let var = moe.predict_var(&x).expect("variance");
+        assert_abs_diff_eq!(cov.diag(), var, epsilon = 1e-9);
+        // affine transformation: the covariance is scaled by scale^2
+        let affined = crate::AffinedSurrogate::new(
+            Box::new(moe.clone()) as Box<dyn MixtureGpSurrogate>,
+            -2.,
+            1.,
+        );
+        let cov_affined = affined.predict_covariance(&x.view()).expect("covariance");
+        assert_abs_diff_eq!(cov_affined, &cov * 4., epsilon = 1e-9);
+        // several clusters: not supported
+        let moe = GpMixture::params()
+            .n_clusters(NbClusters::fixed(2))
+            .with_rng(rng)
+            .fit(&Dataset::new(xt, yt))
+            .expect("MOE fitted");
+        assert!(<GpMixture as GpSurrogateExt>::predict_covariance(&moe, &x.view()).is_err());
     }
 
     #[test]

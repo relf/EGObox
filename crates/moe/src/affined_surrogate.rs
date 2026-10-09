@@ -135,6 +135,10 @@ impl GpSurrogateExt for AffinedSurrogate {
         let samples = self.inner.sample(x, n_traj)?;
         Ok(samples * self.scale + self.offset)
     }
+
+    fn predict_covariance(&self, x: &ArrayView2<f64>) -> Result<Array2<f64>> {
+        Ok(self.inner.predict_covariance(x)? * (self.scale * self.scale))
+    }
 }
 
 #[typetag::serde]

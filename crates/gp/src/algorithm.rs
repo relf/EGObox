@@ -306,6 +306,13 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GaussianProc
         Ok((yp, vmse))
     }
 
+    /// Predict the posterior covariance matrix between n given `x` points of nx components
+    /// specified as a (n, nx) matrix. Returns a (n, n) matrix whose diagonal is the
+    /// predicted variance (see [`GaussianProcess::predict_var`]).
+    pub fn predict_covariance(&self, x: &ArrayBase<impl Data<Elem = F>, Ix2>) -> Result<Array2<F>> {
+        Ok(self._compute_covariance(x))
+    }
+
     /// Compute covariance matrix given x points specified as a (n, nx) matrix
     fn _compute_covariance(&self, x: &ArrayBase<impl Data<Elem = F>, Ix2>) -> Array2<F> {
         let xnorm = (x - &self.xt_norm.mean) / &self.xt_norm.std;
@@ -2094,6 +2101,40 @@ mod tests {
             .unwrap();
         let trajs = krg.sample(&x, n_traj);
         assert_eq!(&[n_plot, n_traj], trajs.shape())
+    }
+
+    #[test]
+    fn test_predict_covariance() {
+        let xdoe = array![[-8.5], [-4.0], [-3.0], [-1.0], [4.0], [7.5]];
+        let ydoe = x2sinx(&xdoe);
+        let krg = Kriging::<f64>::params()
+            .fit(&Dataset::new(xdoe, ydoe))
+            .expect("Kriging training");
+        let x = array![[-9.], [-3.5], [-3.2], [0.], [5.], [9.]];
+        let cov = krg.predict_covariance(&x).expect("covariance");
+        assert_eq!(cov.dim(), (6, 6));
+        // diagonal is the predicted variance
+        let var = krg.predict_var(&x).expect("variance");
+        assert_abs_diff_eq!(
+            cov.diag(),
+            var,
+            epsilon = 1e-9 * (1. + var.fold(0., |m: f64, v| m.max(*v)))
+        );
+        // symmetric
+        assert_abs_diff_eq!(
+            cov,
+            cov.t(),
+            epsilon = 1e-9 * (1. + var.fold(0., |m: f64, v| m.max(*v)))
+        );
+        // close points are positively correlated
+        assert!(cov[[1, 2]] > 0.);
+        // positive semi-definite: non negative quadratic forms
+        let mut rng = Xoshiro256Plus::seed_from_u64(42);
+        let vs = Array::random_using((20, 6), Uniform::new(-1., 1.), &mut rng);
+        let max = var.fold(0., |m: f64, v| m.max(*v));
+        for v in vs.rows() {
+            assert!(v.dot(&cov.dot(&v)) > -1e-8 * max);
+        }
     }
 
     #[test]

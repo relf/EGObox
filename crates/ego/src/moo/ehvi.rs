@@ -17,21 +17,6 @@ use super::scalarization::Normalization;
 use egobox_moe::MixtureGpSurrogate;
 use ndarray::{Array1, Array2, ArrayBase, Data, Ix2};
 
-/// Expected Hypervolume Improvement criterion of the objective surrogates wrt a Pareto front.
-///
-/// Objectives are normalized with their observed bounds, the criterion is to be maximized.
-pub(crate) struct EhviCriterion<'a> {
-    obj_models: &'a [Box<dyn MixtureGpSurrogate>],
-    normalization: Normalization,
-    /// Per objective, sorted grid values: -inf, front coordinates, reference point coordinate
-    grids: Vec<Vec<f64>>,
-    /// Non-dominated boxes (flattened, `n_obj` indices per box): grid indices of the lower corner
-    /// for the first `n_obj - 1` objectives (the upper one being the next index), then the grid
-    /// index of the upper bound along the last objective (the lower one being -inf)
-    cells: Vec<usize>,
-    front_size: usize,
-}
-
 /// Max work to decompose the non-dominated region: number of boxes `(front_size + 1)^(n_obj - 1)`
 /// times the domination checks (front size times number of objectives)
 const MAX_DECOMPOSITION_WORK: usize = 1 << 26;
@@ -48,12 +33,16 @@ fn works(size: usize, n_obj: usize) -> Option<(usize, usize)> {
     Some((boxes.checked_mul(size * n_obj)?, boxes.checked_mul(n_obj)?))
 }
 
-/// Max number of front points such that the decomposition and evaluation works are bounded
-fn max_front_size(n_obj: usize) -> usize {
+/// Max number of front points such that the decomposition work is bounded and the evaluation
+/// work, multiplied by `eval_factor`, is bounded by `max_eval_work`
+fn max_front_size(n_obj: usize, eval_factor: usize, max_eval_work: usize) -> usize {
     let mut k = 1;
-    while works(k + 1, n_obj)
-        .is_some_and(|(dw, ew)| dw <= MAX_DECOMPOSITION_WORK && ew <= MAX_EVALUATION_WORK)
-    {
+    while works(k + 1, n_obj).is_some_and(|(dw, ew)| {
+        dw <= MAX_DECOMPOSITION_WORK
+            && ew
+                .checked_mul(eval_factor)
+                .is_some_and(|w| w <= max_eval_work)
+    }) {
         k += 1;
     }
     k
@@ -94,29 +83,21 @@ fn spread_subset(front: &Array2<f64>, size: usize) -> Vec<usize> {
     selected
 }
 
-impl<'a> EhviCriterion<'a> {
-    /// EHVI criterion given the objective surrogates, the objective values `objs` of the data
-    /// (used to normalize the objectives) and the rows of `objs` forming the Pareto front
-    pub(crate) fn new(
-        obj_models: &'a [Box<dyn MixtureGpSurrogate>],
-        objs: &ArrayBase<impl Data<Elem = f64>, Ix2>,
-        front_rows: &[usize],
-    ) -> Self {
-        let (normalization, front, ref_point) = normalized_front(objs, front_rows);
-        let n_obj = objs.ncols();
-        let front_size = front.nrows();
-        // Bound the decomposition size: with too many front points (for the number of
-        // objectives), the region dominated by a spread subset of the front is used instead,
-        // which overestimates the improvement in the vicinity of the left out points.
-        let max_size = max_front_size(n_obj);
-        let front = if front_size > max_size {
-            log::warn!(
-                "EHVI: Pareto front of {front_size} points reduced to {max_size} spread points ({n_obj} objectives)"
-            );
-            front.select(ndarray::Axis(0), &spread_subset(&front, max_size))
-        } else {
-            front
-        };
+/// Decomposition of the region below the reference point not dominated by a Pareto front into
+/// boxes built on the grid of the front coordinates (normalized objective space)
+pub(crate) struct BoxDecomposition {
+    /// Per objective, sorted grid values: -inf, front coordinates, reference point coordinate
+    grids: Vec<Vec<f64>>,
+    /// Non-dominated boxes (flattened, `n_obj` indices per box): grid indices of the lower corner
+    /// for the first `n_obj - 1` objectives (the upper one being the next index), then the grid
+    /// index of the upper bound along the last objective (the lower one being -inf)
+    cells: Vec<usize>,
+}
+
+impl BoxDecomposition {
+    /// Decomposition of the region below `ref_point` not dominated by the `front` points
+    pub(crate) fn new(front: &Array2<f64>, ref_point: &Array1<f64>) -> Self {
+        let n_obj = front.ncols();
         let grids: Vec<Vec<f64>> = (0..n_obj)
             .map(|j| {
                 let mut values: Vec<f64> = front
@@ -168,13 +149,7 @@ impl<'a> EhviCriterion<'a> {
             let mut j = 0;
             loop {
                 if j == last {
-                    return EhviCriterion {
-                        obj_models,
-                        normalization,
-                        grids,
-                        cells,
-                        front_size,
-                    };
+                    return BoxDecomposition { grids, cells };
                 }
                 index[j] += 1;
                 if index[j] < grids[j].len() - 1 {
@@ -183,6 +158,101 @@ impl<'a> EhviCriterion<'a> {
                 index[j] = 0;
                 j += 1;
             }
+        }
+    }
+
+    /// Number of objectives
+    pub(crate) fn n_obj(&self) -> usize {
+        self.grids.len()
+    }
+
+    /// Grid values of objective `j`
+    pub(crate) fn grid(&self, j: usize) -> &[f64] {
+        &self.grids[j]
+    }
+
+    /// Boxes given by their grid indices (see `cells`)
+    pub(crate) fn cells(&self) -> std::slice::ChunksExact<'_, usize> {
+        self.cells.chunks_exact(self.n_obj())
+    }
+
+    /// (lower, upper) grid indices of a box along objective j
+    pub(crate) fn bounds(&self, cell: &[usize], j: usize) -> (usize, usize) {
+        if j == self.n_obj() - 1 {
+            (0, cell[j])
+        } else {
+            (cell[j], cell[j] + 1)
+        }
+    }
+
+    /// (lower, upper) bounds of the boxes as values (one row per box, -inf lower bounds)
+    pub(crate) fn box_bounds(&self) -> (Array2<f64>, Array2<f64>) {
+        let n_obj = self.n_obj();
+        let n_boxes = self.cells.len() / n_obj;
+        let mut lower = Array2::zeros((n_boxes, n_obj));
+        let mut upper = Array2::zeros((n_boxes, n_obj));
+        for (b, cell) in self.cells().enumerate() {
+            for j in 0..n_obj {
+                let (lo, up) = self.bounds(cell, j);
+                lower[[b, j]] = self.grids[j][lo];
+                upper[[b, j]] = self.grids[j][up];
+            }
+        }
+        (lower, upper)
+    }
+}
+
+/// Normalized front reduced to a spread subset when its decomposition would exceed the works
+/// bounds, the evaluation work (boxes times objectives) multiplied by `eval_factor` being
+/// bounded by `max_eval_work`
+pub(crate) fn bounded_front(
+    front: Array2<f64>,
+    eval_factor: usize,
+    max_eval_work: usize,
+    criterion: &str,
+) -> Array2<f64> {
+    let n_obj = front.ncols();
+    let front_size = front.nrows();
+    // Bound the decomposition size: with too many front points (for the number of
+    // objectives), the region dominated by a spread subset of the front is used instead,
+    // which overestimates the improvement in the vicinity of the left out points.
+    let max_size = max_front_size(n_obj, eval_factor, max_eval_work);
+    if front_size > max_size {
+        log::warn!(
+            "{criterion}: Pareto front of {front_size} points reduced to {max_size} spread points ({n_obj} objectives)"
+        );
+        front.select(ndarray::Axis(0), &spread_subset(&front, max_size))
+    } else {
+        front
+    }
+}
+
+/// Expected Hypervolume Improvement criterion of the objective surrogates wrt a Pareto front.
+///
+/// Objectives are normalized with their observed bounds, the criterion is to be maximized.
+pub(crate) struct EhviCriterion<'a> {
+    obj_models: &'a [Box<dyn MixtureGpSurrogate>],
+    normalization: Normalization,
+    decomposition: BoxDecomposition,
+    front_size: usize,
+}
+
+impl<'a> EhviCriterion<'a> {
+    /// EHVI criterion given the objective surrogates, the objective values `objs` of the data
+    /// (used to normalize the objectives) and the rows of `objs` forming the Pareto front
+    pub(crate) fn new(
+        obj_models: &'a [Box<dyn MixtureGpSurrogate>],
+        objs: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+        front_rows: &[usize],
+    ) -> Self {
+        let (normalization, front, ref_point) = normalized_front(objs, front_rows);
+        let front_size = front.nrows();
+        let front = bounded_front(front, 1, MAX_EVALUATION_WORK, "EHVI");
+        EhviCriterion {
+            obj_models,
+            normalization,
+            decomposition: BoxDecomposition::new(&front, &ref_point),
+            front_size,
         }
     }
 
@@ -210,7 +280,8 @@ impl<'a> EhviCriterion<'a> {
         // Expected improvements below each grid value (and their gradients)
         let mut ei: Vec<Vec<f64>> = vec![];
         let mut dei: Vec<Array2<f64>> = vec![];
-        for (j, grid) in self.grids.iter().enumerate() {
+        for j in 0..self.decomposition.n_obj() {
+            let grid = self.decomposition.grid(j);
             let mut ei_j = vec![0.; grid.len()];
             let mut dei_j = Array2::zeros((grid.len(), nx));
             for (k, &g) in grid.iter().enumerate() {
@@ -228,20 +299,12 @@ impl<'a> EhviCriterion<'a> {
             dei.push(dei_j);
         }
 
-        let n_obj = self.grids.len();
+        let n_obj = self.decomposition.n_obj();
         let mut value = 0.;
         let mut grad = Array1::zeros(nx);
         let mut factors = vec![0.; n_obj];
-        let last = n_obj - 1;
-        // (lower, upper) grid indices of a box along objective j
-        let bounds = |cell: &[usize], j: usize| {
-            if j == last {
-                (0, cell[last])
-            } else {
-                (cell[j], cell[j] + 1)
-            }
-        };
-        for cell in self.cells.chunks(n_obj) {
+        let bounds = |cell: &[usize], j: usize| self.decomposition.bounds(cell, j);
+        for cell in self.decomposition.cells() {
             for (j, factor) in factors.iter_mut().enumerate() {
                 let (lo, up) = bounds(cell, j);
                 *factor = ei[j][up] - ei[j][lo];
@@ -263,7 +326,7 @@ impl<'a> EhviCriterion<'a> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::moo::hypervolume::hypervolume;
     use approx::assert_abs_diff_eq;
@@ -276,7 +339,7 @@ mod tests {
     use rand_xoshiro::Xoshiro256Plus;
 
     /// GP models of `n_obj` objectives of x in [0, 1]
-    fn models(n_obj: usize) -> (Vec<Box<dyn MixtureGpSurrogate>>, Array2<f64>) {
+    pub(crate) fn models(n_obj: usize) -> (Vec<Box<dyn MixtureGpSurrogate>>, Array2<f64>) {
         let xt: Array2<f64> = array![[0.0], [0.25], [0.5], [0.75], [1.0]];
         let fs = [
             xt.column(0).mapv(|v| v + 0.2 * (5. * v).sin()),
@@ -353,7 +416,7 @@ mod tests {
     #[test]
     fn test_max_front_size() {
         for n_obj in 2..=MAX_EHVI_OBJECTIVES {
-            let k = max_front_size(n_obj);
+            let k = max_front_size(n_obj, 1, MAX_EVALUATION_WORK);
             println!("n_obj={n_obj} max front size={k}");
             let (dw, ew) = works(k, n_obj).unwrap();
             assert!(dw <= MAX_DECOMPOSITION_WORK && ew <= MAX_EVALUATION_WORK);

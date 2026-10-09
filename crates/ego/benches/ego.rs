@@ -148,17 +148,19 @@ type Problem = fn(&ArrayView2<f64>) -> Array2<f64>;
 fn criterion_moo(c: &mut Criterion) {
     let mut group = c.benchmark_group("moo");
     group.sample_size(10);
+    // (name, strategy, batch size)
     let strategies = [
-        ("parego", MooStrategy::ParEgo),
-        ("eim", MooStrategy::Eim),
-        ("ehvi", MooStrategy::Ehvi),
+        ("parego", MooStrategy::ParEgo, 1),
+        ("eim", MooStrategy::Eim, 1),
+        ("ehvi", MooStrategy::Ehvi, 1),
+        ("qehvi", MooStrategy::QEhvi, 3),
     ];
     // (name, function, number of objectives, number of variables)
     let problems: [(&str, Problem, usize, usize); 2] =
         [("zdt1", zdt1, 2, 3), ("dtlz2", dtlz2, 3, 4)];
     for (pb_name, f, n_obj, nx) in problems {
         let xlimits = Array2::from_shape_vec((nx, 2), [0., 1.].repeat(nx)).unwrap();
-        for (name, strategy) in strategies.iter() {
+        for (name, strategy, batch) in strategies.iter() {
             group.bench_function(format!("moo {pb_name} {name}"), |b| {
                 b.iter(|| {
                     std::hint::black_box(
@@ -167,6 +169,7 @@ fn criterion_moo(c: &mut Criterion) {
                                 config
                                     .n_obj(n_obj)
                                     .configure_moo(|moo| moo.strategy(strategy.clone()))
+                                    .configure_qei(|qei| qei.batch(*batch))
                                     .n_doe(10)
                                     .max_iters(5)
                                     .seed(42)
