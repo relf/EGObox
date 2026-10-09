@@ -277,21 +277,6 @@ impl Egor {
             infill_n_start,
             EGO_DEFAULT_N_START,
         )?;
-        let xtypes = parse(py, xspecs.clone_ref(py))?;
-        let doe = initial_doe(py, xtypes.len(), doe, x_doe, y_doe)?;
-        let n_cstr = match cstr_specs.as_ref() {
-            Some(specs) if n_cstr != 0 && n_cstr != specs.len() => {
-                return Err(PyValueError::new_err(format!(
-                    "n_cstr ({n_cstr}) must match cstr_specs length ({}), n_cstr can be omitted",
-                    specs.len()
-                )));
-            }
-            Some(specs) => specs.len(),
-            None => n_cstr,
-        };
-        let gp_config = gp_config.unwrap_or_default();
-        gp_config.validate()?;
-        let qei_config = qei_config.unwrap_or_default();
 
         // Parse trego configuration: boolean or custom configuration
         let trego = match trego {
@@ -315,8 +300,9 @@ impl Egor {
         };
         log::info!("TREGO config: {:?}", trego);
 
-        Ok(Egor {
-            xtypes,
+        Egor::build(
+            py,
+            xspecs,
             gp_config,
             n_cstr,
             cstr_tol,
@@ -324,10 +310,12 @@ impl Egor {
             infill_n_start,
             n_doe,
             doe,
+            x_doe,
+            y_doe,
             infill_strategy,
+            feasible_infill_strategy,
             cstr_infill,
             cstr_strategy,
-            feasible_infill_strategy,
             qei_config,
             infill_optimizer,
             trego,
@@ -336,7 +324,7 @@ impl Egor {
             failsafe_strategy,
             seed,
             verbose,
-        })
+        )
     }
 
     /// This function finds the minimum of a given function "fun"
@@ -447,143 +435,24 @@ impl Egor {
         verbose: Option<Py<PyAny>>,
         stop_on_error: bool,
     ) -> PyResult<EgorOptim> {
-        init_logger(
+        let (outcome, status) = self.optimize(
             py,
-            verbose.or_else(|| self.verbose.as_ref().map(|v| v.clone_ref(py))),
-        );
-        let seed = seed.or(self.seed);
-
-        let hot_start = normalize_hot_start(py, hot_start)?;
-
-        // Errors raised within user callbacks which have to abort the optimization
-        let callback_error = CallbackError::default();
-        let callback_error = &callback_error;
-        install_panic_hook();
-
-        let ny = 1 + self
-            .cstr_specs
-            .as_ref()
-            .map_or(self.n_cstr, |specs| specs.len());
-        let obj = |x: &ArrayView2<f64>| -> std::result::Result<Array2<f64>, String> {
-            Python::attach(|py| {
-                let args = (x.to_owned().into_pyarray(py),);
-                let res = fun.bind(py).call1(args);
-                match res {
-                    // Python exception in objective function is handled by the optimizer
-                    // wrt stop_on_error and failsafe_strategy options
-                    Err(e) => {
-                        log::error!("Error during objective function evaluation: {:?}", e);
-                        Err(e.to_string())
-                    }
-                    // Wrong returned value is a usage error which aborts the optimization
-                    Ok(res) => match extract_obj_value(&res, x.nrows(), ny) {
-                        Ok(y) => Ok(y),
-                        Err(e) => callback_error.abort(e),
-                    },
-                }
-            })
-        };
-
-        let fcstrs = fcstrs
-            .unwrap_or_default()
-            .iter()
-            .map(|cstr| FcstrFn::parse(cstr.bind(py)))
-            .collect::<PyResult<Vec<_>>>()?;
-        let fcstr_specs = fcstr_specs.unwrap_or_default();
-        let n_fcstr = fcstrs.len();
-        if !fcstr_specs.is_empty() && fcstr_specs.len() != n_fcstr {
-            return Err(PyValueError::new_err(format!(
-                "fcstr_specs length ({}) must match fcstrs length ({})",
-                fcstr_specs.len(),
-                n_fcstr
-            )));
-        }
-
-        let cstr_tol = self.internal_cstr_tol(&fcstr_specs, n_fcstr);
-        let fcstr_specs = fcstr_specs
-            .into_iter()
-            .map(|spec| spec.inner)
-            .collect::<Vec<_>>();
-
-        let fcstrs = fcstrs
-            .iter()
-            .map(|cstr| {
-                |x: &[f64], g: Option<&mut [f64]>, _u: &mut InfillObjData<f64>| -> f64 {
-                    Python::attach(|py| {
-                        if let Some(g) = g
-                            && let Err(e) = cstr
-                                .call(py, x, true)
-                                .and_then(|res| extract_cstr_gradient(&res, g))
-                        {
-                            callback_error.abort(e)
-                        }
-                        cstr.call(py, x, false)
-                            .and_then(|res| extract_cstr_value(&res))
-                            .unwrap_or_else(|e| callback_error.abort(e))
-                    })
-                }
-            })
-            .collect::<Vec<_>>();
-
-        let factory = egobox_ego::EgorFactory::optimize(obj);
-        let factory = if fcstr_specs.is_empty() {
-            factory.subject_to(fcstrs)
-        } else {
-            factory.subject_to_with_specs(fcstrs, fcstr_specs)
-        };
-
-        let mixintegor = factory
-            .configure(|config| {
-                self.apply_config(
-                    config,
-                    Some(max_iters),
-                    cstr_tol,
-                    self.doe.as_ref(),
-                    outdir,
-                    warm_start,
-                    hot_start,
-                    seed,
-                    timeout,
-                    stop_on_error,
-                )
-            })
-            .min_within_mixint_space(&self.xtypes)
-            .map_err(ego_err)?;
-
-        let py_run_info = if let Some(ri) = run_info {
-            parse_run_info(py, ri)?
-        } else {
-            RunInfo::default()
-        };
-
-        let mixintegor = mixintegor.run_info(egobox_ego::RunInfo {
-            fname: py_run_info.fname.clone(),
-            num: py_run_info.num,
-        });
-
-        let res = py
-            .detach(|| std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| mixintegor.run())));
-        let res = match res {
-            Ok(res) => res.map_err(ego_err)?,
-            // The optimizer was aborted: raise the recorded callback error if any
-            // (the panic payload may have been rewrapped when crossing threads)
-            Err(payload) => match callback_error.take() {
-                Some(err) => return Err(err),
-                None => std::panic::resume_unwind(payload),
-            },
-        };
-
-        let status = RunStatus {
-            info: py_run_info,
-            exit: (res.state.termination_status).into(),
-            init_doe_size: res.state.doe.doe_size,
-            best_iter: res.state.last_best_iter as usize,
-            total_iters: res.state.iter as usize,
-            elapsed_time: res
-                .state
-                .time
-                .map(|d| d.as_millis() as f64 / 1000.0)
-                .unwrap_or(0.0),
+            fun,
+            fcstrs,
+            fcstr_specs,
+            max_iters,
+            run_info,
+            outdir,
+            warm_start,
+            hot_start,
+            seed,
+            timeout,
+            verbose,
+            stop_on_error,
+            None,
+        )?;
+        let Outcome::Single(res) = outcome else {
+            unreachable!("mono-objective optimization gives a single optimum")
         };
 
         let x_opt = res.x_opt.into_pyarray(py).to_owned();
@@ -632,41 +501,7 @@ impl Egor {
         y_doe: PyReadonlyArray2<f64>,
         seed: Option<u64>,
     ) -> PyResult<Py<PyArray2<f64>>> {
-        init_logger(py, self.verbose.as_ref().map(|v| v.clone_ref(py)));
-        let seed = seed.or(self.seed);
-        let x_doe = x_doe.as_array();
-        let y_doe = y_doe.as_array();
-        check_doe(Some(&x_doe), &y_doe)?;
-        if x_doe.ncols() != self.xtypes.len() {
-            return Err(PyValueError::new_err(format!(
-                "x_doe should be of shape (ns, {}), got {:?}",
-                self.xtypes.len(),
-                x_doe.shape()
-            )));
-        }
-        let doe = concatenate(Axis(1), &[x_doe.view(), y_doe.view()])
-            .map_err(|e| PyValueError::new_err(e.to_string()))?;
-
-        let mixintegor = egobox_ego::EgorServiceBuilder::optimize()
-            .configure(|config| {
-                self.apply_config(
-                    config,                         // config
-                    Some(1),                        // max_iters
-                    self.internal_cstr_tol(&[], 0), // cstr_tol
-                    Some(&doe),                     // doe
-                    None,                           // outdir
-                    false,                          // warm_start
-                    None,                           // hot_start
-                    seed,                           // seed
-                    None,                           // timeout
-                    true,                           // stop_on_error
-                )
-            })
-            .min_within_mixint_space(&self.xtypes)
-            .map_err(ego_err)?;
-
-        let x_suggested = py.detach(|| mixintegor.suggest(&x_doe, &y_doe));
-        Ok(x_suggested.to_pyarray(py).into())
+        self.suggest_points(py, x_doe, y_doe, seed, None)
     }
 
     /// This function gives the best evaluation index given the outputs
@@ -817,7 +652,328 @@ fn check_doe(x_doe: Option<&ArrayView2<f64>>, y_doe: &ArrayView2<f64>) -> PyResu
     Ok(())
 }
 
+/// Multi-objective setting of an optimization: number of objectives and configuration
+pub(crate) struct MooSetup {
+    pub n_obj: usize,
+    pub config: egobox_ego::MooConfig,
+}
+
+impl MooSetup {
+    /// Apply the multi-objective setting to the optimizer configuration
+    fn apply(&self, config: egobox_ego::EgorConfig) -> egobox_ego::EgorConfig {
+        config
+            .n_obj(self.n_obj)
+            .configure_moo(|_| self.config.clone())
+    }
+}
+
+/// Outcome of an optimization run: single optimum or Pareto front
+pub(crate) enum Outcome {
+    Single(egobox_ego::OptimResult<f64>),
+    Pareto(egobox_ego::ParetoResult<f64>),
+}
+
+/// Status of a run given its final state
+pub(crate) fn run_status(info: RunInfo, state: &egobox_ego::EgorState<f64>) -> RunStatus {
+    RunStatus {
+        info,
+        exit: state.termination_status.clone().into(),
+        init_doe_size: state.doe.doe_size,
+        best_iter: state.last_best_iter as usize,
+        total_iters: state.iter as usize,
+        elapsed_time: state
+            .time
+            .map(|d| d.as_millis() as f64 / 1000.0)
+            .unwrap_or(0.0),
+    }
+}
+
 impl Egor {
+    /// Build the optimizer given the constructor arguments (deprecated arguments being resolved)
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn build(
+        py: Python,
+        xspecs: Py<PyAny>,
+        gp_config: Option<GpConfig>,
+        n_cstr: usize,
+        cstr_tol: Option<Vec<f64>>,
+        cstr_specs: Option<Vec<CstrSpec>>,
+        infill_n_start: usize,
+        n_doe: usize,
+        doe: Option<PyReadonlyArray2<f64>>,
+        x_doe: Option<PyReadonlyArray2<f64>>,
+        y_doe: Option<PyReadonlyArray2<f64>>,
+        infill_strategy: InfillStrategy,
+        feasible_infill_strategy: FeasibleInfillStrategy,
+        cstr_infill: bool,
+        cstr_strategy: ConstraintStrategy,
+        qei_config: Option<QEiConfig>,
+        infill_optimizer: InfillOptimizer,
+        trego: Option<TregoConfig>,
+        coego_n_coop: usize,
+        target: Option<f64>,
+        failsafe_strategy: FailsafeStrategy,
+        seed: Option<u64>,
+        verbose: Option<Py<PyAny>>,
+    ) -> PyResult<Self> {
+        let xtypes = parse(py, xspecs)?;
+        let doe = initial_doe(py, xtypes.len(), doe, x_doe, y_doe)?;
+        let n_cstr = match cstr_specs.as_ref() {
+            Some(specs) if n_cstr != 0 && n_cstr != specs.len() => {
+                return Err(PyValueError::new_err(format!(
+                    "n_cstr ({n_cstr}) must match cstr_specs length ({}), n_cstr can be omitted",
+                    specs.len()
+                )));
+            }
+            Some(specs) => specs.len(),
+            None => n_cstr,
+        };
+        let gp_config = gp_config.unwrap_or_default();
+        gp_config.validate()?;
+        let qei_config = qei_config.unwrap_or_default();
+
+        Ok(Egor {
+            xtypes,
+            gp_config,
+            n_cstr,
+            cstr_tol,
+            cstr_specs,
+            infill_n_start,
+            n_doe,
+            doe,
+            infill_strategy,
+            cstr_infill,
+            cstr_strategy,
+            feasible_infill_strategy,
+            qei_config,
+            infill_optimizer,
+            trego,
+            coego_n_coop,
+            target,
+            failsafe_strategy,
+            seed,
+            verbose,
+        })
+    }
+
+    /// Run the optimization of `fun` (see `minimize`), with several objectives when `moo` is given
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn optimize(
+        &self,
+        py: Python,
+        fun: Py<PyAny>,
+        fcstrs: Option<Vec<Py<PyAny>>>,
+        fcstr_specs: Option<Vec<CstrSpec>>,
+        max_iters: usize,
+        run_info: Option<Py<PyAny>>,
+        outdir: Option<String>,
+        warm_start: bool,
+        hot_start: Option<Py<PyAny>>,
+        seed: Option<u64>,
+        timeout: Option<f64>,
+        verbose: Option<Py<PyAny>>,
+        stop_on_error: bool,
+        moo: Option<&MooSetup>,
+    ) -> PyResult<(Outcome, RunStatus)> {
+        init_logger(
+            py,
+            verbose.or_else(|| self.verbose.as_ref().map(|v| v.clone_ref(py))),
+        );
+        let seed = seed.or(self.seed);
+
+        let hot_start = normalize_hot_start(py, hot_start)?;
+
+        // Errors raised within user callbacks which have to abort the optimization
+        let callback_error = CallbackError::default();
+        let callback_error = &callback_error;
+        install_panic_hook();
+
+        let n_obj = moo.map_or(1, |moo| moo.n_obj);
+        let ny = n_obj
+            + self
+                .cstr_specs
+                .as_ref()
+                .map_or(self.n_cstr, |specs| specs.len());
+        let obj = |x: &ArrayView2<f64>| -> std::result::Result<Array2<f64>, String> {
+            Python::attach(|py| {
+                let args = (x.to_owned().into_pyarray(py),);
+                let res = fun.bind(py).call1(args);
+                match res {
+                    // Python exception in objective function is handled by the optimizer
+                    // wrt stop_on_error and failsafe_strategy options
+                    Err(e) => {
+                        log::error!("Error during objective function evaluation: {:?}", e);
+                        Err(e.to_string())
+                    }
+                    // Wrong returned value is a usage error which aborts the optimization
+                    Ok(res) => match extract_obj_value(&res, x.nrows(), ny, n_obj) {
+                        Ok(y) => Ok(y),
+                        Err(e) => callback_error.abort(e),
+                    },
+                }
+            })
+        };
+
+        let fcstrs = fcstrs
+            .unwrap_or_default()
+            .iter()
+            .map(|cstr| FcstrFn::parse(cstr.bind(py)))
+            .collect::<PyResult<Vec<_>>>()?;
+        let fcstr_specs = fcstr_specs.unwrap_or_default();
+        let n_fcstr = fcstrs.len();
+        if !fcstr_specs.is_empty() && fcstr_specs.len() != n_fcstr {
+            return Err(PyValueError::new_err(format!(
+                "fcstr_specs length ({}) must match fcstrs length ({})",
+                fcstr_specs.len(),
+                n_fcstr
+            )));
+        }
+
+        let cstr_tol = self.internal_cstr_tol(&fcstr_specs, n_fcstr);
+        let fcstr_specs = fcstr_specs
+            .into_iter()
+            .map(|spec| spec.inner)
+            .collect::<Vec<_>>();
+
+        let fcstrs = fcstrs
+            .iter()
+            .map(|cstr| {
+                |x: &[f64], g: Option<&mut [f64]>, _u: &mut InfillObjData<f64>| -> f64 {
+                    Python::attach(|py| {
+                        if let Some(g) = g
+                            && let Err(e) = cstr
+                                .call(py, x, true)
+                                .and_then(|res| extract_cstr_gradient(&res, g))
+                        {
+                            callback_error.abort(e)
+                        }
+                        cstr.call(py, x, false)
+                            .and_then(|res| extract_cstr_value(&res))
+                            .unwrap_or_else(|e| callback_error.abort(e))
+                    })
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let factory = egobox_ego::EgorFactory::optimize(obj);
+        let factory = if fcstr_specs.is_empty() {
+            factory.subject_to(fcstrs)
+        } else {
+            factory.subject_to_with_specs(fcstrs, fcstr_specs)
+        };
+
+        let mixintegor = factory
+            .configure(|config| {
+                let config = self.apply_config(
+                    config,
+                    Some(max_iters),
+                    cstr_tol,
+                    self.doe.as_ref(),
+                    outdir,
+                    warm_start,
+                    hot_start,
+                    seed,
+                    timeout,
+                    stop_on_error,
+                );
+                match moo {
+                    Some(moo) => moo.apply(config),
+                    None => config,
+                }
+            })
+            .min_within_mixint_space(&self.xtypes)
+            .map_err(ego_err)?;
+
+        let py_run_info = if let Some(ri) = run_info {
+            parse_run_info(py, ri)?
+        } else {
+            RunInfo::default()
+        };
+
+        let mixintegor = mixintegor.run_info(egobox_ego::RunInfo {
+            fname: py_run_info.fname.clone(),
+            num: py_run_info.num,
+        });
+
+        let pareto = moo.is_some();
+        let res = py.detach(|| {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                if pareto {
+                    mixintegor.run_pareto().map(Outcome::Pareto)
+                } else {
+                    mixintegor.run().map(Outcome::Single)
+                }
+            }))
+        });
+        let res = match res {
+            Ok(res) => res.map_err(ego_err)?,
+            // The optimizer was aborted: raise the recorded callback error if any
+            // (the panic payload may have been rewrapped when crossing threads)
+            Err(payload) => match callback_error.take() {
+                Some(err) => return Err(err),
+                None => std::panic::resume_unwind(payload),
+            },
+        };
+
+        let state = match &res {
+            Outcome::Single(res) => &res.state,
+            Outcome::Pareto(res) => &res.state,
+        };
+        let status = run_status(py_run_info, state);
+        Ok((res, status))
+    }
+
+    /// Suggest the next points to evaluate given the data (see `suggest`), with several
+    /// objectives when `moo` is given
+    pub(crate) fn suggest_points(
+        &self,
+        py: Python,
+        x_doe: PyReadonlyArray2<f64>,
+        y_doe: PyReadonlyArray2<f64>,
+        seed: Option<u64>,
+        moo: Option<&MooSetup>,
+    ) -> PyResult<Py<PyArray2<f64>>> {
+        init_logger(py, self.verbose.as_ref().map(|v| v.clone_ref(py)));
+        let seed = seed.or(self.seed);
+        let x_doe = x_doe.as_array();
+        let y_doe = y_doe.as_array();
+        check_doe(Some(&x_doe), &y_doe)?;
+        if x_doe.ncols() != self.xtypes.len() {
+            return Err(PyValueError::new_err(format!(
+                "x_doe should be of shape (ns, {}), got {:?}",
+                self.xtypes.len(),
+                x_doe.shape()
+            )));
+        }
+        let doe = concatenate(Axis(1), &[x_doe.view(), y_doe.view()])
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+        let mixintegor = egobox_ego::EgorServiceBuilder::optimize()
+            .configure(|config| {
+                let config = self.apply_config(
+                    config,                         // config
+                    Some(1),                        // max_iters
+                    self.internal_cstr_tol(&[], 0), // cstr_tol
+                    Some(&doe),                     // doe
+                    None,                           // outdir
+                    false,                          // warm_start
+                    None,                           // hot_start
+                    seed,                           // seed
+                    None,                           // timeout
+                    true,                           // stop_on_error
+                );
+                match moo {
+                    Some(moo) => moo.apply(config),
+                    None => config,
+                }
+            })
+            .min_within_mixint_space(&self.xtypes)
+            .map_err(ego_err)?;
+
+        let x_suggested = py.detach(|| mixintegor.suggest(&x_doe, &y_doe));
+        Ok(x_suggested.to_pyarray(py).into())
+    }
+
     fn n_clusters(&self) -> NbClusters {
         match self.gp_config.n_clusters.cmp(&0) {
             Ordering::Greater => NbClusters::fixed(self.gp_config.n_clusters as usize),
@@ -1150,7 +1306,13 @@ impl FcstrFn {
 }
 
 /// Extract the value returned by the objective function as an (n, ny) float array
-fn extract_obj_value(res: &Bound<'_, PyAny>, n: usize, ny: usize) -> PyResult<Array2<f64>> {
+/// (`n_obj` objectives followed by the constraints)
+fn extract_obj_value(
+    res: &Bound<'_, PyAny>,
+    n: usize,
+    ny: usize,
+    n_obj: usize,
+) -> PyResult<Array2<f64>> {
     let arr = res.extract::<PyReadonlyArray2<f64>>().map_err(|_| {
         PyTypeError::new_err(format!(
             "objective function should return a 2D float64 numpy array of shape ({n}, {ny}), got {}",
@@ -1159,10 +1321,15 @@ fn extract_obj_value(res: &Bound<'_, PyAny>, n: usize, ny: usize) -> PyResult<Ar
     })?;
     let arr = arr.as_array();
     if arr.dim() != (n, ny) {
+        let objectives = if n_obj == 1 {
+            "objective".to_string()
+        } else {
+            format!("{n_obj} objectives")
+        };
         return Err(PyValueError::new_err(format!(
             "objective function should return an array of shape ({n}, {ny}) \
-             (objective + {} constraints), got {:?}",
-            ny - 1,
+             ({objectives} + {} constraints), got {:?}",
+            ny - n_obj,
             arr.shape()
         )));
     }
