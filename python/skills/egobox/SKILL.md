@@ -13,7 +13,8 @@ description: >
 # EGObox Skill
 
 EGObox (`egobox`) is a Rust-backed Python library for **Efficient Global Optimization** (EGO / Bayesian Optimization).
-It provides two main Python-facing objects: `Egor` (optimizer) and `Gpx` (Gaussian process surrogate).
+It provides two main Python-facing objects: `Egor` (optimizer) and `Gpx` (Gaussian process surrogate),
+`Belfegor` being the multi-objective counterpart of `Egor` (experimental).
 
 ## Installation
 
@@ -26,6 +27,7 @@ pip install egobox
 | Concept | Description |
 |---|---|
 | `Egor` | Bayesian optimizer — iteratively evaluates an expensive black-box function |
+| `Belfegor` | Multi-objective Bayesian optimizer — approximates the Pareto front of several objectives |
 | `Gpx` | Mixture of Gaussian Processes — surrogate model for regression/prediction |
 | `XType` | Variable type enum for mixed-integer spaces |
 | `CstrSpec` | Constraint specification — describes the form of each constraint |
@@ -270,7 +272,41 @@ egx.Egor([[0.0, 25.0]]).minimize(
 
 ---
 
-## 5. Gpx Surrogate Model (Python API)
+## 5. Belfegor Multi-objective Optimizer (Python API, experimental)
+
+`Belfegor` takes the `Egor` options which apply to several objectives (no `trego`, `coego_n_coop`, `target`)
+plus `n_obj` and `moo_config`. `fun(x)` returns `[obj_1, ..., obj_n_obj, cstr_1, ...]` columns, all objectives
+being minimized.
+
+```python
+import numpy as np
+import egobox as egx
+
+
+# ZDT1 bi-objective function: Pareto front f2 = 1 - sqrt(f1) for x2 = 0
+def zdt1(x: np.ndarray) -> np.ndarray:
+    f1 = x[:, 0]
+    g = 1.0 + 9.0 * x[:, 1]
+    return np.column_stack([f1, g * (1.0 - np.sqrt(f1 / g))])
+
+
+belfegor = egx.Belfegor([[0.0, 1.0], [0.0, 1.0]], n_obj=2, n_doe=10, seed=42)
+res = belfegor.minimize(zdt1, max_iters=20)
+print(f"Pareto front of {len(res.y_pareto)} points")  # res.x_pareto, res.y_pareto
+print(f"Compromise point f={res.y_opt} at x={res.x_opt}")
+```
+
+- `moo_config=egx.MooConfig(strategy=..., eim_aggregation=..., hv_stop=(tol, n_iters), rho=..., n_divisions=...)`
+  (or a dict): `strategy` is `MooStrategy.EHVI` by default for 2–3 objectives, `MooStrategy.PAREGO` beyond;
+  `MooStrategy.EIM`; `MooStrategy.QEHVI` for batches (`qei_config=egx.QEiConfig(batch=2..4)`, single-cluster GPs).
+- `hv_stop=(1e-3, 5)` stops when the front hypervolume improves by less than 0.1 % over 5 iterations
+  (`ExitStatus.SOLVER_CONVERGED`).
+- `minimize()` returns `BelfegorOptim`: `.result` (`ParetoResult` with `x_pareto`, `y_pareto`, `x_opt`/`y_opt`
+  compromise point, `x_doe`, `y_doe`) and `.status`; unpacks as `x_pareto, y_pareto = belfegor.minimize(...)`.
+- Ask-and-tell: `belfegor.suggest(x_doe, y_doe)`; front of given data: `belfegor.pareto_result(x_doe, y_doe)`,
+  `belfegor.pareto_indices(y_doe)`.
+
+## 6. Gpx Surrogate Model (Python API)
 
 `Gpx` is a mixture of Gaussian Processes (Kriging + MoE). Use it as a standalone surrogate.
 
@@ -313,7 +349,7 @@ gpx_loaded = egx.Gpx.load("model.json")
 
 ---
 
-## 6. Sampling (DOE)
+## 7. Sampling (DOE)
 
 ```python
 xlimits = np.array([[0.0, 1.0], [0.0, 1.0], [0.0, 1.0]])

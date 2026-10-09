@@ -7,10 +7,13 @@ class TestApiImports(unittest.TestCase):
     def test_all_public_symbols_are_importable(self):
         import egobox as egx
         from egobox import (
+            Belfegor,
+            BelfegorOptim,
             ConstraintStrategy,
             CorrelationSpec,
             Egor,
             EgorOptim,
+            EimAggregation,
             ExitStatus,
             FailsafeStrategy,
             GpConfig,
@@ -18,7 +21,10 @@ class TestApiImports(unittest.TestCase):
             Gpx,
             InfillOptimizer,
             InfillStrategy,
+            MooConfig,
+            MooStrategy,
             OptimResult,
+            ParetoResult,
             QEiConfig,
             QEiStrategy,
             Recombination,
@@ -38,10 +44,13 @@ class TestApiImports(unittest.TestCase):
         )
 
         imported_symbols = {
+            "Belfegor": Belfegor,
+            "BelfegorOptim": BelfegorOptim,
             "ConstraintStrategy": ConstraintStrategy,
             "CorrelationSpec": CorrelationSpec,
             "Egor": Egor,
             "EgorOptim": EgorOptim,
+            "EimAggregation": EimAggregation,
             "ExitStatus": ExitStatus,
             "FailsafeStrategy": FailsafeStrategy,
             "FeasibleInfillStrategy": egx.FeasibleInfillStrategy,
@@ -50,7 +59,10 @@ class TestApiImports(unittest.TestCase):
             "Gpx": Gpx,
             "InfillOptimizer": InfillOptimizer,
             "InfillStrategy": InfillStrategy,
+            "MooConfig": MooConfig,
+            "MooStrategy": MooStrategy,
             "OptimResult": OptimResult,
+            "ParetoResult": ParetoResult,
             "QEiConfig": QEiConfig,
             "QEiStrategy": QEiStrategy,
             "Recombination": Recombination,

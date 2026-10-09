@@ -3,7 +3,7 @@
 ![pytests](https://github.com/relf/egobox/actions/workflows/pytest.yml/badge.svg)
 [![DOI](https://joss.theoj.org/papers/10.21105/joss.04737/status.svg)](https://doi.org/10.21105/joss.04737)
 
-`egobox` package is the Python binding of the optimizer named `Egor` and the surrogate model `Gpx`, mixture of Gaussian processes, from the [EGObox libraries](https://github.com/relf/egobox?tab=readme-ov-file#egobox---efficient-global-optimization-toolbox) written in Rust.
+`egobox` package is the Python binding of the optimizer named `Egor` (and its multi-objective counterpart `Belfegor`) and the surrogate model `Gpx`, mixture of Gaussian processes, from the [EGObox libraries](https://github.com/relf/egobox?tab=readme-ov-file#egobox---efficient-global-optimization-toolbox) written in Rust.
 
 ## Installation
 
@@ -37,6 +37,31 @@ print(
 print(
     f"Status {optim.status.exit} in {optim.status.elapsed_time}s"
 )  # ExitStatus.SOLVER_CONVERGED in 0.021s
+```
+
+### Belfegor multi-objective optimizer (experimental)
+
+`Belfegor` approximates the Pareto front of several objectives, all minimized, the function returning
+`[obj_1, ..., obj_n_obj, cstr_1, ...]` columns. It shares the `Egor` options which apply to several
+objectives, the multi-objective strategy being set with `MooConfig` (EHVI by default for 2 or 3 objectives,
+ParEGO beyond, EIM and qEHVI for batches of points).
+
+```python
+import numpy as np
+import egobox as egx
+
+
+# ZDT1 bi-objective function: Pareto front f2 = 1 - sqrt(f1) for x2 = 0
+def zdt1(x: np.ndarray) -> np.ndarray:
+    f1 = x[:, 0]
+    g = 1.0 + 9.0 * x[:, 1]
+    return np.column_stack([f1, g * (1.0 - np.sqrt(f1 / g))])
+
+
+belfegor = egx.Belfegor([[0.0, 1.0], [0.0, 1.0]], n_obj=2, n_doe=10, seed=42)
+res = belfegor.minimize(zdt1, max_iters=20)
+print(f"Pareto front of {len(res.y_pareto)} points")  # res.x_pareto, res.y_pareto
+print(f"Compromise point f={res.y_opt} at x={res.x_opt}")
 ```
 
 ### Gpx surrogate model

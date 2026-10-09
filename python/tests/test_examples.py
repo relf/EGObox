@@ -12,6 +12,9 @@ class TestExamples(unittest.TestCase):
     def test_website_gpx_example(self):
         runpy.run_path(str(EXAMPLES_DIR / "kriging.py"))
 
+    def test_belfegor_example(self):
+        runpy.run_path(str(EXAMPLES_DIR / "zdt1.py"))
+
 
 if __name__ == "__main__":
     unittest.main()
