@@ -69,7 +69,9 @@ DEFAULT_PROBLEMS = (
 def registered_problems():
     """Names of the problems known by pymoo get_problem()"""
     # pymoo keeps its registry as a dict literal inside get_problem()
-    names = re.findall(r'^\s+"([a-z0-9_\-]+)":', inspect.getsource(get_problem), re.M)
+    names = re.findall(
+        r'^\s+"([a-z0-9_\-]+)":', inspect.getsource(get_problem), re.MULTILINE
+    )
     return names or DEFAULT_PROBLEMS
 
 
@@ -82,7 +84,7 @@ def list_problems():
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 problem = get_problem(name)
-        except Exception:
+        except Exception:  # noqa: BLE001 (pymoo raises plain exceptions)
             requiring_args.append(name)
             continue
         if problem.n_obj < 2:
@@ -118,7 +120,7 @@ def make_problem(args):
         kwargs["n_obj"] = args.n_obj
     try:
         problem = get_problem(args.problem, **kwargs)
-    except Exception as err:
+    except Exception as err:  # noqa: BLE001 (pymoo raises plain exceptions)
         sys.exit(f"Can not create pymoo problem {args.problem!r} with {kwargs}: {err}")
     if problem.n_obj < 2:
         sys.exit(f"{args.problem} is a single-objective problem, use Egor instead")
@@ -127,15 +129,16 @@ def make_problem(args):
 
 def true_front(problem):
     """True Pareto front of the problem if pymoo provides it, None otherwise"""
+    # pymoo raises plain exceptions when the front is not available
     try:
         return problem.pareto_front()
-    except Exception:
-        pass
-    try:
+    except Exception:  # noqa: BLE001
         # many-objective problems need reference directions
         ref_dirs = get_reference_directions("das-dennis", problem.n_obj, n_partitions=6)
+    try:
         return problem.pareto_front(ref_dirs=ref_dirs)
-    except Exception:
+    except Exception as err:  # noqa: BLE001
+        print(f"True Pareto front not available: {err}")
         return None
 
 
