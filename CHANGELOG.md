@@ -1,41 +1,53 @@
 # Changes
 
-## Unreleased
+## Version 0.39.0 - 09/10/2026
 
-* Experimental multi-objective optimization in Rust `Egor` with ParEGO: `EgorConfig::n_obj()`,
-  `EgorConfig::configure_moo()` and `Egor::run_pareto()` returning the (constrained) Pareto front
-  approximation (see [plan](doc/moo-plan.md)). Mono-objective optimization is unchanged
-* Multi-objective `MooStrategy::Eim`: one surrogate per objective and Expected Improvement Matrix infill
-  criterion (Zhan et al. 2017) with Euclidean, maximin or hypervolume aggregation
-  (`MooConfig::eim_aggregation()`)
-* Multi-objective `MooStrategy::Ehvi`: one surrogate per objective and Expected Hypervolume Improvement
-  infill criterion (Emmerich et al. 2006) in closed form, up to 8 objectives; large Pareto fronts are
-  approximated by a spread subset of their points
-* Multi-objective optional stop when the Pareto front hypervolume improvement over the last iterations
-  falls below a tolerance (`MooConfig::hv_stop()`), reported as `TerminationReason::SolverConverged`
-* Multi-objective default strategy depends on the number of objectives: EHVI for 2 or 3 objectives,
-  ParEGO beyond (set it explicitly with `MooConfig::strategy()`)
-* Multi-objective ask-and-tell interface (`EgorServiceBuilder` with `n_obj > 1`), failsafe imputation with
-  EIM/EHVI (failed points never in the Pareto front) and ideal point constant liar batches with EIM/EHVI
-* Multi-objective `MooStrategy::QEhvi` for batches of points (`configure_qei`): sequential greedy batch
-  Expected Hypervolume Improvement (Daulton et al. 2020) under the joint posterior of the objective
-  surrogates (Monte Carlo estimate), with single-cluster surrogates and batches of at most 4 points
-* `GaussianProcess::predict_covariance()` and `GpSurrogateExt::predict_covariance()` (provided method,
-  implemented by GP surrogates, single-cluster `GpMixture`, `AffinedSurrogate` and `MixintGpMixture`):
-  posterior covariance matrix between points
+This release brings experimental multi-objective optimization: Rust `Egor` approximates the (constrained)
+Pareto front of several objectives, and the new Python `Belfegor` optimizer exposes it. Mono-objective
+optimization and the Python `Egor` API are unchanged, Rust API changes are additive.
+See [release notes](doc/release-notes-0.39.0.md) for details and the [multi-objective plan](doc/moo-plan.md)
+for implementation notes.
+
+* Multi-objective optimization (experimental):
+  * `EgorConfig::n_obj()`, `EgorConfig::configure_moo()` and `Egor::run_pareto()` returning a `ParetoResult`
+    (Pareto set/front and compromise point, the latter being also returned by `run()`), with the ParEGO
+    strategy (Knowles 2006) by @relf in <https://github.com/relf/EGObox/pull/476>
+  * `MooStrategy::Eim`: one surrogate per objective and Expected Improvement Matrix criterion
+    (Zhan et al. 2017) with Euclidean, maximin or hypervolume aggregation (`MooConfig::eim_aggregation()`)
+    by @relf in <https://github.com/relf/EGObox/pull/477>
+  * `MooStrategy::Ehvi`: Expected Hypervolume Improvement criterion (Emmerich et al. 2006) in closed form,
+    up to 8 objectives (large fronts approximated by a spread subset of their points), and stop when the
+    Pareto front hypervolume stalls (`MooConfig::hv_stop()`)
+    by @relf in <https://github.com/relf/EGObox/pull/478>
+  * Ask-and-tell interface (`EgorServiceBuilder` with `n_obj > 1`), failsafe imputation with EIM/EHVI
+    (failed points never in the Pareto front) and constant liar batches on the ideal point
+    by @relf in <https://github.com/relf/EGObox/pull/479>
+  * Default strategy depending on the number of objectives (EHVI for 2 or 3, ParEGO beyond, see
+    `MooConfig::strategy()`), documentation and benches by @relf in <https://github.com/relf/EGObox/pull/480>
+  * `MooStrategy::QEhvi`: batch Expected Hypervolume Improvement (Daulton et al. 2020) for batches of points,
+    sequential greedy under the joint posterior of the objective surrogates (Monte Carlo estimate,
+    single-cluster surrogates, batches of at most 4 points), with `GaussianProcess::predict_covariance()`
+    and `GpSurrogateExt::predict_covariance()` giving the posterior covariance between points
+    by @relf in <https://github.com/relf/EGObox/pull/481>
+  * Constraints, function constraints, mixed-integer variables, batches and warm/hot start work with several
+    objectives; TREGO, CoEGO and `target` are not supported
+* Python `Belfegor` multi-objective optimizer (experimental), facade of the `Egor` binding with `n_obj` and
+  `moo_config` (`MooConfig` with strategy and batch size, `MooStrategy`, `EimAggregation`): `minimize()`
+  returns a `BelfegorOptim` holding a `ParetoResult` (Pareto front and compromise point), with `suggest()`,
+  `pareto_result()` and `pareto_indices()`. New examples `zdt1.py` and `belfegor_pymoo.py` (pymoo test
+  problems with quality metrics). Rust `ParetoResult::x_opt` / `y_opt` (compromise point) and
+  `find_pareto_front_indices()` / `find_compromise_index()` helpers
+  by @relf in <https://github.com/relf/EGObox/pull/482>
 * `EgorState::param` and `EgorState::cost` (current point) now hold the first evaluated point of the
   iteration and its evaluated value (instead of the first proposed point and its surrogate prediction)
+  by @relf in <https://github.com/relf/EGObox/pull/476>
 * Fix gradient of the probability of feasibility (used with `cstr_infill`) when a non-zero constraint
-  tolerance is set
-* Python `Belfegor` multi-objective optimizer (experimental), facade of the `Egor` binding with `n_obj` and
-  `moo_config` (`MooConfig` with the batch size, `MooStrategy`, `EimAggregation`): `minimize()` returns a
-  `BelfegorOptim` holding a `ParetoResult` (Pareto front and compromise point), with `suggest()`,
-  `pareto_result()` and `pareto_indices()`. The Python `Egor` API is unchanged. The
-  `examples/belfegor_pymoo.py` script optimizes pymoo multi-objective test problems
-* `ParetoResult::x_opt` / `y_opt` (compromise point) and `find_pareto_front_indices()` /
-  `find_compromise_index()` giving the Pareto front and compromise point of given data
+  tolerance is set by @relf in <https://github.com/relf/EGObox/pull/477>
+* Python deprecations: names deprecated in 0.38.0 still work with a `DeprecationWarning`, their removal and
+  the change of `Gpx.thetas()`, `variances()` and `likelihoods()` to properties are postponed to a future
+  release
 
-## Version 0.38.1 - unreleased
+## Version 0.38.1 - 07/10/2026
 
 * Fix function constraints (`fcstrs`) with mixed-integer inputs: they now receive `x` in folded discrete space
   and their gradient is mapped back to the continuous relaxed space
