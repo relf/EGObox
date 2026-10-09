@@ -29,8 +29,8 @@ use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 /// n_obj : int >= 1
 ///     Number of objectives returned first by `fun` (see `minimize`), default is 2.
 /// moo_config : MooConfig or dict, optional
-///     Multi-objective configuration (strategy, EIM aggregation, hypervolume-based stop,
-///     ParEGO options), see MooConfig for details.
+///     Multi-objective configuration (strategy, batch size, EIM aggregation, hypervolume-based
+///     stop, ParEGO options), see MooConfig for details.
 /// gp_config : GpConfig or dict, optional
 ///     GP configuration of the surrogates, see GpConfig for details.
 ///     MooStrategy.QEHVI requires single-cluster surrogates (n_clusters=1, the default).
@@ -64,10 +64,6 @@ use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 /// cstr_strategy : ConstraintStrategy
 ///     Constraint management, either ConstraintStrategy.MC (mean constraint, default) or
 ///     ConstraintStrategy.UTB (upper trust bound).
-/// qei_config : QEiConfig or dict, optional
-///     Configuration of batches of points selected at each iteration, see QEiConfig.
-///     With MooStrategy.QEHVI, batch points are selected by qEHVI (at most 4 points),
-///     otherwise with the QEiConfig strategy.
 /// infill_optimizer : InfillOptimizer
 ///     Internal optimizer used to optimize infill criteria, InfillOptimizer.COBYLA (default)
 ///     or InfillOptimizer.SLSQP.
@@ -112,7 +108,6 @@ impl Belfegor {
         feasible_infill_strategy = FeasibleInfillStrategy::None,
         cstr_infill = false,
         cstr_strategy = ConstraintStrategy::Mc,
-        qei_config = None,
         infill_optimizer = InfillOptimizer::Cobyla,
         failsafe_strategy = FailsafeStrategy::Rejection,
         seed = None,
@@ -139,8 +134,6 @@ impl Belfegor {
         feasible_infill_strategy: FeasibleInfillStrategy,
         cstr_infill: bool,
         cstr_strategy: ConstraintStrategy,
-        #[gen_stub(override_type(type_repr = "QEiConfig | builtins.dict[builtins.str, typing.Any] | None", imports = ("typing", "builtins")))]
-        qei_config: Option<QEiConfig>,
         infill_optimizer: InfillOptimizer,
         failsafe_strategy: FailsafeStrategy,
         seed: Option<u64>,
@@ -150,6 +143,17 @@ impl Belfegor {
         if n_obj == 0 {
             return Err(PyValueError::new_err("n_obj should be at least 1"));
         }
+        let moo_config = moo_config.unwrap_or_default();
+        if moo_config.batch == 0 {
+            return Err(PyValueError::new_err(
+                "moo_config batch should be at least 1",
+            ));
+        }
+        // batches of points: qEHVI or Kriging believer with default settings
+        let qei_config = QEiConfig {
+            batch: moo_config.batch,
+            ..QEiConfig::default()
+        };
         let egor = Egor::build(
             py,
             xspecs,
@@ -166,7 +170,7 @@ impl Belfegor {
             feasible_infill_strategy,
             cstr_infill,
             cstr_strategy,
-            qei_config,
+            Some(qei_config),
             infill_optimizer,
             None,
             0,
@@ -175,7 +179,6 @@ impl Belfegor {
             seed,
             verbose,
         )?;
-        let moo_config = moo_config.unwrap_or_default();
         let moo = MooSetup {
             n_obj,
             config: (&moo_config).into(),
@@ -215,7 +218,8 @@ impl Belfegor {
     /// fcstr_specs : list of CstrSpec or dict, optional
     ///     One CstrSpec per fcstr specifying how each function constraint should be interpreted.
     /// max_iters : int
-    ///     The iteration budget, number of fun calls is "n_doe + q_batch * max_iters".
+    ///     The iteration budget, number of fun calls is "n_doe + batch * max_iters"
+    ///     (batch being moo_config.batch).
     /// run_info : RunInfo or dict, optional
     ///     Information about the run (fname, num) used for checkpoint file naming.
     /// outdir : str, optional
@@ -311,7 +315,7 @@ impl Belfegor {
 
     /// This function gives the next best locations where to evaluate the function
     /// under optimization wrt to previous evaluations.
-    /// The function returns several points when a batch is configured (qei_config).
+    /// The function returns several points when a batch is configured (moo_config.batch).
     ///
     /// Parameters
     /// ----------
@@ -327,7 +331,7 @@ impl Belfegor {
     /// -------
     /// array[batch, nx]
     ///     suggested locations where to evaluate objectives and constraints
-    ///     where batch is the batch size (qei_config.batch, 1 by default)
+    ///     where batch is the batch size (moo_config.batch, 1 by default)
     ///
     #[pyo3(signature = (x_doe, y_doe, seed = None))]
     fn suggest(

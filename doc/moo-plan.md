@@ -336,6 +336,8 @@ Done (easy wins):
   multi-objective setting), with `n_obj`, `moo_config` (`MooConfig`, `MooStrategy`,
   `EimAggregation`) and a `ParetoResult` output (front and compromise point); `trego`,
   `coego_n_coop`, `target` and the deprecated `Egor` arguments are not `Belfegor` options. The
+  batch size is a `MooConfig` option instead of `qei_config` (qEHVI ignores the qEI strategy and
+  `optim_every`): the other strategies use the Kriging believer with default settings. The
   Python `Egor` API is unchanged.
 
 Remaining:

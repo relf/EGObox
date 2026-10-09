@@ -296,9 +296,11 @@ print(f"Pareto front of {len(res.y_pareto)} points")  # res.x_pareto, res.y_pare
 print(f"Compromise point f={res.y_opt} at x={res.x_opt}")
 ```
 
-- `moo_config=egx.MooConfig(strategy=..., eim_aggregation=..., hv_stop=(tol, n_iters), rho=..., n_divisions=...)`
+- `moo_config=egx.MooConfig(strategy=..., batch=..., eim_aggregation=..., hv_stop=(tol, n_iters), rho=..., n_divisions=...)`
   (or a dict): `strategy` is `MooStrategy.EHVI` by default for 2–3 objectives, `MooStrategy.PAREGO` beyond;
-  `MooStrategy.EIM`; `MooStrategy.QEHVI` for batches (`qei_config=egx.QEiConfig(batch=2..4)`, single-cluster GPs).
+  `MooStrategy.EIM`; `MooStrategy.QEHVI` for batches (`batch=2..4`, single-cluster GPs).
+- `batch` (points per iteration) is a `MooConfig` option: `Belfegor` has no `qei_config`, batches of
+  non-QEHVI strategies use the Kriging believer heuristic.
 - `hv_stop=(1e-3, 5)` stops when the front hypervolume improves by less than 0.1 % over 5 iterations
   (`ExitStatus.SOLVER_CONVERGED`).
 - `minimize()` returns `BelfegorOptim`: `.result` (`ParetoResult` with `x_pareto`, `y_pareto`, `x_opt`/`y_opt`

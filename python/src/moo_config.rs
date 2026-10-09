@@ -131,6 +131,12 @@ const DEFAULT_RHO: f64 = 0.05;
 ///     Strategy used to optimize the objectives. When None (default), MooStrategy.EHVI is used
 ///     for 2 or 3 objectives and MooStrategy.PAREGO beyond.
 ///
+/// batch : int >= 1
+///     Number of points evaluated at each iteration (default: 1). With MooStrategy.QEHVI
+///     (at most 4 points), the points of a batch are selected by qEHVI, otherwise by the Kriging
+///     believer heuristic (each point maximizes the infill criterion, the previous points of the
+///     batch being added with their predicted values).
+///
 /// eim_aggregation : EimAggregation
 ///     Aggregation of the expected improvement matrix used by MooStrategy.EIM
 ///     (default: EimAggregation.EUCLIDEAN).
@@ -157,6 +163,10 @@ pub(crate) struct MooConfig {
     #[pyo3(get, set)]
     pub strategy: Option<MooStrategy>,
 
+    /// Number of points evaluated at each iteration
+    #[pyo3(get, set)]
+    pub batch: usize,
+
     /// Aggregation of the expected improvement matrix used by MooStrategy.EIM
     #[pyo3(get, set)]
     pub eim_aggregation: EimAggregation,
@@ -178,6 +188,7 @@ impl Default for MooConfig {
     fn default() -> Self {
         MooConfig {
             strategy: None,
+            batch: 1,
             eim_aggregation: EimAggregation::Euclidean,
             hv_stop: None,
             rho: DEFAULT_RHO,
@@ -201,6 +212,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for MooConfig {
             let key = key.extract::<String>()?;
             match key.as_str() {
                 "strategy" => cfg.strategy = value.extract()?,
+                "batch" => cfg.batch = value.extract()?,
                 "eim_aggregation" => cfg.eim_aggregation = value.extract()?,
                 "hv_stop" => cfg.hv_stop = value.extract()?,
                 "rho" => cfg.rho = value.extract()?,
@@ -217,6 +229,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for MooConfig {
     }
 }
 
+/// Rust multi-objective configuration (the batch size being part of the Rust qEI configuration)
 impl From<&MooConfig> for egobox_ego::MooConfig {
     fn from(value: &MooConfig) -> Self {
         let mut config = egobox_ego::MooConfig::default()
@@ -247,6 +260,10 @@ impl MooConfig {
     ///     Strategy used to optimize the objectives (default: None, i.e. EHVI for 2 or 3
     ///     objectives, PAREGO beyond)
     ///
+    /// batch : int, optional
+    ///     Number of points evaluated at each iteration (default: 1), selected by qEHVI with
+    ///     MooStrategy.QEHVI (at most 4 points), by the Kriging believer heuristic otherwise
+    ///
     /// eim_aggregation : EimAggregation, optional
     ///     Aggregation used by MooStrategy.EIM (default: EimAggregation.EUCLIDEAN)
     ///
@@ -268,6 +285,7 @@ impl MooConfig {
     #[new]
     #[pyo3(signature = (
         strategy=None,
+        batch=MooConfig::default().batch,
         eim_aggregation=MooConfig::default().eim_aggregation,
         hv_stop=None,
         rho=DEFAULT_RHO,
@@ -275,6 +293,7 @@ impl MooConfig {
     ))]
     pub fn new(
         strategy: Option<MooStrategy>,
+        batch: usize,
         eim_aggregation: EimAggregation,
         hv_stop: Option<(f64, usize)>,
         rho: f64,
@@ -282,6 +301,7 @@ impl MooConfig {
     ) -> Self {
         MooConfig {
             strategy,
+            batch,
             eim_aggregation,
             hv_stop,
             rho,
@@ -294,6 +314,7 @@ impl MooConfig {
             "MooConfig",
             &[
                 ("strategy", self.strategy.into_pyobject(py)?.into_any()),
+                ("batch", self.batch.into_pyobject(py)?.into_any()),
                 (
                     "eim_aggregation",
                     self.eim_aggregation.into_pyobject(py)?.into_any(),

@@ -28,9 +28,9 @@
 * Fix gradient of the probability of feasibility (used with `cstr_infill`) when a non-zero constraint
   tolerance is set
 * Python `Belfegor` multi-objective optimizer (experimental), facade of the `Egor` binding with `n_obj` and
-  `moo_config` (`MooConfig`, `MooStrategy`, `EimAggregation`): `minimize()` returns a `BelfegorOptim` holding
-  a `ParetoResult` (Pareto front and compromise point), with `suggest()`, `pareto_result()` and
-  `pareto_indices()`. The Python `Egor` API is unchanged
+  `moo_config` (`MooConfig` with the batch size, `MooStrategy`, `EimAggregation`): `minimize()` returns a
+  `BelfegorOptim` holding a `ParetoResult` (Pareto front and compromise point), with `suggest()`,
+  `pareto_result()` and `pareto_indices()`. The Python `Egor` API is unchanged
 * `ParetoResult::x_opt` / `y_opt` (compromise point) and `find_pareto_front_indices()` /
   `find_compromise_index()` giving the Pareto front and compromise point of given data
 

@@ -44,7 +44,7 @@ print(
 `Belfegor` approximates the Pareto front of several objectives, all minimized, the function returning
 `[obj_1, ..., obj_n_obj, cstr_1, ...]` columns. It shares the `Egor` options which apply to several
 objectives, the multi-objective strategy being set with `MooConfig` (EHVI by default for 2 or 3 objectives,
-ParEGO beyond, EIM and qEHVI for batches of points).
+ParEGO beyond, EIM and qEHVI for batches of points set with `MooConfig(batch=...)`).
 
 ```python
 import numpy as np

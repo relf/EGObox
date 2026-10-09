@@ -172,7 +172,6 @@ Belfegor(
     feasible_infill_strategy=FeasibleInfillStrategy.NONE,
     cstr_infill=False,
     cstr_strategy=ConstraintStrategy.MC,
-    qei_config=None,
     infill_optimizer=InfillOptimizer.COBYLA,
     failsafe_strategy=FailsafeStrategy.REJECTION,
     seed=None,
@@ -186,14 +185,15 @@ Belfegor(
 | `moo_config` | `Optional[MooConfig \| dict]` | `None` | Multi-objective configuration, see `MooConfig` below. |
 
 The other parameters are the `Egor` ones. `infill_strategy` and `feasible_infill_strategy` apply to the
-scalarized objective of `MooStrategy.PAREGO`. With `MooStrategy.QEHVI`, the batch points
-(`qei_config=QEiConfig(batch=...)`, at most 4) are selected by qEHVI.
+scalarized objective of `MooStrategy.PAREGO`. Batches of points are set with `MooConfig(batch=...)`
+(there is no `qei_config`).
 
 ### MooConfig
 
 ```python
 MooConfig(
     strategy=None,
+    batch=1,
     eim_aggregation=EimAggregation.EUCLIDEAN,
     hv_stop=None,
     rho=0.05,
@@ -204,6 +204,7 @@ MooConfig(
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `strategy` | `Optional[MooStrategy]` | `None` | `PAREGO` (scalarization, single surrogate), `EIM` (expected improvement matrix), `EHVI` (expected hypervolume improvement, at most 8 objectives) or `QEHVI` (batch EHVI, single-cluster surrogates). `None` gives `EHVI` for 2 or 3 objectives, `PAREGO` beyond. |
+| `batch` | `int` | `1` | Number of points evaluated at each iteration. With `QEHVI` (at most 4 points) the batch points are selected by qEHVI, otherwise by the Kriging believer heuristic (each point maximizes the criterion, the previous points of the batch being added with their predicted values). |
 | `eim_aggregation` | `EimAggregation` | `EUCLIDEAN` | Aggregation used by `EIM`: `EUCLIDEAN`, `MAXIMIN` or `HYPERVOLUME`. |
 | `hv_stop` | `Optional[tuple[float, int]]` | `None` | `(tol, n_iters)`: stop when the hypervolume of the feasible front improves by less than `tol` (relative) over the last `n_iters` iterations (`ExitStatus.SOLVER_CONVERGED`). |
 | `rho` | `float` | `0.05` | ParEGO augmented Tchebycheff coefficient. |

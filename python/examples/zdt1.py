@@ -30,8 +30,7 @@ def zdt1(x: np.ndarray) -> np.ndarray:
 belfegor = egx.Belfegor(
     [[0.0, 1.0], [0.0, 1.0]],
     n_obj=2,
-    moo_config=egx.MooConfig(strategy=egx.MooStrategy.QEHVI),
-    qei_config=egx.QEiConfig(batch=3),
+    moo_config=egx.MooConfig(strategy=egx.MooStrategy.QEHVI, batch=3),
     n_doe=10,
     seed=42,
 )

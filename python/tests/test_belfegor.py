@@ -81,8 +81,7 @@ class TestBelfegor(unittest.TestCase):
             with self.subTest(strategy=strategy):
                 res = egx.Belfegor(
                     ZDT1_XLIMITS,
-                    moo_config=egx.MooConfig(strategy=strategy),
-                    qei_config=egx.QEiConfig(batch=batch),
+                    moo_config=egx.MooConfig(strategy=strategy, batch=batch),
                     n_doe=10,
                     seed=42,
                 ).minimize(zdt1, max_iters=8)
@@ -146,6 +145,18 @@ class TestBelfegor(unittest.TestCase):
 
         np.testing.assert_array_equal(run().x_doe, run().x_doe)
 
+    def test_ask_and_tell_batch(self):
+        for strategy in [egx.MooStrategy.QEHVI, egx.MooStrategy.EHVI]:
+            with self.subTest(strategy=strategy):
+                belfegor = egx.Belfegor(
+                    ZDT1_XLIMITS,
+                    moo_config=egx.MooConfig(strategy=strategy, batch=3),
+                    seed=42,
+                )
+                x = egx.lhs(np.array(ZDT1_XLIMITS), 10, seed=42)
+                x_new = belfegor.suggest(x, zdt1(x))
+                self.assertEqual(x_new.shape, (3, 2))
+
     def test_ask_and_tell(self):
         belfegor = egx.Belfegor(ZDT1_XLIMITS, seed=42)
         x = egx.lhs(np.array(ZDT1_XLIMITS), 10, seed=42)
@@ -177,16 +188,19 @@ class TestBelfegor(unittest.TestCase):
             belfegor.pareto_indices(res.y_doe[:, :1])
 
     def test_moo_config(self):
+        self.assertEqual(egx.MooConfig().batch, 1)
         cfg = egx.MooConfig(
             strategy=egx.MooStrategy.EIM,
+            batch=2,
             eim_aggregation=egx.EimAggregation.HYPERVOLUME,
             hv_stop=(1e-3, 4),
         )
         self.assertEqual(cfg.strategy, egx.MooStrategy.EIM)
+        self.assertEqual(cfg.batch, 2)
         self.assertEqual(cfg.hv_stop, (1e-3, 4))
         self.assertEqual(
             repr(cfg),
-            "MooConfig(strategy=MooStrategy.EIM, "
+            "MooConfig(strategy=MooStrategy.EIM, batch=2, "
             "eim_aggregation=EimAggregation.HYPERVOLUME, hv_stop=(0.001, 4), "
             "rho=0.05, n_divisions=None)",
         )
@@ -195,9 +209,14 @@ class TestBelfegor(unittest.TestCase):
         belfegor = egx.Belfegor(
             ZDT1_XLIMITS,
             n_obj=2,
-            moo_config={"strategy": egx.MooStrategy.PAREGO, "n_divisions": 6},
+            moo_config={
+                "strategy": egx.MooStrategy.PAREGO,
+                "batch": 3,
+                "n_divisions": 6,
+            },
         )
         self.assertEqual(belfegor.moo_config.strategy, egx.MooStrategy.PAREGO)
+        self.assertEqual(belfegor.moo_config.batch, 3)
         self.assertEqual(belfegor.moo_config.n_divisions, 6)
         with self.assertRaisesRegex(ValueError, "unknown moo_config key 'stragety'"):
             egx.Belfegor(ZDT1_XLIMITS, moo_config={"stragety": egx.MooStrategy.EIM})
@@ -210,6 +229,13 @@ class TestBelfegor(unittest.TestCase):
             egx.Belfegor(ZDT1_XLIMITS, trego=True)
         with self.assertRaises(TypeError):
             egx.Belfegor(ZDT1_XLIMITS, target=0.0)
+        # batches are configured with MooConfig
+        with self.assertRaises(TypeError):
+            egx.Belfegor(ZDT1_XLIMITS, qei_config=egx.QEiConfig(batch=2))
+        with self.assertRaisesRegex(
+            ValueError, "moo_config batch should be at least 1"
+        ):
+            egx.Belfegor(ZDT1_XLIMITS, moo_config={"batch": 0})
         # wrong number of objectives returned by the function
         with self.assertRaisesRegex(ValueError, r"\(3 objectives \+ 0 constraints\)"):
             egx.Belfegor(ZDT1_XLIMITS, n_obj=3).minimize(zdt1, max_iters=1)
@@ -217,8 +243,7 @@ class TestBelfegor(unittest.TestCase):
         with self.assertRaises(ValueError):
             egx.Belfegor(
                 ZDT1_XLIMITS,
-                moo_config=egx.MooConfig(strategy=egx.MooStrategy.QEHVI),
-                qei_config=egx.QEiConfig(batch=5),
+                moo_config=egx.MooConfig(strategy=egx.MooStrategy.QEHVI, batch=5),
             ).minimize(zdt1, max_iters=1)
 
 

@@ -62,8 +62,8 @@ class Belfegor:
     n_obj : int >= 1
         Number of objectives returned first by `fun` (see `minimize`), default is 2.
     moo_config : MooConfig or dict, optional
-        Multi-objective configuration (strategy, EIM aggregation, hypervolume-based stop,
-        ParEGO options), see MooConfig for details.
+        Multi-objective configuration (strategy, batch size, EIM aggregation, hypervolume-based
+        stop, ParEGO options), see MooConfig for details.
     gp_config : GpConfig or dict, optional
         GP configuration of the surrogates, see GpConfig for details.
         MooStrategy.QEHVI requires single-cluster surrogates (n_clusters=1, the default).
@@ -97,10 +97,6 @@ class Belfegor:
     cstr_strategy : ConstraintStrategy
         Constraint management, either ConstraintStrategy.MC (mean constraint, default) or
         ConstraintStrategy.UTB (upper trust bound).
-    qei_config : QEiConfig or dict, optional
-        Configuration of batches of points selected at each iteration, see QEiConfig.
-        With MooStrategy.QEHVI, batch points are selected by qEHVI (at most 4 points),
-        otherwise with the QEiConfig strategy.
     infill_optimizer : InfillOptimizer
         Internal optimizer used to optimize infill criteria, InfillOptimizer.COBYLA (default)
         or InfillOptimizer.SLSQP.
@@ -128,7 +124,7 @@ class Belfegor:
         r"""
         Multi-objective configuration
         """
-    def __new__(cls, xspecs: typing.Sequence[XSpec] | typing.Sequence[typing.Sequence[builtins.float]] | numpy.typing.NDArray[numpy.float64], n_obj: builtins.int = 2, moo_config: MooConfig | builtins.dict[builtins.str, typing.Any] | None = None, gp_config: GpConfig | builtins.dict[builtins.str, typing.Any] | None = None, n_cstr: builtins.int = 0, cstr_specs: typing.Sequence[CstrSpec | builtins.dict[builtins.str, typing.Any]] | None = None, infill_n_start: typing.Optional[builtins.int] = None, n_doe: builtins.int = 0, x_doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, y_doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, infill_strategy: InfillStrategy = InfillStrategy.LOG_EI, feasible_infill_strategy: FeasibleInfillStrategy = FeasibleInfillStrategy.NONE, cstr_infill: builtins.bool = False, cstr_strategy: ConstraintStrategy = ConstraintStrategy.MC, qei_config: QEiConfig | builtins.dict[builtins.str, typing.Any] | None = None, infill_optimizer: InfillOptimizer = InfillOptimizer.COBYLA, failsafe_strategy: FailsafeStrategy = FailsafeStrategy.REJECTION, seed: typing.Optional[builtins.int] = None, verbose: Verbose | builtins.int | None = None) -> Belfegor: ...
+    def __new__(cls, xspecs: typing.Sequence[XSpec] | typing.Sequence[typing.Sequence[builtins.float]] | numpy.typing.NDArray[numpy.float64], n_obj: builtins.int = 2, moo_config: MooConfig | builtins.dict[builtins.str, typing.Any] | None = None, gp_config: GpConfig | builtins.dict[builtins.str, typing.Any] | None = None, n_cstr: builtins.int = 0, cstr_specs: typing.Sequence[CstrSpec | builtins.dict[builtins.str, typing.Any]] | None = None, infill_n_start: typing.Optional[builtins.int] = None, n_doe: builtins.int = 0, x_doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, y_doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, infill_strategy: InfillStrategy = InfillStrategy.LOG_EI, feasible_infill_strategy: FeasibleInfillStrategy = FeasibleInfillStrategy.NONE, cstr_infill: builtins.bool = False, cstr_strategy: ConstraintStrategy = ConstraintStrategy.MC, infill_optimizer: InfillOptimizer = InfillOptimizer.COBYLA, failsafe_strategy: FailsafeStrategy = FailsafeStrategy.REJECTION, seed: typing.Optional[builtins.int] = None, verbose: Verbose | builtins.int | None = None) -> Belfegor: ...
     def minimize(self, fun: typing.Callable[[numpy.typing.NDArray[numpy.float64]], numpy.typing.NDArray[numpy.float64]], fcstrs: typing.Sequence[typing.Callable[[numpy.typing.NDArray[numpy.float64], builtins.bool], builtins.float | numpy.typing.NDArray[numpy.float64]] | tuple[typing.Callable[[numpy.typing.NDArray[numpy.float64]], builtins.float], typing.Callable[[numpy.typing.NDArray[numpy.float64]], numpy.typing.NDArray[numpy.float64]]] | builtins.dict[builtins.str, typing.Callable[[numpy.typing.NDArray[numpy.float64]], builtins.float | numpy.typing.NDArray[numpy.float64]]]] | None = None, fcstr_specs: typing.Sequence[CstrSpec | builtins.dict[builtins.str, typing.Any]] | None = None, max_iters: builtins.int = 20, run_info: RunInfo | builtins.dict[builtins.str, typing.Any] | None = None, outdir: typing.Optional[builtins.str] = None, warm_start: builtins.bool = False, hot_start: builtins.bool | builtins.int | None = None, seed: typing.Optional[builtins.int] = None, timeout: typing.Optional[builtins.float] = None, verbose: Verbose | builtins.int | None = None, stop_on_error: builtins.bool = False) -> BelfegorOptim:
         r"""
         This function approximates the Pareto front of the objectives of a given function "fun"
@@ -147,7 +143,8 @@ class Belfegor:
         fcstr_specs : list of CstrSpec or dict, optional
             One CstrSpec per fcstr specifying how each function constraint should be interpreted.
         max_iters : int
-            The iteration budget, number of fun calls is "n_doe + q_batch * max_iters".
+            The iteration budget, number of fun calls is "n_doe + batch * max_iters"
+            (batch being moo_config.batch).
         run_info : RunInfo or dict, optional
             Information about the run (fname, num) used for checkpoint file naming.
         outdir : str, optional
@@ -188,7 +185,7 @@ class Belfegor:
         r"""
         This function gives the next best locations where to evaluate the function
         under optimization wrt to previous evaluations.
-        The function returns several points when a batch is configured (qei_config).
+        The function returns several points when a batch is configured (moo_config.batch).
         
         Parameters
         ----------
@@ -204,7 +201,7 @@ class Belfegor:
         -------
         array[batch, nx]
             suggested locations where to evaluate objectives and constraints
-            where batch is the batch size (qei_config.batch, 1 by default)
+            where batch is the batch size (moo_config.batch, 1 by default)
         """
     def pareto_indices(self, y_doe: numpy.typing.NDArray[numpy.float64]) -> builtins.list[builtins.int]:
         r"""
@@ -1251,6 +1248,12 @@ class MooConfig:
         Strategy used to optimize the objectives. When None (default), MooStrategy.EHVI is used
         for 2 or 3 objectives and MooStrategy.PAREGO beyond.
     
+    batch : int >= 1
+        Number of points evaluated at each iteration (default: 1). With MooStrategy.QEHVI
+        (at most 4 points), the points of a batch are selected by qEHVI, otherwise by the Kriging
+        believer heuristic (each point maximizes the infill criterion, the previous points of the
+        batch being added with their predicted values).
+    
     eim_aggregation : EimAggregation
         Aggregation of the expected improvement matrix used by MooStrategy.EIM
         (default: EimAggregation.EUCLIDEAN).
@@ -1278,6 +1281,16 @@ class MooConfig:
     def strategy(self, value: typing.Optional[MooStrategy]) -> None:
         r"""
         Strategy used to optimize the objectives (None for the default depending on the number of objectives)
+        """
+    @property
+    def batch(self) -> builtins.int:
+        r"""
+        Number of points evaluated at each iteration
+        """
+    @batch.setter
+    def batch(self, value: builtins.int) -> None:
+        r"""
+        Number of points evaluated at each iteration
         """
     @property
     def eim_aggregation(self) -> EimAggregation:
@@ -1319,7 +1332,7 @@ class MooConfig:
         r"""
         ParEGO number of divisions of the weight simplex lattice (None for the default)
         """
-    def __new__(cls, strategy: typing.Optional[MooStrategy] = None, eim_aggregation: EimAggregation = EimAggregation.EUCLIDEAN, hv_stop: typing.Optional[tuple[builtins.float, builtins.int]] = None, rho: builtins.float = 0.05, n_divisions: typing.Optional[builtins.int] = None) -> MooConfig:
+    def __new__(cls, strategy: typing.Optional[MooStrategy] = None, batch: builtins.int = 1, eim_aggregation: EimAggregation = EimAggregation.EUCLIDEAN, hv_stop: typing.Optional[tuple[builtins.float, builtins.int]] = None, rho: builtins.float = 0.05, n_divisions: typing.Optional[builtins.int] = None) -> MooConfig:
         r"""
         Create a new multi-objective optimization configuration.
         
@@ -1329,6 +1342,10 @@ class MooConfig:
         strategy : MooStrategy, optional
             Strategy used to optimize the objectives (default: None, i.e. EHVI for 2 or 3
             objectives, PAREGO beyond)
+        
+        batch : int, optional
+            Number of points evaluated at each iteration (default: 1), selected by qEHVI with
+            MooStrategy.QEHVI (at most 4 points), by the Kriging believer heuristic otherwise
         
         eim_aggregation : EimAggregation, optional
             Aggregation used by MooStrategy.EIM (default: EimAggregation.EUCLIDEAN)
