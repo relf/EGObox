@@ -27,6 +27,13 @@
   iteration and its evaluated value (instead of the first proposed point and its surrogate prediction)
 * Fix gradient of the probability of feasibility (used with `cstr_infill`) when a non-zero constraint
   tolerance is set
+* Python `Belfegor` multi-objective optimizer (experimental), facade of the `Egor` binding with `n_obj` and
+  `moo_config` (`MooConfig` with the batch size, `MooStrategy`, `EimAggregation`): `minimize()` returns a
+  `BelfegorOptim` holding a `ParetoResult` (Pareto front and compromise point), with `suggest()`,
+  `pareto_result()` and `pareto_indices()`. The Python `Egor` API is unchanged. The
+  `examples/belfegor_pymoo.py` script optimizes pymoo multi-objective test problems
+* `ParetoResult::x_opt` / `y_opt` (compromise point) and `find_pareto_front_indices()` /
+  `find_compromise_index()` giving the Pareto front and compromise point of given data
 
 ## Version 0.38.1 - unreleased
 

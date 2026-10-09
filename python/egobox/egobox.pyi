@@ -7,11 +7,14 @@ import numpy
 import numpy.typing
 import typing
 __all__ = [
+    "Belfegor",
+    "BelfegorOptim",
     "ConstraintStrategy",
     "CorrelationSpec",
     "CstrSpec",
     "Egor",
     "EgorOptim",
+    "EimAggregation",
     "ExitStatus",
     "FailsafeStrategy",
     "FeasibleInfillStrategy",
@@ -20,7 +23,10 @@ __all__ = [
     "Gpx",
     "InfillOptimizer",
     "InfillStrategy",
+    "MooConfig",
+    "MooStrategy",
     "OptimResult",
+    "ParetoResult",
     "QEiConfig",
     "QEiStrategy",
     "Recombination",
@@ -38,6 +44,259 @@ __all__ = [
     "lhs",
     "sampling",
 ]
+
+@typing.final
+class Belfegor:
+    r"""
+    Multi-objective optimizer constructor
+    
+    Belfegor approximates the Pareto front of several objectives, all minimized, subject to
+    constraints. It shares the options of Egor which apply to several objectives
+    (the multi-objective optimization is experimental).
+    
+    Parameters
+    ----------
+    xspecs : list of XSpec, list of [lower, upper] or array[nx, 2]
+        Specifications of the nx components of the input x (eg. len(xspecs) == nx),
+        see Egor for details.
+    n_obj : int >= 1
+        Number of objectives returned first by `fun` (see `minimize`), default is 2.
+    moo_config : MooConfig or dict, optional
+        Multi-objective configuration (strategy, batch size, EIM aggregation, hypervolume-based
+        stop, ParEGO options), see MooConfig for details.
+    gp_config : GpConfig or dict, optional
+        GP configuration of the surrogates, see GpConfig for details.
+        MooStrategy.QEHVI requires single-cluster surrogates (n_clusters=1, the default).
+    n_cstr : int
+        Number of constraints returned by `fun` after the objectives, approximated by surrogates.
+        Can be omitted when `cstr_specs` is given.
+    cstr_specs : list of CstrSpec or dict, optional
+        Describe how each surrogate-modeled constraint (returned by `fun`) should be interpreted
+        (CstrSpec.leq, CstrSpec.geq, CstrSpec.eq, CstrSpec.between, with an optional `tol`),
+        see Egor for details.
+    infill_n_start : int > 0, optional
+        Number of starts of the multistart optimization of the infill criterion (default is 20).
+    n_doe : int >= 0
+        Number of samples of initial LHS sampling (used when DOE not provided by the user).
+        When 0 a number of points is computed automatically.
+    x_doe : array[ns, nx], optional
+        Initial DOE inputs containing ns samples. When `y_doe` is not given,
+        ns evaluations are done to get the output values.
+    y_doe : array[ns, ny], optional
+        Initial DOE outputs [obj_1, ..., obj_n_obj, cstr_1, ... cstr_k] (ny = n_obj + n_cstr)
+        corresponding to `x_doe`, requires `x_doe`.
+    infill_strategy : InfillStrategy
+        Infill criterion of the scalarized objective used by MooStrategy.PAREGO
+        (default InfillStrategy.LOG_EI).
+    feasible_infill_strategy : FeasibleInfillStrategy
+        Weight the infill criterion by the probability of viability (MooStrategy.PAREGO only),
+        see Egor for details.
+    cstr_infill : bool
+        Activate constrained infill criterion (product of probabilities of feasibility of the
+        constraint surrogates).
+    cstr_strategy : ConstraintStrategy
+        Constraint management, either ConstraintStrategy.MC (mean constraint, default) or
+        ConstraintStrategy.UTB (upper trust bound).
+    infill_optimizer : InfillOptimizer
+        Internal optimizer used to optimize infill criteria, InfillOptimizer.COBYLA (default)
+        or InfillOptimizer.SLSQP.
+    failsafe_strategy : FailsafeStrategy
+        Strategy to handle objective computation failure (NaN values) at a given x point:
+        FailsafeStrategy.REJECTION (default), FailsafeStrategy.IMPUTATION (not with
+        MooStrategy.PAREGO) or FailsafeStrategy.VIABILITY.
+    seed : int >= 0, optional
+        Random generator seed used by `minimize()` and `suggest()` when they are not given one.
+    verbose : Verbose or int, optional
+        Logging verbosity level used by `minimize()` and `suggest()` when `minimize()` is not given one.
+    
+    Returns
+    -------
+    Belfegor
+        A multi-objective optimizer which can be used to optimize a function using the minimize method.
+    """
+    @property
+    def n_obj(self) -> builtins.int:
+        r"""
+        Number of objectives
+        """
+    @property
+    def moo_config(self) -> MooConfig:
+        r"""
+        Multi-objective configuration
+        """
+    def __new__(cls, xspecs: typing.Sequence[XSpec] | typing.Sequence[typing.Sequence[builtins.float]] | numpy.typing.NDArray[numpy.float64], n_obj: builtins.int = 2, moo_config: MooConfig | builtins.dict[builtins.str, typing.Any] | None = None, gp_config: GpConfig | builtins.dict[builtins.str, typing.Any] | None = None, n_cstr: builtins.int = 0, cstr_specs: typing.Sequence[CstrSpec | builtins.dict[builtins.str, typing.Any]] | None = None, infill_n_start: typing.Optional[builtins.int] = None, n_doe: builtins.int = 0, x_doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, y_doe: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, infill_strategy: InfillStrategy = InfillStrategy.LOG_EI, feasible_infill_strategy: FeasibleInfillStrategy = FeasibleInfillStrategy.NONE, cstr_infill: builtins.bool = False, cstr_strategy: ConstraintStrategy = ConstraintStrategy.MC, infill_optimizer: InfillOptimizer = InfillOptimizer.COBYLA, failsafe_strategy: FailsafeStrategy = FailsafeStrategy.REJECTION, seed: typing.Optional[builtins.int] = None, verbose: Verbose | builtins.int | None = None) -> Belfegor: ...
+    def minimize(self, fun: typing.Callable[[numpy.typing.NDArray[numpy.float64]], numpy.typing.NDArray[numpy.float64]], fcstrs: typing.Sequence[typing.Callable[[numpy.typing.NDArray[numpy.float64], builtins.bool], builtins.float | numpy.typing.NDArray[numpy.float64]] | tuple[typing.Callable[[numpy.typing.NDArray[numpy.float64]], builtins.float], typing.Callable[[numpy.typing.NDArray[numpy.float64]], numpy.typing.NDArray[numpy.float64]]] | builtins.dict[builtins.str, typing.Callable[[numpy.typing.NDArray[numpy.float64]], builtins.float | numpy.typing.NDArray[numpy.float64]]]] | None = None, fcstr_specs: typing.Sequence[CstrSpec | builtins.dict[builtins.str, typing.Any]] | None = None, max_iters: builtins.int = 20, run_info: RunInfo | builtins.dict[builtins.str, typing.Any] | None = None, outdir: typing.Optional[builtins.str] = None, warm_start: builtins.bool = False, hot_start: builtins.bool | builtins.int | None = None, seed: typing.Optional[builtins.int] = None, timeout: typing.Optional[builtins.float] = None, verbose: Verbose | builtins.int | None = None, stop_on_error: builtins.bool = False) -> BelfegorOptim:
+        r"""
+        This function approximates the Pareto front of the objectives of a given function "fun"
+        
+        Parameters
+        ----------
+        fun : callable (array[n, nx]) -> array[n, ny]
+            The function to be minimized: fun(x) = [obj_1(x), ..., obj_m(x), cstr_1(x), ... cstr_k(x)]
+            where m is the number of objectives (n_obj) and k the number of constraints (n_cstr),
+            hence ny = n_obj + n_cstr. All objectives are minimized, cstr functions are expected
+            to be negative (<=0) at the Pareto points (unless `cstr_specs` is used).
+        fcstrs : list, optional
+            Cheap constraint functions g, evaluated directly (not approximated by surrogates),
+            which have to be made negative (g(x) <= 0, unless `fcstr_specs` is used),
+            see Egor.minimize for the accepted forms.
+        fcstr_specs : list of CstrSpec or dict, optional
+            One CstrSpec per fcstr specifying how each function constraint should be interpreted.
+        max_iters : int
+            The iteration budget, number of fun calls is "n_doe + batch * max_iters"
+            (batch being moo_config.batch).
+        run_info : RunInfo or dict, optional
+            Information about the run (fname, num) used for checkpoint file naming.
+        outdir : str, optional
+            Directory to write optimization history and used as search path for warm start doe
+        warm_start : bool
+            Start by loading initial doe from <outdir> directory
+        hot_start : bool or int >= 0, optional
+            Save the optimizer state at each iteration and restart from a previous checkpoint,
+            see Egor.minimize for details.
+        seed : int >= 0, optional
+            Random generator seed to allow computation reproducibility.
+            When None, the seed given to the constructor (if any) is used.
+        timeout : float, optional
+            Timeout in seconds, checked after each iteration.
+        verbose : Verbose or int, optional
+            Logging verbosity level, see Egor.minimize for the possible values.
+            When None, the verbosity given to the constructor is used.
+        stop_on_error : bool
+            If true, terminate optimization when the objective function raises an error.
+            Otherwise, the error is handled according to failsafe_strategy.
+        
+        Returns
+        -------
+        BelfegorOptim
+            result (ParetoResult) and status (RunStatus) of the optimization, where result holds:
+        
+            * x_pareto (array[np, nx]): x values of the np points of the (constrained) Pareto front
+            * y_pareto (array[np, ny]): fun(x_pareto) where ny = n_obj + n_cstr
+            * x_opt (array[nx]): compromise point of the front
+            * y_opt (array[ny]): fun(x_opt)
+            * x_doe (array[ns, nx]): x values of the final DOE
+            * y_doe (array[ns, ny]): y values of the final DOE
+        
+            y values hold the raw constraint values as returned by `fun` (not transformed
+            by `cstr_specs`).
+        """
+    def suggest(self, x_doe: numpy.typing.NDArray[numpy.float64], y_doe: numpy.typing.NDArray[numpy.float64], seed: typing.Optional[builtins.int] = None) -> numpy.typing.NDArray[numpy.float64]:
+        r"""
+        This function gives the next best locations where to evaluate the function
+        under optimization wrt to previous evaluations.
+        The function returns several points when a batch is configured (moo_config.batch).
+        
+        Parameters
+        ----------
+        x_doe : array[ns, nx]
+            ns samples where function has been evaluated
+        y_doe : array[ns, n_obj + n_cstr]
+            ns values of objectives and constraints
+        seed : int >= 0, optional
+            Random generator seed to allow computation reproducibility.
+            When None, the seed given to the constructor (if any) is used.
+        
+        Returns
+        -------
+        array[batch, nx]
+            suggested locations where to evaluate objectives and constraints
+            where batch is the batch size (moo_config.batch, 1 by default)
+        """
+    def pareto_indices(self, y_doe: numpy.typing.NDArray[numpy.float64]) -> builtins.list[builtins.int]:
+        r"""
+        This function gives the indices of the points of the (constrained) Pareto front
+        given the outputs of the function (objectives and constraints) under minimization.
+        Caveat: This function does not take into account function constraints values
+        
+        Parameters
+        ----------
+        y_doe : array[ns, n_obj + n_cstr]
+            ns values of objectives and constraints as returned by `fun` (see `minimize`),
+            constraints are interpreted with `cstr_specs` and their tolerances if given
+        
+        Returns
+        -------
+        list of int
+            indices in y_doe of the Pareto front points (in y_doe order). When no point is feasible,
+            the index of the point with the smallest constraint violation.
+        """
+    def pareto_result(self, x_doe: numpy.typing.NDArray[numpy.float64], y_doe: numpy.typing.NDArray[numpy.float64]) -> ParetoResult:
+        r"""
+        This function gives the Pareto front and the compromise point given inputs and outputs
+        of the function (objectives and constraints) under minimization.
+        Caveat: This function does not take into account function constraints values
+        
+        Parameters
+        ----------
+        x_doe : array[ns, nx]
+            ns samples where function has been evaluated
+        y_doe : array[ns, n_obj + n_cstr]
+            ns values of objectives and constraints as returned by `fun` (see `minimize`),
+            constraints are interpreted with `cstr_specs` and their tolerances if given
+        
+        Returns
+        -------
+        ParetoResult
+            * x_pareto (array[np, nx]), y_pareto (array[np, ny]): the Pareto front points
+            * x_opt (array[nx]), y_opt (array[ny]): the compromise point of the front
+            * x_doe (array[ns, nx]), y_doe (array[ns, ny]): the given data
+        """
+
+@typing.final
+class BelfegorOptim:
+    r"""
+    Belfegor optimization output
+    
+    The optimization result fields are also available directly (`x_pareto`, `y_pareto`,
+    `x_opt`, `y_opt`, `x_doe`, `y_doe`) and the output can be unpacked as
+    `x_pareto, y_pareto = belfegor.minimize(...)`.
+    """
+    @property
+    def result(self) -> ParetoResult:
+        r"""
+        Result of optimization run
+        """
+    @property
+    def status(self) -> RunStatus:
+        r"""
+        Status of optimization run
+        """
+    @property
+    def x_pareto(self) -> numpy.typing.NDArray[numpy.float64]:
+        r"""
+        Pareto set, same as `result.x_pareto`
+        """
+    @property
+    def y_pareto(self) -> numpy.typing.NDArray[numpy.float64]:
+        r"""
+        Pareto front, same as `result.y_pareto`
+        """
+    @property
+    def x_opt(self) -> numpy.typing.NDArray[numpy.float64]:
+        r"""
+        Compromise point of the front, same as `result.x_opt`
+        """
+    @property
+    def y_opt(self) -> numpy.typing.NDArray[numpy.float64]:
+        r"""
+        y value of the compromise point, same as `result.y_opt`
+        """
+    @property
+    def x_doe(self) -> numpy.typing.NDArray[numpy.float64]:
+        r"""
+        DOE x points, including initial points and optimization history, same as `result.x_doe`
+        """
+    @property
+    def y_doe(self) -> numpy.typing.NDArray[numpy.float64]:
+        r"""
+        DOE y points, including initial points and optimization history, same as `result.y_doe`
+        """
+    def __iter__(self) -> typing.Iterator[numpy.typing.NDArray[numpy.float64]]:
+        r"""
+        Iterate over (x_pareto, y_pareto) to allow `x_pareto, y_pareto = belfegor.minimize(...)`
+        """
+    def __repr__(self) -> builtins.str: ...
 
 @typing.final
 class CorrelationSpec:
@@ -978,6 +1237,137 @@ class Gpx:
         """
 
 @typing.final
+class MooConfig:
+    r"""
+    Multi-objective optimization configuration used by Belfegor.
+    
+    Parameters
+    ----------
+    
+    strategy : MooStrategy, optional
+        Strategy used to optimize the objectives. When None (default), MooStrategy.EHVI is used
+        for 2 or 3 objectives and MooStrategy.PAREGO beyond.
+    
+    batch : int >= 1
+        Number of points evaluated at each iteration (default: 1). With MooStrategy.QEHVI
+        (at most 4 points), the points of a batch are selected by qEHVI, otherwise by the Kriging
+        believer heuristic (each point maximizes the infill criterion, the previous points of the
+        batch being added with their predicted values).
+    
+    eim_aggregation : EimAggregation
+        Aggregation of the expected improvement matrix used by MooStrategy.EIM
+        (default: EimAggregation.EUCLIDEAN).
+    
+    hv_stop : tuple of (float, int), optional
+        Hypervolume-based stop (tol, n_iters): the optimization stops when the hypervolume of the
+        (feasible) Pareto front improves by less than the relative tolerance tol over the last
+        n_iters iterations, reported as ExitStatus.SOLVER_CONVERGED. When None (default),
+        the optimization runs till max_iters.
+    
+    rho : float
+        Coefficient of the augmented Tchebycheff function used by MooStrategy.PAREGO
+        (default: 0.05).
+    
+    n_divisions : int, optional
+        Number of divisions of the weight simplex lattice used by MooStrategy.PAREGO.
+        When None (default), 10 for 2 objectives, 4 for 3 objectives and 3 beyond.
+    """
+    @property
+    def strategy(self) -> typing.Optional[MooStrategy]:
+        r"""
+        Strategy used to optimize the objectives (None for the default depending on the number of objectives)
+        """
+    @strategy.setter
+    def strategy(self, value: typing.Optional[MooStrategy]) -> None:
+        r"""
+        Strategy used to optimize the objectives (None for the default depending on the number of objectives)
+        """
+    @property
+    def batch(self) -> builtins.int:
+        r"""
+        Number of points evaluated at each iteration
+        """
+    @batch.setter
+    def batch(self, value: builtins.int) -> None:
+        r"""
+        Number of points evaluated at each iteration
+        """
+    @property
+    def eim_aggregation(self) -> EimAggregation:
+        r"""
+        Aggregation of the expected improvement matrix used by MooStrategy.EIM
+        """
+    @eim_aggregation.setter
+    def eim_aggregation(self, value: EimAggregation) -> None:
+        r"""
+        Aggregation of the expected improvement matrix used by MooStrategy.EIM
+        """
+    @property
+    def hv_stop(self) -> typing.Optional[tuple[builtins.float, builtins.int]]:
+        r"""
+        Hypervolume-based stop (relative tolerance, number of iterations)
+        """
+    @hv_stop.setter
+    def hv_stop(self, value: typing.Optional[tuple[builtins.float, builtins.int]]) -> None:
+        r"""
+        Hypervolume-based stop (relative tolerance, number of iterations)
+        """
+    @property
+    def rho(self) -> builtins.float:
+        r"""
+        ParEGO augmented Tchebycheff coefficient
+        """
+    @rho.setter
+    def rho(self, value: builtins.float) -> None:
+        r"""
+        ParEGO augmented Tchebycheff coefficient
+        """
+    @property
+    def n_divisions(self) -> typing.Optional[builtins.int]:
+        r"""
+        ParEGO number of divisions of the weight simplex lattice (None for the default)
+        """
+    @n_divisions.setter
+    def n_divisions(self, value: typing.Optional[builtins.int]) -> None:
+        r"""
+        ParEGO number of divisions of the weight simplex lattice (None for the default)
+        """
+    def __new__(cls, strategy: typing.Optional[MooStrategy] = None, batch: builtins.int = 1, eim_aggregation: EimAggregation = EimAggregation.EUCLIDEAN, hv_stop: typing.Optional[tuple[builtins.float, builtins.int]] = None, rho: builtins.float = 0.05, n_divisions: typing.Optional[builtins.int] = None) -> MooConfig:
+        r"""
+        Create a new multi-objective optimization configuration.
+        
+        Parameters
+        ----------
+        
+        strategy : MooStrategy, optional
+            Strategy used to optimize the objectives (default: None, i.e. EHVI for 2 or 3
+            objectives, PAREGO beyond)
+        
+        batch : int, optional
+            Number of points evaluated at each iteration (default: 1), selected by qEHVI with
+            MooStrategy.QEHVI (at most 4 points), by the Kriging believer heuristic otherwise
+        
+        eim_aggregation : EimAggregation, optional
+            Aggregation used by MooStrategy.EIM (default: EimAggregation.EUCLIDEAN)
+        
+        hv_stop : tuple of (float, int), optional
+            Hypervolume-based stop (tol, n_iters) (default: None, no stop)
+        
+        rho : float, optional
+            ParEGO augmented Tchebycheff coefficient (default: 0.05)
+        
+        n_divisions : int, optional
+            ParEGO number of divisions of the weight simplex lattice (default: None)
+        
+        Returns
+        -------
+        
+        MooConfig
+            A new multi-objective optimization configuration object
+        """
+    def __repr__(self) -> builtins.str: ...
+
+@typing.final
 class OptimResult:
     r"""
     OptimResult contains the results of a run of the optimization algorithm,
@@ -995,6 +1385,48 @@ class OptimResult:
     def y_opt(self) -> numpy.typing.NDArray[numpy.float64]:
         r"""
         Optimal y point found by the optimization algorithm
+        """
+    @property
+    def x_doe(self) -> numpy.typing.NDArray[numpy.float64]:
+        r"""
+        DOE x points, including initial points and optimization history
+        """
+    @property
+    def y_doe(self) -> numpy.typing.NDArray[numpy.float64]:
+        r"""
+        DOE y points, including initial points and optimization history
+        """
+    def __repr__(self) -> builtins.str: ...
+
+@typing.final
+class ParetoResult:
+    r"""
+    ParetoResult contains the results of a multi-objective optimization run: the approximation
+    of the Pareto front, its compromise point and the DOE points and values which include
+    initial points and the optimization history.
+    y values hold the objectives and the raw constraint values as returned by the objective
+    function (ny = n_obj + n_cstr columns, even when `cstr_specs` is used).
+    """
+    @property
+    def x_pareto(self) -> numpy.typing.NDArray[numpy.float64]:
+        r"""
+        Pareto set: x values of the points of the (constrained) Pareto front
+        """
+    @property
+    def y_pareto(self) -> numpy.typing.NDArray[numpy.float64]:
+        r"""
+        Pareto front: y values of the points of the Pareto set
+        """
+    @property
+    def x_opt(self) -> numpy.typing.NDArray[numpy.float64]:
+        r"""
+        Compromise point of the front: the point minimizing the uniform-weight augmented
+        Tchebycheff function of the objectives normalized with the front bounds
+        """
+    @property
+    def y_opt(self) -> numpy.typing.NDArray[numpy.float64]:
+        r"""
+        y value of the compromise point
         """
     @property
     def x_doe(self) -> numpy.typing.NDArray[numpy.float64]:
@@ -1617,6 +2049,26 @@ class ConstraintStrategy(enum.Enum):
     """
 
 @typing.final
+class EimAggregation(enum.Enum):
+    r"""
+    EimAggregation specifies how the expected improvement matrix is aggregated
+    by the MooStrategy.EIM strategy
+    """
+    EUCLIDEAN = ...
+    r"""
+    Minimum over front points of the Euclidean norm of the expected improvements
+    """
+    MAXIMIN = ...
+    r"""
+    Minimum over front points of the maximum expected improvement
+    """
+    HYPERVOLUME = ...
+    r"""
+    Minimum over front points of the expected hypervolume improvement of the
+    hyper-rectangle dominated by the point improved by the expected improvements
+    """
+
+@typing.final
 class ExitStatus(enum.Enum):
     r"""
     ExitStatus specifies the reason for the termination of the optimization algorithm.
@@ -1742,6 +2194,37 @@ class InfillStrategy(enum.Enum):
     r"""
     Logarithm of Expected Improvement (LogEI)
     see Ament et al. (2023) "Unexpected Improvements to Expected Improvement for Bayesian Optimization"
+    """
+
+@typing.final
+class MooStrategy(enum.Enum):
+    r"""
+    MooStrategy specifies how several objectives are optimized by Belfegor
+    """
+    PAREGO = ...
+    r"""
+    ParEGO (Knowles 2006): at each iteration, objectives normalized with their observed bounds
+    are aggregated with an augmented Tchebycheff function using a weight vector randomly drawn
+    from a simplex lattice, then the mono-objective EGO machinery is applied to that
+    scalarized objective (single surrogate)
+    """
+    EIM = ...
+    r"""
+    Expected Improvement Matrix (Zhan et al. 2017): one surrogate per objective, the expected
+    improvements of each objective over each point of the Pareto front are aggregated into
+    an infill criterion (see MooConfig eim_aggregation)
+    """
+    EHVI = ...
+    r"""
+    Expected Hypervolume Improvement (Emmerich et al. 2006): one surrogate per objective,
+    expected improvement of the hypervolume dominated by the Pareto front (at most 8 objectives)
+    """
+    QEHVI = ...
+    r"""
+    Batch Expected Hypervolume Improvement (Daulton et al. 2020) for batches of points
+    (see QEiConfig batch): EHVI for the first point of a batch, then expected hypervolume
+    improvement of each following point given the points already selected, under the joint
+    posterior of the surrogates (single-cluster surrogates, batches of at most 4 points)
     """
 
 @typing.final

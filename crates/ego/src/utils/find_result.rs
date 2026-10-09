@@ -164,6 +164,39 @@ pub fn find_best_result_index<F: Float>(
     }
 }
 
+/// Indices of the points of the (constrained) Pareto front of the data, all objectives being
+/// minimized:
+/// * `y_data` containing ns samples `[obj_1, ..., obj_n_obj, cstr_1, ... cstr_nc]` is given as
+///   a matrix (ns, n_obj + nc), constraints being expected `<= 0`,
+/// * `c_data` contains the function constraint values (ns, nfc),
+/// * `cstr_tol` gives the tolerances of the constraints of `y_data` followed by those of `c_data`.
+///
+/// Feasible points dominate infeasible ones: the front is the set of non-dominated feasible points
+/// (in data order). When no point is feasible, the front reduces to the point with the smallest
+/// constraint violation. Rows with non finite values are never part of the front.
+pub fn find_pareto_front_indices(
+    y_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+    c_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+    n_obj: usize,
+    cstr_tol: &Array1<f64>,
+) -> Vec<usize> {
+    crate::moo::pareto::pareto_front_indices(y_data, c_data, n_obj, cstr_tol, &[])
+}
+
+/// Index of the compromise point of the data (see [`find_pareto_front_indices`] for the data
+/// layout): the point of the (constrained) Pareto front minimizing the uniform-weight augmented
+/// Tchebycheff function of the objectives normalized with the front bounds, as returned by
+/// [`crate::Egor::run`] with several objectives. When no point is feasible, it is the point with
+/// the smallest constraint violation. `None` when there is no point with finite values.
+pub fn find_compromise_index(
+    y_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+    c_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+    n_obj: usize,
+    cstr_tol: &Array1<f64>,
+) -> Option<usize> {
+    crate::moo::scalarization::compromise_index(y_data, c_data, n_obj, cstr_tol, &[])
+}
+
 /// Check if the sum of constraints above tolerance is zero
 /// meaning the given point do not violate any constraint
 pub fn is_feasible<F: Float>(

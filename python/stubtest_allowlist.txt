@@ -2,10 +2,10 @@
 # Only pyo3 / pyo3-stub-gen artefacts are listed here, any other error is a real stub/runtime drift.
 
 # pyo3 enum members are class instances at runtime, stubs declare them as `MEMBER = ...`
-egobox\.egobox\.(ConstraintStrategy|ExitStatus|FailsafeStrategy|FeasibleInfillStrategy|InfillOptimizer|InfillStrategy|QEiStrategy|Recombination|Sampling|SparseMethod|Verbose|XType)\.[A-Z_0-9]+
+egobox\.egobox\.(ConstraintStrategy|EimAggregation|ExitStatus|FailsafeStrategy|FeasibleInfillStrategy|InfillOptimizer|InfillStrategy|MooStrategy|QEiStrategy|Recombination|Sampling|SparseMethod|Verbose|XType)\.[A-Z_0-9]+
 
 # pyo3 runtime text signatures render non-literal defaults as `...` while stubs give the actual value
-egobox\.egobox\.(Egor|GpConfig|GpMix|QEiConfig|RunInfo|SparseGpMix|TregoConfig|XSpec)\.__new__
+egobox\.egobox\.(Belfegor|Egor|GpConfig|GpMix|MooConfig|QEiConfig|RunInfo|SparseGpMix|TregoConfig|XSpec)\.__new__
 egobox\.egobox\.(Gpx|SparseGpx)\.builder
 
 # private hook used by the `gpx` CLI entry point, intentionally not part of the stub

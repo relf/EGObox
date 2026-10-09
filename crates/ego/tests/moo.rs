@@ -168,6 +168,53 @@ fn test_zdt1_run_returns_compromise_point() {
         .into_iter()
         .any(|y| (0..2).all(|k| y[k] <= res.y_opt[k]) && (0..2).any(|k| y[k] < res.y_opt[k]));
     assert!(!dominated);
+    // same compromise point with run_pareto, which is a point of the front
+    let pareto = EgorBuilder::optimize(zdt1)
+        .configure(|cfg| cfg.n_obj(2).n_doe(10).max_iters(5).seed(42))
+        .min_within(&array![[0., 1.], [0., 1.]])
+        .expect("Egor configured")
+        .run_pareto()
+        .expect("ZDT1 optimization");
+    assert_eq!(pareto.x_opt, res.x_opt);
+    assert_eq!(pareto.y_opt, res.y_opt);
+    assert!(pareto.x_pareto.rows().into_iter().any(|x| x == res.x_opt));
+}
+
+#[test]
+fn test_front_helpers() {
+    use egobox_ego::{find_compromise_index, find_pareto_front_indices};
+    // [f1, f2, c] with c <= 0
+    let y = array![
+        [1., 4., -1.],
+        [2., 2., -1.],
+        [4., 1., -1.],
+        [3., 3., -1.], // dominated
+        [0., 0., 1.],  // infeasible
+        [f64::NAN, 0., -1.]
+    ];
+    let c = Array2::zeros((y.nrows(), 0));
+    let tol = array![1e-4];
+    assert_eq!(find_pareto_front_indices(&y, &c, 2, &tol), vec![0, 1, 2]);
+    assert_eq!(find_compromise_index(&y, &c, 2, &tol), Some(1));
+    // function constraint making the point 1 infeasible
+    let c = array![[-1.], [1.], [-1.], [-1.], [-1.], [-1.]];
+    let tol = array![1e-4, 1e-4];
+    assert_eq!(find_pareto_front_indices(&y, &c, 2, &tol), vec![0, 2, 3]);
+    // no feasible point: the smallest violation
+    let y = array![[1., 4., 2.], [2., 2., 0.5], [4., 1., 3.]];
+    let c = Array2::zeros((3, 0));
+    let tol = array![1e-4];
+    assert_eq!(find_pareto_front_indices(&y, &c, 2, &tol), vec![1]);
+    assert_eq!(find_compromise_index(&y, &c, 2, &tol), Some(1));
+    assert_eq!(
+        find_compromise_index(
+            &Array2::<f64>::zeros((0, 3)),
+            &Array2::zeros((0, 0)),
+            2,
+            &tol
+        ),
+        None
+    );
 }
 
 #[test]

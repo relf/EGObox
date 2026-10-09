@@ -432,7 +432,8 @@ pub use crate::solver::*;
 pub use crate::types::*;
 pub use crate::utils::{
     CHECKPOINT_FILE, EGOBOX_LOG, EGOR_GP_FILENAME, EGOR_INITIAL_GP_FILENAME,
-    EGOR_USE_GP_VAR_PORTFOLIO, HotStartMode, find_best_result_index, load_gp_models,
+    EGOR_USE_GP_VAR_PORTFOLIO, HotStartMode, find_best_result_index, find_compromise_index,
+    find_pareto_front_indices, load_gp_models,
 };
 pub use egobox_moe::{CorrelationSpec, RegressionSpec};
 

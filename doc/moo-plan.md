@@ -1,8 +1,8 @@
 # Multi-objective optimization (MOO) in Egor — gradual implementation plan
 
 > Scope: the Rust crate `egobox-ego` only. The Python bindings are out of scope: they only consume
-> the Rust API, which this plan changes additively, so they keep compiling unchanged. Exposing MOO in
-> Python is a separate, later plan.
+> the Rust API, which this plan changes additively, so they keep compiling unchanged. MOO is exposed
+> in Python by the separate `Belfegor` facade (see the end of step 6).
 > Code references are as of egobox-ego 0.41.1 (master at `3a4440e` plus the warm-start fix).
 
 ## 1. Goal
@@ -328,12 +328,22 @@ Done (easy wins):
   - Results (ZDT1, batch of 3, 8 iterations): hypervolume 88.9 % of the true-front hypervolume
     (91.7 % with EHVI Kriging believer batches on the same run): no clear gain on this small
     bi-objective case, where the Kriging believer is already a good batch heuristic.
+- Front helpers for ask-and-tell users: `find_pareto_front_indices` and `find_compromise_index`
+  (constrained Pareto front and compromise point of given data), and `ParetoResult::x_opt`/`y_opt`
+  (the compromise point returned by `run`).
+- Python: `Belfegor` facade of the `Egor` binding (`python/src/belfegor.rs`), sharing its
+  construction, run and suggest code (`Egor::build`, `optimize`, `suggest_points` with an optional
+  multi-objective setting), with `n_obj`, `moo_config` (`MooConfig`, `MooStrategy`,
+  `EimAggregation`) and a `ParetoResult` output (front and compromise point); `trego`,
+  `coego_n_coop`, `target` and the deprecated `Egor` arguments are not `Belfegor` options. The
+  batch size is a `MooConfig` option instead of `qei_config` (qEHVI ignores the qEI strategy and
+  `optim_every`): the other strategies use the Kriging believer with default settings. The
+  Python `Egor` API is unchanged.
 
 Remaining:
 - Failsafe imputation with ParEGO: the surrogates are trained on the scalarized view, so the
   penalized rows (view layout) do not match the raw data layout; e.g. worst observed value per
   objective.
-- A front helper for ask-and-tell users (e.g. a public `pareto_front_indices`).
 - ParEGO batch with one λ per batch point (retraining the scalarized model inside the batch
   loop).
 - TREGO and CoEGO: either define them around the compromise point (trust region center or CoEGO

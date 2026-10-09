@@ -8,6 +8,7 @@ weight = 50
 This page summarizes the Python API signatures from `python/egobox/egobox.pyi` for:
 
 - `Egor` constructor and `Egor.minimize(...)`
+- `Belfegor` constructor and `Belfegor.minimize(...)` (multi-objective)
 - `Gpx.builder(...)`
 - `Gpx` instance and static methods
 
@@ -146,6 +147,87 @@ x_opt, y_opt = egor.minimize(fun, max_iters=20)
 
 `Egor.best_result(x_doe, y_doe)` and `Egor.best_index(y_doe)` give the best point of a given DOE
 (`get_result` and `get_result_index` are deprecated since 0.38.0).
+
+## Belfegor (multi-objective, experimental)
+
+`Belfegor` approximates the Pareto front of several objectives, all minimized: `fun(x)` returns
+`[obj_1, ..., obj_n_obj, cstr_1, ... cstr_k]` columns (`ny = n_obj + n_cstr`). It shares the `Egor`
+options which apply to several objectives (`trego`, `coego_n_coop` and `target` are not available).
+
+Signature:
+
+```python
+Belfegor(
+    xspecs,
+    n_obj=2,
+    moo_config=None,
+    gp_config=None,
+    n_cstr=0,
+    cstr_specs=None,
+    infill_n_start=None,
+    n_doe=0,
+    x_doe=None,
+    y_doe=None,
+    infill_strategy=InfillStrategy.LOG_EI,
+    feasible_infill_strategy=FeasibleInfillStrategy.NONE,
+    cstr_infill=False,
+    cstr_strategy=ConstraintStrategy.MC,
+    infill_optimizer=InfillOptimizer.COBYLA,
+    failsafe_strategy=FailsafeStrategy.REJECTION,
+    seed=None,
+    verbose=None,
+)
+```
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `n_obj` | `int` | `2` | Number of objectives, the first columns returned by `fun`. |
+| `moo_config` | `Optional[MooConfig \| dict]` | `None` | Multi-objective configuration, see `MooConfig` below. |
+
+The other parameters are the `Egor` ones. `infill_strategy` and `feasible_infill_strategy` apply to the
+scalarized objective of `MooStrategy.PAREGO`. Batches of points are set with `MooConfig(batch=...)`
+(there is no `qei_config`).
+
+### MooConfig
+
+```python
+MooConfig(
+    strategy=None,
+    batch=1,
+    eim_aggregation=EimAggregation.EUCLIDEAN,
+    hv_stop=None,
+    rho=0.05,
+    n_divisions=None,
+)
+```
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `strategy` | `Optional[MooStrategy]` | `None` | `PAREGO` (scalarization, single surrogate), `EIM` (expected improvement matrix), `EHVI` (expected hypervolume improvement, at most 8 objectives) or `QEHVI` (batch EHVI, single-cluster surrogates). `None` gives `EHVI` for 2 or 3 objectives, `PAREGO` beyond. |
+| `batch` | `int` | `1` | Number of points evaluated at each iteration. With `QEHVI` (at most 4 points) the batch points are selected by qEHVI, otherwise by the Kriging believer heuristic (each point maximizes the criterion, the previous points of the batch being added with their predicted values). |
+| `eim_aggregation` | `EimAggregation` | `EUCLIDEAN` | Aggregation used by `EIM`: `EUCLIDEAN`, `MAXIMIN` or `HYPERVOLUME`. |
+| `hv_stop` | `Optional[tuple[float, int]]` | `None` | `(tol, n_iters)`: stop when the hypervolume of the feasible front improves by less than `tol` (relative) over the last `n_iters` iterations (`ExitStatus.SOLVER_CONVERGED`). |
+| `rho` | `float` | `0.05` | ParEGO augmented Tchebycheff coefficient. |
+| `n_divisions` | `Optional[int]` | `None` | ParEGO number of divisions of the weight simplex lattice (10 for 2 objectives, 4 for 3, 3 beyond). |
+
+A dict with the same keys is also accepted.
+
+### Belfegor.minimize
+
+`Belfegor.minimize(fun, fcstrs=None, fcstr_specs=None, max_iters=20, run_info=None, outdir=None, warm_start=False, hot_start=None, seed=None, timeout=None, verbose=None, stop_on_error=False)`
+takes the `Egor.minimize` parameters and returns a `BelfegorOptim` with `result` (a `ParetoResult` holding
+`x_pareto`, `y_pareto`, `x_opt`, `y_opt`, `x_doe`, `y_doe`) and `status`. `x_pareto`/`y_pareto` is the
+(constrained) Pareto front approximation and `x_opt`/`y_opt` its compromise point. The result fields are
+also available directly on the returned object, which can be unpacked as `(x_pareto, y_pareto)`:
+
+```python
+res = belfegor.minimize(fun, max_iters=20)
+res.x_pareto, res.y_pareto  # same as res.result.x_pareto, res.result.y_pareto
+x_pareto, y_pareto = belfegor.minimize(fun, max_iters=20)
+```
+
+`Belfegor.suggest(x_doe, y_doe)` gives the next points to evaluate (ask-and-tell), and
+`Belfegor.pareto_result(x_doe, y_doe)` / `Belfegor.pareto_indices(y_doe)` give the Pareto front of a given DOE.
 
 ## Gpx.builder
 
