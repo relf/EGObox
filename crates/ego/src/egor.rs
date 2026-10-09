@@ -460,6 +460,8 @@ impl<O: ObjFn, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> E
         Ok(ParetoResult {
             x_pareto: res.x_doe.select(Axis(0), &indices),
             y_pareto: res.y_doe.select(Axis(0), &indices),
+            x_opt: res.x_opt,
+            y_opt: res.y_opt,
             x_doe: res.x_doe,
             y_doe: res.y_doe,
             state: res.state,

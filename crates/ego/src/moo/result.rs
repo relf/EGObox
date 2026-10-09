@@ -2,12 +2,12 @@
 
 use crate::EgorState;
 use linfa::Float;
-use ndarray::Array2;
+use ndarray::{Array1, Array2};
 
 /// Multi-objective optimization result returned by [`crate::Egor::run_pareto`]
 ///
-/// `y_pareto` and `y_doe` hold the objectives and the raw constraint values as returned by
-/// the objective function, i.e. `n_obj + n_cstr` columns, like [`crate::OptimResult`].
+/// `y_pareto`, `y_opt` and `y_doe` hold the objectives and the raw constraint values as returned
+/// by the objective function, i.e. `n_obj + n_cstr` columns, like [`crate::OptimResult`].
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct ParetoResult<F: Float> {
@@ -17,6 +17,12 @@ pub struct ParetoResult<F: Float> {
     pub x_pareto: Array2<F>,
     /// Pareto front: y values of the points of the Pareto set
     pub y_pareto: Array2<F>,
+    /// Compromise point of the Pareto set (as returned by [`crate::Egor::run`]): the point of the
+    /// front minimizing the uniform-weight augmented Tchebycheff function of the objectives
+    /// normalized with the front bounds
+    pub x_opt: Array1<F>,
+    /// y value of the compromise point
+    pub y_opt: Array1<F>,
     /// History of successive x values
     pub x_doe: Array2<F>,
     /// History of successive y values (e.g f(x_doe))
