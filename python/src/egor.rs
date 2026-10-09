@@ -633,7 +633,7 @@ fn initial_doe(
 }
 
 /// Check (x_doe, y_doe) are non empty with the same number of rows
-fn check_doe(x_doe: Option<&ArrayView2<f64>>, y_doe: &ArrayView2<f64>) -> PyResult<()> {
+pub(crate) fn check_doe(x_doe: Option<&ArrayView2<f64>>, y_doe: &ArrayView2<f64>) -> PyResult<()> {
     if y_doe.nrows() == 0 || y_doe.ncols() == 0 {
         return Err(PyValueError::new_err(format!(
             "y_doe should be a non empty array of shape (ns, 1 + n_cstr), got {:?}",
@@ -1058,7 +1058,11 @@ impl Egor {
     /// after specs expansion) when given by the user either with `cstr_tol` or with specs `tol`
     /// (which take precedence), None otherwise to let the optimizer use its defaults.
     /// `fcstr_specs` is either empty or one spec per function constraint.
-    fn internal_cstr_tol(&self, fcstr_specs: &[CstrSpec], n_fcstr: usize) -> Option<Array1<f64>> {
+    pub(crate) fn internal_cstr_tol(
+        &self,
+        fcstr_specs: &[CstrSpec],
+        n_fcstr: usize,
+    ) -> Option<Array1<f64>> {
         let cstr_specs = self.cstr_specs.as_deref().unwrap_or(&[]);
         let has_spec_tol = cstr_specs
             .iter()

@@ -1,8 +1,10 @@
 #![doc = include_str!("../README.md")]
 
+mod belfegor;
 mod egor;
 mod gp_config;
 mod gp_mix;
+mod moo_config;
 mod qei_config;
 mod sampling;
 mod sparse_gp_mix;
@@ -14,6 +16,7 @@ pub(crate) mod errors;
 pub(crate) mod logging;
 pub(crate) mod types;
 
+use belfegor::*;
 use egor::*;
 use gp_mix::*;
 use sampling::*;
@@ -44,6 +47,9 @@ fn egobox(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<sampling::Sampling>()?;
     m.add_class::<gp_config::GpConfig>()?;
     m.add_class::<qei_config::QEiConfig>()?;
+    m.add_class::<moo_config::MooConfig>()?;
+    m.add_class::<moo_config::MooStrategy>()?;
+    m.add_class::<moo_config::EimAggregation>()?;
     m.add_class::<trego_config::TregoConfig>()?;
     m.add_class::<RegressionSpec>()?;
     m.add_class::<CorrelationSpec>()?;
@@ -59,6 +65,8 @@ fn egobox(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<XSpec>()?;
     m.add_class::<OptimResult>()?;
     m.add_class::<EgorOptim>()?;
+    m.add_class::<ParetoResult>()?;
+    m.add_class::<BelfegorOptim>()?;
     m.add_class::<Recombination>()?;
     m.add_class::<RunInfo>()?;
     m.add_class::<RunStatus>()?;
@@ -73,6 +81,7 @@ fn egobox(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // Optimizer
     m.add_class::<Egor>()?;
+    m.add_class::<Belfegor>()?;
 
     Ok(())
 }
