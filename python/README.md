@@ -87,3 +87,6 @@ plt.show()
 ```
 
 See the [tutorial notebooks](https://github.com/relf/egobox/tree/master/notebooks/README.md) and [examples folder](https://github.com/relf/egobox/tree/master/python/examples) for more information on the usage of the optimizer and mixture of Gaussian processes surrogate model.
+In particular, `examples/belfegor_pymoo.py` runs `Belfegor` on [pymoo](https://pymoo.org) multi-objective test problems
+(`pip install pymoo`, then `python belfegor_pymoo.py --list` to list them and `python belfegor_pymoo.py zdt1 --n-var 5`
+to approximate the ZDT1 Pareto front, plotted with quality metrics such as hypervolume and IGD).

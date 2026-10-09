@@ -1,3 +1,4 @@
+import importlib.util
 import runpy
 import unittest
 from pathlib import Path
@@ -14,6 +15,24 @@ class TestExamples(unittest.TestCase):
 
     def test_belfegor_example(self):
         runpy.run_path(str(EXAMPLES_DIR / "zdt1.py"))
+
+    @unittest.skipUnless(importlib.util.find_spec("pymoo"), "pymoo is not installed")
+    def test_belfegor_pymoo_example(self):
+        example = runpy.run_path(str(EXAMPLES_DIR / "belfegor_pymoo.py"))
+        example["main"](["--list"])
+        example["main"](["zdt1", "--n-var", "3", "--max-iters", "3", "--no-show"])
+        example["main"](
+            [
+                "bnh",
+                "--strategy",
+                "qehvi",
+                "--batch",
+                "2",
+                "--max-iters",
+                "2",
+                "--no-show",
+            ]
+        )
 
 
 if __name__ == "__main__":
