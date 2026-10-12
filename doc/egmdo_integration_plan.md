@@ -2,36 +2,51 @@
 
 ## 1. Goal
 
-Integrate the **Efficient Global Multidisciplinary Design Optimization (EGMDO)** algorithm into EGObox, using the original EGMDO paper as the algorithmic reference.
+Integrate the **Efficient Global Multidisciplinary Design Optimization (EGMDO)** algorithm into EGObox, together with its constrained extension **C-EGMDO**, using the two papers as algorithmic references:
 
-The first implementation will target **continuous, bounded, single-objective, unconstrained MDO problems**. It will use EGObox's existing numerical and Gaussian-process (GP) capabilities where appropriate, while keeping EGMDO's orchestration separate from the existing `Egor` optimization loop.
+- EGMDO (Dubreuil et al., 2020): unconstrained problems;
+- C-EGMDO (Cardoso et al., 2024): inequality and equality constraints, the WB2 acquisition criterion, and enrichment of a single discipline selected by Sobol sensitivity indices.
+
+The first release targets **continuous, bounded, single-objective MDO problems, with or without constraints**. It is built in two steps: the unconstrained EGMDO first, then the C-EGMDO extensions on top of it. The problem definition and data structures are designed for constraints from the start. It will use EGObox's existing numerical and Gaussian-process (GP) capabilities where appropriate, while keeping EGMDO's orchestration separate from the existing `Egor` optimization loop.
 
 The initial integration should not require a dependency on OpenMDAO. Users will provide disciplinary evaluation functions; an optional OpenMDAO adapter can be added to make it convenient to wrap OpenMDAO models.
 
 ## 2. Design principles
 
-- **Keep the EGMDO algorithm separate from `Egor`.** EGMDO manages multiple disciplinary surrogates and uncertainty propagated through a coupled system; it should not be forced into a conventional single-objective infill-criterion interface.
-- **Reuse EGObox infrastructure.** Reuse existing GP, design-of-experiments (DoE), and numerical optimization functionality where it matches the published algorithm.
+- **Keep the EGMDO algorithm separate from `Egor`.** EGMDO manages several disciplinary surrogates and a non-Gaussian random objective; it should not be forced into a conventional single-objective infill-criterion interface.
+- **Reuse EGObox infrastructure.** Reuse existing GP, design-of-experiments (DoE), linear algebra and optimization functionality where it matches the published algorithm.
 - **Keep the core framework-independent.** The Rust core should not depend on OpenMDAO or its Python object model.
 - **Use explicit discipline definitions.** The first version should not attempt to infer arbitrary disciplinary structure automatically from an MDO framework.
 - **Separate disciplinary evaluations from full MDA evaluations.** These serve different purposes and should be represented explicitly in the API.
-- **Follow the paper.** Implement the original EGMDO equations, approximation methods, and enrichment logic rather than substituting a generic EGO loop.
-- **Keep the hot loop in Rust.** Surrogate MDAs are solved many times per iteration; they must run entirely in Rust, without Python callbacks or the GIL.
-- **Be reproducible.** Every source of randomness (DoE, GP realizations, acquisition multistart) is seedable.
+- **Follow the paper.** Implement the original EGMDO equations, approximation methods, and enrichment logic rather than substituting a generic EGO loop. Any deviation is documented in the specification.
+- **Keep the hot loops in Rust.** Random MDAs are solved thousands of times per iteration; they must run entirely in Rust, without Python callbacks or the GIL.
+- **Be reproducible.** Every source of randomness (DoEs, Monte Carlo samples, multistart) is seedable.
 
-## 3. Working hypothesis of the algorithm
+## 3. Algorithm summary
 
-The following summary is written from memory of the paper and is meant to steer Stage A. **Every item must be verified against the paper** before it is treated as specified.
+The algorithm is specified equation by equation in `doc/egmdo_spec.md`. In short:
 
-1. **Disciplinary surrogates.** Each scalar coupling output of each discipline is modelled by a GP. Its inputs are the shared design variables, the discipline's local variables, and the coupling variables it receives.
-2. **Random MDA.** Replacing the disciplines by GP realizations makes the coupling variables, and therefore the objective, random functions of the design variables. Each realization is solved with a fixed-point MDA.
-3. **Functional GP realizations.** Since the MDA decides where each realization is evaluated, realizations must be functions that can be evaluated at any point, built from a fixed random vector (the paper uses a truncated expansion of the GPs; check which one).
-4. **Random objective approximation.** The mean and variance of the random objective are estimated with the paper's method (sampling and/or polynomial-chaos-type approximation over the expansion's random variables).
-5. **Design point selection.** An expected-improvement-type criterion on this approximation selects the next design point `z*`.
-6. **Discipline selection.** The discipline to enrich is the one whose GPs contribute most to the objective's variance at `z*` (Sobol'-type sensitivity indices).
-7. **Enrichment.** Only the selected discipline is evaluated, at `z*` and the coupling values given by the surrogate MDA at `z*` (the mean, or as specified in the paper).
-8. **Stopping.** Evaluation budget, an EI threshold, and/or a threshold on the objective's variance at the current optimum.
-9. **True MDA evaluations.** The algorithm enriches with *disciplinary* evaluations only. Full MDA runs on the true disciplines are used for final validation and benchmarking, not inside the loop.
+1. **Disciplinary GPs.** Each scalar coupling output `y_i = f_i(z, y_c(i))` is modelled by a GP trained on a DoE over `Z × C(i)`, where `C(i)` is a user-provided initial guess of the coupling variables' range.
+2. **Simplified random MDA.** Each disciplinary GP is replaced by a perfectly correlated random field `μ_i(z, y) + σ_i(z, y) ξ_i`, with one standard normal `ξ_i` per GP. For a sample of `Ξ = (ξ_1, …)`, the MDA is a deterministic system solved by non-linear Jacobi iterations, pointwise in `z`.
+3. **PCE of the random objective.** At each point of a design-space DoE (`DoE_UQ`), the objective `f_obj(z, Y*(z, Ξ))` is approximated by a Hermite polynomial chaos expansion in `Ξ`, fitted by least squares on Monte Carlo MDA solutions.
+4. **KL-GP random field.** A Karhunen–Loève decomposition of the PCE coefficient vectors over `DoE_UQ` is computed. The mean and the retained eigenvectors are interpolated in `z` by GPs (KL-GPs), giving a continuous non-Gaussian random field `Ỹ_obj(z, Ξ, η)`.
+5. **Step 1: where to reduce uncertainty.** An expected improvement over both uncertainty sources, estimated by Monte Carlo, selects `z_new`, which is added to `DoE_UQ`.
+6. **Step 2: disciplinary enrichment (Algorithm 1).** The probability `P_min` that each `DoE_UQ` point is the minimizer, and the coefficient of variation of the objective there, decide whether disciplinary GPs must be enriched. Enrichment evaluates **all** disciplines at `(z, y_c)`, where `y_c` solves the MDA on the GP means.
+7. **Stopping.** The paper stops on an iteration budget `n_max`. The final result is the mean KL-GP model (19), from which the distributions of the minimum position `Ẑ*` and value `Ŷ_min` are estimated by Monte Carlo.
+8. **No true MDA in the loop.** Only disciplinary evaluations are used. True MDA runs are for validation and benchmarking.
+
+### C-EGMDO extensions
+
+C-EGMDO (Cardoso et al., 2024, specified in part II of `doc/egmdo_spec.md`) keeps the structure above and changes the following steps:
+
+1. **Random constraints.** Constraints `g_m(z, y) ≤ 0` and `h_r(z, y) = 0` are cheap functions of the design and coupling variables, like the objective. They become random through the couplings, and get a PCE at each `DoE_UQ` point, computed from the same random MDAs as the objective.
+2. **Constraint models.** Constraints are not modelled by KL-GPs. Instead, the **mean** of each constraint PCE is interpolated in `z` by a GP, as in SEGO.
+3. **Step 1: constrained acquisition.** The constrained EI (CEI) improves on `f'_min(Ξ)`, the minimum of the objective PCE over the `DoE_UQ` points that are feasible for that sample. If no point is feasible, the least-violating point is used instead. CEI, or the less multimodal **WB2** criterion (`CEI − m_0(z)`), is maximized under the GP-mean constraints.
+4. **Step 2: constrained enrichment.** `P_min` is replaced by `P_sol`, the probability of being the feasible minimum. If `P_sol` is below a threshold `ε_P` everywhere, it falls back to the probability of being the least-violating point. The coefficient of variation becomes the maximum over the objective and the constraints.
+5. **Single-discipline enrichment.** Instead of all disciplines, only the discipline with the highest first-order Sobol index is enriched. The indices are computed analytically from the PCE coefficients of the most uncertain quantity. This option applies to unconstrained problems too.
+6. **Stopping.** Iteration budget, as in EGMDO.
+
+The papers list other kernels, an EI-based stopping criterion, costly constraints independent of the couplings, and high-dimensional couplings as perspectives. These are extensions here (Stage E).
 
 ## 4. Proposed architecture
 
@@ -39,28 +54,33 @@ The following summary is written from memory of the paper and is meant to steer 
 
 Create a new crate `crates/egmdo` (`egobox-egmdo`). Do not enlarge `egobox-ego`. The workspace picks up `crates/*` automatically.
 
-Responsibilities:
+Modules (indicative):
 
-- manage the design space and disciplinary models;
-- manage training data and GP models for each coupling output;
-- generate functional GP realizations and solve the surrogate MDA for each one;
-- implement the random-objective approximation required by EGMDO;
-- implement the paper's enrichment criterion and acquisition optimization;
-- choose which discipline to enrich and at which point, as specified by the algorithm;
-- handle stopping conditions and return optimization results.
+- `problem`: design space, disciplines, coupling-variable mapping, initial coupling bounds, objective and constraints;
+- `mda`: non-linear Jacobi fixed-point solver for one sample of `Ξ`, used for random MDAs and mean MDAs (and, in tests, for true MDAs);
+- `pce`: multivariate Hermite polynomial basis of total degree `d`, least-squares fit of the objective and constraint PCEs from the same MDA samples, mean, variance and first-order Sobol indices;
+- `kl`: Karhunen–Loève decomposition of the objective PCE coefficient vectors and KL-GP interpolation; GP interpolation of the constraint PCE means;
+- `criteria`: Monte Carlo EI and CEI, WB2, `P_min`/`P_sol`, constraint violation, coefficient of variation;
+- `solver`: enrichment (EGMDO Algorithm 1, C-EGMDO Algorithm 2), main loop, ask/tell state machine, final estimation of `Ẑ*` and `Ŷ_min`.
 
-Reuse and required changes:
+The unconstrained EGMDO is the special case of C-EGMDO with no constraints, all-discipline enrichment and the EI criterion. A single solver, configured by options, implements both rather than two parallel code paths.
 
-- `egobox-gp`: GP training and prediction. **Missing:** functional realizations (see Stage A′). The current `sample`/`sample_eig`/`sample_chol` (`crates/gp/src/algorithm.rs`) draw joint values only at a set of points chosen in advance and use an unseeded RNG, so they cannot be used inside a fixed-point MDA.
-- `egobox-doe`: initial designs and sampling.
-- `egobox-ego`: numerical optimizers (multistart, SLSQP, Cobyla). The `optimizers` module is currently private (`crates/ego/src/lib.rs`), so reusing it means making it public. That is an addition to the public API, not a breaking change.
+Reuse:
+
+- `egobox-gp`: `GaussianProcess` with constant mean and squared exponential kernel; `predict` and `predict_var` give `μ_i` and `σ_i`. No new GP capability is required.
+- `egobox-doe`: seeded `Lhs` for `DoE_fi` and `DoE_UQ`.
+- `linfa-linalg`: symmetric eigendecomposition for the KL step (already used by `egobox-gp`).
+- `egobox-ego`: the COBYLA multistart optimizer used for acquisition maximization; it supports the GP-mean constraints of the constrained acquisition. The `optimizers` module is currently private (`crates/ego/src/lib.rs`), so reusing it means making it public. That is an addition to the public API, not a breaking change. Alternatively, `egmdo` can call the `cobyla` crate directly.
+- `Egor` conventions: inequality constraints `g ≤ 0` and a constraint tolerance, so that EGMDO and `Egor` problems are written the same way.
+
+New numerical code (not available in EGObox): Hermite PCE with least-squares regression and PCE-based Sobol indices, KL decomposition of the PCE vector, Monte Carlo EI/CEI.
 
 ### Ask/tell orchestration
 
-The Rust core owns the algorithm state and runs the surrogate MDAs. It does not call disciplines itself. Instead, it exposes an ask/tell interface:
+The Rust core owns the algorithm state and runs all surrogate computations. It does not call disciplines itself. Instead, it exposes an ask/tell interface:
 
-- `ask()` returns enrichment requests of the form `(discipline_id, input_vector)`;
-- the caller evaluates the true discipline and passes the outputs back with `tell(discipline_id, input_vector, outputs)`;
+- `ask()` returns the next batch of disciplinary evaluations to perform. During initialization it is the initial `DoE_fi` of every discipline; during enrichment it is one point `(z, y_c(i))` per enriched discipline (all of them, or only the one selected by Sobol indices);
+- the caller evaluates the true disciplines and passes the outputs back with `tell(...)`;
 - `minimize()` is a convenience wrapper that runs this loop with user-provided callbacks.
 
 This follows the existing `suggest` pattern (`crates/ego/src/solver/egor_service.rs`, `python/src/egor.rs`). Python callbacks never run inside Rust loops, and framework adapters (OpenMDAO, GEMSEO) only have to answer requests.
@@ -69,7 +89,7 @@ This follows the existing `suggest` pattern (`crates/ego/src/solver/egor_service
 
 Expose a user-facing API under `egobox.egmdo`, with an optional adapter namespace such as `egobox.egmdo.openmdao`.
 
-The initial API should accept explicit discipline specifications and Python evaluation functions, and expose both `minimize()` and ask/tell. Keep the API illustrative until the algorithm's exact data requirements have been mapped from the paper.
+The initial API accepts explicit discipline specifications, Python evaluation functions, a cheap objective function and optional cheap constraint functions, and exposes both `minimize()` and ask/tell.
 
 ### Optional OpenMDAO adapter
 
@@ -79,155 +99,153 @@ Do not require automatic introspection of arbitrary OpenMDAO models in the first
 
 ## 5. Discipline evaluation model
 
-A discipline is **not necessarily a scalar objective function**. It is an evaluation function that accepts its declared inputs and returns one or more outputs. Some outputs may be coupling variables consumed by other disciplines.
+A discipline `f_i(z, y_c(i))` takes the design variables (or a subset) and the coupling variables it receives, and returns one or more coupling outputs.
 
 Represent each discipline explicitly with at least:
 
 - a stable name or identifier;
-- input variables and their dimensions;
-- output variables and their dimensions;
-- bounds or domain information for the inputs where applicable, **including coupling variables** (surrogate realizations can leave the physical domain, e.g. `sqrt(y1)` in Sellar);
-- an evaluation callback;
-- the mapping between its inputs and global design/coupling variables.
+- the design variables it uses;
+- the coupling variables it receives and the ones it produces, with their dimensions;
+- **initial bounds `C(i)` for the coupling variables it receives**. They are required to sample the initial disciplinary DoE over `Z × C(i)`. They are only an initial guess: enrichment points may fall outside them;
+- an evaluation callback.
 
-EGObox GPs have a single scalar output. **One GP is trained per scalar coupling output component**, not one per discipline. A discipline with a vector coupling output therefore owns several GPs, all trained on the same evaluations.
+EGObox GPs have a single scalar output. **One GP is trained per scalar coupling output**, and each has its own random variable `ξ`. The stochastic dimension `n_ξ` is therefore the total number of scalar coupling outputs; with the paper's scalar couplings it equals `n_d`. The PCE size grows as `(n_ξ + d)! / (n_ξ! d!)`, which limits the practical number of coupling outputs (documented as a limitation).
 
-### Objective
+Random samples can push coupling variables outside the physical domain of a discipline (e.g. `sqrt(y1)` in Sellar). Test problems must be written to tolerate this, and MDA failures are counted and reported.
 
-In the first version, the objective is assumed to be a **cheap, explicit function** of the design and coupling variables. It is evaluated on the (random) couplings and is not itself modelled by a GP. An objective that is the output of an expensive discipline is a later extension; it then needs its own GP like any other discipline output.
+### Objective and constraints
+
+The objective `f_obj(z, y)` is a **cheap, explicit function** of the design and coupling variables, as in both papers. It is evaluated on the random couplings and is not modelled by a GP. An objective computed by an expensive discipline is a later extension.
+
+Constraints follow the same model: inequality constraints `g_m(z, y) ≤ 0` and equality constraints `h_r(z, y) = 0` are cheap, explicit functions of the design and coupling variables. A constraint that depends only on `z` is a special case: it is deterministic, so its feasibility is the same for every random sample. The sign convention is the `Egor` one (`g ≤ 0`); C-EGMDO's equations use `g ≥ 0` and are translated in the specification. Equality constraints are satisfied within a tolerance. Costly constraints that do not depend on the couplings need their own surrogate; they are an extension.
 
 An illustrative Python API (not implemented yet):
 
 ```python
 from egobox.egmdo import Egmdo, Discipline
 
-discipline_1 = Discipline(
-    name="discipline_1",
-    fun=compute_discipline_1,
-    # Explicit input-variable mapping and bounds
+d1 = Discipline(
+    name="d1",
+    fun=compute_y1,                # (z, y2) -> y1
+    inputs=["z", "y2"],
+    outputs=["y1"],
+    coupling_bounds={"y2": [0.0, 25.0]},
 )
 
-discipline_2 = Discipline(
-    name="discipline_2",
-    fun=compute_discipline_2,
-    # Explicit input-variable mapping and bounds
+d2 = Discipline(
+    name="d2",
+    fun=compute_y2,                # (z, y1) -> y2
+    inputs=["z", "y1"],
+    outputs=["y2"],
+    coupling_bounds={"y1": [0.0, 25.0]},
 )
 
+# Classic constrained Sellar problem, as in C-EGMDO
 optimizer = Egmdo(
-    disciplines=[discipline_1, discipline_2],
-    objective=compute_objective,  # cheap function of (design, couplings)
-    # Global design variables and bounds, seed
+    disciplines=[d1, d2],
+    objective=compute_objective,   # cheap function of (z, y1, y2)
+    constraints=[g1, g2],          # cheap functions of (z, y1, y2), g <= 0
+    xlimits=[[-10.0, 10.0], [0.0, 10.0], [0.0, 10.0]],
+    infill="wb2",
+    enrichment="sobol",
+    seed=42,
 )
 
 # Convenience loop
-result = optimizer.minimize()
+result = optimizer.minimize(max_iters=10)
 
 # Or ask/tell
-request = optimizer.ask()          # (discipline name, input vector)
+request = optimizer.ask()          # disciplinary evaluations to perform
 outputs = evaluate(request)        # caller-side evaluation
 optimizer.tell(request, outputs)
 ```
 
-This snippet is a design sketch, not a commitment to the final constructor signatures. In particular, each discipline's inputs can include global design variables, local variables, and coupling variables.
+This snippet is a design sketch, not a commitment to the final constructor signatures.
 
 ### Three distinct evaluation modes
 
 1. **True disciplinary evaluation**
-   - Calls the original discipline function with the specified inputs.
-   - Returns the discipline's outputs.
-   - Supplies training observations and new data for the corresponding GPs.
-   - May be expensive. This is the only expensive evaluation inside the optimization loop.
+   - Calls the original discipline function at `(z, y_c(i))`.
+   - Supplies training data for the corresponding GPs.
+   - The only expensive evaluation inside the optimization loop.
 
 2. **True MDA evaluation**
-   - Solves the coupled system at a specified global design point using the true disciplinary functions or the external framework.
-   - Evaluates the true system objective and any quantities required for validation.
-   - Used for initial checks, final validation and benchmarking, not for enrichment (to be confirmed in Stage A).
+   - Solves the coupled system at a design point with the true disciplines.
+   - Used for validation and benchmarking only.
 
-3. **Surrogate MDA evaluation**
-   - Solves the coupled system for one functional GP realization at a time.
-   - Supports the random-objective approximation and the enrichment calculations.
-   - Must preserve the uncertainty treatment specified in the EGMDO paper; it must not be treated as an ordinary GP of the final objective without validation.
-   - Must report non-converged realizations explicitly: count them, exclude or handle them as the paper specifies, and expose the count in the results and logs.
+3. **Surrogate MDA evaluation**, in two forms:
+   - **random MDA**: the GPs are replaced by `μ_i + σ_i ξ_i` for one sample of `Ξ`; used to build the objective and constraint PCEs at each `DoE_UQ` point;
+   - **mean MDA**: the GPs are replaced by their means; used to compute the coupling values `y_c` of an enrichment point.
 
-The precise role and frequency of each evaluation mode must be derived from the original algorithm before implementation.
+   Non-converged surrogate MDAs are counted, excluded as specified in `doc/egmdo_spec.md`, and reported.
 
 ### Computational cost
 
-Each iteration requires roughly `n_realizations × n_acquisition_candidates` surrogate fixed-point solves, plus GP retraining for the enriched discipline. The surrogate MDA loop must:
+- Building the PCEs at one design point costs `n_MC` random MDAs (100 to 500 in the papers). The objective and all constraints share the same MDA samples. Each disciplinary enrichment rebuilds the PCEs at all `n_UQ` points (15 to 35 in the papers), i.e. a few thousand Jacobi solves, each requiring GP predictions.
+- EI/CEI evaluations are cheap: KL-GP predictions at `z` plus polynomial evaluations. They are estimated with fixed Monte Carlo samples (common random numbers), so that the criterion is deterministic during its optimization.
+- Sobol indices come analytically from the PCE coefficients and cost nothing extra.
+- The final estimation of `Ẑ*` and `Ŷ_min` requires `n_sim` global minimizations of the cheap model (19).
 
-- run entirely in Rust, without holding the GIL;
-- be parallelized over realizations and candidate points (rayon);
-- use a configurable fixed-point solver (Gauss–Seidel or Jacobi, with optional relaxation, tolerance and iteration limit).
+These loops run in Rust and are parallelized with rayon over design points and samples.
 
 ## 6. Algorithm implementation stages
 
-### Stage A — Translate the paper into a technical specification
+### Stage A — Technical specification
 
-Before coding, write `doc/egmdo_spec.md`:
+Write `doc/egmdo_spec.md` from both papers: equations, algorithms, default settings, mapping to Rust modules, test cases and reference results, and the decisions the papers leave open. Part I covers EGMDO and part II covers the C-EGMDO extensions.
 
-- document the algorithm's mathematical steps and equations;
-- confirm or correct each item of the working hypothesis in section 3;
-- identify the GP realization method, the random-objective approximation, and the uncertainty-propagation method;
-- document the acquisition/enrichment criterion and how new evaluations are assigned to disciplines;
-- record all assumptions, required distributions, and numerical approximations;
-- for each equation, give the Rust function or reusable EGObox capability it maps to, and the test that checks it;
-- identify capabilities EGObox does not yet provide.
-
-Do not begin with a generic EI loop and assume it reproduces EGMDO.
-
-### Stage A′ — GP functional realizations in `egobox-gp`
-
-Add a way to draw a GP realization as a function that can be evaluated at arbitrary points, using the method specified by the paper (e.g. a truncated Karhunen–Loève/Nyström expansion), with a seedable RNG.
-
-Tests:
-
-- the empirical mean and variance of many realizations match `predict` and `predict_var`;
-- a realization interpolates (up to noise) the training data;
-- draws are reproducible for a given seed;
-- evaluating a realization at the same point twice gives the same value.
-
-This capability is independent of EGMDO and could also serve Thompson-sampling-type criteria in `Egor`.
-
-### Stage B — Implement the minimal unconstrained algorithm
+### Stage B — Core algorithm (EGMDO)
 
 Scope:
 
 - continuous bounded design variables;
-- one scalar, cheap objective;
-- two or more explicitly declared disciplines;
-- explicit coupling-variable mappings;
+- one scalar, cheap objective; the problem definition already accepts constraints (used in Stage B′);
+- two or more explicitly declared disciplines with scalar or vector coupling outputs;
 - one GP per scalar coupling output;
-- serial true evaluations, parallel surrogate MDAs;
-- original EGMDO uncertainty-propagation and enrichment method;
+- random MDA by non-linear Jacobi;
+- Hermite PCE, KL decomposition, KL-GPs;
+- Monte Carlo EI, Algorithm 1 and Algorithm 2;
+- final estimation of `Ẑ*` and `Ŷ_min` distributions;
 - ask/tell interface and `minimize()` wrapper;
-- basic stopping criteria and per-discipline evaluation accounting.
+- per-discipline evaluation accounting.
 
-Defer constraints, mixed-integer variables, multi-objective optimization, and parallel true evaluations until the basic algorithm is validated.
+Defer mixed-integer variables, multi-objective optimization, and parallel true evaluations.
 
-### Stage C — Build the benchmarks
+### Stage B′ — C-EGMDO extensions
 
-Use the standard two-discipline Sellar problem as the first end-to-end benchmark.
+Scope:
 
-The classic Sellar problem is **constrained** (`g1 = 1 − y1/3.16 ≤ 0`, `g2 = y2/24 − 1 ≤ 0`); its well-known optimum `f ≈ 3.18339` at `z = (1.9776, 0)`, `x = 0` is a constrained one and does not apply to the first, unconstrained version. Therefore:
+- PCEs of the constraints at `DoE_UQ` points, from the same random MDAs as the objective;
+- GP interpolation of the constraint PCE means;
+- constrained EI (CEI) with the feasible minimum `f'_min(Ξ)` and the constraint-violation fallback;
+- WB2 acquisition criterion, available for unconstrained problems too;
+- acquisition maximization under the GP-mean constraints;
+- `P_sol`, its constraint-violation fallback, and the maximum coefficient of variation over objective and constraints (C-EGMDO Algorithm 2);
+- single-discipline enrichment by first-order Sobol indices from the PCE, available for unconstrained problems too;
+- rejection of acquisition points that duplicate a `DoE_UQ` point (next best multistart point).
 
-- Stage C runs the **unconstrained** Sellar problem;
-- its reference optimum is computed by a direct optimizer on the true MDA and recorded with the tolerances used;
-- the constrained Sellar problem becomes the reference benchmark of the constraints extension (Stage E).
+### Stage C — Benchmarks
 
-After Sellar, add a problem with more couplings or a higher dimension (e.g. the analytical cases of the paper). Defer SSBJ-type problems.
+Use the papers' test cases, which come with reference results:
+
+- **1-D toy problem** (EGMDO section 2, C-EGMDO section 2.1): small enough for unit tests of each step, with the papers' figures as qualitative references. C-EGMDO adds the constraint `g1 = −0.15 y1 + 0.9 ≥ 0`, which moves the optimum to `x ≈ −2.42`;
+- **modified Sellar problem** (EGMDO section 4.1, unconstrained): reference `z* ≈ (0, 2.634, 0)`, `f* ≈ −2.808`, local minimum at `(0, −2.595, 0)`; the paper reports 88% convergence and 13 evaluations per discipline on average over 100 runs (15 iterations);
+- **classic constrained Sellar problem** (C-EGMDO section 4.1): reference `z* ≈ (1.9776, 0, 0)`, `f* ≈ 3.1833`; with WB2, the paper reports 96% convergence over 100 runs and 22.8 disciplinary evaluations in total on average (vs. 56.6 for IDF-SEGOMOE);
+- **compound cylinder** (EGMDO section 4.2): reference `z* ≈ (7, 9, 12, 6.37e−3)`, `f* ≈ 2.33e−2`.
+
+The aeroelastic wing of C-EGMDO (section 4.2) relies on Code Aster and an in-house VLM solver; it is not reproducible here.
 
 Tests should verify:
 
-- discipline callbacks receive inputs of the expected dimensions;
-- discipline outputs are mapped to the correct coupling variables;
-- the true and surrogate MDAs converge, and non-converged realizations are reported;
-- the initial designs and GP training data are constructed correctly;
-- GP predictions and uncertainty propagation behave sensibly;
-- enrichment selects the intended points and discipline evaluations;
-- the objective improves and the algorithm terminates;
-- results are consistent with the reference optimum within justified tolerances.
-
-Where possible, test the realization, uncertainty-propagation and enrichment calculations independently of the full optimization loop.
+- variable mapping and callback dimensions;
+- convergence of true, random and mean MDAs;
+- PCE moments against Monte Carlo moments;
+- KL truncation and KL-GP interpolation at `DoE_UQ` points;
+- `P_min`, coefficient of variation and EI on small hand-checked cases (EI is zero at `DoE_UQ` points);
+- CEI, WB2, `P_sol`, constraint violation and Sobol indices on small hand-checked cases (Sobol indices sum to at most 1);
+- enrichment logic of both algorithms;
+- reproducibility for a given seed;
+- reference results within documented tolerances.
 
 ### Stage D — Add the optional OpenMDAO adapter
 
@@ -247,12 +265,14 @@ Do not assume `Problem.run_model()` alone provides the disciplinary observations
 
 After correctness is established:
 
-- profile GP fitting, GP realizations, surrogate MDAs, random-objective approximation, acquisition optimization, and true engineering evaluations separately;
-- cache repeated evaluations when safe;
+- profile GP fitting, random MDAs, PCE, KL, acquisition optimization and true engineering evaluations separately;
 - investigate incremental GP updates if they provide a measurable benefit;
-- add parallel discipline evaluations only where dependency relationships permit;
-- add constraints through the relevant constrained EGMDO extension, validated on the constrained Sellar problem;
-- consider objectives computed by expensive disciplines;
+- add parallel discipline evaluations;
+- try other kernels and other criteria (e.g. WB2s, upper trust bound constraint relaxation), which the papers suggest. C-EGMDO tested constraint relaxation by quantiles of the constraint PCEs, which was less robust than the mean, so it is not in the first release;
+- add a stopping criterion based on the maximum EI value;
+- support costly constraints that do not depend on the couplings, with their own surrogate;
+- consider objectives and constraints computed by expensive disciplines;
+- consider high-dimensional couplings with reduced-order models (Berthelin et al., 2022) or KPLS;
 - consider more general variable types and additional framework adapters.
 
 ## 7. Initial scope and deferred features
@@ -262,14 +282,20 @@ After correctness is established:
 | Design variables | Continuous and bounded |
 | Objective | One scalar, cheap, explicit objective |
 | Disciplines | Two or more |
-| Discipline outputs | One or more outputs |
-| Coupling | Explicit mappings |
+| Discipline outputs | One or more scalar coupling outputs |
+| Coupling | Explicit mappings, initial coupling bounds |
 | Surrogates | One GP per scalar coupling output |
-| GP realizations | Functional, seedable (new in `egobox-gp`) |
+| Uncertainty model | Simplified GP, one standard normal per GP |
+| Random objective | Hermite PCE + KL decomposition + KL-GPs |
+| Constraints | Cheap inequality and equality constraints of `(z, y)`, PCE + GP of the mean |
+| Acquisition | EI/CEI or WB2 |
+| Enrichment | All disciplines, or the one with the highest Sobol index |
+| Stopping | Iteration budget |
 | Orchestration | Ask/tell, plus `minimize()` wrapper |
 | True evaluations | Serial |
-| Surrogate MDAs | Parallel, in Rust |
-| Constraints | Deferred |
+| Surrogate computations | Parallel, in Rust |
+| Costly constraints independent of the couplings | Deferred |
+| Constraint relaxation | Deferred |
 | Multi-objective optimization | Deferred |
 | Mixed-integer variables | Deferred |
 | OpenMDAO dependency in core | None |
@@ -280,41 +306,47 @@ After correctness is established:
 Before finalizing the public API, decide:
 
 1. How input and output variables are represented, including names, dimensions, and vector-valued outputs.
-2. How global design, local, and coupling variables are mapped to each discipline's input vector, and how coupling-variable bounds are declared.
+2. How design and coupling variables are mapped to each discipline's input vector, and how initial coupling bounds are declared.
 3. The exact ask/tell contract: request and response types, how pending requests are tracked, and how failed evaluations are reported.
 4. How Python exceptions in callbacks reach the user (follow the existing pattern in `python/src/errors.rs`).
-5. Which evaluations the published EGMDO algorithm requires at each iteration.
-6. How to represent the MDA solver, its settings, and convergence failures (true and surrogate).
-7. Which internal `egobox-ego` utilities need to be made public, as additions that do not break existing APIs.
+5. How non-converged random MDAs are handled in PCE regression.
+6. Which internal `egobox-ego` utilities are made public, or whether `egmdo` depends on `cobyla` directly.
+7. How constraints are declared (functions of `(z, y)` returning a vector, or one function per constraint), and the equality tolerance.
+8. The option names and defaults that select between EGMDO and C-EGMDO behaviors (acquisition criterion, enrichment strategy, `ε_P`).
 
 ## 9. Acceptance criteria
 
 The initial implementation is ready for a first release when:
 
-- the algorithm matches the original paper's formulation, as documented in `doc/egmdo_spec.md`;
-- the unconstrained Sellar benchmark and one larger benchmark run end to end;
-- the reference results are reproduced within documented tolerances;
-- over several fixed-seed runs, EGMDO reaches the reference optimum with fewer **disciplinary evaluations** than `Egor` applied to the true MDA objective (median and spread reported);
+- the algorithms match the papers' formulations, as documented in `doc/egmdo_spec.md`;
+- the 1-D toy (unconstrained and constrained), modified Sellar, constrained Sellar and compound cylinder problems run end to end;
+- on modified Sellar (EGMDO settings) and constrained Sellar (C-EGMDO settings), results over many seeds are comparable to the papers' (convergence rate and number of evaluations per discipline), with the comparison documented;
+- EGMDO and C-EGMDO need fewer disciplinary evaluations than `Egor` applied to the true MDA objective and constraints (median and spread over fixed seeds);
 - runs are reproducible for a given seed;
-- tests cover variable mapping, GP training data, GP realizations, uncertainty propagation, enrichment, and stopping behavior;
+- tests cover variable mapping, MDA, PCE, Sobol indices, KL, KL-GPs, EI/CEI/WB2, `P_min`/`P_sol`, constraint violation, enrichment and stopping behavior;
 - Python users can provide discipline callbacks, or use ask/tell, without installing OpenMDAO;
 - the optional OpenMDAO integration does not leak framework dependencies into the Rust core;
 - API and documentation clearly distinguish disciplinary evaluations, true MDA evaluations, and surrogate MDA evaluations.
 
 ## 10. References
 
-- Original EGMDO paper: S. Dubreuil, N. Bartoli, C. Gogu, T. Lefebvre, [Towards an Efficient Global Multidisciplinary Design Optimization algorithm](https://www.researchgate.net/publication/343657447_Towards_an_Efficient_Global_Multidisciplinary_Design_Optimization_algorithm), Structural and Multidisciplinary Optimization, 2020
+- S. Dubreuil, N. Bartoli, C. Gogu, T. Lefebvre, *Towards an efficient global multidisciplinary design optimization algorithm*, Structural and Multidisciplinary Optimization 62:1739–1765, 2020, [doi:10.1007/s00158-020-02514-6](https://doi.org/10.1007/s00158-020-02514-6)
+- I. Cardoso, S. Dubreuil, N. Bartoli, C. Gogu, M. Salaün, *Constrained efficient global multidisciplinary design optimization using adaptive disciplinary surrogate enrichment*, Structural and Multidisciplinary Optimization 67:23, 2024, [doi:10.1007/s00158-023-03736-0](https://doi.org/10.1007/s00158-023-03736-0)
+- S. Dubreuil, N. Bartoli, C. Gogu, T. Lefebvre, J. Mas Colomer, *Extreme value oriented random field discretization based on an hybrid polynomial chaos expansion – kriging approach*, Computer Methods in Applied Mechanics and Engineering 332:540–571, 2018 (KL-GP random field and EI estimation)
+- B. Sudret, *Global sensitivity analysis using polynomial chaos expansions*, Reliability Engineering & System Safety 93(7):964–979, 2008 (Sobol indices from PCE coefficients)
+- G. Berthelin, S. Dubreuil, M. Salaün, N. Bartoli, C. Gogu, *Disciplinary proper orthogonal decomposition and interpolation for the resolution of parameterized multidisciplinary analysis*, International Journal for Numerical Methods in Engineering 123(15):3594–3626, 2022 (Sobol-based disciplinary enrichment, high-dimensional couplings)
 - OpenMDAO documentation: [https://openmdao.org/](https://openmdao.org/)
 - GEMSEO (possible future adapter, not the first target): [https://gemseo.org/](https://gemseo.org/)
 
 ## 11. Immediate next steps
 
-1. Read the original EGMDO paper, confirm or correct section 3, and write `doc/egmdo_spec.md`.
-2. Implement and test functional GP realizations in `egobox-gp` (Stage A′).
-3. Specify the discipline, variable-mapping, ask/tell and callback types.
-4. Create `crates/egmdo`, implement the mathematical core, and test it on the unconstrained Sellar problem.
-5. Compare against `Egor` on the true MDA objective.
-6. Add the OpenMDAO adapter after the core evaluation contract is stable.
+1. Write `doc/egmdo_spec.md` (parts I and II).
+2. Create `crates/egmdo` with the problem definition (including constraints), the MDA solver and the papers' test problems.
+3. Implement the PCE, KL and KL-GP random field.
+4. Implement the EGMDO criteria and algorithms.
+5. Add the C-EGMDO extensions.
+6. Reproduce the papers' results and compare with `Egor` on the true MDA.
+7. Add the Python bindings, then the OpenMDAO adapter.
 
 ## 12. Delivery
 
@@ -330,12 +362,13 @@ The initial implementation is ready for a first release when:
 | # | Branch | Content | Stage |
 |---|---|---|---|
 | 1 | `egmdo-plan` | This integration plan | — |
-| 2 | `egmdo-spec` | `doc/egmdo_spec.md`: equations, confirmed algorithm, mapping to Rust functions and tests | A |
-| 3 | `egmdo-gp-realizations` | Functional, seedable GP realizations in `egobox-gp` | A′ |
-| 4 | `egmdo-mda` | `crates/egmdo` skeleton: variables, disciplines, coupling mappings, fixed-point MDA solver (true and surrogate), Sellar problem | B |
-| 5 | `egmdo-algorithm` | Random-objective approximation, acquisition, discipline selection, enrichment, stopping, ask/tell and `minimize()` | B |
-| 6 | `egmdo-benchmarks` | Unconstrained Sellar reference, second benchmark, comparison with `Egor` on the true MDA | C |
-| 7 | `egmdo-python` | `egobox.egmdo` Python bindings, type stubs, tests and documentation | B/C |
-| 8 | `egmdo-openmdao` | Optional `egobox.egmdo.openmdao` adapter | D |
+| 2 | `egmdo-spec` | `doc/egmdo_spec.md` (EGMDO and C-EGMDO) | A |
+| 3 | `egmdo-mda` | `crates/egmdo` skeleton: problem definition with constraints, disciplinary GPs, MDA solver (true, random, mean), test problems | B |
+| 4 | `egmdo-uq` | Hermite PCE (objective and constraints) with Sobol indices, KL decomposition, KL-GP random field | B |
+| 5 | `egmdo-algorithm` | EI, `P_min`, EGMDO enrichment and main loop, final estimation, ask/tell and `minimize()` | B |
+| 6 | `egmdo-constraints` | C-EGMDO: constraint GPs, CEI, WB2, `P_sol`, constraint violation, Sobol enrichment | B′ |
+| 7 | `egmdo-benchmarks` | Papers' test cases at scale, robustness studies, comparison with `Egor` on the true MDA | C |
+| 8 | `egmdo-python` | `egobox.egmdo` Python bindings, type stubs, tests and documentation | B/C |
+| 9 | `egmdo-openmdao` | Optional `egobox.egmdo.openmdao` adapter | D |
 
-PRs 2 and 3 are independent and can proceed in parallel. Stage E items get their own PRs once the first release is merged into `master`.
+Stage E items get their own PRs once the first release is merged into `master`.
