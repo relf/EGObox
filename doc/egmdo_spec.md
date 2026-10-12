@@ -80,6 +80,7 @@ Convergence (paper): the mean relative change of the coupling variables between 
 
 - **Decision D3:** `ε_abs = 1e-12` guards against division by zero.
 - **Decision D4:** the starting point is the centre of the `C(i)` boxes; the iteration limit is 500 (configurable).
+- **Decision D31:** an optional relaxation `y^(k+1) = (1 − ω) y^(k) + ω F(y^(k))`, `ω ∈ ]0, 1]`. The default `ω = 1` is the paper's plain Jacobi method. Plain Jacobi diverges on part of the compound cylinder's design space: its iteration factor reaches −1.55 at `a = 7, b = 9, c = 15`. With `ω = 0.5`, every corner of `Z` contracts, so this test problem uses `ω = 0.5`.
 - **Decision D5:** a sample whose MDA does not converge (iteration limit, non-finite value) is excluded from the PCE regression sample of section 4, and counted. If fewer than `max(P, n_MC / 2)` samples remain, the PCE at that point is flagged as unreliable and reported; the run continues.
 
 The same solver gives:
@@ -297,7 +298,7 @@ y2 = f2(z, y1) = sqrt(y1) + z1 + z2
 Z = [0, 10] × [−10, 10] × [0, 10],  C(1) = [−5, 24] (for y2),  C(2) = [1, 50] (for y1)
 ```
 
-- Reference (MDF + SLSQP): `z* ≈ (0, 2.634, 0)`, `f* ≈ −2.808`. Local minimum: `(0, −2.595, 0)`, `f ≈ −0.809`.
+- Reference (MDF + SLSQP): `z* ≈ (0, 2.634, 0)`, `f* ≈ −2.808`. Local minimum: `(0, −2.595, 0)`, `f ≈ −0.809`. Recomputed: `z* = (0, 2.63449586, 0)`, `f* = −2.80852222`.
 - Paper setting: `n_f1 = n_f2 = 5`, `n_UQ0 = 20`, `d = 3`, `n_MC = 100`, `n_max = 10`, `ε_cv = 0.01`.
 - Paper results:
   - single run: 6 points added, i.e. 11 evaluations per discipline, `M = 6`, `E[Ẑ*] = (≤1e-12, 2.634, ≤1e-12)`, `E[Ŷ_min] = −2.798`;
@@ -334,11 +335,10 @@ f_obj(z, p) = sqrt(Var_r[σ_θ]) / E_r[σ_θ]                                   
 The paper's typesetting of (23) contains typos: it prints `B/r` instead of `B/r²` and `A2 = σ_b+ − B2/2²`. The reading above was checked numerically:
 
 - it reproduces the four stress values of Fig. 25 (configuration `a = 6, b = 10, c = 13, δ = 8e−3`): `σ(a) = 4.92e4`, `σ(b⁻) = 3.58e4`, `σ(b⁺) = 4.47e4`, `σ(c) = 4.17e4`;
-- with `E_r` and `Var_r` taken over `r` uniform on `[a, c]`, it gives `f_obj = 2.336e−2` at the paper's reference `z* ≈ (7, 9, 12, 6.37e−3)` (paper: `2.33e−2`);
-- MDF + SLSQP with this reading finds `z ≈ (7, 9.11, 12, 6.5e−3)`, `f = 2.319e−2`;
-- the paper's starting point `z0 = (6, 8, 11, 8e−3)` lies outside `Z` and is a typo; at the Fig. 25 configuration `f_obj = 7.40e−2` (paper: `7.00e−2`).
+- with `E_r` and `Var_r` taken over `r` uniform on `[a, c]`, it gives `f_obj = 2.336362e−2` at the paper's reference `z* ≈ (7, 9, 12, 6.37e−3)` (paper: `2.33e−2`);
+- the paper's starting point `z0 = (6, 8, 11, 8e−3)` lies outside `Z` and is a typo; at the Fig. 25 configuration `f_obj = 7.396061e−2` (paper: `7.00e−2`).
 
-**Decision D19:** the benchmark reference for this problem is recomputed with our implementation of (22)–(24) and documented with the tolerance used. `E_r` and `Var_r` are computed with a fine uniform grid on `[a, c]`.
+**Decision D19:** `E_r` and `Var_r` are computed exactly: on each segment, the integrals of `A + B/r²` and of its square have closed forms. The benchmark reference is recomputed with this objective (MDF + multistart SLSQP): `z* = (7, 9.10539021, 12, 6.53453308e−3)`, `f* = 2.31770023e−2`.
 
 - Paper setting: `n_fi ∈ {d_i + 1, 2d_i, 3d_i, 4d_i}` (`d_1 = 3`, `d_2 = 4`), `n_UQ0 = 20`, `d = 3`, `n_MC = 100`, `n_max = 20`, `ε_cv = 0.01`.
 - Paper results (10 runs per DoE size, Table 7): 6/10 runs converged with `d_i + 1` and 8 to 9 with larger DoEs; 3 to 8 points added on average.
@@ -365,7 +365,8 @@ The paper's typesetting of (23) contains typos: it prints `B/r` instead of `B/r�
 | D16 | Final minimizations | Multistart COBYLA, 5 best `DoE_UQ` points + 5 random |
 | D17 | Convergence metric | Euclidean relative error of `E[Ẑ*]`, threshold 5% |
 | D18 | Sellar `sqrt` | `sqrt(max(y1, 0))` in the test problem |
-| D19 | Cylinder reference | Recomputed with our implementation |
+| D19 | Cylinder reference | Exact radial moments; reference recomputed |
+| D31 | MDA relaxation | Optional `ω`, default 1 (plain Jacobi); 0.5 for the compound cylinder |
 
 ## 13. Default settings
 
@@ -380,6 +381,7 @@ The paper's typesetting of (23) contains typos: it prints `B/r` instead of `B/r�
 | Max iterations | `n_max` | 10 | paper (10 to 20) |
 | MDA tolerance | | `10⁻⁶` | paper |
 | MDA iteration limit | | 500 | D4 |
+| MDA relaxation | `ω` | 1 | D31 |
 | EI Monte Carlo samples | `N_EI` | 2000 | D9 |
 | EI optimizer | | COBYLA, `rhobeg = 0.5` on `[0, 1]^n`, 20 starts | paper |
 | `P_min` samples | `n_P` | 10⁴ | D10 |
@@ -403,7 +405,7 @@ The paper's typesetting of (23) contains typos: it prints `B/r` instead of `B/r�
 ## 15. Known limitations
 
 - The PCE size `P` grows combinatorially with the number of scalar couplings `n_ξ` (e.g. `P = 286` for `n_ξ = 10`, `d = 3`), and so does the number of random MDAs per design point. The method targets problems with few scalar couplings.
-- The method relies on (4) having a unique solution and on Jacobi converging; strongly coupled problems may need relaxation, which is an extension.
+- The method relies on (4) having a unique solution and on Jacobi converging. Relaxation (D31) extends convergence to problems with oscillating iterations, as the compound cylinder; strongly non-linear couplings may need other solvers (e.g. Newton), which is an extension.
 - The coupling boxes `C(i)` must be guessed by the user. A poor guess degrades the initial disciplinary GPs, but enrichment corrects it.
 - As in the paper, EI optimization is noisy and multimodal; the common random numbers of D9 make it deterministic but do not make it easy.
 
@@ -568,7 +570,7 @@ g1(z, y1) = 0.15 y1 − 0.9 ≤ 0
 
 The paper writes `−0.15 y1 + 0.9 ≥ 0`; see D20.
 
-- Reference: the paper gives `z* ≈ −2.42`. A fine grid search on the true MDA gives `z* = −2.403`, `f_obj = −0.461`. The unconstrained minimum `z ≈ −3.00`, `f ≈ −1.150` is infeasible.
+- Reference: the paper gives `z* ≈ −2.42`. The constraint is active at the optimum (`y1 = 6`): `z* = −2.40296525`, `f_obj = −0.46096568`. The unconstrained minimum `z ≈ −3.00`, `f ≈ −1.150` is infeasible.
 - Paper setting (Figs. 4–10):
   - `DoE_UQ = {−3.6, −2, 1.2, 3.8}`, `C(1) = C(2) = [0, 25]`, `n_MC = 200`;
   - `ε_P = 0.1`, `ε_CV = 0.001`, `n_max = 5`.

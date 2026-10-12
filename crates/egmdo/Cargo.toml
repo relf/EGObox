@@ -1,0 +1,37 @@
+[package]
+name = "egobox-egmdo"
+authors.workspace = true
+version = "0.1.0"
+license.workspace = true
+edition.workspace = true
+homepage.workspace = true
+repository.workspace = true
+readme = "README.md"
+description = "A library for efficient global multidisciplinary design optimization"
+keywords = [
+    "optimization",
+    "multidisciplinary",
+    "gaussian-process",
+    "surrogate",
+    "mdo",
+]
+categories = ["algorithms", "mathematics", "science"]
+
+[features]
+default = []
+# Use cobyla crate (C-ported NLopt COBYLA) instead of basin COBYLA for GP training
+c-cobyla = ["egobox-gp/c-cobyla"]
+
+[dependencies]
+egobox-doe = { version = "0.35.2", path = "../doe" }
+egobox-gp = { version = "0.37.1", path = "../gp" }
+
+linfa.workspace = true
+ndarray.workspace = true
+ndarray-rand.workspace = true
+rand_xoshiro.workspace = true
+thiserror.workspace = true
+log.workspace = true
+
+[dev-dependencies]
+approx.workspace = true

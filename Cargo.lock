@@ -575,6 +575,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "egobox-egmdo"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "egobox-doe",
+ "egobox-gp",
+ "linfa",
+ "log",
+ "ndarray 0.16.1",
+ "ndarray-rand",
+ "rand_xoshiro",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "egobox-ego"
 version = "0.43.0"
 dependencies = [
