@@ -110,7 +110,7 @@ d1 = Discipline(
     fun=compute_y1,                # (z, y2) -> y1
     inputs=["z", "y2"],
     outputs=["y1"],
-    coupling_bounds={"y2": [1.0, 50.0]},
+    coupling_bounds={"y2": [-5.0, 24.0]},
 )
 
 d2 = Discipline(
@@ -118,7 +118,7 @@ d2 = Discipline(
     fun=compute_y2,                # (z, y1) -> y2
     inputs=["z", "y1"],
     outputs=["y2"],
-    coupling_bounds={"y1": [-5.0, 24.0]},
+    coupling_bounds={"y1": [1.0, 50.0]},
 )
 
 optimizer = Egmdo(
