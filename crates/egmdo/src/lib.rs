@@ -10,6 +10,9 @@
 //! * the definition of MDO problems: [MdoProblem] and [Discipline],
 //! * the disciplinary GP surrogates: [DisciplinaryModels],
 //! * the multidisciplinary analysis (MDA) solver: [mda],
+//! * the polynomial chaos expansions (PCE) with Sobol indices: [pce],
+//! * the uncertainty quantification of the objective and constraints at design points: [uq],
+//! * the Karhunen–Loève decomposition and KL-GP random field of the objective: [kl],
 //! * the test problems of the EGMDO and C-EGMDO papers: [problems].
 //!
 //! # Example
@@ -52,10 +55,13 @@
 #![warn(rustdoc::broken_intra_doc_links)]
 
 mod errors;
+pub mod kl;
 pub mod mda;
+pub mod pce;
 mod problem;
 pub mod problems;
 mod surrogates;
+pub mod uq;
 
 pub use errors::*;
 pub use problem::*;

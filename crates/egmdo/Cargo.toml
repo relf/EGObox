@@ -27,9 +27,11 @@ egobox-doe = { version = "0.35.2", path = "../doe" }
 egobox-gp = { version = "0.37.1", path = "../gp" }
 
 linfa.workspace = true
+linfa-linalg.workspace = true
 ndarray.workspace = true
 ndarray-rand.workspace = true
 rand_xoshiro.workspace = true
+rayon.workspace = true
 thiserror.workspace = true
 log.workspace = true
 

@@ -12,6 +12,9 @@ pub enum EgmdoError {
     /// When given data or function results have unexpected shapes or values
     #[error("Invalid data: {0}")]
     InvalidData(String),
+    /// When too many MDAs fail to converge
+    #[error("MDA failure: {0}")]
+    MdaFailure(String),
     /// When a disciplinary GP fails
     #[error(transparent)]
     GpError(#[from] egobox_gp::GpError),
