@@ -1,10 +1,14 @@
 # EGMDO Technical Specification
 
-This document specifies the EGMDO algorithm as it will be implemented in `egobox-egmdo`. It is derived from:
+This document specifies the EGMDO algorithm and its constrained extension C-EGMDO as they will be implemented in `egobox-egmdo`. It is derived from:
 
 > S. Dubreuil, N. Bartoli, C. Gogu, T. Lefebvre, *Towards an efficient global multidisciplinary design optimization algorithm*, Struct. Multidisc. Optim. 62:1739–1765, 2020. [doi:10.1007/s00158-020-02514-6](https://doi.org/10.1007/s00158-020-02514-6)
 
-Equation numbers `(n)` refer to the paper. Where the paper is silent or ambiguous, the choice made here is marked **Decision**, and collected in section 12. The integration plan is in `doc/egmdo_integration_plan.md`.
+> I. Cardoso, S. Dubreuil, N. Bartoli, C. Gogu, M. Salaün, *Constrained efficient global multidisciplinary design optimization using adaptive disciplinary surrogate enrichment*, Struct. Multidisc. Optim. 67:23, 2024. [doi:10.1007/s00158-023-03736-0](https://doi.org/10.1007/s00158-023-03736-0)
+
+Part I (sections 1–15) specifies EGMDO, and part II (sections 16–23) the C-EGMDO extensions. Equation numbers `(n)` refer to the 2020 paper and `(C-n)` to the 2024 paper. Where the papers are silent or ambiguous, the choice made here is marked **Decision**, and collected in sections 12 and 22. The integration plan is in `doc/egmdo_integration_plan.md`.
+
+# Part I — EGMDO
 
 ## 1. Problem
 
@@ -100,7 +104,7 @@ At a design point `z`, the random objective `Y_obj(z, Ξ) = f_obj(z, Y*_c(obj)(z
 
 **Decision D6:** the regression sample `{Ξ^(k)}` is drawn once per run and shared by all design points (common random numbers). The paper does not say whether it redraws the sample per point; sharing it removes sampling noise between points and makes runs reproducible.
 
-**Decision D7:** `n_MC` must be at least `P + 1`; the default is `max(100, 2P)`.
+**Decision D7:** `n_MC` must be at least `P + 1`; the default is `max(200, 2P)` (EGMDO used 100, C-EGMDO 200 to 500).
 
 The ordering of multi-indices is fixed: graded, then reverse lexicographic. It only matters for tests and serialization.
 
@@ -215,7 +219,7 @@ To enrich at a design point `z_e` (paper, section 3.4.3):
 2. For **every** discipline `i`, evaluate the true solver `f_i(z_e, y_c(i))`.
 3. Add each point to `DoE_fi` and retrain the GPs of every discipline.
 
-All disciplines are enriched each time; each enrichment therefore costs one evaluation per discipline. Choosing only the disciplines that drive the uncertainty is a perspective of the paper (Stage E of the plan).
+All disciplines are enriched each time; each enrichment therefore costs one evaluation per discipline. Choosing only the discipline that drives the uncertainty is a perspective of the 2020 paper, developed by C-EGMDO (section 20).
 
 In ask/tell mode, step 2 is the request returned by `ask()`: one input point per discipline, all of which must be answered by `tell()` before the algorithm resumes.
 
@@ -349,7 +353,7 @@ The paper's typesetting of (23) contains typos: it prints `B/r` instead of `B/r�
 | D4 | MDA start / limit | Centre of the `C(i)` boxes; 500 iterations |
 | D5 | Failed random MDA | Excluded from the regression, counted and reported |
 | D6 | PCE regression sample | Drawn once per run, shared by all design points |
-| D7 | Regression size | `n_MC ≥ P + 1`, default `max(100, 2P)` |
+| D7 | Regression size | `n_MC ≥ P + 1`, default `max(200, 2P)` |
 | D8 | No uncertainty left | `M = 0` |
 | D9 | EI estimation | Fixed samples per iteration, `N_EI = 2000` |
 | D10 | `P_min` estimation | `n_P = 10⁴` fresh samples, ties to lowest index |
@@ -370,7 +374,7 @@ The paper's typesetting of (23) contains typos: it prints `B/r` instead of `B/r�
 | Initial disciplinary DoE size | `n_fi` | user-defined (`d_i + 1` minimum advised) | paper |
 | Initial `DoE_UQ` size | `n_UQ0` | 20 | paper |
 | PCE total degree | `d` | 3 | paper |
-| PCE regression sample | `n_MC` | `max(100, 2P)` | paper, D7 |
+| PCE regression sample | `n_MC` | `max(200, 2P)` | papers, D7 |
 | KL energy threshold | | `1 − 10⁻⁶` | paper |
 | Enrichment threshold | `ε_cv` | 0.01 | paper |
 | Max iterations | `n_max` | 10 | paper (10 to 20) |
@@ -402,3 +406,243 @@ The paper's typesetting of (23) contains typos: it prints `B/r` instead of `B/r�
 - The method relies on (4) having a unique solution and on Jacobi converging; strongly coupled problems may need relaxation, which is an extension.
 - The coupling boxes `C(i)` must be guessed by the user. A poor guess degrades the initial disciplinary GPs, but enrichment corrects it.
 - As in the paper, EI optimization is noisy and multimodal; the common random numbers of D9 make it deterministic but do not make it easy.
+
+# Part II — C-EGMDO
+
+C-EGMDO keeps part I unchanged except for the acquisition step (section 6), the enrichment step (sections 7 and 8) and the results (section 10). The unconstrained EGMDO is the special case with no constraints, all-discipline enrichment, the EI criterion and `ε_P = 1/n_UQ`. The implementation has a single solver configured by options (section 23).
+
+## 16. Constrained problem
+
+```text
+min_{z ∈ Z} f_obj(z, y*_c(obj)(z))
+s.t. g_m(z, y*_c(gm)(z)) ≤ 0,   m = 1, …, n_g
+     h_r(z, y*_c(hr)(z)) = 0,   r = 1, …, n_h                                 (C-16)
+```
+
+Like the objective, constraints are cheap, explicit functions of the design variables and of some coupling variables. They become random through the couplings.
+
+**Decision D20 (sign convention).** C-EGMDO's equations (C-20, C-22, C-23) treat `g ≥ 0` as feasible, but its Sellar problem (C-28) is written with `g ≤ 0`. This specification uses `g ≤ 0`, as `Egor` does, and rewrites the paper's equations accordingly: feasibility is `g ≤ 0`, and the violation of an inequality is `max(g, 0)`.
+
+**Decision D21 (tolerance).** As in `Egor` (`cstr_tol`, default `1e-4`), each constraint has a tolerance `τ`. Feasibility is `g_m ≤ τ_m` and `|h_r| ≤ τ_r`. Without a tolerance, an equality constraint evaluated on a PCE sample would never be satisfied exactly.
+
+## 17. Random constraints
+
+At each `DoE_UQ` point, the quantities of interest
+
+```text
+QoI(z, Ξ) = { f_obj^PCE(z, Ξ), g_m^PCE(z, Ξ), h_r^PCE(z, Ξ) }                    (C-18)
+```
+
+all get a PCE (section 4). They are computed from the **same** random MDA samples, so the regression matrix `Ψ` is shared and factorized once per point, with one right-hand side per quantity.
+
+**Constraint models.** Constraints are not modelled by KL-GPs. Instead, the PCE mean `a_1^{g_m}(z^(i))` of each constraint is interpolated over `DoE_UQ` by a GP, with the same settings as section 2. Its mean `μ_gm(z)` is the constraint model used by the acquisition step (as in SEGO). The same applies to `μ_hr(z)`.
+
+C-EGMDO also tested relaxing the constraints by interpolating a quantile of the constraint PCEs instead of the mean. It was less robust on Sellar (88 and 74 successful runs out of 100 for the 95% and 99% quantiles, against 96 for the mean). It is not part of this specification.
+
+**Decision D22 (deterministic constraints).** A constraint can be declared as depending on `z` only (C-EGMDO section 3.4). It is then evaluated directly: it needs no PCE and no GP, and its feasibility is the same for every sample `Ξ`. Costly constraints of that kind, which would need their own surrogate, are an extension.
+
+## 18. Step 1: constrained acquisition
+
+**Feasible minimum.** For a sample `Ξ`, the current minimum is taken over the `DoE_UQ` points that are feasible for this sample:
+
+```text
+f'_min(Ξ) = min { f_obj^PCE(z^(i), Ξ) : g_m^PCE(z^(i), Ξ) ≤ τ_m, |h_r^PCE(z^(i), Ξ)| ≤ τ_r }   (C-20)
+```
+
+If no `DoE_UQ` point is feasible for this sample, `f'_min(Ξ)` is the objective at the point with the smallest constraint violation
+
+```text
+θ(z^(i), Ξ) = Σ_m max(g_m^PCE(z^(i), Ξ), 0) + Σ_r |h_r^PCE(z^(i), Ξ)|          (C-22)
+```
+
+Ties are broken by the lowest objective value. Without constraints, `f'_min(Ξ)` is `Ŷ_min(Ξ)` of (15).
+
+**Criteria.**
+
+```text
+CEI(z) = E[ (f'_min(Ξ) − Ỹ_obj(z, Ξ, η))⁺ ]                                    (C-19)
+WB2(z) = CEI(z) − m_0(z)                                                        (C-24)
+```
+
+`m_0(z)` is the mean of the KL-GP of the mean vector (section 5), i.e. the expectation of the objective model (19) over `Ξ`. CEI is estimated by Monte Carlo with the same fixed samples as EI (D9). WB2 is less multimodal than CEI and easier to maximize: on Sellar, it converged in 96 runs out of 100 against 63 for CEI. **Decision D23:** WB2 takes an optional scale on CEI (`scale · CEI − m_0`, default 1), as `Egor`'s `WB2Criterion` does. A scale other than 1 (WB2S) is not studied by the paper.
+
+**Optimization.**
+
+```text
+z_new = argmax_{z ∈ Z} CEI(z) or WB2(z)   s.t.  μ_gm(z) ≤ τ_m,  |μ_hr(z)| ≤ τ_r     (C-23)
+```
+
+The paper maximizes the criterion with a gradient-based multistart solver (SLSQP). **Decision D24:** multistart COBYLA, as in EGMDO. It handles the constraints natively and needs no gradient of a Monte Carlo estimate. Each equality constraint is passed as two inequalities.
+
+**Duplicates (C-EGMDO, Remark 1).** A proposed point that is too close to an existing `DoE_UQ` point makes the KL-GP interpolation ill-conditioned. In that case, the next best multistart result is used. **Decision D25:** points are compared in `Z` normalized to `[0, 1]^n`, with a distance threshold of `1e-6`. If all multistart results are duplicates, no point is added at this iteration, and this is recorded. The same rule applies to the unconstrained EI.
+
+## 19. Step 2: constrained enrichment (C-EGMDO Algorithm 2)
+
+**Probability of being the solution.**
+
+```text
+P_sol(z^(i)) = P( f'_min(Ξ) = f_obj^PCE(z^(i), Ξ) )                             (C-25)
+```
+
+estimated with `n_P` samples as in (18).
+
+**Decision D26.** The paper defines `f'_min` with a least-violation fallback (C-20, C-22). It also says that, with equality constraints, all `P_sol` values may be close to zero, and then falls back to the probability of being the least-violating point. These two statements are only compatible if, in `P_sol`, samples with no feasible point count for no point. If such samples counted for the least-violating point, the `P_sol` values would always sum to 1 and the fallback would never trigger. Hence:
+
+- in `P_sol`, a sample counts for the point that realizes its feasible minimum; samples with no feasible point count for none;
+- in CEI (section 18), the least-violation fallback of `f'_min` applies;
+- if `P_sol(z^(i)) < ε_P` for every point, `P_sol` is replaced by `P( argmin_l θ(z^(l), Ξ) = i )` (ties to the lowest objective value).
+
+**Coefficient of variation.** At each point, it is the largest one over the quantities of interest:
+
+```text
+CV(z^(i)) = max_j  sqrt(Var[QoI_j(z^(i))]) / |E[QoI_j(z^(i))]|                   (C-26)
+```
+
+with the absolute value of D11. **Decision D27:** for a constraint, the denominator is `max(|E|, τ)`. An active constraint has a mean close to zero, so its CV can stay large even when its standard deviation is negligible. With this floor, a constraint whose standard deviation is below `ε_CV · τ` counts as certain.
+
+**Algorithm** (C-EGMDO defaults: `ε_CV = 0.01`, `ε_P = 10⁻³`):
+
+```text
+compute the PCEs of all QoI at every z ∈ DoE_UQ, then P_sol (with fallback) and CV
+while ∃ z^(i) with P_sol(z^(i)) ≥ ε_P and CV(z^(i)) ≥ ε_CV
+    X_enrich ← { z^(i) : P_sol(z^(i)) ≥ ε_P }, sorted by decreasing P_sol
+    added ← false
+    for z in X_enrich
+        if CV(z) ≤ ε_CV: continue
+        select the discipline(s) to enrich at z (section 20)
+        enrich them (section 8, restricted to the selected disciplines)
+        recompute the PCEs at every point of DoE_UQ, then P_sol (with fallback) and CV
+        added ← true
+        break
+    if not added: stop
+```
+
+The safeguards D13 (evaluation budget) and D14 (duplicate disciplinary points) apply.
+
+## 20. Discipline selection by Sobol indices
+
+In EGMDO, every discipline is enriched each time. C-EGMDO enriches only the discipline that contributes most to the uncertainty (C-EGMDO section 3.3, after Berthelin et al. 2022):
+
+1. At the enrichment point `z`, choose the quantity of interest with the largest CV (objective or constraint).
+2. Compute the first-order Sobol index of each discipline for this quantity:
+
+   ```text
+   S_i(z) = Var[ E[QoI(z) | ξ_i] ] / Var[QoI(z)]                                 (C-27)
+   ```
+
+   With the orthonormal PCE of section 4, this is analytical (Sudret 2008). For a single variable `ξ_q`, `S_q = Σ_{α : supp(α) = {q}} a_α² / Σ_{α ≠ 0} a_α²`.
+3. Enrich only the discipline with the largest index. Ties go to the lowest discipline index.
+
+**Decision D28 (vector couplings).** In the paper each discipline has one random variable. With D2, discipline `i` owns a group `u_i` of variables `ξ_q`, one per scalar output. Its index is the closed index of the group, `S_{u_i} = Σ_{α ≠ 0, supp(α) ⊆ u_i} a_α² / Σ_{α ≠ 0} a_α²`. This is `Var[E[QoI | ξ_q, q ∈ u_i]] / Var[QoI]`, and it reduces to (C-27) for a scalar coupling.
+
+Enriching one discipline at `z` follows section 8: solve the mean MDA at `z`, evaluate only the selected `f_i` at `(z, y_c(i))`, and retrain only its GPs. In ask/tell mode, the request then contains a single disciplinary evaluation.
+
+The enrichment strategy is an option: `All` (EGMDO) or `Sobol` (C-EGMDO). Both apply to unconstrained and constrained problems.
+
+## 21. Main loop and results
+
+The main loop is section 9, with:
+
+- CEI or WB2 under the constraint models in place of the EI (section 18);
+- C-EGMDO Algorithm 2 (section 19) in place of Algorithm 1;
+- GPs of the constraint PCE means rebuilt whenever `DoE_UQ` or the PCEs change.
+
+Stopping: iteration budget `n_max`, as in EGMDO (C-EGMDO section 3.5). The maximum value of the criterion is recorded at each iteration.
+
+**Decision D29 (results).** C-EGMDO's Algorithm 1 returns the best feasible `DoE_UQ` point. The paper's tables also report the mean and coefficient of variation of `z*`, as EGMDO does. Both are reported:
+
+- **best point:** the `DoE_UQ` point with the lowest objective PCE mean among the points whose constraint PCE means are feasible. If none is, it is the point with the lowest mean violation;
+- **distributions:** `Ẑ*` and `Ŷ_min` as in section 10, each sample minimizing (19) under the constraint models `μ_g ≤ τ`, `|μ_h| ≤ τ`.
+
+The paper considers a run successful when the relative error on the objective is below 1% (Sellar), or below 5% on the design variables (aeroelastic wing). Benchmarks report the criterion they use.
+
+## 22. Test problems and decisions (part II)
+
+### 22.1 Constrained 1-D toy problem (C-EGMDO section 2.1)
+
+The toy problem of section 11.1 with
+
+```text
+g1(z, y1) = 0.15 y1 − 0.9 ≤ 0
+```
+
+The paper writes `−0.15 y1 + 0.9 ≥ 0`; see D20.
+
+- Reference: the paper gives `z* ≈ −2.42`. A fine grid search on the true MDA gives `z* = −2.403`, `f_obj = −0.461`. The unconstrained minimum `z ≈ −3.00`, `f ≈ −1.150` is infeasible.
+- Paper setting (Figs. 4–10):
+  - `DoE_UQ = {−3.6, −2, 1.2, 3.8}`, `C(1) = C(2) = [0, 25]`, `n_MC = 200`;
+  - `ε_P = 0.1`, `ε_CV = 0.001`, `n_max = 5`.
+- Paper results: disciplinary enrichments happen only at `z = −2`, `−2.5` and `−2.42`.
+
+### 22.2 Classic constrained Sellar problem (C-EGMDO section 4.1)
+
+```text
+f_obj(z, y1, y2) = z3² + z2 + y1 + exp(−y2)
+g1 = 3.16 − y1 ≤ 0,   g2 = y2 − 24 ≤ 0
+y1 = f1(z, y2) = z1² + z2 + z3 − 0.2 y2
+y2 = f2(z, y1) = sqrt(y1) + z1 + z2
+Z = [−10, 10] × [0, 10] × [0, 10],  C(1) = [0, 25] (for y2),  C(2) = [0, 25] (for y1)
+```
+
+**Decision D30.** The paper prints `z3³` in the objective; the classic Sellar problem has the square of the local variable. The paper's Table 1 confirms the square. With `z3²`, MDF + SLSQP gives:
+
+- the global optimum `(1.9776, 0, 0)`, `f = 3.1834`;
+- the local optimum `(−1.7172, 0.1384, 0.1128)`, `f = 4.1308`.
+
+Both match Table 1. With `z3³`, the local optimum would be `f = 4.1019`.
+
+- Reference: `z* ≈ (1.9776, 0, 0)`, `f* ≈ 3.1833`, `g1` active.
+- Paper setting: `n_f1 = n_f2 = 5`, `n_UQ0 = 20`, `n_MC = 200`, `d = 3`, `ε_CV = 0.01`, `ε_P = 10⁻³`, `n_max = 10`, Sobol enrichment.
+- Paper results over 100 runs, a run being successful when the relative error on `f` is below 1%:
+  - CEI: 63 successful runs, `n1 = 5 + 7.1`, `n2 = 5 + 4.5` evaluations;
+  - WB2: 96 successful runs, `n1 = 5 + 8.0`, `n2 = 5 + 4.8` evaluations, i.e. 22.8 disciplinary evaluations in total on average.
+- Paper baselines (Table 6, successful runs / total disciplinary evaluations):
+  - MDF: SLSQP 43 / 136.2, COBYLA 55 / 334.2, SEGOMOE 94 / 259.5;
+  - IDF: SLSQP 59 / 103.1, COBYLA 90 / 210.9, SEGOMOE 95 / 56.6.
+
+`sqrt(y1)` is defined at the initial DoE (`C(2) = [0, 25]`); D18 applies to enrichment points.
+
+### 22.3 Aeroelastic wing (C-EGMDO section 4.2)
+
+This problem couples a Code Aster beam model with an in-house VLM solver, through 5 + 5 parameterized coupling variables. It cannot be reproduced here and is not a benchmark. It is the only published case with 10 scalar couplings (`P = 286` for `d = 3`, `n_MC = 500` in the paper), which documents the limitation of section 15.
+
+### 22.4 Decisions summary (part II)
+
+| Id | Topic | Decision |
+|---|---|---|
+| D20 | Sign convention | `g ≤ 0` feasible, as in `Egor`; paper equations rewritten |
+| D21 | Tolerance | Per-constraint tolerance `τ`, default `1e-4` |
+| D22 | Constraints of `z` only | Evaluated directly, no PCE or GP |
+| D23 | WB2 scale | Optional scale on CEI, default 1 |
+| D24 | Acquisition optimizer | Multistart COBYLA with the constraint models |
+| D25 | Duplicate `DoE_UQ` point | Next best multistart point; threshold `1e-6` in `[0, 1]^n` |
+| D26 | `P_sol` | Samples without a feasible point count for none; least-violation fallback when all `P_sol < ε_P` |
+| D27 | Constraint CV | Denominator `max(|E|, τ)` |
+| D28 | Sobol index of a discipline | Closed index of its group of `ξ` |
+| D29 | Results | Best feasible `DoE_UQ` point and constrained distributions of `Ẑ*`, `Ŷ_min` |
+| D30 | Sellar objective | `z3²` (the paper's `z3³` is a typo) |
+
+## 23. Options and defaults
+
+The library defaults follow C-EGMDO, the more recent and more robust variant. Benchmarks reproducing the 2020 paper set the EGMDO values explicitly.
+
+| Option | Values | Default | EGMDO (2020) | C-EGMDO (2024) |
+|---|---|---|---|---|
+| Acquisition | `Ei`, `Wb2 { scale }` | `Wb2 { scale: 1 }` | `Ei` | `Wb2` |
+| Enrichment | `All`, `Sobol` | `Sobol` | `All` | `Sobol` |
+| `ε_P` | > 0 | `10⁻³` | `1/n_UQ` | `10⁻³` |
+| `ε_CV` | > 0 | 0.01 | 0.01 | 0.01 |
+| `n_MC` | `≥ P + 1` | `max(200, 2P)` | 100 | 200 to 500 |
+| Constraint tolerance `τ` | ≥ 0 per constraint | `1e-4` | — | — |
+
+All other defaults are those of section 13.
+
+Mapping to the implementation, in addition to section 14:
+
+| Section | Module | Tests |
+|---|---|---|
+| 16, 17 | `problem`, `pce`, `kl` | constraint PCEs share the MDA samples; GP of constraint means interpolates `DoE_UQ` values; deterministic constraints bypass PCE |
+| 18 | `criteria` | `f'_min` with and without feasible points; CEI equals EI without constraints; WB2 = CEI − `m_0`; duplicate rejection |
+| 19 | `solver` | `P_sol` sums to the fraction of samples with a feasible point; fallback to least violation; constraint CV floor |
+| 20 | `pce`, `solver` | Sobol indices of known polynomials (e.g. `ξ_1 + 2ξ_2` gives 0.2 and 0.8); group index; only the selected discipline is requested in ask/tell |
+| 22 | `problems` | constrained toy and Sellar end to end, references of 22.1 and 22.2 |
