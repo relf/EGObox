@@ -628,10 +628,12 @@ dependencies = [
  "egobox-doe",
  "egobox-gp",
  "linfa",
+ "linfa-linalg",
  "log",
  "ndarray 0.16.1",
  "ndarray-rand",
  "rand_xoshiro",
+ "rayon",
  "thiserror 2.0.20",
 ]
 
