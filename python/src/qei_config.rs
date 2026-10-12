@@ -1,4 +1,3 @@
-use crate::deprecation::{resolve_renamed, resolve_renamed_key, warn_deprecated};
 use crate::types::*;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -47,9 +46,6 @@ pub(crate) struct QEiConfig {
     pub optim_every: usize,
 }
 
-/// Deprecated qEI configuration names (old, new)
-const QEI_CONFIG_RENAMED: [(&str, &str); 1] = [("optmod", "optim_every")];
-
 impl<'a, 'py> FromPyObject<'a, 'py> for QEiConfig {
     type Error = PyErr;
 
@@ -63,7 +59,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for QEiConfig {
 
         for (key, value) in dict.iter() {
             let key = key.extract::<String>()?;
-            match resolve_renamed_key(&dict, &key, &QEI_CONFIG_RENAMED)? {
+            match key.as_str() {
                 "batch" => cfg.batch = value.extract()?,
                 "strategy" => cfg.strategy = value.extract()?,
                 "optim_every" => cfg.optim_every = value.extract()?,
@@ -106,11 +102,6 @@ impl QEiConfig {
     /// optim_every : int, optional
     ///     Interval between hyperparameter optimizations (default: 1)
     ///
-    /// Deprecated
-    /// ----------
-    /// optmod : int, optional
-    ///     Deprecated since 0.38.0, use `optim_every` instead.
-    ///
     /// Returns
     /// -------
     ///
@@ -121,45 +112,14 @@ impl QEiConfig {
     #[pyo3(signature = (
         batch=QEiConfig::default().batch,
         strategy=QEiConfig::default().strategy,
-        optim_every=None,
-        *,
-        optmod=None,
+        optim_every=QEiConfig::default().optim_every,
     ))]
-    pub fn new(
-        py: Python,
-        batch: usize,
-        strategy: QEiStrategy,
-        optim_every: Option<usize>,
-        optmod: Option<usize>,
-    ) -> PyResult<Self> {
-        let optim_every = resolve_renamed(
-            py,
-            "optmod",
-            optmod,
-            "optim_every",
-            optim_every,
-            QEiConfig::default().optim_every,
-        )?;
-        Ok(QEiConfig {
+    pub fn new(batch: usize, strategy: QEiStrategy, optim_every: usize) -> Self {
+        QEiConfig {
             batch,
             strategy,
             optim_every,
-        })
-    }
-
-    /// Deprecated since 0.38.0, use `optim_every` instead.
-    #[getter(optmod)]
-    fn get_optmod(&self, py: Python) -> PyResult<usize> {
-        warn_deprecated(py, "QEiConfig.optmod", "QEiConfig.optim_every")?;
-        Ok(self.optim_every)
-    }
-
-    #[setter(optmod)]
-    fn set_optmod(&mut self, value: usize) -> PyResult<()> {
-        // no `py` argument as pyo3-stub-gen does not support it on setters
-        Python::attach(|py| warn_deprecated(py, "QEiConfig.optmod", "QEiConfig.optim_every"))?;
-        self.optim_every = value;
-        Ok(())
+        }
     }
 
     fn __repr__(&self, py: Python) -> PyResult<String> {

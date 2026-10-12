@@ -137,7 +137,7 @@ When `cstr_specs` is given, **`n_cstr` is inferred automatically** and should be
 
 > **Tolerance per constraint**: give each spec its own absolute tolerance (default `1e-4`), e.g.
 > `egx.CstrSpec.leq(b, tol=1e-3)` or `{"leq": b, "tol": 1e-3}`; it applies to all its internal constraints.
-> `Egor(cstr_tol=[...])` is deprecated since 0.38.0: for plain `≤ 0` constraints use
+> `Egor(cstr_tol=[...])` was removed in 1.0.0: for plain `≤ 0` constraints use
 > `cstr_specs=[egx.CstrSpec.leq(0.0, tol=1e-3)] * n` instead of `n_cstr=n, cstr_tol=[1e-3] * n`.
 
 #### Example — inequality bounds (leq / geq)
@@ -366,13 +366,13 @@ rnd = egx.random(xlimits, n_samples=20, seed=42)  # Random
 
 - **`f_obj` must handle batched inputs**: x shape is `(n_samples, n_dims)`, not `(n_dims,)`.
 - **`n_cstr` vs `cstr_specs`**: use `n_cstr` for plain `≤ 0` constraints; use `cstr_specs` for all other forms. Don't set both at the same time.
-- **Constraint tolerances**: give them per spec (`CstrSpec.leq(b, tol=...)`, also in `fcstr_specs`); `Egor(cstr_tol=...)` is deprecated since 0.38.0.
+- **Constraint tolerances**: give them per spec (`CstrSpec.leq(b, tol=...)`, also in `fcstr_specs`); `Egor(cstr_tol=...)` was removed in 1.0.0.
 - **`y_opt` includes constraint values**: shape is `(1 + n_cstr,)` — first element is the objective.
 - **`seed` goes in `minimize()`** (changed in v0.37.0). Since 0.38.0 `Egor(seed=...)` gives a default, and the `minimize()` / `suggest()` value wins. For `GpMix`, `seed` is a constructor argument.
 - **Function constraints** (`minimize(fcstrs=...)`, cheap, not surrogate-modeled) are `g(x) <= 0` and given as `(g, grad_g)`, `{"fun": g, "jac": grad_g}` or `g(x, return_grad)`. Unlike scipy, no `"type"` key: use `fcstr_specs` for other bounds.
 - **Two multistarts**: `Egor(infill_n_start=...)` is the infill criterion multistart, `GpConfig(theta_n_start=...)` the GP hyperparameters multistart
-  (`theta_max_eval` its likelihood evaluations budget). The former `n_start` / `max_eval` names are deprecated since 0.38.0.
-- **Best point of a DOE**: `egor.best_result(x_doe, y_doe)` / `egor.best_index(y_doe)` (`get_result` / `get_result_index` are deprecated since 0.38.0).
+  (`theta_max_eval` its likelihood evaluations budget). The former `n_start` / `max_eval` names were removed in 1.0.0.
+- **Best point of a DOE**: `egor.best_result(x_doe, y_doe)` / `egor.best_index(y_doe)` (`get_result` / `get_result_index` were removed in 1.0.0).
 - **`cstr_infill` vs `feasible_infill_strategy`**: the former weights the criterion by the probability of feasibility of the `n_cstr` constraints, the latter (`EFI_P`, `EFI_FE`) by the probability of viability, i.e. of `fun` not failing. They are independent.
 - **`xtypes` vs `xlimits`**: pass a flat list of `[lo, hi]` for continuous-only; use `XSpec` objects for mixed-integer.
 - **Low `n_doe`**: default is `max(n_dims + 1, 5)`. For complex functions, use `n_doe = 3 * n_dims` or more.

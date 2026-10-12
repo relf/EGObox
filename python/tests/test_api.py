@@ -160,7 +160,7 @@ class TestApiImports(unittest.TestCase):
             gpx = egx.GpMix(theta_n_start=1, theta_max_eval=max_eval, seed=42).fit(
                 xt, yt
             )
-            return gpx.thetas()
+            return gpx.thetas
 
         self.assertFalse(np.allclose(thetas(25), thetas(1000)))
 

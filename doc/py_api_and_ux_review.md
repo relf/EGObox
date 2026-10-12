@@ -18,8 +18,8 @@ The main problems are error handling, the stubs, and naming drift. Findings are 
 > `best_result`, result forwarding on `EgorOptim`) and the MEDIUM tier (abbreviation renames, long enum aliases,
 > `Egor(x_doe=, y_doe=)`, `sampling` argument order, `return_std`, `nx` / `ny`, per-constraint tolerance) are done,
 > with deprecation warnings on the old names, as are the scipy-like `fcstrs` forms and `Egor(seed=, verbose=)`.
-> Item 5 leaves `IntFlag` specs and `GpMix(gp_config=...)` for later, and properties for `thetas()` & co for the
-> removal release. `CstrConfig` is dropped, per-constraint tolerance covers it.
+> Item 5 leaves `IntFlag` specs and `GpMix(gp_config=...)` for later. `CstrConfig` is dropped, per-constraint
+> tolerance covers it. In 1.0.0 (removal release) the deprecated names are removed and `thetas` & co are properties.
 
 ---
 
@@ -147,6 +147,9 @@ IDE help and type checking get these wrong:
   `QEiStrategy.KRIGING_BELIEVER` / `..._LOWER_BOUND` / `..._UPPER_BOUND` / `CONSTANT_LIAR_MINIMUM`,
   `FeasibleInfillStrategy.EFI_PROBABILITY` / `EFI_FEASIBILITY_ENHANCED`.
 
+**Fix applied (removal release, 1.0.0):** the deprecated names above are removed, and `sampling` takes typed
+arguments again.
+
 ## 5. Structural and ergonomic points
 
 - **`RegressionSpec` / `CorrelationSpec` are bare int holders.** Making them `enum.IntFlag` would give a
@@ -211,8 +214,8 @@ IDE help and type checking get these wrong:
   A scipy `"type"` key raises `ValueError`, since scipy `"ineq"` is `g(x) >= 0`.
 - `CstrConfig` is dropped: per-constraint tolerance and `n_cstr` inferred from `cstr_specs` already group the
   constraint settings.
-- `thetas()` & co as properties is announced in the CHANGELOG "Upcoming breaking changes" section.
-- `Egor(cstr_tol=...)` is deprecated (warns, still used): a spec `tol` gives each constraint, surrogate or function
+- `thetas`, `variances` and `likelihoods` are read-only properties of `Gpx` / `SparseGpx` since 1.0.0.
+- `Egor(cstr_tol=...)` was deprecated in 0.38.0 and removed in 1.0.0: a spec `tol` gives each constraint, surrogate or function
   one, its tolerance, which resolves the "constraint settings spread across constructor and call" point.
   `best_index` / `best_result` now interpret `y_doe` with `cstr_specs` and their tolerances, as the optimizer does.
   `minimize()` returns `y_doe` / `y_opt` in the same raw `(ns, 1 + n_cstr)` layout that `suggest`, `best_index`
@@ -250,7 +253,7 @@ IDE help and type checking get these wrong:
 3. ✅ **Silent bugs:** `GpMix` ignoring `max_eval`, the result-shape docs, and the `RunInfo` default.
 4. ✅ **Additive, without new names:** docs for naming (item 4), input shapes and `SparseGpx` parity (item 5).
 5. **Breaking changes** (see [`py_api_deprecation_plan.md`](py_api_deprecation_plan.md), HIGH and MEDIUM tiers ✅,
-   LOW tier items 13, 14 ✅ and 17 dropped, the rest later or in the removal release):
+   LOW tier items 13, 14, 16, 20, 21 ✅ and 17 dropped, removal release ✅ in 1.0.0, items 15, 18, 19 later):
    in one release, possibly behind deprecation warnings: the renames and aliases of item 4,
    `IntFlag` specs, result forwarding, `nx` / `ny` properties, `return_std`, `GpMix(gp_config=...)`, the `fcstrs`
    form, and the grouping of the constraint settings.

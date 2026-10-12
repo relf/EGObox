@@ -1,4 +1,3 @@
-use crate::deprecation::{resolve_renamed_key, warn_deprecated};
 use egobox_ego::OBJECTIVE_FUNCTION_ERROR;
 use numpy::{PyArray1, PyArray2};
 use pyo3::exceptions::{PyTypeError, PyValueError};
@@ -578,7 +577,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for SparseMethod {
 /// users can specify constraint bounds directly.
 ///
 /// Each spec can have its own tolerance `tol`: the constraint is considered satisfied
-/// when the violation is below `tol`. It takes precedence over `Egor(cstr_tol=...)`.
+/// when the violation is below `tol` (default is DEFAULT_CSTR_TOL=1e-4).
 ///
 /// # Examples
 ///
@@ -605,13 +604,10 @@ impl<'a, 'py> FromPyObject<'a, 'py> for SparseMethod {
 #[derive(Debug, Clone)]
 pub(crate) struct CstrSpec {
     pub(crate) inner: egobox_ego::CstrSpec,
-    /// Tolerance of the constraint, None means the `Egor(cstr_tol=...)` value or the default is used
+    /// Tolerance of the constraint, None means the default tolerance (DEFAULT_CSTR_TOL=1e-4) is used
     #[pyo3(get)]
     pub(crate) tol: Option<f64>,
 }
-
-/// Renamed `CstrSpec` dict keys as (deprecated, new) pairs
-const CSTR_SPEC_RENAMED: [(&str, &str); 1] = [("btw", "between")];
 
 impl<'a, 'py> FromPyObject<'a, 'py> for CstrSpec {
     type Error = PyErr;
@@ -638,7 +634,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for CstrSpec {
             if key == "tol" {
                 continue;
             }
-            return match resolve_renamed_key(&dict, &key, &CSTR_SPEC_RENAMED)? {
+            return match key.as_str() {
                 "leq" => Ok(CstrSpec::leq(value.extract()?, tol)),
                 "geq" => Ok(CstrSpec::geq(value.extract()?, tol)),
                 "eq" => Ok(CstrSpec::eq(value.extract()?, tol)),
@@ -698,14 +694,6 @@ impl CstrSpec {
             inner: egobox_ego::CstrSpec::Btw(lower, upper),
             tol,
         }
-    }
-
-    /// Deprecated since 0.38.0, use `CstrSpec.between` instead.
-    #[staticmethod]
-    #[pyo3(signature = (lower, upper, tol=None))]
-    pub fn btw(py: Python, lower: f64, upper: f64, tol: Option<f64>) -> PyResult<Self> {
-        warn_deprecated(py, "CstrSpec.btw", "CstrSpec.between")?;
-        Ok(CstrSpec::between(lower, upper, tol))
     }
 
     fn __repr__(&self) -> String {

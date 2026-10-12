@@ -11,7 +11,6 @@
 //! See the [tutorial notebook](https://github.com/relf/egobox/notebooks/Egor_Tutorial.ipynb) for usage.
 //!
 
-use crate::deprecation::{resolve_renamed, warn_deprecated};
 use crate::domain::*;
 use crate::errors::{CallbackError, ego_err, install_panic_hook};
 use crate::gp_config::*;
@@ -24,9 +23,7 @@ use egobox_ego::{CoegoStatus, EGO_DEFAULT_N_START, InfillObjData, find_best_resu
 use egobox_gp::ThetaTuning;
 use egobox_moe::NbClusters;
 use ndarray::{Array1, Array2, ArrayView2, Axis, array, concatenate};
-use numpy::{
-    IntoPyArray, PyArray2, PyArrayMethods, PyReadonlyArray2, PyReadonlyArrayDyn, ToPyArray,
-};
+use numpy::{IntoPyArray, PyArray2, PyReadonlyArray2, PyReadonlyArrayDyn, ToPyArray};
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyTuple};
@@ -156,23 +153,6 @@ fn parse_run_info(py: Python, value: Py<PyAny>) -> PyResult<RunInfo> {
 ///     Logging verbosity level used by `minimize()` and `suggest()` when `minimize()` is not given one.
 ///     See `minimize()` for the possible values.
 ///
-/// Deprecated
-/// ----------
-/// cstr_tol : list of float, optional
-///     Deprecated since 0.38.0, give a `tol` to each spec of `cstr_specs` / `fcstr_specs` instead
-///     (e.g. `CstrSpec.leq(0.0, tol=1e-3)`).
-///     Tolerances for constraints to be satisfied (cstr < tol), covering all internal constraints:
-///     the `n_cstr` surrogate constraints (after `cstr_specs` expansion) followed by the function
-///     constraints `fcstrs` given to `minimize` (after `fcstr_specs` expansion).
-///     A spec `tol` takes precedence over `cstr_tol`.
-/// n_start : int > 0, optional
-///     Deprecated since 0.38.0, use `infill_n_start` instead.
-/// doe : array[ns, nt], optional
-///     Deprecated since 0.38.0, use `x_doe` and `y_doe` instead.
-///     Initial DOE containing ns samples:
-///     either nt = nx then only x are specified and ns evals are done to get y doe values,
-///     or nt = nx + ny then x = doe[:, :nx] and y = doe[:, nx:] are specified.
-///
 /// Returns
 /// -------
 /// Egor
@@ -184,7 +164,6 @@ pub(crate) struct Egor {
     pub xtypes: Vec<egobox_moe::XType>,
     pub gp_config: GpConfig,
     pub n_cstr: usize,
-    pub cstr_tol: Option<Vec<f64>>,
     pub cstr_specs: Option<Vec<CstrSpec>>,
     pub infill_n_start: usize,
     pub n_doe: usize,
@@ -211,9 +190,8 @@ impl Egor {
         xspecs,
         gp_config = None,
         n_cstr = 0,
-        cstr_tol = None,
         cstr_specs = None,
-        infill_n_start = None,
+        infill_n_start = EGO_DEFAULT_N_START,
         n_doe = 0,
         x_doe = None,
         y_doe = None,
@@ -229,9 +207,6 @@ impl Egor {
         failsafe_strategy = FailsafeStrategy::Rejection,
         seed = None,
         verbose = None,
-        *,
-        n_start = None,
-        doe = None,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -241,10 +216,9 @@ impl Egor {
         #[gen_stub(override_type(type_repr = "GpConfig | builtins.dict[builtins.str, typing.Any] | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
         gp_config: Option<GpConfig>,
         n_cstr: usize,
-        cstr_tol: Option<Vec<f64>>,
         #[gen_stub(override_type(type_repr = "typing.Sequence[CstrSpec | builtins.dict[builtins.str, typing.Any]] | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
         cstr_specs: Option<Vec<CstrSpec>>,
-        infill_n_start: Option<usize>,
+        infill_n_start: usize,
         n_doe: usize,
         x_doe: Option<PyReadonlyArray2<f64>>,
         y_doe: Option<PyReadonlyArray2<f64>>,
@@ -263,21 +237,7 @@ impl Egor {
         seed: Option<u64>,
         #[gen_stub(override_type(type_repr = "Verbose | builtins.int | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
         verbose: Option<Py<PyAny>>,
-        n_start: Option<usize>,
-        doe: Option<PyReadonlyArray2<f64>>,
     ) -> PyResult<Self> {
-        if cstr_tol.is_some() {
-            warn_deprecated(py, "cstr_tol", "CstrSpec(..., tol=...)")?;
-        }
-        let infill_n_start = resolve_renamed(
-            py,
-            "n_start",
-            n_start,
-            "infill_n_start",
-            infill_n_start,
-            EGO_DEFAULT_N_START,
-        )?;
-
         // Parse trego configuration: boolean or custom configuration
         let trego = match trego {
             Some(trego_py) => {
@@ -305,11 +265,9 @@ impl Egor {
             xspecs,
             gp_config,
             n_cstr,
-            cstr_tol,
             cstr_specs,
             infill_n_start,
             n_doe,
-            doe,
             x_doe,
             y_doe,
             infill_strategy,
@@ -568,44 +526,14 @@ impl Egor {
             y_doe,
         })
     }
-
-    /// Deprecated since 0.38.0, use `best_index` instead.
-    #[pyo3(signature = (y_doe))]
-    fn get_result_index(&self, py: Python, y_doe: PyReadonlyArray2<f64>) -> PyResult<usize> {
-        warn_deprecated(py, "Egor.get_result_index", "Egor.best_index")?;
-        self.best_index(y_doe)
-    }
-
-    /// Deprecated since 0.38.0, use `best_result` instead.
-    #[pyo3(signature = (x_doe, y_doe))]
-    fn get_result(
-        &self,
-        py: Python,
-        x_doe: PyReadonlyArray2<f64>,
-        y_doe: PyReadonlyArray2<f64>,
-    ) -> PyResult<OptimResult> {
-        warn_deprecated(py, "Egor.get_result", "Egor.best_result")?;
-        self.best_result(py, x_doe, y_doe)
-    }
 }
 
-/// Build the initial DOE given either with the deprecated `doe` or with `x_doe` and optional `y_doe`
+/// Build the initial DOE given with `x_doe` and optional `y_doe`
 fn initial_doe(
-    py: Python,
     nx: usize,
-    doe: Option<PyReadonlyArray2<f64>>,
     x_doe: Option<PyReadonlyArray2<f64>>,
     y_doe: Option<PyReadonlyArray2<f64>>,
 ) -> PyResult<Option<Array2<f64>>> {
-    if let Some(doe) = doe {
-        if x_doe.is_some() || y_doe.is_some() {
-            return Err(PyTypeError::new_err(
-                "`doe` and `x_doe`/`y_doe` cannot be both given, `doe` is deprecated, use `x_doe`/`y_doe` only",
-            ));
-        }
-        warn_deprecated(py, "doe", "x_doe` and `y_doe")?;
-        return Ok(Some(doe.to_owned_array()));
-    }
     let Some(x_doe) = x_doe else {
         if y_doe.is_some() {
             return Err(PyValueError::new_err("y_doe requires x_doe to be given"));
@@ -689,18 +617,16 @@ pub(crate) fn run_status(info: RunInfo, state: &egobox_ego::EgorState<f64>) -> R
 }
 
 impl Egor {
-    /// Build the optimizer given the constructor arguments (deprecated arguments being resolved)
+    /// Build the optimizer given the constructor arguments
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn build(
         py: Python,
         xspecs: Py<PyAny>,
         gp_config: Option<GpConfig>,
         n_cstr: usize,
-        cstr_tol: Option<Vec<f64>>,
         cstr_specs: Option<Vec<CstrSpec>>,
         infill_n_start: usize,
         n_doe: usize,
-        doe: Option<PyReadonlyArray2<f64>>,
         x_doe: Option<PyReadonlyArray2<f64>>,
         y_doe: Option<PyReadonlyArray2<f64>>,
         infill_strategy: InfillStrategy,
@@ -717,7 +643,7 @@ impl Egor {
         verbose: Option<Py<PyAny>>,
     ) -> PyResult<Self> {
         let xtypes = parse(py, xspecs)?;
-        let doe = initial_doe(py, xtypes.len(), doe, x_doe, y_doe)?;
+        let doe = initial_doe(xtypes.len(), x_doe, y_doe)?;
         let n_cstr = match cstr_specs.as_ref() {
             Some(specs) if n_cstr != 0 && n_cstr != specs.len() => {
                 return Err(PyValueError::new_err(format!(
@@ -736,7 +662,6 @@ impl Egor {
             xtypes,
             gp_config,
             n_cstr,
-            cstr_tol,
             cstr_specs,
             infill_n_start,
             n_doe,
@@ -1055,8 +980,8 @@ impl Egor {
     }
 
     /// Tolerances of all internal constraints (surrogate constraints then function constraints,
-    /// after specs expansion) when given by the user either with `cstr_tol` or with specs `tol`
-    /// (which take precedence), None otherwise to let the optimizer use its defaults.
+    /// after specs expansion) when a spec `tol` is given by the user (the default tolerance being used
+    /// for the other constraints), None otherwise to let the optimizer use its defaults.
     /// `fcstr_specs` is either empty or one spec per function constraint.
     pub(crate) fn internal_cstr_tol(
         &self,
@@ -1068,7 +993,7 @@ impl Egor {
             .iter()
             .chain(fcstr_specs)
             .any(|s| s.tol.is_some());
-        if self.cstr_tol.is_none() && !has_spec_tol {
+        if !has_spec_tol {
             return None;
         }
         // (number of internal constraints, spec tolerance) for each user constraint
@@ -1082,23 +1007,14 @@ impl Egor {
                     .collect()
             }
         };
-        let mut tol = self.cstr_tol.clone().unwrap_or_default();
-        let mut i = 0;
-        for (n, spec_tol) in expansion(cstr_specs, self.n_cstr)
+        let tol = expansion(cstr_specs, self.n_cstr)
             .into_iter()
             .chain(expansion(fcstr_specs, n_fcstr))
-        {
-            for _ in 0..n {
-                if i == tol.len() {
-                    tol.push(egobox_ego::DEFAULT_CSTR_TOL);
-                }
-                if let Some(spec_tol) = spec_tol {
-                    tol[i] = spec_tol;
-                }
-                i += 1;
-            }
-        }
-        Some(Array1::from_vec(tol))
+            .flat_map(|(n, spec_tol)| {
+                std::iter::repeat_n(spec_tol.unwrap_or(egobox_ego::DEFAULT_CSTR_TOL), n)
+            })
+            .collect();
+        Some(tol)
     }
 
     fn recombination(&self) -> egobox_moe::Recombination<f64> {

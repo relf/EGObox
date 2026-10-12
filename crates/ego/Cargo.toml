@@ -1,7 +1,7 @@
 [package]
 name = "egobox-ego"
 authors.workspace = true
-version = "0.41.1"
+version = "0.42.0"
 license.workspace = true
 edition.workspace = true
 homepage.workspace = true
@@ -27,8 +27,8 @@ ctrlc = { workspace = true }
 egobox-doe = { version = "0.35.2", path = "../doe", features = [
     "serializable",
 ] }
-egobox-gp = { version = "0.37.0", path = "../gp", features = ["serializable"] }
-egobox-moe = { version = "0.36.1", path = "../moe" }
+egobox-gp = { version = "0.37.1", path = "../gp", features = ["serializable"] }
+egobox-moe = { version = "0.36.2", path = "../moe" }
 
 linfa.workspace = true
 linfa-linalg.workspace = true

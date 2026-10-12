@@ -353,7 +353,7 @@ Note:
 - For equality constraints, consider using a small tolerance via `CstrSpec.eq(value, tol=...)`, or a narrow band
   `CstrSpec.between(value - eps, value + eps)`, often easier for the optimizer to satisfy
 - `CstrSpec.eq` and `CstrSpec.between` each expand to two internal constraints, both using the spec `tol`
-- `Egor(cstr_tol=...)` is deprecated since 0.38.0: give a `tol` to each spec instead
+- `Egor(cstr_tol=...)` was removed in 1.0.0: give a `tol` to each spec instead
 - Tolerances are absolute (default `1e-4`): scale constraints to order 1 so that the tolerance
   is meaningful
 

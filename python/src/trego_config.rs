@@ -1,4 +1,3 @@
-use crate::deprecation::{resolve_renamed, resolve_renamed_key, warn_deprecated};
 use crate::types::repr_kwargs;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -59,12 +58,6 @@ pub(crate) struct TregoConfig {
     pub sigma0: f64,
 }
 
-/// Deprecated TREGO configuration names (old, new)
-const TREGO_CONFIG_RENAMED: [(&str, &str); 2] = [
-    ("n_gl_steps", "n_global_local_steps"),
-    ("d", "radius_bounds"),
-];
-
 impl<'a, 'py> FromPyObject<'a, 'py> for TregoConfig {
     type Error = PyErr;
 
@@ -78,7 +71,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for TregoConfig {
 
         for (key, value) in dict.iter() {
             let key = key.extract::<String>()?;
-            match resolve_renamed_key(&dict, &key, &TREGO_CONFIG_RENAMED)? {
+            match key.as_str() {
                 "n_global_local_steps" => cfg.n_global_local_steps = value.extract()?,
                 "radius_bounds" => cfg.radius_bounds = value.extract()?,
                 "alpha" => cfg.alpha = value.extract()?,
@@ -122,101 +115,32 @@ impl TregoConfig {
     /// sigma0 : float, optional
     ///     Initial trust region radius (default: 0.1)
     ///
-    /// Deprecated
-    /// ----------
-    /// n_gl_steps : (int, int), optional
-    ///     Deprecated since 0.38.0, use `n_global_local_steps` instead.
-    /// d : tuple of float, optional
-    ///     Deprecated since 0.38.0, use `radius_bounds` instead.
-    ///
     /// Returns
     /// -------
     /// TregoConfig
     ///     A new TREGO configuration object
     #[new]
     #[pyo3(signature = (
-        n_global_local_steps=None,
-        radius_bounds=None,
+        n_global_local_steps=TregoConfig::default().n_global_local_steps,
+        radius_bounds=TregoConfig::default().radius_bounds,
         alpha=TregoConfig::default().alpha,
         beta=TregoConfig::default().beta,
         sigma0=TregoConfig::default().sigma0,
-        *,
-        n_gl_steps=None,
-        d=None,
     ))]
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
-        py: Python,
-        n_global_local_steps: Option<(usize, usize)>,
-        radius_bounds: Option<(f64, f64)>,
+        n_global_local_steps: (usize, usize),
+        radius_bounds: (f64, f64),
         alpha: f64,
         beta: f64,
         sigma0: f64,
-        n_gl_steps: Option<(usize, usize)>,
-        d: Option<(f64, f64)>,
-    ) -> PyResult<Self> {
-        let default = TregoConfig::default();
-        Ok(TregoConfig {
-            n_global_local_steps: resolve_renamed(
-                py,
-                "n_gl_steps",
-                n_gl_steps,
-                "n_global_local_steps",
-                n_global_local_steps,
-                default.n_global_local_steps,
-            )?,
-            radius_bounds: resolve_renamed(
-                py,
-                "d",
-                d,
-                "radius_bounds",
-                radius_bounds,
-                default.radius_bounds,
-            )?,
+    ) -> Self {
+        TregoConfig {
+            n_global_local_steps,
+            radius_bounds,
             alpha,
             beta,
             sigma0,
-        })
-    }
-
-    /// Deprecated since 0.38.0, use `n_global_local_steps` instead.
-    #[getter(n_gl_steps)]
-    fn get_n_gl_steps(&self, py: Python) -> PyResult<(usize, usize)> {
-        warn_deprecated(
-            py,
-            "TregoConfig.n_gl_steps",
-            "TregoConfig.n_global_local_steps",
-        )?;
-        Ok(self.n_global_local_steps)
-    }
-
-    #[setter(n_gl_steps)]
-    fn set_n_gl_steps(&mut self, value: (usize, usize)) -> PyResult<()> {
-        // no `py` argument as pyo3-stub-gen does not support it on setters
-        Python::attach(|py| {
-            warn_deprecated(
-                py,
-                "TregoConfig.n_gl_steps",
-                "TregoConfig.n_global_local_steps",
-            )
-        })?;
-        self.n_global_local_steps = value;
-        Ok(())
-    }
-
-    /// Deprecated since 0.38.0, use `radius_bounds` instead.
-    #[getter(d)]
-    fn get_d(&self, py: Python) -> PyResult<(f64, f64)> {
-        warn_deprecated(py, "TregoConfig.d", "TregoConfig.radius_bounds")?;
-        Ok(self.radius_bounds)
-    }
-
-    #[setter(d)]
-    fn set_d(&mut self, value: (f64, f64)) -> PyResult<()> {
-        // no `py` argument as pyo3-stub-gen does not support it on setters
-        Python::attach(|py| warn_deprecated(py, "TregoConfig.d", "TregoConfig.radius_bounds"))?;
-        self.radius_bounds = value;
-        Ok(())
+        }
     }
 
     fn __repr__(&self, py: Python) -> PyResult<String> {

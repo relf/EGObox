@@ -109,11 +109,15 @@ class TestStubs(unittest.TestCase):
         ):
             self.assertIn(name, members, f"EgorOptim.{name}")
 
-    def test_renamed_parameters_in_stub(self):
-        # new names are documented, deprecated ones are kept as keyword-only until removal
+    def test_removed_names_not_in_stub(self):
+        # names deprecated in 0.38.0 are removed in 1.0.0, only the new ones remain
         classes = _stub_classes()
         renamed = {
-            ("Egor", "__new__"): [("n_start", "infill_n_start"), ("doe", "x_doe")],
+            ("Egor", "__new__"): [
+                ("n_start", "infill_n_start"),
+                ("doe", "x_doe"),
+                ("cstr_tol", "cstr_specs"),
+            ],
             ("GpConfig", "__new__"): [
                 ("n_start", "theta_n_start"),
                 ("max_eval", "theta_max_eval"),
@@ -144,16 +148,30 @@ class TestStubs(unittest.TestCase):
         }
         for (name, fname), pairs in renamed.items():
             fn = _stub_functions(classes[name].body)[fname]
-            kwonly = [a.arg for a in fn.args.kwonlyargs]
+            self.assertEqual(fn.args.kwonlyargs, [], f"{name}.{fname}")
             for old, new in pairs:
                 self.assertIn(new, _param_names(fn), f"{name}.{fname}({new})")
-                self.assertIn(old, kwonly, f"{name}.{fname}(*, {old})")
+                self.assertNotIn(old, _param_names(fn), f"{name}.{fname}({old})")
+        removed = {
+            "Egor": ["get_result", "get_result_index"],
+            "CstrSpec": ["btw"],
+            "GpConfig": ["n_start", "max_eval"],
+            "QEiConfig": ["optmod"],
+            "TregoConfig": ["n_gl_steps", "d"],
+        }
+        for name, olds in removed.items():
+            members = {
+                node.name
+                for node in classes[name].body
+                if isinstance(node, ast.FunctionDef)
+            }
+            for old in olds:
+                self.assertNotIn(old, members, f"{name}.{old}")
         egor = _stub_functions(classes["Egor"].body)
-        for name in ("best_result", "best_index", "get_result", "get_result_index"):
+        for name in ("best_result", "best_index"):
             self.assertIn(name, egor, f"Egor.{name}")
         cstr_spec = _stub_functions(classes["CstrSpec"].body)
-        for name in ("between", "btw"):
-            self.assertIn("tol", _param_names(cstr_spec[name]), f"CstrSpec.{name}")
+        self.assertIn("tol", _param_names(cstr_spec["between"]), "CstrSpec.between")
         tree = ast.parse(STUB_PATH.read_text())
         sampling = next(
             n
@@ -174,7 +192,9 @@ class TestStubs(unittest.TestCase):
                 if isinstance(node, ast.FunctionDef)
                 and any(ast.unparse(d) == "property" for d in node.decorator_list)
             }
-            self.assertLessEqual({"nx", "ny"}, props, name)
+            self.assertLessEqual(
+                {"nx", "ny", "thetas", "variances", "likelihoods"}, props, name
+            )
             predict = _stub_functions(body)["predict"]
             self.assertIn("return_std", _param_names(predict), name)
             self.assertIn("tuple", ast.unparse(predict.returns), name)

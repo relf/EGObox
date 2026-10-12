@@ -6,7 +6,7 @@
 renames/aliases (item 4) and the structural points (item 5) that need new names or break behaviour.
 Goal: ship these in **0.38.0** (already "unreleased" in CHANGELOG) as **additive + `DeprecationWarning`** wherever
 a transition path exists, and list the few that can only be hard breaks. Old names are removed in the release
-after 0.38 (0.39 / 1.0). Work is split into three PR-sized tiers, ordered by user impact vs. cost.
+after 0.38, which is 1.0.0 (✅ done, see "Removal release" below). Work is split into three PR-sized tiers, ordered by user impact vs. cost.
 
 ## Shared mechanism (do first, reused by every tier)
 
@@ -117,9 +117,8 @@ for later, and item 16 goes with the removal release. Differences from the plan:
     `enum.IntFlag` functional API and register them in place of the pyclasses; keep the `u8` extraction. They stay
     int-compatible, so this is non-breaking at runtime, but the stubs must be hand-written (outside pyo3-stub-gen) and
     `isinstance` checks against the old pyclass change.
-16. **`thetas()` / `variances()` / `likelihoods()` as properties**: not possible with a warning transition (a
-    property returning an ndarray can't also be callable). Hard break, planned for the removal release only.
-    Listed in CHANGELOG as "upcoming".
+16. ✅ **`thetas()` / `variances()` / `likelihoods()` as properties**: not possible with a warning transition (a
+    property returning an ndarray can't also be callable). Hard break, done in the removal release (1.0.0).
 17. ❌ **Full `CstrConfig`** grouping (`n_cstr`, `cstr_tol`, `cstr_specs`, `cstr_infill`, `cstr_strategy`): dropped.
     With item 12, `n_cstr` is inferred from `cstr_specs` and each spec carries its tolerance, so the constraint
     settings are already grouped in the specs, and a config class would add a rename for all constrained users.
@@ -198,10 +197,18 @@ for later, and item 16 goes with the removal release. Differences from the plan:
       sentence in item 20 and in `py_api_and_ux_review.md`; check `python-api.md`, `cookbook.md` and both skills
       `SKILL.md` for examples reading constraint columns of `y_opt` / `y_doe`.
 
-## Removal release (after 0.38)
+## Removal release (after 0.38) — ✅ done in 1.0.0
 
 Delete the deprecated kwargs, getters, methods, dict keys and the old `sampling` order (then `sampling` can take
 typed arguments again); do item 16. `test_deprecations.py` becomes "old names raise `TypeError` / `AttributeError`".
+
+**Implemented:** `python/src/deprecation.rs` is removed with all its callers. Differences from the plan:
+- The test file is renamed `python/tests/test_removed_names.py`. Removed kwargs raise `TypeError`, removed
+  attributes and methods `AttributeError`, removed dict keys `ValueError` (the existing "unknown key" errors).
+- Parameters that were `None` only to detect the deprecated name get their default value in the signature
+  (`infill_n_start=20`, `theta_n_start=10`, `optim_every=1`, `radius_bounds=(1e-6, 1.0)`, `method=Sampling.LHS`, ...),
+  also on `Belfegor`.
+- `Egor::internal_cstr_tol` only merges the specs `tol` (with the default tolerance for the other constraints).
 
 ## Docs
 

@@ -32,9 +32,9 @@ class TestGpMix(unittest.TestCase):
     def test_gpx_kriging(self):
         gpx = self.gpx
 
-        print(f"gpx.theta = {gpx.thetas()}")
-        print(f"gpx.variance= {gpx.variances()}")
-        print(f"gpx.likelihood = {gpx.likelihoods()}")
+        print(f"gpx.theta = {gpx.thetas}")
+        print(f"gpx.variance= {gpx.variances}")
+        print(f"gpx.likelihood = {gpx.likelihoods}")
 
         # should interpolate
         self.assertAlmostEqual(1.0, gpx.predict(np.array([[1.0]])).item())
@@ -172,13 +172,13 @@ class TestGpMix(unittest.TestCase):
             )
 
     def test_fixed_theta_no_optim(self):
-        print(f"gpx.theta = {self.gpx.thetas()}")
-        self.assertNotEqual(0.314, self.gpx.thetas().item())
+        print(f"gpx.theta = {self.gpx.thetas}")
+        self.assertNotEqual(0.314, self.gpx.thetas.item())
         self.gpx = egx.Gpx.builder(theta_n_start=0, theta_init=[0.314]).fit(
             self.xt, self.yt
         )
-        print(f"gpx.theta = {self.gpx.thetas()}")
-        self.assertEqual(0.314, self.gpx.thetas().item())
+        print(f"gpx.theta = {self.gpx.thetas}")
+        self.assertEqual(0.314, self.gpx.thetas.item())
 
     def test_mixint_lhs(self):
         xspecs = [

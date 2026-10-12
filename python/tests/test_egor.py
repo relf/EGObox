@@ -879,5 +879,27 @@ class TestEgor(unittest.TestCase):
         )
 
 
+class TestEgorOptim(unittest.TestCase):
+    """`EgorOptim` forwards the `OptimResult` fields and unpacks as (x_opt, y_opt)"""
+
+    def setUp(self):
+        egor = egx.Egor([[0.0, 25.0]], n_doe=5)
+        self.res = egor.minimize(xsinx, max_iters=2, seed=42)
+
+    def test_fields(self):
+        r = self.res.result
+        for name in ("x_opt", "y_opt", "x_doe", "y_doe"):
+            np.testing.assert_array_equal(getattr(self.res, name), getattr(r, name))
+
+    def test_unpacking(self):
+        x_opt, y_opt = self.res
+        np.testing.assert_array_equal(x_opt, self.res.result.x_opt)
+        np.testing.assert_array_equal(y_opt, self.res.result.y_opt)
+
+    def test_read_only(self):
+        with self.assertRaises(AttributeError):
+            self.res.x_opt = np.zeros(1)
+
+
 if __name__ == "__main__":
     unittest.main(defaultTest=["TestEgor.test_fobj_crash"], exit=False)

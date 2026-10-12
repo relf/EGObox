@@ -11,7 +11,6 @@
 //!
 use std::cmp::Ordering;
 
-use crate::deprecation::resolve_renamed;
 use crate::errors::{gp_file_format, input_x, moe_err, moe_file_err, output_y, training_data};
 use crate::logging::init_logger;
 use crate::types::*;
@@ -98,13 +97,6 @@ use rand_xoshiro::Xoshiro256Plus;
 ///     Used mainly for debugging and development purposes.
 ///     Unlike `Egor` where verbose is given to `minimize()`, it is given here at construction.
 ///
-/// Deprecated
-/// ----------
-/// n_start : int >= 0, optional
-///     Deprecated since 0.38.0, use `theta_n_start` instead.
-/// max_eval : int >= 0, optional
-///     Deprecated since 0.38.0, use `theta_max_eval` instead.
-///
 /// Returns
 /// -------
 /// GpMix
@@ -131,13 +123,10 @@ impl GpMix {
         recombination=Recombination::Hard,
         theta_init=None,
         theta_bounds=None,
-        theta_n_start=None,
-        theta_max_eval=None,
+        theta_n_start=EGO_GP_OPTIM_N_START,
+        theta_max_eval=EGO_GP_OPTIM_MAX_EVAL,
         seed=None,
         verbose=None,
-        *,
-        n_start=None,
-        max_eval=None,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -151,30 +140,12 @@ impl GpMix {
         recombination: Recombination,
         theta_init: Option<Vec<f64>>,
         theta_bounds: Option<Vec<Vec<f64>>>,
-        theta_n_start: Option<usize>,
-        theta_max_eval: Option<usize>,
+        theta_n_start: usize,
+        theta_max_eval: usize,
         seed: Option<u64>,
         #[gen_stub(override_type(type_repr = "Verbose | builtins.int | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
         verbose: Option<Py<PyAny>>,
-        n_start: Option<usize>,
-        max_eval: Option<usize>,
     ) -> PyResult<Self> {
-        let theta_n_start = resolve_renamed(
-            py,
-            "n_start",
-            n_start,
-            "theta_n_start",
-            theta_n_start,
-            EGO_GP_OPTIM_N_START,
-        )?;
-        let theta_max_eval = resolve_renamed(
-            py,
-            "max_eval",
-            max_eval,
-            "theta_max_eval",
-            theta_max_eval,
-            EGO_GP_OPTIM_MAX_EVAL,
-        )?;
         init_logger(py, verbose);
         let xtypes = xspecs
             .as_ref()
@@ -317,13 +288,10 @@ impl Gpx {
         recombination=GpConfig::default().recombination,
         theta_init=GpConfig::default().theta_init,
         theta_bounds=GpConfig::default().theta_bounds,
-        theta_n_start=None,
-        theta_max_eval=None,
+        theta_n_start=GpConfig::default().theta_n_start,
+        theta_max_eval=GpConfig::default().theta_max_eval,
         seed=None,
         verbose=None,
-        *,
-        n_start=None,
-        max_eval=None,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn builder(
@@ -337,13 +305,11 @@ impl Gpx {
         recombination: Recombination,
         theta_init: Option<Vec<f64>>,
         theta_bounds: Option<Vec<Vec<f64>>>,
-        theta_n_start: Option<usize>,
-        theta_max_eval: Option<usize>,
+        theta_n_start: usize,
+        theta_max_eval: usize,
         seed: Option<u64>,
         #[gen_stub(override_type(type_repr = "Verbose | builtins.int | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
         verbose: Option<Py<PyAny>>,
-        n_start: Option<usize>,
-        max_eval: Option<usize>,
     ) -> PyResult<GpMix> {
         GpMix::new(
             py,
@@ -359,8 +325,6 @@ impl Gpx {
             theta_max_eval,
             seed,
             verbose,
-            n_start,
-            max_eval,
         )
     }
 
@@ -645,13 +609,9 @@ impl Gpx {
         )
     }
 
-    /// Get optimized thetas hyperparameters (ie once GP experts are fitted)
-    ///
-    /// Returns
-    /// -------
-    /// array[n_clusters, nx or kpls_dim]
-    ///     thetas of each expert
-    ///
+    /// Optimized thetas hyperparameters of the fitted GP experts,
+    /// array[n_clusters, nx or kpls_dim] (one row per expert)
+    #[getter]
     fn thetas<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
         let experts = self.0.experts();
         let proto = experts.first().expect("Mixture should contain an expert");
@@ -662,13 +622,9 @@ impl Gpx {
         thetas.into_pyarray(py)
     }
 
-    /// Get GP expert variance (ie posterior GP variance)
-    ///
-    /// Returns
-    /// -------
-    /// array[n_clusters]
-    ///     variance of each expert
-    ///
+    /// Variance of the fitted GP experts (ie posterior GP variance), array[n_clusters]
+    /// (one value per expert)
+    #[getter]
     fn variances<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
         let experts = self.0.experts();
         let mut variances = Array1::zeros(self.0.n_clusters());
@@ -678,15 +634,9 @@ impl Gpx {
         variances.into_pyarray(py)
     }
 
-    /// Get reduced likelihood values obtained when fitting the GP experts
-    ///
-    /// May be used to compare various parameterizations
-    ///
-    /// Returns
-    /// -------
-    /// array[n_clusters]
-    ///     likelihood of each expert
-    ///
+    /// Reduced likelihood values obtained when fitting the GP experts, array[n_clusters]
+    /// (one value per expert). May be used to compare various parameterizations.
+    #[getter]
     fn likelihoods<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
         let experts = self.0.experts();
         let mut likelihoods = Array1::zeros(self.0.n_clusters());

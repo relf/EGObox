@@ -65,7 +65,7 @@ If optimization stagnates:
 ### Constraints
 
 - Tolerances are absolute (default `1e-4`, or `CstrSpec.leq(b, tol=...)` per constraint): scale constraints to order 1
-- `Egor(cstr_tol=...)` is deprecated since 0.38.0, give a `tol` to each `CstrSpec` instead
+- `Egor(cstr_tol=...)` was removed in 1.0.0, give a `tol` to each `CstrSpec` instead
 - Prefer a narrow band `CstrSpec.between(-eps, eps)` to `CstrSpec.eq(0.0)` for equality constraints
 - Keep `cstr_infill=True`, in particular when no initial DOE point is feasible
 - Use `InfillOptimizer.SLSQP` when constraints are expected to be active at the optimum

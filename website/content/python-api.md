@@ -23,7 +23,6 @@ Egor(
     xspecs,
     gp_config=GpConfig(),
     n_cstr=0,
-    cstr_tol=None,  # deprecated since 0.38.0
     cstr_specs=None,
     infill_n_start=20,
     n_doe=0,
@@ -49,11 +48,10 @@ Egor(
 | `xspecs` | `[XSpec]` | required | Input variable specifications (`XSpec` list-like), one per dimension. The simplest form is [[lower1, upper1], [lower2, upper2], ...] which supposes a continuous range for each dimension. Otherwise see [XSpecs](#xspecs) for more details. |
 | `gp_config` | `GpConfig` | `GpConfig()` | GP configuration used by the optimizer. |
 | `n_cstr` | `int` | `0` | Number of surrogate-modeled constraints returned by `fun`. |
-| `cstr_tol` | `Optional[Sequence[float]]` | `None` | Deprecated since 0.38.0: give a `tol` to each spec instead, e.g. `cstr_specs=[CstrSpec.leq(0.0, tol=1e-3)]` (and `fcstr_specs` for function constraints). |
 | `cstr_specs` | `Optional[Sequence[CstrSpec]]` | `None` | Optional constraint semantics for surrogate constraints. Possible values per item: `CstrSpec.leq(bound)`, `CstrSpec.geq(bound)`, `CstrSpec.eq(value)`, `CstrSpec.between(lower, upper)`, each with an optional `tol`, the absolute feasibility tolerance (default `1e-4`). When given, `n_cstr` is inferred. |
-| `infill_n_start` | `int` | `20` | Number of multistart runs for infill optimization (`n_start` is deprecated since 0.38.0). |
+| `infill_n_start` | `int` | `20` | Number of multistart runs for infill optimization. |
 | `n_doe` | `int` | `0` | Initial DOE size (auto-computed when `0`, if DOE not provided). |
-| `x_doe` | `Optional[NDArray[float64]]` | `None` | Initial DOE inputs `(ns, nx)`, evaluated when `y_doe` is not given (`doe` is deprecated since 0.38.0). |
+| `x_doe` | `Optional[NDArray[float64]]` | `None` | Initial DOE inputs `(ns, nx)`, evaluated when `y_doe` is not given. |
 | `y_doe` | `Optional[NDArray[float64]]` | `None` | Initial DOE outputs `(ns, 1 + n_cstr)` corresponding to `x_doe`. |
 | `infill_strategy` | `InfillStrategy` | `InfillStrategy.LOG_EI` | Infill criterion. Possible values: `InfillStrategy.LOG_EI`, `InfillStrategy.EI`, `InfillStrategy.WB2`, `InfillStrategy.WB2S`. |
 | `feasible_infill_strategy` | `FeasibleInfillStrategy` | `FeasibleInfillStrategy.NONE` | Feasibility-aware infill mode. Possible values: `FeasibleInfillStrategy.NONE`, `FeasibleInfillStrategy.EFI_P` (alias `EFI_PROBABILITY`), `FeasibleInfillStrategy.EFI_FE` (alias `EFI_FEASIBILITY_ENHANCED`). |
@@ -79,8 +77,8 @@ Egor(
 | `recombination` | `Recombination` | `Recombination.HARD` | Expert recombination mode. Possible values: `Recombination.HARD`, `Recombination.SMOOTH`. |
 | `theta_init` | `Optional[Sequence[float]]` | `None` | Uses internal default initialization. |
 | `theta_bounds` | `Optional[Sequence[Sequence[float]]]` | `None` | Uses internal default bounds. |
-| `theta_n_start` | `int` | `10` | GP hyperparameter optimization multistart (`n_start` is deprecated since 0.38.0). |
-| `theta_max_eval` | `int` | `50` | Max likelihood evaluations for hyperparameter optimization (`max_eval` is deprecated since 0.38.0). |
+| `theta_n_start` | `int` | `10` | GP hyperparameter optimization multistart. |
+| `theta_max_eval` | `int` | `50` | Max likelihood evaluations for hyperparameter optimization. |
 
 ### QEiConfig
 
@@ -88,7 +86,7 @@ Egor(
 | --- | --- | --- | --- |
 | `batch` | `int` | `1` | One point per iteration (sequential EGO). |
 | `strategy` | `QEiStrategy` | `QEiStrategy.KB` | qEI strategy. Possible values: `QEiStrategy.KB`, `QEiStrategy.KBLB`, `QEiStrategy.KBUB`, `QEiStrategy.CLMIN` (long name aliases `KRIGING_BELIEVER`, `KRIGING_BELIEVER_LOWER_BOUND`, `KRIGING_BELIEVER_UPPER_BOUND`, `CONSTANT_LIAR_MINIMUM`). |
-| `optim_every` | `int` | `1` | Re-optimize hyperparameters every point (`optmod` is deprecated since 0.38.0). |
+| `optim_every` | `int` | `1` | Re-optimize hyperparameters every point. |
 
 ### TregoConfig
 
@@ -96,8 +94,8 @@ When `trego=True` in `Egor(...)`, the Python binding activates TREGO with `Trego
 
 | Name | Type | Default value | Description |
 | --- | --- | --- | --- |
-| `n_global_local_steps` | `tuple[int, int]` | `(1, 4)` | Number of global and local steps `(n_global_steps, n_local_steps)` (`n_gl_steps` is deprecated since 0.38.0). |
-| `radius_bounds` | `tuple[float, float]` | `(1e-6, 1.0)` | Trust-region radius bounds `(dmin, dmax)` (`d` is deprecated since 0.38.0). |
+| `n_global_local_steps` | `tuple[int, int]` | `(1, 4)` | Number of global and local steps `(n_global_steps, n_local_steps)`. |
+| `radius_bounds` | `tuple[float, float]` | `(1e-6, 1.0)` | Trust-region radius bounds `(dmin, dmax)`. |
 | `alpha` | `float` | `1.0` | Acceptance threshold coefficient in `rho(sigma) = alpha * sigma^2`. |
 | `beta` | `float` | `0.9` | Trust-region contraction factor. |
 | `sigma0` | `float` | `0.1` | Initial trust-region radius. |
@@ -145,8 +143,7 @@ res.x_opt, res.y_opt  # same as res.result.x_opt, res.result.y_opt
 x_opt, y_opt = egor.minimize(fun, max_iters=20)
 ```
 
-`Egor.best_result(x_doe, y_doe)` and `Egor.best_index(y_doe)` give the best point of a given DOE
-(`get_result` and `get_result_index` are deprecated since 0.38.0).
+`Egor.best_result(x_doe, y_doe)` and `Egor.best_index(y_doe)` give the best point of a given DOE.
 
 ## Belfegor (multi-objective, experimental)
 
@@ -164,7 +161,7 @@ Belfegor(
     gp_config=None,
     n_cstr=0,
     cstr_specs=None,
-    infill_n_start=None,
+    infill_n_start=20,
     n_doe=0,
     x_doe=None,
     y_doe=None,
@@ -260,8 +257,8 @@ Gpx.builder(
 | `recombination` | `Recombination` | `Recombination.HARD` | Expert recombination policy. Possible values: `Recombination.HARD`, `Recombination.SMOOTH`. |
 | `theta_init` | `Optional[Sequence[float]]` | `None` | Initial GP hyperparameter guess. |
 | `theta_bounds` | `Optional[Sequence[Sequence[float]]]` | `None` | Search bounds for GP hyperparameter optimization. |
-| `theta_n_start` | `int` | `10` | Hyperparameter optimization multistart count (`n_start` is deprecated since 0.38.0). |
-| `theta_max_eval` | `int` | `50` | Max likelihood evaluations during hyperparameter optimization (`max_eval` is deprecated since 0.38.0). |
+| `theta_n_start` | `int` | `10` | Hyperparameter optimization multistart count. |
+| `theta_max_eval` | `int` | `50` | Max likelihood evaluations during hyperparameter optimization. |
 | `seed` | `Optional[int]` | `None` | RNG seed for reproducibility. |
 | `verbose` | `Optional[Any]` | `None` | Optional logging verbosity. Possible values: `None`, integer level, or `Verbose` enum (`ERROR`, `WARNING`, `INFO`, `DEBUG`, `TRACE`). |
 
@@ -282,9 +279,9 @@ def dims(self) -> tuple[int, int]
 nx: int  # read-only property, number of inputs
 ny: int  # read-only property, number of outputs
 def training_data(self) -> tuple[NDArray[float64], NDArray[float64]]
-def thetas(self) -> NDArray[float64]
-def variances(self) -> NDArray[float64]
-def likelihoods(self) -> NDArray[float64]
+thetas: NDArray[float64]  # read-only property, optimized hyperparameters (n_clusters, nx or kpls_dim)
+variances: NDArray[float64]  # read-only property, variance of each expert (n_clusters,)
+likelihoods: NDArray[float64]  # read-only property, reduced likelihood of each expert (n_clusters,)
 ```
 
 ## XSpecs

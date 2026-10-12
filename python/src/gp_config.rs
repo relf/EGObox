@@ -1,4 +1,3 @@
-use crate::deprecation::{resolve_renamed, resolve_renamed_key, warn_deprecated};
 use crate::types::*;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -79,10 +78,6 @@ pub(crate) struct GpConfig {
     pub theta_max_eval: usize,
 }
 
-/// Deprecated GP configuration names (old, new)
-pub(crate) const GP_CONFIG_RENAMED: [(&str, &str); 2] =
-    [("n_start", "theta_n_start"), ("max_eval", "theta_max_eval")];
-
 impl<'a, 'py> FromPyObject<'a, 'py> for GpConfig {
     type Error = PyErr;
 
@@ -96,7 +91,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for GpConfig {
 
         for (key, value) in dict.iter() {
             let key = key.extract::<String>()?;
-            match resolve_renamed_key(&dict, &key, &GP_CONFIG_RENAMED)? {
+            match key.as_str() {
                 "regr_spec" => cfg.regr_spec = value.extract()?,
                 "corr_spec" => cfg.corr_spec = value.extract()?,
                 "kpls_dim" => cfg.kpls_dim = value.extract()?,
@@ -235,13 +230,6 @@ impl GpConfig {
     ///     Max number of likelihood evaluations of each GP hyperparameters optimization start (default: 50).
     ///     Upper limit: each start gets clamp(10 * nx, 25, theta_max_eval) evaluations.
     ///
-    /// Deprecated
-    /// ----------
-    /// n_start : int, optional
-    ///     Deprecated since 0.38.0, use `theta_n_start` instead.
-    /// max_eval : int, optional
-    ///     Deprecated since 0.38.0, use `theta_max_eval` instead.
-    ///
     /// Returns
     /// -------
     /// GpConfig
@@ -255,15 +243,11 @@ impl GpConfig {
         recombination=GpConfig::default().recombination,
         theta_init=GpConfig::default().theta_init,
         theta_bounds=GpConfig::default().theta_bounds,
-        theta_n_start=None,
-        theta_max_eval=None,
-        *,
-        n_start=None,
-        max_eval=None,
+        theta_n_start=GpConfig::default().theta_n_start,
+        theta_max_eval=GpConfig::default().theta_max_eval,
 ))]
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        py: Python,
         regr_spec: u8,
         corr_spec: u8,
         kpls_dim: Option<usize>,
@@ -271,13 +255,10 @@ impl GpConfig {
         recombination: Recombination,
         theta_init: Option<Vec<f64>>,
         theta_bounds: Option<Vec<Vec<f64>>>,
-        theta_n_start: Option<usize>,
-        theta_max_eval: Option<usize>,
-        n_start: Option<usize>,
-        max_eval: Option<usize>,
-    ) -> PyResult<Self> {
-        let default = GpConfig::default();
-        Ok(GpConfig::from_values(
+        theta_n_start: usize,
+        theta_max_eval: usize,
+    ) -> Self {
+        GpConfig::from_values(
             regr_spec,
             corr_spec,
             kpls_dim,
@@ -285,53 +266,9 @@ impl GpConfig {
             recombination,
             theta_init,
             theta_bounds,
-            resolve_renamed(
-                py,
-                "n_start",
-                n_start,
-                "theta_n_start",
-                theta_n_start,
-                default.theta_n_start,
-            )?,
-            resolve_renamed(
-                py,
-                "max_eval",
-                max_eval,
-                "theta_max_eval",
-                theta_max_eval,
-                default.theta_max_eval,
-            )?,
-        ))
-    }
-
-    /// Deprecated since 0.38.0, use `theta_n_start` instead.
-    #[getter(n_start)]
-    fn get_n_start(&self, py: Python) -> PyResult<usize> {
-        warn_deprecated(py, "GpConfig.n_start", "GpConfig.theta_n_start")?;
-        Ok(self.theta_n_start)
-    }
-
-    #[setter(n_start)]
-    fn set_n_start(&mut self, value: usize) -> PyResult<()> {
-        // no `py` argument as pyo3-stub-gen does not support it on setters
-        Python::attach(|py| warn_deprecated(py, "GpConfig.n_start", "GpConfig.theta_n_start"))?;
-        self.theta_n_start = value;
-        Ok(())
-    }
-
-    /// Deprecated since 0.38.0, use `theta_max_eval` instead.
-    #[getter(max_eval)]
-    fn get_max_eval(&self, py: Python) -> PyResult<usize> {
-        warn_deprecated(py, "GpConfig.max_eval", "GpConfig.theta_max_eval")?;
-        Ok(self.theta_max_eval)
-    }
-
-    #[setter(max_eval)]
-    fn set_max_eval(&mut self, value: usize) -> PyResult<()> {
-        // no `py` argument as pyo3-stub-gen does not support it on setters
-        Python::attach(|py| warn_deprecated(py, "GpConfig.max_eval", "GpConfig.theta_max_eval"))?;
-        self.theta_max_eval = value;
-        Ok(())
+            theta_n_start,
+            theta_max_eval,
+        )
     }
 
     fn __repr__(&self, py: Python) -> PyResult<String> {

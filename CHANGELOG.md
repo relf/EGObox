@@ -1,13 +1,20 @@
 # Changes
 
-## Version 0.39.0 - 09/10/2026
+## Version 1.0.0 - 12/10/2026
 
-This release brings experimental multi-objective optimization: Rust `Egor` approximates the (constrained)
-Pareto front of several objectives, and the new Python `Belfegor` optimizer exposes it. Mono-objective
-optimization and the Python `Egor` API are unchanged, Rust API changes are additive.
-See [release notes](doc/release-notes-0.39.0.md) for details and the [multi-objective plan](doc/moo-plan.md)
+This release stabilizes the Python API: the names deprecated in 0.38.0 are removed. It also brings
+experimental multi-objective optimization: Rust `Egor` approximates the (constrained) Pareto front of several
+objectives, and the new Python `Belfegor` optimizer exposes it. Mono-objective optimization is unchanged,
+Rust API changes are additive (crates: `egobox-ego` 0.42.0, `egobox-moe` 0.36.2, `egobox-gp` 0.37.1).
+See [release notes](doc/release-notes-1.0.0.md) for details and the [multi-objective plan](doc/moo-plan.md)
 for implementation notes.
 
+* **Breaking changes** (Python):
+  * Remove the names deprecated in 0.38.0: `n_start`, `max_eval`, `nz`, `z`, `optmod`, `n_gl_steps`, `d`, `doe`,
+    `cstr_tol`, `CstrSpec.btw`, `get_result()`, `get_result_index()`, positional `sampling(method, ...)`
+    (see the release notes for their replacements). `Egor` positional arguments after `n_cstr` move up one slot
+  * `Gpx` / `SparseGpx` `thetas`, `variances` and `likelihoods` are read-only properties (`gpx.thetas`
+    instead of `gpx.thetas()`)
 * Multi-objective optimization (experimental):
   * `EgorConfig::n_obj()`, `EgorConfig::configure_moo()` and `Egor::run_pareto()` returning a `ParetoResult`
     (Pareto set/front and compromise point, the latter being also returned by `run()`), with the ParEGO
@@ -43,9 +50,6 @@ for implementation notes.
   by @relf in <https://github.com/relf/EGObox/pull/476>
 * Fix gradient of the probability of feasibility (used with `cstr_infill`) when a non-zero constraint
   tolerance is set by @relf in <https://github.com/relf/EGObox/pull/477>
-* Python deprecations: names deprecated in 0.38.0 still work with a `DeprecationWarning`, their removal and
-  the change of `Gpx.thetas()`, `variances()` and `likelihoods()` to properties are postponed to a future
-  release
 
 ## Version 0.38.1 - 07/10/2026
 

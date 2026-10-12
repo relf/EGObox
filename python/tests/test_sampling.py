@@ -6,6 +6,30 @@ import egobox as egx
 
 
 class TestSampling(unittest.TestCase):
+    def test_arguments(self):
+        xspecs = [[0.0, 1.0], [-1.0, 1.0]]
+        expected = egx.sampling(xspecs, 5, method=egx.Sampling.RANDOM, seed=42)
+        # positional, keywords only, method as int
+        for args, kwargs in (
+            ((xspecs, 5, egx.Sampling.RANDOM, 42), {}),
+            (
+                (),
+                {
+                    "method": egx.Sampling.RANDOM,
+                    "xspecs": xspecs,
+                    "n_samples": 5,
+                    "seed": 42,
+                },
+            ),
+            ((xspecs, 5), {"method": 3, "seed": 42}),
+        ):
+            with self.subTest(args=args, kwargs=kwargs):
+                np.testing.assert_array_equal(egx.sampling(*args, **kwargs), expected)
+        # LHS by default
+        np.testing.assert_array_equal(
+            egx.sampling(xspecs, 5, seed=42), egx.lhs(xspecs, 5, seed=42)
+        )
+
     def test_lhs(self):
         xtypes = [
             egx.XSpec(egx.XType.FLOAT, [-5.0, 5.0]),
