@@ -626,6 +626,7 @@ version = "0.1.0"
 dependencies = [
  "approx",
  "egobox-doe",
+ "egobox-ego",
  "egobox-gp",
  "linfa",
  "linfa-linalg",
