@@ -8,14 +8,42 @@
 //!
 //! The crate is under development. It currently provides:
 //! * the definition of MDO problems: [MdoProblem] and [Discipline],
+//! * the EGMDO algorithm for unconstrained problems, as an ask/tell solver
+//!   [EgmdoSolver] or with given disciplinary solvers: [minimize],
 //! * the disciplinary GP surrogates: [DisciplinaryModels],
 //! * the multidisciplinary analysis (MDA) solver: [mda],
 //! * the polynomial chaos expansions (PCE) with Sobol indices: [pce],
 //! * the uncertainty quantification of the objective and constraints at design points: [uq],
 //! * the Karhunen–Loève decomposition and KL-GP random field of the objective: [kl],
+//! * the enrichment criteria: [criteria],
 //! * the test problems of the EGMDO and C-EGMDO papers: [problems].
 //!
-//! # Example
+//! # Examples
+//!
+//! Minimize the 1-D toy problem of the EGMDO paper:
+//!
+//! ```
+//! use egobox_egmdo::{EgmdoConfig, minimize, problems};
+//!
+//! let tp = problems::toy();
+//! let config = EgmdoConfig {
+//!     n_doe_uq: 6,
+//!     max_iters: 3,
+//!     n_sim: 20,
+//!     seed: Some(42),
+//!     ..EgmdoConfig::default()
+//! };
+//! let result = minimize(&tp.problem, &tp.disciplines, config).unwrap();
+//! println!(
+//!     "z* = {} ± {}, f* = {}, true evaluations {:?}",
+//!     result.z_star_mean(),
+//!     result.z_star_std(),
+//!     result.y_min_mean(),
+//!     result.n_evaluations
+//! );
+//! ```
+//!
+//! Use the disciplinary GPs and the MDA solver directly:
 //!
 //! ```
 //! use egobox_egmdo::{DisciplinaryModels, GpSettings, initial_doe, problems};
@@ -54,15 +82,18 @@
 #![warn(missing_docs)]
 #![warn(rustdoc::broken_intra_doc_links)]
 
+pub mod criteria;
 mod errors;
 pub mod kl;
 pub mod mda;
 pub mod pce;
 mod problem;
 pub mod problems;
+mod solver;
 mod surrogates;
 pub mod uq;
 
 pub use errors::*;
 pub use problem::*;
+pub use solver::*;
 pub use surrogates::*;

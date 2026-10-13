@@ -48,11 +48,18 @@ GP settings (paper, "Replication of results"):
 | Setting | Paper | EGObox |
 |---|---|---|
 | Trend | Constant | `ConstantMean` |
-| Kernel | Squared exponential | `SquaredExponentialCorr`: `exp(-½ Σ (θ_l d_l)²)` |
+| Kernel | Squared exponential | Matérn 5/2 by default (`Matern52Corr`), squared exponential (`SquaredExponentialCorr`: `exp(-½ Σ (θ_l d_l)²)`) as an option (D34) |
 | Input scaling | Centred and reduced | Built in (`xt_norm`) |
 | Hyperparameters | Maximum likelihood, length scales in `[0.3, 100]` | `ThetaTuning::Full` with `θ = 1/ℓ ∈ [0.01, 3.33]` |
 
 Predictions used by the algorithm: the mean `μ_q` (`predict`) and the standard deviation `σ_q = sqrt(predict_var)`. No sampling or gradient capability is needed.
+
+**Decision D34 (kernel).** The default kernel is Matérn 5/2, for the disciplinary GPs and the KL-GPs; the papers' squared exponential is an option (`GpSettings::paper()`). Both kernels use `θ` as an inverse length scale, with the same bounds. With the small initial DoEs of the method, maximum likelihood often puts a squared exponential length scale at its upper bound, and the GP becomes overconfident. Its standard deviation then underestimates the error, so the coefficient of variation stays below `ε_CV` and Algorithm 1 does not enrich where it should. On the 1-D toy problem:
+
+- with 4 to 5 training points, 5–31% of the errors fall within 2σ for most squared exponential fits, against 43–100% with Matérn 5/2, for a similar RMSE;
+- in the paper's setting (initial DoEs of 5 and 4 points, the paper's `DoE_UQ`, 5 iterations, seeds 0 to 19), 17/20 runs converge with Matérn 5/2 against 13/20 with the squared exponential, for about one more true evaluation per run.
+
+The C-EGMDO paper lists the choice of kernel as a likely improvement. Benchmarks reproducing the papers use the squared exponential.
 
 Initial training data: `DoE_fi`, an LHS of size `n_fi` over `Z_i × C(i)`, evaluated with the true `f_i`.
 
@@ -81,7 +88,9 @@ Convergence (paper): the mean relative change of the coupling variables between 
 - **Decision D3:** `ε_abs = 1e-12` guards against division by zero.
 - **Decision D4:** the starting point is the centre of the `C(i)` boxes; the iteration limit is 500 (configurable).
 - **Decision D31:** an optional relaxation `y^(k+1) = (1 − ω) y^(k) + ω F(y^(k))`, `ω ∈ ]0, 1]`. The default `ω = 1` is the paper's plain Jacobi method. Plain Jacobi diverges on part of the compound cylinder's design space: its iteration factor reaches −1.55 at `a = 7, b = 9, c = 15`. With `ω = 0.5`, every corner of `Z` contracts, so this test problem uses `ω = 0.5`.
-- **Decision D5:** a sample whose MDA does not converge (iteration limit, non-finite value) is excluded from the PCE regression sample of section 4, and counted. If fewer than `max(P, n_MC / 2)` samples remain, the PCE at that point is flagged as unreliable and reported; the run continues.
+- **Decision D33:** the resolutions which do not converge are retried from their starting point with stronger relaxation, `ω = 0.5` then `0.25` (only the factors smaller than the base `ω` are used). Random MDAs fail mostly near the edges of the design space: there the couplings leave the training boxes `C(i)`, the GPs extrapolate with large `σ`, and some realizations `μ + σ ξ` have iteration factors larger than 1 in magnitude, so plain Jacobi cycles. The paper's plain Jacobi is still used whenever it converges.
+- **Decision D5:** a sample whose MDA does not converge (iteration limit, non-finite value), even after the retries of D33, is excluded from the PCE regression sample of section 4, and counted. If fewer than `max(P, n_MC / 2)` samples remain, the PCE at that point is flagged as unreliable and reported; the run continues.
+- **Decision D32:** if no more than `P` random MDAs converge at a `DoE_UQ` point, its PCE cannot be fitted: the point is dropped from `DoE_UQ` with a warning, and counted in the iteration history. A proposed point `z_new` in that case is not added. The run fails only if fewer than 2 `DoE_UQ` points remain.
 
 The same solver gives:
 
@@ -367,6 +376,9 @@ The paper's typesetting of (23) contains typos: it prints `B/r` instead of `B/r�
 | D18 | Sellar `sqrt` | `sqrt(max(y1, 0))` in the test problem |
 | D19 | Cylinder reference | Exact radial moments; reference recomputed |
 | D31 | MDA relaxation | Optional `ω`, default 1 (plain Jacobi); 0.5 for the compound cylinder |
+| D32 | Failing `DoE_UQ` point | Dropped when no more than `P` random MDAs converge; error below 2 points |
+| D33 | MDA retries | Failed resolutions retried with `ω = 0.5`, then `0.25` |
+| D34 | GP kernel | Matérn 5/2 by default; squared exponential (papers) as an option |
 
 ## 13. Default settings
 
@@ -382,6 +394,8 @@ The paper's typesetting of (23) contains typos: it prints `B/r` instead of `B/r�
 | MDA tolerance | | `10⁻⁶` | paper |
 | MDA iteration limit | | 500 | D4 |
 | MDA relaxation | `ω` | 1 | D31 |
+| MDA retry relaxations | | 0.5, 0.25 | D33 |
+| GP kernel | | Matérn 5/2 | D34 |
 | EI Monte Carlo samples | `N_EI` | 2000 | D9 |
 | EI optimizer | | COBYLA, `rhobeg = 0.5` on `[0, 1]^n`, 20 starts | paper |
 | `P_min` samples | `n_P` | 10⁴ | D10 |
@@ -397,7 +411,7 @@ The paper's typesetting of (23) contains typos: it prints `B/r` instead of `B/r�
 | 3 | `mda` | — | toy and Sellar true MDA vs analytical/fixed-point solutions; `Ξ = 0` equals mean MDA; failure counting |
 | 4 | `pce` | `linfa-linalg` QR | orthonormality of the basis (Monte Carlo), exact recovery of polynomial targets, moments vs Monte Carlo |
 | 5 | `kl` | `egobox-gp`, `linfa-linalg` `eigh` | energy truncation, reconstruction of `Ŷ_obj` at `DoE_UQ`, KL-GP interpolation, sign invariance |
-| 6, 7 | `criteria` | COBYLA multistart (`egobox-ego` or `cobyla`) | EI ≈ 0 at `DoE_UQ`, EI ≥ 0, determinism with fixed samples, `P_min` sums to 1, `cv` with negative and zero mean |
+| 6, 7 | `criteria` | multistart COBYLA of `egobox_gp::basin_optimizer`, as `Egor` | EI ≈ 0 at `DoE_UQ`, EI ≥ 0, determinism with fixed samples, `P_min` sums to 1, `cv` with negative and zero mean |
 | 7, 8, 9 | `solver` | — | Algorithm 1 stops when all candidates have `cv ≤ ε_cv`; one evaluation per discipline per enrichment; ask/tell sequence; reproducibility for a seed |
 | 10 | `solver`, `result` | — | statistics of `Ẑ*` and `Ŷ_min` on a problem with a known minimum |
 | 11 | `problems` (tests and examples) | — | end-to-end runs and reference results |
@@ -634,6 +648,7 @@ The library defaults follow C-EGMDO, the more recent and more robust variant. Be
 | Enrichment | `All`, `Sobol` | `Sobol` | `All` | `Sobol` |
 | `ε_P` | > 0 | `10⁻³` | `1/n_UQ` | `10⁻³` |
 | `ε_CV` | > 0 | 0.01 | 0.01 | 0.01 |
+| GP kernel | `Matern52`, `SquaredExponential` | `Matern52` (D34) | `SquaredExponential` | `SquaredExponential` |
 | `n_MC` | `≥ P + 1` | `max(200, 2P)` | 100 | 200 to 500 |
 | Constraint tolerance `τ` | ≥ 0 per constraint | `1e-4` | — | — |
 

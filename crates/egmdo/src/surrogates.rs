@@ -1,13 +1,14 @@
 //! Disciplinary Gaussian process surrogates.
 //!
 //! Each scalar coupling variable computed by a discipline is modelled by its own GP,
-//! with a constant mean and a squared exponential kernel, trained on the disciplinary
-//! inputs `[z_i, y_c(i)]` (specification, section 2).
+//! with a constant mean, trained on the disciplinary inputs `[z_i, y_c(i)]`
+//! (specification, section 2). The same GPs interpolate the KL decomposition
+//! of the objective (section 5).
 
 use crate::errors::{EgmdoError, Result};
 use crate::problem::MdoProblem;
 use egobox_doe::{Lhs, SamplingMethod};
-use egobox_gp::correlation_models::SquaredExponentialCorr;
+use egobox_gp::correlation_models::{CorrelationModel, Matern52Corr, SquaredExponentialCorr};
 use egobox_gp::mean_models::ConstantMean;
 use egobox_gp::{GaussianProcess, ThetaTuning};
 use linfa::prelude::{Dataset, Fit};
@@ -15,16 +16,61 @@ use ndarray::{Array1, Array2, ArrayBase, Axis, Data, Ix2, array, concatenate};
 use ndarray_rand::rand::SeedableRng;
 use rand_xoshiro::Xoshiro256Plus;
 
-/// The GP used to model a scalar disciplinary output
-pub type DisciplinaryGp = GaussianProcess<f64, ConstantMean, SquaredExponentialCorr>;
-
 /// The distance, in inputs normalized by the discipline input bounds, under which
 /// a new training point is considered as a duplicate of an existing one (decision D14).
 pub const DUPLICATE_TOLERANCE: f64 = 1e-10;
 
-/// Settings of the disciplinary GPs
+/// The GP kernel (correlation model)
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Kernel {
+    /// Squared exponential kernel, used in the EGMDO and C-EGMDO papers
+    SquaredExponential,
+    /// Matérn 5/2 kernel, the default (decision D34)
+    #[default]
+    Matern52,
+}
+
+/// A GP with a constant mean, modelling a scalar disciplinary output or interpolating
+/// the KL decomposition of the objective
+#[derive(Clone)]
+pub enum DisciplinaryGp {
+    /// GP with a squared exponential kernel
+    SquaredExponential(GaussianProcess<f64, ConstantMean, SquaredExponentialCorr>),
+    /// GP with a Matérn 5/2 kernel
+    Matern52(GaussianProcess<f64, ConstantMean, Matern52Corr>),
+}
+
+impl DisciplinaryGp {
+    /// Predicts the mean at inputs `x` `(n, dim)`
+    pub fn predict(&self, x: &ArrayBase<impl Data<Elem = f64>, Ix2>) -> Result<Array1<f64>> {
+        Ok(match self {
+            DisciplinaryGp::SquaredExponential(gp) => gp.predict(x)?,
+            DisciplinaryGp::Matern52(gp) => gp.predict(x)?,
+        })
+    }
+
+    /// Predicts the variance at inputs `x` `(n, dim)`
+    pub fn predict_var(&self, x: &ArrayBase<impl Data<Elem = f64>, Ix2>) -> Result<Array1<f64>> {
+        Ok(match self {
+            DisciplinaryGp::SquaredExponential(gp) => gp.predict_var(x)?,
+            DisciplinaryGp::Matern52(gp) => gp.predict_var(x)?,
+        })
+    }
+
+    /// The optimized `theta` hyperparameters (inverse length scales)
+    pub fn theta(&self) -> &Array1<f64> {
+        match self {
+            DisciplinaryGp::SquaredExponential(gp) => gp.theta(),
+            DisciplinaryGp::Matern52(gp) => gp.theta(),
+        }
+    }
+}
+
+/// Settings of the disciplinary GPs and KL-GPs
 #[derive(Clone, Debug)]
 pub struct GpSettings {
+    /// The kernel
+    pub kernel: Kernel,
     /// Initial value of the `theta` hyperparameters (inverse length scales)
     pub theta_init: f64,
     /// Bounds of the `theta` hyperparameters
@@ -32,10 +78,11 @@ pub struct GpSettings {
 }
 
 impl Default for GpSettings {
-    /// Length scales in `[0.3, 100]` on normalized inputs, as in the EGMDO paper,
-    /// i.e. `theta = 1 / length scale` in `[0.01, 3.33]`.
+    /// Matérn 5/2 kernel (D34), with length scales in `[0.3, 100]` on normalized inputs as
+    /// in the EGMDO paper, i.e. `theta = 1 / length scale` in `[0.01, 3.33]`.
     fn default() -> Self {
         GpSettings {
+            kernel: Kernel::default(),
             theta_init: 0.1,
             theta_bounds: (1. / 100., 1. / 0.3),
         }
@@ -43,19 +90,46 @@ impl Default for GpSettings {
 }
 
 impl GpSettings {
+    /// The settings of the EGMDO and C-EGMDO papers: squared exponential kernel
+    pub fn paper() -> Self {
+        GpSettings {
+            kernel: Kernel::SquaredExponential,
+            ..GpSettings::default()
+        }
+    }
+
     /// Trains a GP on inputs `x` and scalar outputs `y`
     pub fn train(
         &self,
         x: &ArrayBase<impl Data<Elem = f64>, Ix2>,
         y: &Array1<f64>,
     ) -> Result<DisciplinaryGp> {
-        let gp = DisciplinaryGp::params(ConstantMean::default(), SquaredExponentialCorr::default())
-            .theta_tuning(ThetaTuning::Full {
-                init: array![self.theta_init],
-                bounds: array![self.theta_bounds],
-            })
-            .fit(&Dataset::new(x.to_owned(), y.to_owned()))?;
-        Ok(gp)
+        Ok(match self.kernel {
+            Kernel::SquaredExponential => DisciplinaryGp::SquaredExponential(self.fit(
+                SquaredExponentialCorr::default(),
+                x,
+                y,
+            )?),
+            Kernel::Matern52 => {
+                DisciplinaryGp::Matern52(self.fit(Matern52Corr::default(), x, y)?)
+            }
+        })
+    }
+
+    fn fit<Corr: CorrelationModel<f64>>(
+        &self,
+        corr: Corr,
+        x: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+        y: &Array1<f64>,
+    ) -> Result<GaussianProcess<f64, ConstantMean, Corr>> {
+        Ok(
+            GaussianProcess::<f64, ConstantMean, Corr>::params(ConstantMean::default(), corr)
+                .theta_tuning(ThetaTuning::Full {
+                    init: array![self.theta_init],
+                    bounds: array![self.theta_bounds],
+                })
+                .fit(&Dataset::new(x.to_owned(), y.to_owned()))?,
+        )
     }
 }
 

@@ -228,7 +228,7 @@ impl KlGpField {
     /// The expectation over `Ξ` of the objective model (19) at design points `z`,
     /// i.e. the KL-GP mean `m_0(z)`
     pub fn expectation(&self, z: &Array2<f64>) -> Result<Array1<f64>> {
-        Ok(self.gps[0].predict(z)?)
+        self.gps[0].predict(z)
     }
 }
 
