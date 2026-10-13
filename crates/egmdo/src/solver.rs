@@ -37,7 +37,14 @@ pub enum Acquisition {
         /// Scale of the expected improvement (1 in the C-EGMDO paper, D23)
         scale: f64,
     },
+    /// The WB2 criterion with an adaptive scale, as `Egor`'s WB2S (Bartoli et al. 2019):
+    /// at each iteration, `scale = 100 |m_0(z_max)| / EI(z_max)`, where `z_max` maximizes the
+    /// EI over the starting points of the acquisition optimization (D35)
+    Wb2s,
 }
+
+/// The ratio between the WB2S exploitation and exploration terms at the point of maximum EI
+pub const WB2S_RATIO: f64 = 100.;
 
 impl Default for Acquisition {
     fn default() -> Self {
@@ -165,6 +172,8 @@ pub struct IterationRecord {
     pub z_new: Option<Array1<f64>>,
     /// The maximum value of the acquisition criterion
     pub max_criterion: f64,
+    /// The scale of the EI in the WB2 criterion, if used
+    pub wb2_scale: Option<f64>,
     /// The number of KL modes
     pub n_modes: usize,
     /// The number of enrichments of the disciplinary GPs
@@ -545,24 +554,42 @@ impl EgmdoSolver {
         let eta = normal_samples(self.config.n_ei_samples, n_modes + 1, self.rng.r#gen());
         let f_min = SampleMinima::new(&self.uq, &xi.view(), &self.feasibility).f_min;
         let ei = ExpectedImprovement::new(&field, f_min, &xi.view(), eta);
-        let acquisition = self.config.acquisition;
-        let objective = |z: &Array1<f64>| {
-            let z = z.view().insert_axis(Axis(0)).to_owned();
-            let value = match acquisition {
-                Acquisition::Ei => ei.value(&z),
-                Acquisition::Wb2 { scale } => ei.wb2(&z, scale),
-            };
-            value.map_or(f64::INFINITY, |v| -v[0])
-        };
-        let starts = self.uniform_points(self.config.n_starts);
+        let mut starts = self.uniform_points(self.config.n_starts);
         let (n_constraints, constraint) = constraints.as_inequalities(&self.feasibility);
-        let optima = multistart_minimize_constrained(
-            &objective,
-            &constraint,
-            n_constraints,
-            self.problem.xlimits(),
-            &starts,
-        );
+        let maximize = |scale: Option<f64>, starts: &Array2<f64>| {
+            let objective = |z: &Array1<f64>| {
+                let z = z.view().insert_axis(Axis(0)).to_owned();
+                let value = match scale {
+                    None => ei.value(&z),
+                    Some(scale) => ei.wb2(&z, scale),
+                };
+                value.map_or(f64::INFINITY, |v| -v[0])
+            };
+            multistart_minimize_constrained(
+                &objective,
+                &constraint,
+                n_constraints,
+                self.problem.xlimits(),
+                starts,
+            )
+        };
+        let wb2_scale = match self.config.acquisition {
+            Acquisition::Ei => None,
+            Acquisition::Wb2 { scale } => Some(scale),
+            Acquisition::Wb2s => {
+                // Scale computed at the maximum of the EI (D35)
+                let ei_optima = maximize(None, &starts);
+                let scale = match ei_optima.first() {
+                    Some(best) => {
+                        starts = concatenate![Axis(0), starts, best.x.view().insert_axis(Axis(0))];
+                        wb2s_scale(-best.value, &field, &best.x)?
+                    }
+                    None => 1.,
+                };
+                Some(scale)
+            }
+        };
+        let optima = maximize(wb2_scale, &starts);
         let max_criterion = optima.first().map_or(0., |o| -o.value);
 
         // The best proposed point which is not already in DoE_UQ (D25)
@@ -603,6 +630,7 @@ impl EgmdoSolver {
         self.history.push(IterationRecord {
             z_new,
             max_criterion,
+            wb2_scale,
             n_modes,
             n_enrichments: 0,
             n_failed_mdas: self.uq.iter().map(|u| u.n_failed).sum(),
@@ -775,6 +803,17 @@ impl EgmdoSolver {
             }
         }
         points
+    }
+}
+
+/// The adaptive scale of the WB2S criterion: `100 |m_0(z_max)| / EI_max`, where `EI_max` is
+/// the maximum of the EI, reached at `z_max`, or 1 when the EI is negligible (D35)
+fn wb2s_scale(ei_max: f64, field: &KlGpField, z_max: &Array1<f64>) -> Result<f64> {
+    if ei_max > 100. * f64::EPSILON {
+        let m0 = field.expectation(&z_max.view().insert_axis(Axis(0)).to_owned())?[0];
+        Ok(WB2S_RATIO * m0.abs() / ei_max)
+    } else {
+        Ok(1.)
     }
 }
 
@@ -996,6 +1035,35 @@ mod tests {
             seed: Some(seed),
             ..EgmdoConfig::default()
         }
+    }
+
+    #[test]
+    fn test_wb2s_adaptive_scale() {
+        let tp = problems::toy_constrained();
+        let config = EgmdoConfig {
+            acquisition: Acquisition::Wb2s,
+            ..toy_constrained_config(0)
+        };
+        let result = minimize(&tp.problem, &tp.disciplines, config).unwrap();
+        // A scale is computed at every iteration, adapted (≠ 1) while the EI is not negligible
+        assert!(result.history.iter().all(|h| h.wb2_scale.is_some()));
+        assert!(
+            result
+                .history
+                .iter()
+                .any(|h| h.wb2_scale.is_some_and(|s| s != 1.)),
+            "{:?}",
+            result.history
+        );
+        // WB2 records its fixed scale, EI none
+        let result = minimize(&tp.problem, &tp.disciplines, toy_constrained_config(0)).unwrap();
+        assert!(result.history.iter().all(|h| h.wb2_scale == Some(1.)));
+        let config = EgmdoConfig {
+            acquisition: Acquisition::Ei,
+            ..toy_constrained_config(0)
+        };
+        let result = minimize(&tp.problem, &tp.disciplines, config).unwrap();
+        assert!(result.history.iter().all(|h| h.wb2_scale.is_none()));
     }
 
     #[test]
