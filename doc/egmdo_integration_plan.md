@@ -119,17 +119,21 @@ The objective `f_obj(z, y)` is a **cheap, explicit function** of the design and 
 
 Constraints follow the same model: inequality constraints `g_m(z, y) ≤ 0` and equality constraints `h_r(z, y) = 0` are cheap, explicit functions of the design and coupling variables. A constraint that depends only on `z` is a special case: it is deterministic, so its feasibility is the same for every random sample. The sign convention is the `Egor` one (`g ≤ 0`); C-EGMDO's equations use `g ≥ 0` and are translated in the specification. Equality constraints are satisfied within a tolerance. Costly constraints that do not depend on the couplings need their own surrogate; they are an extension.
 
-The Python facade is `Emdegor` ("Efficient MultiDisciplinary Egor"), named after `Egor` and `Belfegor`; the Rust crate keeps the algorithm's name. The Python API (`egobox.egmdo`, also exported by `egobox`) identifies the design and coupling variables by their indices, as the Rust core and `Egor` do:
+The Python facade is `Emdegor` ("Efficient MultiDisciplinary Egor"), named after `Egor` and `Belfegor`; the Rust crate keeps the algorithm's name. The Python API (`egobox.egmdo`, also exported by `egobox`) declares the design and coupling variables once, by name, with their bounds; the disciplines are wired to them by name. The Rust core identifies variables by index, and the Python layer resolves the names into indices:
 
 ```python
 from egobox.egmdo import Discipline, Emdegor
 
-# Classic constrained Sellar problem, as in C-EGMDO; inputs are [z1, z2, z3, y_c]
-d1 = Discipline("y1", compute_y1, coupling_inputs=[1], coupling_bounds=[[0.0, 25.0]], coupling_outputs=[0])
-d2 = Discipline("y2", compute_y2, coupling_inputs=[0], coupling_bounds=[[0.0, 25.0]], coupling_outputs=[1])
+# Classic constrained Sellar problem, as in C-EGMDO
+design = {"z1": [-10.0, 10.0], "z2": [0.0, 10.0], "z3": [0.0, 10.0]}  # bounds, order = z columns
+couplings = {"y1": [0.0, 25.0], "y2": [0.0, 25.0]}  # initial ranges C(i), order = y columns
+
+# Inputs in any order: it is the column order of x given to the discipline
+d1 = Discipline("d1", compute_y1, inputs=["z1", "z2", "z3", "y2"], outputs=["y1"])
+d2 = Discipline("d2", compute_y2, inputs=["z1", "z2", "y1"], outputs=["y2"])
 
 # qoi(z, y) returns [f, g1, g2] for a batch of points, g <= 0
-optimizer = Emdegor([[-10.0, 10.0], [0.0, 10.0], [0.0, 10.0]], [d1, d2], qoi, n_ineq=2, seed=42)
+optimizer = Emdegor(design, couplings, [d1, d2], qoi, n_ineq=2, seed=42)
 
 # Convenience loop, calling Discipline.fun
 result = optimizer.minimize(max_iters=10)
@@ -140,7 +144,7 @@ while (requests := optimizer.ask()) is not None:
 result = optimizer.result()
 ```
 
-Named variables could be layered on top of the indices later.
+Every coupling variable is computed by exactly one discipline and has a single initial range. The names are checked when `Emdegor` is built (unknown, duplicated or uncomputed variables, a discipline receiving its own output).
 
 ### Three distinct evaluation modes
 
@@ -289,8 +293,8 @@ After correctness is established:
 
 All settled:
 
-1. Settled: variables are scalars identified by their index; vector outputs are several coupling indices of one discipline.
-2. Settled: a discipline input is `[z_i, y_c(i)]`, in the order of `design_inputs` and `coupling_inputs`; initial coupling bounds are declared per coupling input.
+1. Settled: variables are scalars, identified by name in Python and by index in the Rust core; vector outputs are several coupling variables of one discipline.
+2. Settled: in Python, a discipline input follows the order of its `inputs` names, and the initial coupling ranges are declared once with the coupling variables; the Rust core uses `[z_i, y_c(i)]`, with initial bounds per coupling input, and the Python layer reorders the columns.
 3. Settled: `ask()` returns the requests `(discipline, x)` of one step (initial DoEs, then one enrichment point per enriched discipline), `tell()` takes their outputs in the same order; failed evaluations are raised as errors.
 4. Settled: as `Egor`, Python exceptions in the `qoi` callback abort the run and are re-raised; exceptions in the disciplines are raised directly. The `qoi` callback is called from several threads, the solver running without the GIL.
 5. Settled: excluded from the regression (spec D5), with relaxation retries (D33) and point dropping (D32).

@@ -6,7 +6,8 @@ import egobox as egx
 from egobox.egmdo import Discipline, Emdegor, EnrichmentStrategy
 
 # Classic constrained Sellar problem (C-EGMDO paper): optimum z* = (1.9776, 0, 0), f* = 3.1834
-SELLAR_XLIMITS = [[-10.0, 10.0], [0.0, 10.0], [0.0, 10.0]]
+SELLAR_DESIGN = {"z1": [-10.0, 10.0], "z2": [0.0, 10.0], "z3": [0.0, 10.0]}
+SELLAR_COUPLINGS = {"y1": [0.0, 25.0], "y2": [0.0, 25.0]}
 SELLAR_Z_REF = np.array([1.97763888, 0.0, 0.0])
 SELLAR_F_REF = 3.183393951640613
 
@@ -17,8 +18,8 @@ def sellar_y1(x: np.ndarray) -> np.ndarray:
 
 
 def sellar_y2(x: np.ndarray) -> np.ndarray:
-    """inputs [z1, z2, z3, y1]"""
-    return (np.sqrt(np.maximum(x[:, 3], 0.0)) + x[:, 0] + x[:, 1])[:, None]
+    """inputs [z1, z2, y1]"""
+    return (np.sqrt(np.maximum(x[:, 2], 0.0)) + x[:, 0] + x[:, 1])[:, None]
 
 
 def sellar_qoi(z: np.ndarray, y: np.ndarray) -> np.ndarray:
@@ -30,20 +31,29 @@ def sellar_qoi(z: np.ndarray, y: np.ndarray) -> np.ndarray:
 def sellar_disciplines(with_funs: bool = True) -> list:
     return [
         Discipline(
-            "y1",
+            "d1",
             sellar_y1 if with_funs else None,
-            coupling_inputs=[1],
-            coupling_bounds=[[0.0, 25.0]],
-            coupling_outputs=[0],
+            inputs=["z1", "z2", "z3", "y2"],
+            outputs=["y1"],
         ),
         Discipline(
-            "y2",
+            "d2",
             sellar_y2 if with_funs else None,
-            coupling_inputs=[0],
-            coupling_bounds=[[0.0, 25.0]],
-            coupling_outputs=[1],
+            inputs=["z1", "z2", "y1"],
+            outputs=["y2"],
         ),
     ]
+
+
+def sellar_emdegor(disciplines=None, qoi=sellar_qoi, **kwargs) -> Emdegor:
+    return Emdegor(
+        SELLAR_DESIGN,
+        SELLAR_COUPLINGS,
+        sellar_disciplines() if disciplines is None else disciplines,
+        qoi,
+        n_ineq=2,
+        **kwargs,
+    )
 
 
 # 1-D toy problem (EGMDO paper): minimum z* = -3.0031, f* = -1.1497
@@ -63,20 +73,8 @@ def toy_qoi(z: np.ndarray, y: np.ndarray) -> np.ndarray:
 
 def toy_emdegor(**kwargs) -> Emdegor:
     disciplines = [
-        Discipline(
-            "y1",
-            toy_y1,
-            coupling_inputs=[1],
-            coupling_bounds=[[0, 25]],
-            coupling_outputs=[0],
-        ),
-        Discipline(
-            "y2",
-            toy_y2,
-            coupling_inputs=[0],
-            coupling_bounds=[[0, 25]],
-            coupling_outputs=[1],
-        ),
+        Discipline("d1", toy_y1, inputs=["z", "y2"], outputs=["y1"]),
+        Discipline("d2", toy_y2, inputs=["z", "y1"], outputs=["y2"]),
     ]
     options = {
         "n_doe": [5, 4],
@@ -85,26 +83,28 @@ def toy_emdegor(**kwargs) -> Emdegor:
         "seed": 0,
     }
     options.update(kwargs)
-    return Emdegor([[-5.0, 5.0]], disciplines, toy_qoi, **options)
+    return Emdegor(
+        {"z": [-5.0, 5.0]},
+        {"y1": [0.0, 25.0], "y2": [0.0, 25.0]},
+        disciplines,
+        toy_qoi,
+        **options,
+    )
 
 
 class TestEmdegor(unittest.TestCase):
     def test_constrained_sellar(self):
-        emdegor = Emdegor(
-            SELLAR_XLIMITS,
-            sellar_disciplines(),
-            sellar_qoi,
-            n_ineq=2,
-            n_doe=[5, 5],
-            n_mc=200,
-            seed=0,
-        )
+        emdegor = sellar_emdegor(n_doe=[5, 5], n_mc=200, seed=0)
+        self.assertEqual(emdegor.design_names, ["z1", "z2", "z3"])
+        self.assertEqual(emdegor.coupling_names, ["y1", "y2"])
         res = emdegor.minimize(max_iters=10)
         # The best point is the constrained optimum
         np.testing.assert_allclose(res.z_best, SELLAR_Z_REF, atol=1e-2)
         self.assertAlmostEqual(res.f_best, SELLAR_F_REF, delta=0.01 * SELLAR_F_REF)
         # Far fewer disciplinary evaluations than a direct optimization of the coupled problem
         self.assertLessEqual(sum(res.n_evaluations), 40)
+        self.assertEqual(res.design_names, ["z1", "z2", "z3"])
+        self.assertEqual(res.coupling_names, ["y1", "y2"])
         self.assertEqual(res.z_star.shape, (100, 3))
         self.assertEqual(res.y_min.shape, (100,))
         self.assertEqual(res.z_star_mean.shape, (3,))
@@ -121,13 +121,38 @@ class TestEmdegor(unittest.TestCase):
                 "n_dropped_points",
             },
         )
-        # The training data of each discipline are its true evaluations
-        for (x, y), n, fun in zip(
-            res.disciplinary_doe, res.n_evaluations, [sellar_y1, sellar_y2]
+        # The training data of each discipline are its true evaluations, in its inputs order
+        for (x, y), n, d, fun in zip(
+            res.disciplinary_doe,
+            res.n_evaluations,
+            sellar_disciplines(),
+            [sellar_y1, sellar_y2],
         ):
-            self.assertEqual(x.shape, (n, 4))
+            self.assertEqual(x.shape, (n, len(d.inputs)))
             np.testing.assert_allclose(y, fun(x))
         self.assertIn("EmdegorResult(", repr(res))
+
+    def test_inputs_in_any_order(self):
+        # d1 receives its inputs as [y2, z3, z1, z2]: same problem, same run
+        def y1_reordered(x: np.ndarray) -> np.ndarray:
+            return sellar_y1(x[:, [2, 3, 1, 0]])
+
+        disciplines = sellar_disciplines()
+        disciplines[0] = Discipline(
+            "d1", y1_reordered, inputs=["y2", "z3", "z1", "z2"], outputs=["y1"]
+        )
+        expected = sellar_emdegor(n_doe=[5, 5], max_iters=3, n_sim=20, seed=1)
+        res = sellar_emdegor(
+            disciplines, n_doe=[5, 5], max_iters=3, n_sim=20, seed=1
+        ).minimize()
+        expected = expected.minimize()
+        np.testing.assert_allclose(res.z_star, expected.z_star)
+        self.assertEqual(res.n_evaluations, expected.n_evaluations)
+        # The training inputs follow the discipline inputs order
+        x_expected = expected.disciplinary_doe[0][0]
+        np.testing.assert_allclose(
+            res.disciplinary_doe[0][0], x_expected[:, [3, 2, 0, 1]]
+        )
 
     def test_toy_problem_with_egmdo_paper_settings(self):
         emdegor = toy_emdegor(
@@ -178,14 +203,35 @@ class TestEmdegor(unittest.TestCase):
             emdegor.result()
 
     def test_ask_tell_without_functions(self):
-        emdegor = Emdegor(
-            SELLAR_XLIMITS, sellar_disciplines(with_funs=False), sellar_qoi, n_ineq=2
-        )
+        emdegor = sellar_emdegor(sellar_disciplines(with_funs=False))
         with self.assertRaises(ValueError):
             emdegor.minimize()
         requests = emdegor.ask()
         self.assertEqual([r.discipline for r in requests], [0, 1])
-        self.assertEqual([r.x.shape[1] for r in requests], [4, 4])
+        # Request columns follow the discipline inputs: z1, z2, z3, y2 and z1, z2, y1
+        self.assertEqual([r.x.shape[1] for r in requests], [4, 3])
+        for r, bounds in zip(
+            requests,
+            [[[-10, 10], [0, 10], [0, 10], [0, 25]], [[-10, 10], [0, 10], [0, 25]]],
+        ):
+            bounds = np.array(bounds)
+            self.assertTrue(np.all(r.x >= bounds[:, 0]) and np.all(r.x <= bounds[:, 1]))
+
+    def test_initial_doe_in_inputs_order(self):
+        doe = [
+            np.array(
+                [[1.0, 2.0, 3.0, 4.0], [2.0, 3.0, 4.0, 5.0], [0.5, 1.0, 1.5, 2.0]]
+            ),
+            np.array([[1.0, 2.0, 5.0], [3.0, 1.0, 9.0], [0.0, 0.5, 2.0]]),
+        ]
+        emdegor = sellar_emdegor(sellar_disciplines(with_funs=False), doe=doe)
+        requests = emdegor.ask()
+        for r, x in zip(requests, doe):
+            np.testing.assert_array_equal(r.x, x)
+        with self.assertRaisesRegex(
+            ValueError, "doe of discipline 'd2' should have 3 columns"
+        ):
+            sellar_emdegor(doe=[doe[0], doe[0]])
 
     def test_deterministic_constraint(self):
         # Constraint on the design variables only: z1 <= 1, which moves the optimum
@@ -193,7 +239,8 @@ class TestEmdegor(unittest.TestCase):
             return np.column_stack([sellar_qoi(z, y), z[:, 0] - 1.0])
 
         emdegor = Emdegor(
-            SELLAR_XLIMITS,
+            SELLAR_DESIGN,
+            SELLAR_COUPLINGS,
             sellar_disciplines(),
             qoi,
             n_ineq=3,
@@ -212,69 +259,79 @@ class TestEmdegor(unittest.TestCase):
             raise RuntimeError("qoi failure")
 
         with self.assertRaisesRegex(RuntimeError, "qoi failure"):
-            Emdegor(
-                SELLAR_XLIMITS, sellar_disciplines(), failing_qoi, n_ineq=2, seed=0
-            ).minimize(max_iters=1)
+            sellar_emdegor(qoi=failing_qoi, seed=0).minimize(max_iters=1)
 
         def bad_shape_qoi(z, y):
             return np.zeros((z.shape[0], 1))
 
         with self.assertRaisesRegex(ValueError, "qoi should return an array of shape"):
-            Emdegor(
-                SELLAR_XLIMITS, sellar_disciplines(), bad_shape_qoi, n_ineq=2, seed=0
-            ).minimize(max_iters=1)
+            sellar_emdegor(qoi=bad_shape_qoi, seed=0).minimize(max_iters=1)
 
         def failing_discipline(x):
             raise ValueError("discipline failure")
 
         disciplines = sellar_disciplines()
         disciplines[1] = Discipline(
-            "y2",
-            failing_discipline,
-            coupling_inputs=[0],
-            coupling_bounds=[[0.0, 25.0]],
-            coupling_outputs=[1],
+            "d2", failing_discipline, inputs=["z1", "z2", "y1"], outputs=["y2"]
         )
         with self.assertRaisesRegex(ValueError, "discipline failure"):
-            Emdegor(SELLAR_XLIMITS, disciplines, sellar_qoi, n_ineq=2, seed=0).minimize(
-                max_iters=1
+            sellar_emdegor(disciplines, seed=0).minimize(max_iters=1)
+
+    def test_invalid_variables(self):
+        d = sellar_disciplines()
+        with self.assertRaisesRegex(ValueError, "'z1' is declared twice"):
+            Emdegor(SELLAR_DESIGN, {"z1": [0, 1], "y1": [0, 25]}, d, sellar_qoi)
+        with self.assertRaisesRegex(ValueError, "design variable 'z1': bounds"):
+            Emdegor({"z1": [1.0, 0.0]}, SELLAR_COUPLINGS, d, sellar_qoi)
+        with self.assertRaisesRegex(TypeError, "coupling variable 'y1': bounds"):
+            Emdegor(SELLAR_DESIGN, {"y1": "range"}, d, sellar_qoi)
+        with self.assertRaisesRegex(ValueError, "at least one variable"):
+            Emdegor({}, SELLAR_COUPLINGS, d, sellar_qoi)
+
+    def test_invalid_wiring(self):
+        def emdegor(*disciplines):
+            return Emdegor(
+                SELLAR_DESIGN, SELLAR_COUPLINGS, list(disciplines), sellar_qoi, n_ineq=2
             )
 
-    def test_invalid_problems(self):
-        d = sellar_disciplines()
-        with self.assertRaisesRegex(ValueError, "computed by several disciplines"):
-            Emdegor(SELLAR_XLIMITS, [d[0], d[0]], sellar_qoi, n_ineq=2)
-        with self.assertRaisesRegex(ValueError, "coupling_bounds"):
-            Discipline("y1", sellar_y1, coupling_inputs=[1], coupling_outputs=[0])
+        d1, d2 = sellar_disciplines()
+        with self.assertRaisesRegex(ValueError, "discipline 'd3': unknown input 'y3'"):
+            emdegor(d1, d2, Discipline("d3", inputs=["y3"], outputs=["y1"]))
+        with self.assertRaisesRegex(ValueError, "'y2' is computed by no discipline"):
+            emdegor(d1)
+        with self.assertRaisesRegex(
+            ValueError, "'y1' is computed by both 'd1' and 'd3'"
+        ):
+            emdegor(d1, d2, Discipline("d3", inputs=["z1"], outputs=["y1"]))
+        with self.assertRaisesRegex(ValueError, "output 'z1' is a design variable"):
+            emdegor(d1, Discipline("d2", inputs=["y1"], outputs=["z1"]))
+        with self.assertRaisesRegex(ValueError, "'y1' is both an input and an output"):
+            emdegor(Discipline("d1", inputs=["z1", "y1"], outputs=["y1"]), d2)
+        with self.assertRaisesRegex(ValueError, "input 'z1' is given twice"):
+            emdegor(Discipline("d1", inputs=["z1", "z1"], outputs=["y1"]), d2)
+        with self.assertRaisesRegex(ValueError, "discipline 'd1': no input"):
+            emdegor(Discipline("d1", outputs=["y1"]), d2)
+        with self.assertRaisesRegex(ValueError, "discipline 'd1': no output"):
+            emdegor(Discipline("d1", inputs=["z1"]), d2)
+        with self.assertRaisesRegex(ValueError, "names must be unique"):
+            emdegor(Discipline("d2", inputs=["z1", "y2"], outputs=["y1"]), d2)
+
+    def test_invalid_options(self):
         with self.assertRaisesRegex(ValueError, "gp_kernel"):
-            Emdegor(
-                SELLAR_XLIMITS,
-                d,
-                sellar_qoi,
-                n_ineq=2,
-                gp_kernel=egx.CorrelationSpec.MATERN32,
-            )
+            sellar_emdegor(gp_kernel=egx.CorrelationSpec.MATERN32)
         with self.assertRaisesRegex(ValueError, "constraint tolerances"):
-            Emdegor(SELLAR_XLIMITS, d, sellar_qoi, n_ineq=2, cstr_tol=[1e-4])
-        with self.assertRaisesRegex(ValueError, "continuous"):
-            Emdegor([egx.XSpec(egx.XType.INT, [0, 3])] * 3, d, sellar_qoi, n_ineq=2)
+            sellar_emdegor(cstr_tol=[1e-4])
         with self.assertRaises(ValueError):
-            Emdegor(SELLAR_XLIMITS, d, sellar_qoi, enrichment=3)
+            sellar_emdegor(enrichment=3)
 
     def test_discipline(self):
-        d = Discipline(
-            "y1",
-            sellar_y1,
-            coupling_inputs=[1],
-            coupling_bounds=np.array([[0.0, 25.0]]),
-            coupling_outputs=[0],
-        )
-        self.assertEqual(d.name, "y1")
-        self.assertEqual(d.coupling_inputs, [1])
-        self.assertEqual(d.coupling_outputs, [0])
-        np.testing.assert_array_equal(d.coupling_bounds, [[0.0, 25.0]])
+        d = Discipline("d1", sellar_y1, inputs=["z1", "z2", "z3", "y2"], outputs=["y1"])
+        self.assertEqual(d.name, "d1")
+        self.assertEqual(d.inputs, ["z1", "z2", "z3", "y2"])
+        self.assertEqual(d.outputs, ["y1"])
         self.assertEqual(
-            repr(d), "Discipline(name='y1', coupling_inputs=[1], coupling_outputs=[0])"
+            repr(d),
+            "Discipline(name='d1', inputs=['z1', 'z2', 'z3', 'y2'], outputs=['y1'])",
         )
 
 

@@ -1,18 +1,23 @@
 //! `Emdegor`: efficient global multidisciplinary design optimization (EGMDO and its constrained
 //! extension C-EGMDO), where the disciplinary solvers are replaced by GP surrogates enriched
 //! adaptively. See the `egobox-egmdo` crate.
+//!
+//! The variables are declared by name in Python and resolved here into the indices used by the
+//! Rust core. A discipline receives its inputs in the order of its `inputs` names, whereas the
+//! core lays them out as `[design inputs, coupling inputs]`: the columns are reordered at the
+//! boundary.
 
-use crate::domain;
 use crate::errors::{CallbackError, egmdo_err, install_panic_hook};
 use crate::types::{CorrelationSpec, InfillStrategy, repr_kwargs};
 
 use egobox_egmdo as egmdo;
-use ndarray::{Array2, ArrayView2};
+use ndarray::{Array2, ArrayView2, Axis};
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyReadonlyArray2, ToPyArray};
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pyclass_enum, gen_stub_pymethods};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 /// EnrichmentStrategy specifies which disciplines are evaluated at an enrichment point.
@@ -56,9 +61,8 @@ impl<'a, 'py> FromPyObject<'a, 'py> for EnrichmentStrategy {
 /// A discipline of a multidisciplinary design optimization (MDO) problem
 ///
 /// The discipline computes some coupling variables from some design variables and from the
-/// coupling variables computed by the other disciplines. Coupling variables are scalars
-/// identified by their index, from 0 to n_couplings - 1; each one is computed by exactly one
-/// discipline.
+/// coupling variables computed by the other disciplines. Variables are referred to by the names
+/// declared in `Emdegor` (`design` and `couplings`).
 ///
 /// Parameters
 /// ----------
@@ -66,119 +70,71 @@ impl<'a, 'py> FromPyObject<'a, 'py> for EnrichmentStrategy {
 ///     Unique name of the discipline.
 /// fun : callable, optional
 ///     The disciplinary solver, evaluated on a batch of points:
-///     `fun(x: array[n, d_in]) -> array[n, d_out]`, where each row of `x` holds the design
-///     variables used by the discipline (in `design_inputs` order) followed by the coupling
-///     variables it receives (in `coupling_inputs` order), and each output row holds the
-///     coupling variables it computes (in `coupling_outputs` order).
+///     `fun(x: array[n, len(inputs)]) -> array[n, len(outputs)]`, the columns of `x` being the
+///     `inputs` variables and the returned columns the `outputs` variables, in the given orders.
 ///     Required by `Emdegor.minimize()`, not by the ask/tell interface.
-/// coupling_inputs : list of int
-///     Indices of the coupling variables received by the discipline.
-/// coupling_bounds : list of [lower, upper] or array[len(coupling_inputs), 2]
-///     Initial guess of the range of the received coupling variables, used to sample the
-///     initial disciplinary design of experiments. Required when `coupling_inputs` is not empty.
-/// coupling_outputs : list of int
-///     Indices of the coupling variables computed by the discipline.
-/// design_inputs : list of int, optional
-///     Indices of the design variables used by the discipline (all of them by default).
+/// inputs : list of str
+///     Names of the design and coupling variables received by the discipline, in any order.
+/// outputs : list of str
+///     Names of the coupling variables computed by the discipline.
 ///
 #[gen_stub_pyclass]
 #[pyclass(skip_from_py_object, module = "egobox")]
 pub(crate) struct Discipline {
-    inner: egmdo::Discipline,
+    name: String,
     fun: Option<Py<PyAny>>,
+    inputs: Vec<String>,
+    outputs: Vec<String>,
 }
 
 #[gen_stub_pymethods]
 #[pymethods]
 impl Discipline {
     #[new]
-    #[pyo3(signature = (
-        name,
-        fun = None,
-        coupling_inputs = vec![],
-        coupling_bounds = None,
-        coupling_outputs = vec![],
-        design_inputs = None,
-    ))]
+    #[pyo3(signature = (name, fun = None, inputs = vec![], outputs = vec![]))]
     fn new(
-        name: &str,
+        name: String,
         #[gen_stub(override_type(type_repr = "typing.Callable[[numpy.typing.NDArray[numpy.float64]], numpy.typing.NDArray[numpy.float64]] | None", imports = ("typing", "numpy", "numpy.typing")))]
         fun: Option<Py<PyAny>>,
-        coupling_inputs: Vec<usize>,
-        #[gen_stub(override_type(type_repr = "typing.Sequence[typing.Sequence[builtins.float]] | numpy.typing.NDArray[numpy.float64] | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
-        coupling_bounds: Option<Vec<Vec<f64>>>,
-        coupling_outputs: Vec<usize>,
-        design_inputs: Option<Vec<usize>>,
-    ) -> PyResult<Self> {
-        let bounds = coupling_bounds.unwrap_or_default();
-        if bounds.len() != coupling_inputs.len() {
-            return Err(PyValueError::new_err(format!(
-                "discipline '{name}': coupling_bounds should give [lower, upper] bounds for each \
-                 of the {} coupling inputs, got {} bounds",
-                coupling_inputs.len(),
-                bounds.len()
-            )));
+        inputs: Vec<String>,
+        outputs: Vec<String>,
+    ) -> Self {
+        Discipline {
+            name,
+            fun,
+            inputs,
+            outputs,
         }
-        let mut limits = Array2::zeros((bounds.len(), 2));
-        for (k, b) in bounds.iter().enumerate() {
-            match b.as_slice() {
-                [lower, upper] => {
-                    limits[[k, 0]] = *lower;
-                    limits[[k, 1]] = *upper;
-                }
-                _ => {
-                    return Err(PyValueError::new_err(format!(
-                        "discipline '{name}': coupling_bounds[{k}] should be [lower, upper], \
-                         got {b:?}"
-                    )));
-                }
-            }
-        }
-        let mut inner = egmdo::Discipline::new(name)
-            .coupling_inputs(&coupling_inputs, &limits)
-            .coupling_outputs(&coupling_outputs);
-        if let Some(indices) = design_inputs {
-            inner = inner.design_inputs(&indices);
-        }
-        Ok(Discipline { inner, fun })
     }
 
     /// Name of the discipline
     #[getter]
     fn name(&self) -> String {
-        self.inner.name().to_string()
+        self.name.clone()
     }
 
-    /// Indices of the coupling variables received by the discipline
+    /// Names of the variables received by the discipline, in the column order of its inputs
     #[getter]
-    fn coupling_inputs(&self) -> Vec<usize> {
-        self.inner.coupling_input_indices().to_vec()
+    fn inputs(&self) -> Vec<String> {
+        self.inputs.clone()
     }
 
-    /// Indices of the coupling variables computed by the discipline
+    /// Names of the coupling variables computed by the discipline, in the column order of its
+    /// outputs
     #[getter]
-    fn coupling_outputs(&self) -> Vec<usize> {
-        self.inner.coupling_output_indices().to_vec()
-    }
-
-    /// Initial range of the coupling variables received by the discipline
-    #[getter]
-    fn coupling_bounds<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
-        self.inner.coupling_bounds().to_pyarray(py)
+    fn outputs(&self) -> Vec<String> {
+        self.outputs.clone()
     }
 
     fn __repr__(&self, py: Python) -> PyResult<String> {
         repr_kwargs(
             "Discipline",
             &[
-                ("name", self.inner.name().into_pyobject(py)?.into_any()),
+                ("name", self.name.clone().into_pyobject(py)?.into_any()),
+                ("inputs", self.inputs.clone().into_pyobject(py)?.into_any()),
                 (
-                    "coupling_inputs",
-                    self.coupling_inputs().into_pyobject(py)?.into_any(),
-                ),
-                (
-                    "coupling_outputs",
-                    self.coupling_outputs().into_pyobject(py)?.into_any(),
+                    "outputs",
+                    self.outputs.clone().into_pyobject(py)?.into_any(),
                 ),
             ],
         )
@@ -189,10 +145,10 @@ impl Discipline {
 #[gen_stub_pyclass]
 #[pyclass(skip_from_py_object, module = "egobox")]
 pub(crate) struct EmdegorRequest {
-    /// Index of the discipline in the problem
+    /// Index of the discipline in the list given to `Emdegor`
     #[pyo3(get)]
     discipline: usize,
-    /// Inputs of the discipline, one point per row (see `Discipline`)
+    /// Inputs of the discipline, one point per row, columns in the order of `Discipline.inputs`
     #[pyo3(get)]
     x: Py<PyArray2<f64>>,
 }
@@ -219,9 +175,16 @@ type TrainingData = (Py<PyArray2<f64>>, Py<PyArray2<f64>>);
 /// The minimum is estimated by Monte Carlo on the final model of the objective, which accounts
 /// for the remaining uncertainty of the disciplinary surrogates: `z_star` and `y_min` hold samples
 /// of the minimum position and value, summarized by their means and standard deviations.
+/// Design points have their columns in the order of `design_names`.
 #[gen_stub_pyclass]
 #[pyclass(skip_from_py_object, module = "egobox")]
 pub(crate) struct EmdegorResult {
+    /// Names of the design variables, in the column order of the design points
+    #[pyo3(get)]
+    design_names: Vec<String>,
+    /// Names of the coupling variables, in the column order of the coupling points
+    #[pyo3(get)]
+    coupling_names: Vec<String>,
     /// Best point of the uncertainty quantification DoE: the lowest objective mean among the
     /// points whose constraint means are feasible
     #[pyo3(get)]
@@ -253,7 +216,8 @@ pub(crate) struct EmdegorResult {
     /// Final design of experiments of the uncertainty quantification
     #[pyo3(get)]
     doe_uq: Py<PyArray2<f64>>,
-    /// Training data (x, y) of each discipline, i.e. all its true evaluations
+    /// Training data (x, y) of each discipline, i.e. all its true evaluations, columns in the
+    /// order of its `inputs` and `outputs`
     #[pyo3(get)]
     disciplinary_doe: Vec<TrainingData>,
     /// Per-iteration records: dicts with keys `z_new` (point added to the uncertainty
@@ -264,7 +228,7 @@ pub(crate) struct EmdegorResult {
 }
 
 impl EmdegorResult {
-    fn new(py: Python, n_disciplines: usize, result: egmdo::EgmdoResult) -> PyResult<Self> {
+    fn new(py: Python, emdegor: &Emdegor, result: egmdo::EgmdoResult) -> PyResult<Self> {
         let history = result
             .history
             .iter()
@@ -281,6 +245,8 @@ impl EmdegorResult {
             })
             .collect::<PyResult<_>>()?;
         Ok(EmdegorResult {
+            design_names: emdegor.design_names.clone(),
+            coupling_names: emdegor.coupling_names.clone(),
             z_best: result.z_best.to_pyarray(py).unbind(),
             f_best: result.f_best,
             z_star_mean: result.z_star_mean().into_pyarray(py).unbind(),
@@ -291,10 +257,16 @@ impl EmdegorResult {
             y_min: result.y_min.to_pyarray(py).unbind(),
             n_evaluations: result.n_evaluations.clone(),
             doe_uq: result.doe_uq.to_pyarray(py).unbind(),
-            disciplinary_doe: (0..n_disciplines)
-                .map(|i| {
+            disciplinary_doe: emdegor
+                .perms
+                .iter()
+                .enumerate()
+                .map(|(i, perm)| {
                     let (x, y) = result.models.training_data(i);
-                    (x.to_pyarray(py).unbind(), y.to_pyarray(py).unbind())
+                    (
+                        to_user(&x.view(), perm).into_pyarray(py).unbind(),
+                        y.to_pyarray(py).unbind(),
+                    )
                 })
                 .collect(),
             history,
@@ -338,14 +310,18 @@ impl EmdegorResult {
 ///
 /// Parameters
 /// ----------
-/// xspecs : list of [lower, upper] or array[nx, 2]
-///     Bounds of the nx continuous design variables.
+/// design : dict of str to [lower, upper]
+///     Names and bounds of the continuous design variables, in the column order of the design
+///     points (`z`).
+/// couplings : dict of str to [lower, upper]
+///     Names and initial ranges of the scalar coupling variables, in the column order of the
+///     coupling points (`y`). The ranges are only used to sample the initial disciplinary
+///     designs of experiments. Each coupling variable is computed by exactly one discipline.
 /// disciplines : list of Discipline
-///     The disciplines; their coupling outputs must cover the coupling variables
-///     0..n_couplings - 1 exactly once.
+///     The disciplines, wired to the variables by their names.
 /// qoi : callable
 ///     The cheap quantities of interest, evaluated on a batch of points:
-///     `qoi(z: array[n, nx], y: array[n, n_couplings]) -> array[n, 1 + n_ineq + n_eq]`
+///     `qoi(z: array[n, len(design)], y: array[n, len(couplings)]) -> array[n, 1 + n_ineq + n_eq]`
 ///     returning the objective, then the inequality constraints `g <= 0`, then the equality
 ///     constraints `h = 0`. It is called from several threads.
 /// n_ineq : int
@@ -374,11 +350,12 @@ impl EmdegorResult {
 /// n_doe : list of int, optional
 ///     Size of the initial design of experiments of each discipline (default 2 x its number of
 ///     inputs).
-/// doe : list of array[n_i, d_in_i], optional
-///     Initial designs of experiments of the disciplines (inputs to evaluate), overrides `n_doe`.
+/// doe : list of array[n_i, len(inputs_i)], optional
+///     Initial designs of experiments of the disciplines (inputs to evaluate, columns in the
+///     order of `Discipline.inputs`), overrides `n_doe`.
 /// n_doe_uq : int
 ///     Size of the initial design of experiments of the uncertainty quantification.
-/// doe_uq : array[n, nx], optional
+/// doe_uq : array[n, len(design)], optional
 ///     Initial design of experiments of the uncertainty quantification, overrides `n_doe_uq`.
 /// cv_threshold : float
 ///     Enrichment threshold on the coefficients of variation of the quantities of interest.
@@ -410,6 +387,10 @@ pub(crate) struct Emdegor {
     problem: egmdo::MdoProblem,
     config: egmdo::EgmdoConfig,
     funs: Vec<Option<Py<PyAny>>>,
+    design_names: Vec<String>,
+    coupling_names: Vec<String>,
+    /// Per discipline: `perms[i][j]` is the core input column of the user input column `j`
+    perms: Vec<Vec<usize>>,
     callback_error: Arc<CallbackError>,
     solver: Option<egmdo::EgmdoSolver>,
 }
@@ -419,7 +400,8 @@ pub(crate) struct Emdegor {
 impl Emdegor {
     #[new]
     #[pyo3(signature = (
-        xspecs,
+        design,
+        couplings,
         disciplines,
         qoi,
         n_ineq = 0,
@@ -450,8 +432,10 @@ impl Emdegor {
     #[allow(clippy::too_many_arguments)]
     fn new(
         py: Python,
-        #[gen_stub(override_type(type_repr = "typing.Sequence[typing.Sequence[builtins.float]] | numpy.typing.NDArray[numpy.float64]", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
-        xspecs: Py<PyAny>,
+        #[gen_stub(override_type(type_repr = "typing.Mapping[builtins.str, typing.Sequence[builtins.float]]", imports = ("typing", "builtins")))]
+        design: Bound<'_, PyDict>,
+        #[gen_stub(override_type(type_repr = "typing.Mapping[builtins.str, typing.Sequence[builtins.float]]", imports = ("typing", "builtins")))]
+        couplings: Bound<'_, PyDict>,
         #[gen_stub(override_type(type_repr = "typing.Sequence[Discipline]", imports = ("typing")))]
         disciplines: Vec<Py<Discipline>>,
         #[gen_stub(override_type(type_repr = "typing.Callable[[numpy.typing.NDArray[numpy.float64], numpy.typing.NDArray[numpy.float64]], numpy.typing.NDArray[numpy.float64]]", imports = ("typing", "numpy", "numpy.typing")))]
@@ -481,22 +465,22 @@ impl Emdegor {
         mda_relaxation: f64,
         seed: Option<u64>,
     ) -> PyResult<Self> {
-        // Design space: continuous bounds only
-        let xtypes = domain::parse(py, xspecs)?;
-        let mut xlimits = Array2::zeros((xtypes.len(), 2));
-        for (i, xtype) in xtypes.iter().enumerate() {
-            match xtype {
-                egobox_moe::XType::Float(lower, upper) => {
-                    xlimits[[i, 0]] = *lower;
-                    xlimits[[i, 1]] = *upper;
-                }
-                _ => {
-                    return Err(PyValueError::new_err(format!(
-                        "xspecs[{i}]: Emdegor handles continuous design variables only"
-                    )));
-                }
-            }
+        let (design_names, xlimits) = parse_variables(&design, "design variable")?;
+        let (coupling_names, coupling_limits) = parse_variables(&couplings, "coupling variable")?;
+        if design_names.is_empty() {
+            return Err(PyValueError::new_err(
+                "design should declare at least one variable",
+            ));
         }
+        let wiring = Wiring::new(&design_names, &coupling_names)?;
+        let disciplines: Vec<PyRef<Discipline>> =
+            disciplines.iter().map(|d| d.borrow(py)).collect();
+        let resolved = wiring.resolve(&disciplines, &coupling_limits)?;
+        let perms: Vec<Vec<usize>> = resolved.iter().map(|(_, perm)| perm.clone()).collect();
+        let funs = disciplines
+            .iter()
+            .map(|d| d.fun.as_ref().map(|f| f.clone_ref(py)))
+            .collect();
 
         let callback_error = Arc::new(CallbackError::default());
         let n_qoi = 1 + n_ineq + n_eq;
@@ -516,19 +500,42 @@ impl Emdegor {
                 })
             }
         };
+        let problem = egmdo::MdoProblem::new(
+            &xlimits,
+            resolved.into_iter().map(|(d, _)| d).collect(),
+            qoi,
+        )
+        .map_err(egmdo_err)?
+        .constraints(n_ineq, n_eq)
+        .deterministic_constraints(&deterministic_constraints.unwrap_or_default());
 
-        let funs = disciplines
-            .iter()
-            .map(|d| d.borrow(py).fun.as_ref().map(|f| f.clone_ref(py)))
-            .collect();
-        let disciplines = disciplines
-            .iter()
-            .map(|d| d.borrow(py).inner.clone())
-            .collect();
-        let problem = egmdo::MdoProblem::new(&xlimits, disciplines, qoi)
-            .map_err(egmdo_err)?
-            .constraints(n_ineq, n_eq)
-            .deterministic_constraints(&deterministic_constraints.unwrap_or_default());
+        // Initial disciplinary DoEs given in the users' input order
+        let doe = match doe {
+            Some(doe) => {
+                if doe.len() != perms.len() {
+                    return Err(PyValueError::new_err(format!(
+                        "doe should give one array per discipline ({}), got {}",
+                        perms.len(),
+                        doe.len()
+                    )));
+                }
+                let mut core = vec![];
+                for ((x, perm), d) in doe.iter().zip(perms.iter()).zip(disciplines.iter()) {
+                    let x = x.as_array();
+                    if x.ncols() != perm.len() {
+                        return Err(PyValueError::new_err(format!(
+                            "doe of discipline '{}' should have {} columns (its inputs), got {}",
+                            d.name,
+                            perm.len(),
+                            x.ncols()
+                        )));
+                    }
+                    core.push(to_core(&x, perm));
+                }
+                Some(core)
+            }
+            None => None,
+        };
 
         let kernel = match gp_kernel {
             CorrelationSpec::MATERN52 => egmdo::Kernel::Matern52,
@@ -555,7 +562,7 @@ impl Emdegor {
             enrichment,
             constraint_tolerances: cstr_tol,
             n_doe_disciplines: n_doe,
-            doe_disciplines: doe.map(|d| d.iter().map(|x| x.as_array().to_owned()).collect()),
+            doe_disciplines: doe,
             n_doe_uq,
             doe_uq: doe_uq.map(|d| d.as_array().to_owned()),
             max_iters,
@@ -588,9 +595,24 @@ impl Emdegor {
             problem,
             config,
             funs,
+            design_names,
+            coupling_names,
+            perms,
             callback_error,
             solver: None,
         })
+    }
+
+    /// Names of the design variables, in the column order of the design points
+    #[getter]
+    fn design_names(&self) -> Vec<String> {
+        self.design_names.clone()
+    }
+
+    /// Names of the coupling variables, in the column order of the coupling points
+    #[getter]
+    fn coupling_names(&self) -> Vec<String> {
+        self.coupling_names.clone()
     }
 
     /// Minimize the objective with the disciplinary solvers given as `Discipline.fun`.
@@ -631,17 +653,14 @@ impl Emdegor {
                 .iter()
                 .map(|r| {
                     let d = &self.problem.disciplines()[r.discipline];
-                    let res = funs[r.discipline].bind(py).call1((r.x.to_pyarray(py),))?;
+                    let x = to_user(&r.x.view(), &self.perms[r.discipline]);
+                    let res = funs[r.discipline].bind(py).call1((x.into_pyarray(py),))?;
                     extract_2d(&res, r.x.nrows(), d.output_dim(), d.name())
                 })
                 .collect::<PyResult<Vec<_>>>()?;
             run(py, errors, || solver.tell(outputs))?;
         }
-        EmdegorResult::new(
-            py,
-            self.problem.disciplines().len(),
-            solver.result().map_err(egmdo_err)?,
-        )
+        EmdegorResult::new(py, self, solver.result().map_err(egmdo_err)?)
     }
 
     /// Ask for the next true disciplinary evaluations (ask/tell interface).
@@ -664,6 +683,7 @@ impl Emdegor {
         let Emdegor {
             solver,
             callback_error,
+            perms,
             ..
         } = self;
         let solver = solver.as_mut().expect("solver");
@@ -673,7 +693,9 @@ impl Emdegor {
                 .into_iter()
                 .map(|r| EmdegorRequest {
                     discipline: r.discipline,
-                    x: r.x.into_pyarray(py).unbind(),
+                    x: to_user(&r.x.view(), &perms[r.discipline])
+                        .into_pyarray(py)
+                        .unbind(),
                 })
                 .collect()
         }))
@@ -683,8 +705,9 @@ impl Emdegor {
     ///
     /// Parameters
     /// ----------
-    /// outputs : list of array[n, d_out]
-    ///     outputs[k] holds the outputs of request k, one row per input point.
+    /// outputs : list of array[n, len(outputs)]
+    ///     outputs[k] holds the outputs of request k, one row per input point, columns in the
+    ///     order of `Discipline.outputs`.
     ///
     fn tell(&mut self, py: Python, outputs: Vec<PyReadonlyArray2<f64>>) -> PyResult<()> {
         let outputs: Vec<Array2<f64>> = outputs.iter().map(|y| y.as_array().to_owned()).collect();
@@ -710,17 +733,206 @@ impl Emdegor {
             .solver
             .as_ref()
             .ok_or_else(|| PyValueError::new_err("the optimization is not started: call ask()"))?;
-        EmdegorResult::new(
-            py,
-            self.problem.disciplines().len(),
-            solver.result().map_err(egmdo_err)?,
-        )
+        EmdegorResult::new(py, self, solver.result().map_err(egmdo_err)?)
     }
 
     /// Discard the current ask/tell optimization: the next `ask()` starts a new one.
     fn reset(&mut self) {
         self.solver = None;
     }
+}
+
+/// Parses an ordered dict of `name: [lower, upper]` variables
+fn parse_variables(vars: &Bound<'_, PyDict>, what: &str) -> PyResult<(Vec<String>, Array2<f64>)> {
+    let mut names = Vec::with_capacity(vars.len());
+    let mut limits = Array2::zeros((vars.len(), 2));
+    for (k, (key, value)) in vars.iter().enumerate() {
+        let name: String = key.extract().map_err(|_| {
+            PyTypeError::new_err(format!("{what} names should be strings, got {key:?}"))
+        })?;
+        if name.is_empty() {
+            return Err(PyValueError::new_err(format!(
+                "{what} names should not be empty"
+            )));
+        }
+        let bounds: Vec<f64> = value.extract().map_err(|_| {
+            PyTypeError::new_err(format!(
+                "{what} '{name}': bounds should be [lower, upper] floats, got {value:?}"
+            ))
+        })?;
+        match bounds.as_slice() {
+            [lower, upper] if lower.is_finite() && upper.is_finite() && lower < upper => {
+                limits[[k, 0]] = *lower;
+                limits[[k, 1]] = *upper;
+            }
+            _ => {
+                return Err(PyValueError::new_err(format!(
+                    "{what} '{name}': bounds should be [lower, upper] with finite lower < upper, \
+                     got {bounds:?}"
+                )));
+            }
+        }
+        names.push(name);
+    }
+    Ok((names, limits))
+}
+
+/// A declared variable: index of a design or coupling variable
+#[derive(Clone, Copy)]
+enum Variable {
+    Design(usize),
+    Coupling(usize),
+}
+
+/// The variables declared by name
+struct Wiring<'a> {
+    names: HashMap<&'a str, Variable>,
+    coupling_names: &'a [String],
+}
+
+impl<'a> Wiring<'a> {
+    fn new(design_names: &'a [String], coupling_names: &'a [String]) -> PyResult<Self> {
+        let mut names = HashMap::new();
+        let declared = design_names
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (n, Variable::Design(i)))
+            .chain(
+                coupling_names
+                    .iter()
+                    .enumerate()
+                    .map(|(q, n)| (n, Variable::Coupling(q))),
+            );
+        for (name, var) in declared {
+            if names.insert(name.as_str(), var).is_some() {
+                return Err(PyValueError::new_err(format!(
+                    "variable '{name}' is declared twice in design and couplings"
+                )));
+            }
+        }
+        Ok(Wiring {
+            names,
+            coupling_names,
+        })
+    }
+
+    /// Resolves the disciplines' names into core disciplines, with the permutation from the
+    /// users' input columns to the core input columns
+    fn resolve(
+        &self,
+        disciplines: &[PyRef<Discipline>],
+        coupling_limits: &Array2<f64>,
+    ) -> PyResult<Vec<(egmdo::Discipline, Vec<usize>)>> {
+        let mut producers: Vec<Option<&str>> = vec![None; self.coupling_names.len()];
+        let mut resolved = Vec::with_capacity(disciplines.len());
+        for d in disciplines.iter() {
+            let err =
+                |msg: String| PyValueError::new_err(format!("discipline '{}': {msg}", d.name));
+            if d.inputs.is_empty() {
+                return Err(err("no input".to_string()));
+            }
+            let mut seen = HashSet::new();
+            let mut inputs = Vec::with_capacity(d.inputs.len());
+            for name in d.inputs.iter() {
+                if !seen.insert(name.as_str()) {
+                    return Err(err(format!("input '{name}' is given twice")));
+                }
+                match self.names.get(name.as_str()) {
+                    Some(var) => inputs.push(*var),
+                    None => return Err(err(format!("unknown input '{name}'"))),
+                }
+            }
+            // Canonical core layout, whatever the users' order: design inputs sorted by design
+            // index, then coupling inputs sorted by coupling index
+            let mut design_inputs: Vec<usize> = inputs
+                .iter()
+                .filter_map(|v| match v {
+                    Variable::Design(i) => Some(*i),
+                    Variable::Coupling(_) => None,
+                })
+                .collect();
+            let mut coupling_inputs: Vec<usize> = inputs
+                .iter()
+                .filter_map(|v| match v {
+                    Variable::Coupling(q) => Some(*q),
+                    Variable::Design(_) => None,
+                })
+                .collect();
+            design_inputs.sort_unstable();
+            coupling_inputs.sort_unstable();
+            let mut outputs = Vec::with_capacity(d.outputs.len());
+            for name in d.outputs.iter() {
+                if !seen.insert(name.as_str()) {
+                    return Err(if d.inputs.contains(name) {
+                        err(format!("'{name}' is both an input and an output"))
+                    } else {
+                        err(format!("output '{name}' is given twice"))
+                    });
+                }
+                match self.names.get(name.as_str()) {
+                    Some(Variable::Coupling(q)) => {
+                        if let Some(other) = producers[*q].replace(&d.name) {
+                            return Err(PyValueError::new_err(format!(
+                                "coupling variable '{name}' is computed by both '{other}' and '{}'",
+                                d.name
+                            )));
+                        }
+                        outputs.push(*q);
+                    }
+                    Some(Variable::Design(_)) => {
+                        return Err(err(format!(
+                            "output '{name}' is a design variable, not a coupling variable"
+                        )));
+                    }
+                    None => return Err(err(format!("unknown output '{name}'"))),
+                }
+            }
+            if outputs.is_empty() {
+                return Err(err("no output".to_string()));
+            }
+            let position = |list: &[usize], index: usize| {
+                list.iter()
+                    .position(|&k| k == index)
+                    .expect("input in its list")
+            };
+            let perm = inputs
+                .iter()
+                .map(|v| match v {
+                    Variable::Design(i) => position(&design_inputs, *i),
+                    Variable::Coupling(q) => design_inputs.len() + position(&coupling_inputs, *q),
+                })
+                .collect();
+            let discipline = egmdo::Discipline::new(&d.name)
+                .design_inputs(&design_inputs)
+                .coupling_inputs(
+                    &coupling_inputs,
+                    &coupling_limits.select(Axis(0), &coupling_inputs),
+                )
+                .coupling_outputs(&outputs);
+            resolved.push((discipline, perm));
+        }
+        if let Some(q) = producers.iter().position(|p| p.is_none()) {
+            return Err(PyValueError::new_err(format!(
+                "coupling variable '{}' is computed by no discipline",
+                self.coupling_names[q]
+            )));
+        }
+        Ok(resolved)
+    }
+}
+
+/// The users' input columns from the core input columns: `x_user[:, j] = x_core[:, perm[j]]`
+fn to_user(x: &ArrayView2<f64>, perm: &[usize]) -> Array2<f64> {
+    x.select(Axis(1), perm)
+}
+
+/// The core input columns from the users' input columns
+fn to_core(x: &ArrayView2<f64>, perm: &[usize]) -> Array2<f64> {
+    let mut core = Array2::zeros(x.raw_dim());
+    for (j, &c) in perm.iter().enumerate() {
+        core.column_mut(c).assign(&x.column(j));
+    }
+    core
 }
 
 /// Runs a step of the algorithm without the GIL, so that the `qoi` callback can be called from

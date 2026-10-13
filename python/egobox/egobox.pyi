@@ -381,9 +381,8 @@ class Discipline:
     A discipline of a multidisciplinary design optimization (MDO) problem
     
     The discipline computes some coupling variables from some design variables and from the
-    coupling variables computed by the other disciplines. Coupling variables are scalars
-    identified by their index, from 0 to n_couplings - 1; each one is computed by exactly one
-    discipline.
+    coupling variables computed by the other disciplines. Variables are referred to by the names
+    declared in `Emdegor` (`design` and `couplings`).
     
     Parameters
     ----------
@@ -391,20 +390,13 @@ class Discipline:
         Unique name of the discipline.
     fun : callable, optional
         The disciplinary solver, evaluated on a batch of points:
-        `fun(x: array[n, d_in]) -> array[n, d_out]`, where each row of `x` holds the design
-        variables used by the discipline (in `design_inputs` order) followed by the coupling
-        variables it receives (in `coupling_inputs` order), and each output row holds the
-        coupling variables it computes (in `coupling_outputs` order).
+        `fun(x: array[n, len(inputs)]) -> array[n, len(outputs)]`, the columns of `x` being the
+        `inputs` variables and the returned columns the `outputs` variables, in the given orders.
         Required by `Emdegor.minimize()`, not by the ask/tell interface.
-    coupling_inputs : list of int
-        Indices of the coupling variables received by the discipline.
-    coupling_bounds : list of [lower, upper] or array[len(coupling_inputs), 2]
-        Initial guess of the range of the received coupling variables, used to sample the
-        initial disciplinary design of experiments. Required when `coupling_inputs` is not empty.
-    coupling_outputs : list of int
-        Indices of the coupling variables computed by the discipline.
-    design_inputs : list of int, optional
-        Indices of the design variables used by the discipline (all of them by default).
+    inputs : list of str
+        Names of the design and coupling variables received by the discipline, in any order.
+    outputs : list of str
+        Names of the coupling variables computed by the discipline.
     """
     @property
     def name(self) -> builtins.str:
@@ -412,21 +404,17 @@ class Discipline:
         Name of the discipline
         """
     @property
-    def coupling_inputs(self) -> builtins.list[builtins.int]:
+    def inputs(self) -> builtins.list[builtins.str]:
         r"""
-        Indices of the coupling variables received by the discipline
+        Names of the variables received by the discipline, in the column order of its inputs
         """
     @property
-    def coupling_outputs(self) -> builtins.list[builtins.int]:
+    def outputs(self) -> builtins.list[builtins.str]:
         r"""
-        Indices of the coupling variables computed by the discipline
+        Names of the coupling variables computed by the discipline, in the column order of its
+        outputs
         """
-    @property
-    def coupling_bounds(self) -> numpy.typing.NDArray[numpy.float64]:
-        r"""
-        Initial range of the coupling variables received by the discipline
-        """
-    def __new__(cls, name: builtins.str, fun: typing.Callable[[numpy.typing.NDArray[numpy.float64]], numpy.typing.NDArray[numpy.float64]] | None = None, coupling_inputs: typing.Sequence[builtins.int] = [], coupling_bounds: typing.Sequence[typing.Sequence[builtins.float]] | numpy.typing.NDArray[numpy.float64] | None = None, coupling_outputs: typing.Sequence[builtins.int] = [], design_inputs: typing.Optional[typing.Sequence[builtins.int]] = None) -> Discipline: ...
+    def __new__(cls, name: builtins.str, fun: typing.Callable[[numpy.typing.NDArray[numpy.float64]], numpy.typing.NDArray[numpy.float64]] | None = None, inputs: typing.Sequence[builtins.str] = [], outputs: typing.Sequence[builtins.str] = []) -> Discipline: ...
     def __repr__(self) -> builtins.str: ...
 
 @typing.final
@@ -748,14 +736,18 @@ class Emdegor:
     
     Parameters
     ----------
-    xspecs : list of [lower, upper] or array[nx, 2]
-        Bounds of the nx continuous design variables.
+    design : dict of str to [lower, upper]
+        Names and bounds of the continuous design variables, in the column order of the design
+        points (`z`).
+    couplings : dict of str to [lower, upper]
+        Names and initial ranges of the scalar coupling variables, in the column order of the
+        coupling points (`y`). The ranges are only used to sample the initial disciplinary
+        designs of experiments. Each coupling variable is computed by exactly one discipline.
     disciplines : list of Discipline
-        The disciplines; their coupling outputs must cover the coupling variables
-        0..n_couplings - 1 exactly once.
+        The disciplines, wired to the variables by their names.
     qoi : callable
         The cheap quantities of interest, evaluated on a batch of points:
-        `qoi(z: array[n, nx], y: array[n, n_couplings]) -> array[n, 1 + n_ineq + n_eq]`
+        `qoi(z: array[n, len(design)], y: array[n, len(couplings)]) -> array[n, 1 + n_ineq + n_eq]`
         returning the objective, then the inequality constraints `g <= 0`, then the equality
         constraints `h = 0`. It is called from several threads.
     n_ineq : int
@@ -784,11 +776,12 @@ class Emdegor:
     n_doe : list of int, optional
         Size of the initial design of experiments of each discipline (default 2 x its number of
         inputs).
-    doe : list of array[n_i, d_in_i], optional
-        Initial designs of experiments of the disciplines (inputs to evaluate), overrides `n_doe`.
+    doe : list of array[n_i, len(inputs_i)], optional
+        Initial designs of experiments of the disciplines (inputs to evaluate, columns in the
+        order of `Discipline.inputs`), overrides `n_doe`.
     n_doe_uq : int
         Size of the initial design of experiments of the uncertainty quantification.
-    doe_uq : array[n, nx], optional
+    doe_uq : array[n, len(design)], optional
         Initial design of experiments of the uncertainty quantification, overrides `n_doe_uq`.
     cv_threshold : float
         Enrichment threshold on the coefficients of variation of the quantities of interest.
@@ -814,7 +807,17 @@ class Emdegor:
     seed : int >= 0, optional
         Random generator seed, for reproducible runs.
     """
-    def __new__(cls, xspecs: typing.Sequence[typing.Sequence[builtins.float]] | numpy.typing.NDArray[numpy.float64], disciplines: typing.Sequence[Discipline], qoi: typing.Callable[[numpy.typing.NDArray[numpy.float64], numpy.typing.NDArray[numpy.float64]], numpy.typing.NDArray[numpy.float64]], n_ineq: builtins.int = 0, n_eq: builtins.int = 0, deterministic_constraints: typing.Optional[typing.Sequence[builtins.int]] = None, cstr_tol: typing.Optional[typing.Sequence[builtins.float]] = None, max_iters: builtins.int = 10, acquisition: InfillStrategy = InfillStrategy.WB2, wb2_scale: builtins.float = 1.0, enrichment: EnrichmentStrategy = EnrichmentStrategy.SOBOL, gp_kernel: builtins.int = 8, n_doe: typing.Optional[typing.Sequence[builtins.int]] = None, doe: typing.Optional[typing.Sequence[numpy.typing.NDArray[numpy.float64]]] = None, n_doe_uq: builtins.int = 20, doe_uq: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, cv_threshold: builtins.float = 0.01, p_threshold: typing.Optional[builtins.float] = 0.001, n_mc: typing.Optional[builtins.int] = None, pce_degree: builtins.int = 3, n_ei_samples: builtins.int = 2000, n_pmin_samples: builtins.int = 10000, n_starts: builtins.int = 20, n_sim: builtins.int = 100, max_evaluations: typing.Optional[builtins.int] = None, mda_relaxation: builtins.float = 1.0, seed: typing.Optional[builtins.int] = None) -> Emdegor: ...
+    @property
+    def design_names(self) -> builtins.list[builtins.str]:
+        r"""
+        Names of the design variables, in the column order of the design points
+        """
+    @property
+    def coupling_names(self) -> builtins.list[builtins.str]:
+        r"""
+        Names of the coupling variables, in the column order of the coupling points
+        """
+    def __new__(cls, design: typing.Mapping[builtins.str, typing.Sequence[builtins.float]], couplings: typing.Mapping[builtins.str, typing.Sequence[builtins.float]], disciplines: typing.Sequence[Discipline], qoi: typing.Callable[[numpy.typing.NDArray[numpy.float64], numpy.typing.NDArray[numpy.float64]], numpy.typing.NDArray[numpy.float64]], n_ineq: builtins.int = 0, n_eq: builtins.int = 0, deterministic_constraints: typing.Optional[typing.Sequence[builtins.int]] = None, cstr_tol: typing.Optional[typing.Sequence[builtins.float]] = None, max_iters: builtins.int = 10, acquisition: InfillStrategy = InfillStrategy.WB2, wb2_scale: builtins.float = 1.0, enrichment: EnrichmentStrategy = EnrichmentStrategy.SOBOL, gp_kernel: builtins.int = 8, n_doe: typing.Optional[typing.Sequence[builtins.int]] = None, doe: typing.Optional[typing.Sequence[numpy.typing.NDArray[numpy.float64]]] = None, n_doe_uq: builtins.int = 20, doe_uq: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, cv_threshold: builtins.float = 0.01, p_threshold: typing.Optional[builtins.float] = 0.001, n_mc: typing.Optional[builtins.int] = None, pce_degree: builtins.int = 3, n_ei_samples: builtins.int = 2000, n_pmin_samples: builtins.int = 10000, n_starts: builtins.int = 20, n_sim: builtins.int = 100, max_evaluations: typing.Optional[builtins.int] = None, mda_relaxation: builtins.float = 1.0, seed: typing.Optional[builtins.int] = None) -> Emdegor: ...
     def minimize(self, max_iters: typing.Optional[builtins.int] = None) -> EmdegorResult:
         r"""
         Minimize the objective with the disciplinary solvers given as `Discipline.fun`.
@@ -846,8 +849,9 @@ class Emdegor:
         
         Parameters
         ----------
-        outputs : list of array[n, d_out]
-            outputs[k] holds the outputs of request k, one row per input point.
+        outputs : list of array[n, len(outputs)]
+            outputs[k] holds the outputs of request k, one row per input point, columns in the
+            order of `Discipline.outputs`.
         """
     def result(self) -> EmdegorResult:
         r"""
@@ -870,12 +874,12 @@ class EmdegorRequest:
     @property
     def discipline(self) -> builtins.int:
         r"""
-        Index of the discipline in the problem
+        Index of the discipline in the list given to `Emdegor`
         """
     @property
     def x(self) -> numpy.typing.NDArray[numpy.float64]:
         r"""
-        Inputs of the discipline, one point per row (see `Discipline`)
+        Inputs of the discipline, one point per row, columns in the order of `Discipline.inputs`
         """
     def __repr__(self) -> builtins.str: ...
 
@@ -887,7 +891,18 @@ class EmdegorResult:
     The minimum is estimated by Monte Carlo on the final model of the objective, which accounts
     for the remaining uncertainty of the disciplinary surrogates: `z_star` and `y_min` hold samples
     of the minimum position and value, summarized by their means and standard deviations.
+    Design points have their columns in the order of `design_names`.
     """
+    @property
+    def design_names(self) -> builtins.list[builtins.str]:
+        r"""
+        Names of the design variables, in the column order of the design points
+        """
+    @property
+    def coupling_names(self) -> builtins.list[builtins.str]:
+        r"""
+        Names of the coupling variables, in the column order of the coupling points
+        """
     @property
     def z_best(self) -> numpy.typing.NDArray[numpy.float64]:
         r"""
@@ -942,7 +957,8 @@ class EmdegorResult:
     @property
     def disciplinary_doe(self) -> builtins.list[tuple[numpy.typing.NDArray[numpy.float64], numpy.typing.NDArray[numpy.float64]]]:
         r"""
-        Training data (x, y) of each discipline, i.e. all its true evaluations
+        Training data (x, y) of each discipline, i.e. all its true evaluations, columns in the
+        order of its `inputs` and `outputs`
         """
     @property
     def history(self) -> builtins.list[dict]:
