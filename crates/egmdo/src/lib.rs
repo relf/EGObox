@@ -8,14 +8,14 @@
 //!
 //! The crate is under development. It currently provides:
 //! * the definition of MDO problems: [MdoProblem] and [Discipline],
-//! * the EGMDO algorithm for unconstrained problems, as an ask/tell solver
-//!   [EgmdoSolver] or with given disciplinary solvers: [minimize],
+//! * the EGMDO and C-EGMDO algorithms, for problems with or without constraints, as an
+//!   ask/tell solver [EgmdoSolver] or with given disciplinary solvers: [minimize],
 //! * the disciplinary GP surrogates: [DisciplinaryModels],
 //! * the multidisciplinary analysis (MDA) solver: [mda],
 //! * the polynomial chaos expansions (PCE) with Sobol indices: [pce],
 //! * the uncertainty quantification of the objective and constraints at design points: [uq],
 //! * the Karhunen–Loève decomposition and KL-GP random field of the objective: [kl],
-//! * the enrichment criteria: [criteria],
+//! * the enrichment criteria: [criteria], and the constraint models: [constraints],
 //! * the test problems of the EGMDO and C-EGMDO papers: [problems].
 //!
 //! # Examples
@@ -82,6 +82,7 @@
 #![warn(missing_docs)]
 #![warn(rustdoc::broken_intra_doc_links)]
 
+pub mod constraints;
 pub mod criteria;
 mod errors;
 pub mod kl;
