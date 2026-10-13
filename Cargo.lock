@@ -586,6 +586,7 @@ dependencies = [
  "bincode",
  "ctrlc",
  "egobox-doe",
+ "egobox-egmdo",
  "egobox-ego",
  "egobox-gp",
  "egobox-gpx",

@@ -11,9 +11,14 @@ class TestApiImports(unittest.TestCase):
             BelfegorOptim,
             ConstraintStrategy,
             CorrelationSpec,
+            Discipline,
+            Egmdo,
+            EgmdoRequest,
+            EgmdoResult,
             Egor,
             EgorOptim,
             EimAggregation,
+            EnrichmentStrategy,
             ExitStatus,
             FailsafeStrategy,
             GpConfig,
@@ -48,9 +53,14 @@ class TestApiImports(unittest.TestCase):
             "BelfegorOptim": BelfegorOptim,
             "ConstraintStrategy": ConstraintStrategy,
             "CorrelationSpec": CorrelationSpec,
+            "Discipline": Discipline,
+            "Egmdo": Egmdo,
+            "EgmdoRequest": EgmdoRequest,
+            "EgmdoResult": EgmdoResult,
             "Egor": Egor,
             "EgorOptim": EgorOptim,
             "EimAggregation": EimAggregation,
+            "EnrichmentStrategy": EnrichmentStrategy,
             "ExitStatus": ExitStatus,
             "FailsafeStrategy": FailsafeStrategy,
             "FeasibleInfillStrategy": egx.FeasibleInfillStrategy,
@@ -84,6 +94,13 @@ class TestApiImports(unittest.TestCase):
         for name, symbol in imported_symbols.items():
             self.assertTrue(hasattr(egx, name), f"egobox is missing '{name}'")
             self.assertIs(symbol, getattr(egx, name))
+
+    def test_egmdo_subpackage_reexports(self):
+        import egobox as egx
+        import egobox.egmdo
+
+        for name in egobox.egmdo.__all__:
+            self.assertIs(getattr(egobox.egmdo, name), getattr(egx, name))
 
     def test_egor_accepts_int_and_dict_arguments(self):
         import egobox as egx
