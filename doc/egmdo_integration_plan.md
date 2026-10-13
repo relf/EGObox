@@ -235,6 +235,8 @@ Use the papers' test cases, which come with reference results:
 
 The aeroelastic wing of C-EGMDO (section 4.2) relies on Code Aster and an in-house VLM solver; it is not reproducible here.
 
+On constrained Sellar, some samples of the final minimum position `Ẑ*` fall in the mirrored basin `z1 ≈ −1.8`, where the model (19) is less accurate, although the best `DoE_UQ` point is the optimum. Late iterations of WB2 (scale 1) exploit the current minimum rather than explore that basin: the benchmarks study the WB2 scale (WB2S) and the number of iterations.
+
 Tests should verify:
 
 - variable mapping and callback dimensions;

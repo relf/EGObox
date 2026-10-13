@@ -1,54 +1,32 @@
 //! Enrichment criteria and their optimization.
 //!
-//! * [ExpectedImprovement]: the expected improvement (16) over both uncertainty sources,
-//!   estimated by Monte Carlo with fixed samples (specification, section 6, decision D9),
-//! * [probability_of_minimum]: the probability `P_min` (18) that each `DoE_UQ` point is the
-//!   minimizer of the discretized objective (section 7),
-//! * [coefficient_of_variation]: the coefficient of variation of a PCE (section 7, D11, D12),
-//! * [multistart_minimize]: multistart COBYLA over the design space.
+//! * [SampleMinima]: the (feasible) minimum of the quantities of interest over the `DoE_UQ`
+//!   points for samples of `Ξ`, giving the current minimum `f'_min(Ξ)` of the expected
+//!   improvement (15, C-20, C-22) and the probabilities `P_min` / `P_sol` (18, C-25),
+//! * [ExpectedImprovement]: the (constrained) expected improvement (16, C-19) over both
+//!   uncertainty sources, estimated by Monte Carlo with fixed samples (D9), and the WB2
+//!   criterion (C-24),
+//! * [Feasibility]: feasibility, constraint violation and coefficient of variation of the
+//!   quantities of interest (D11, D12, D21, D27),
+//! * [multistart_minimize], [multistart_minimize_constrained]: multistart COBYLA over the
+//!   design space.
+//!
+//! Without constraints, these reduce to the EGMDO criteria (specification, sections 6, 7).
 
 use crate::errors::Result;
 use crate::kl::KlGpField;
+use crate::pce::Pce;
 use crate::uq::PointUq;
 use egobox_gp::basin_optimizer::{Algorithm, Settings, minimize};
-use ndarray::{Array1, Array2, ArrayView2, Axis};
+use ndarray::{Array1, Array2, ArrayView1, ArrayView2, Axis};
 use rayon::prelude::*;
 
 /// Maximum number of evaluations of a criterion in one local optimization
 pub const OPTIM_MAX_EVALS: usize = 500;
 
-/// The minimum over the `DoE_UQ` points of the objective PCEs, for each sample of `xi`
-/// `(n, dim)`: `Ŷ_min(Ξ)` (15)
-pub fn pce_minimum(uq: &[PointUq], xi: &ArrayView2<f64>) -> Array1<f64> {
-    objective_samples(uq, xi).fold_axis(Axis(0), f64::INFINITY, |m, &v| m.min(v))
-}
-
-/// The objective PCEs at the `DoE_UQ` points for the samples `xi` `(n, dim)`,
-/// as a `(n_UQ, n)` matrix
-pub fn objective_samples(uq: &[PointUq], xi: &ArrayView2<f64>) -> Array2<f64> {
-    let mut values = Array2::zeros((uq.len(), xi.nrows()));
-    for (i, u) in uq.iter().enumerate() {
-        values.row_mut(i).assign(&u.pce.eval(xi).column(0));
-    }
-    values
-}
-
-/// The probability `P_min` (18) that each `DoE_UQ` point is the minimizer of the objective
-/// PCEs, estimated with the samples `xi` `(n, dim)`. Ties go to the lowest index.
-pub fn probability_of_minimum(uq: &[PointUq], xi: &ArrayView2<f64>) -> Array1<f64> {
-    let values = objective_samples(uq, xi);
-    let mut counts = Array1::<f64>::zeros(uq.len());
-    for sample in values.columns() {
-        let mut best = 0;
-        for (i, &v) in sample.iter().enumerate() {
-            if v < sample[best] {
-                best = i;
-            }
-        }
-        counts[best] += 1.;
-    }
-    counts / xi.nrows().max(1) as f64
-}
+/// Constraint value under which a local optimum is considered as feasible: COBYLA satisfies
+/// active constraints up to its final trust region radius (1e-6)
+pub const FEASIBILITY_EPSILON: f64 = 1e-6;
 
 /// The coefficient of variation `sqrt(Var) / |E|` of a quantity of given mean and variance,
 /// or its standard deviation when the mean is zero (decisions D11, D12)
@@ -61,9 +39,181 @@ pub fn coefficient_of_variation(mean: f64, variance: f64) -> f64 {
     }
 }
 
-/// The expected improvement (16) over the disciplinary (`Ξ`) and KL-GP interpolation (`η`)
-/// uncertainties, estimated with fixed samples (common random numbers, decision D9) so that
-/// it is a deterministic function of the design point.
+/// The constraints of the quantities of interest `[f_obj, g..., h...]`: their numbers and
+/// tolerances (D20, D21)
+#[derive(Clone, Debug)]
+pub struct Feasibility {
+    n_ineq: usize,
+    tolerances: Array1<f64>,
+    /// Floors of the denominators of the constraint coefficients of variation (D27)
+    cv_floors: Array1<f64>,
+}
+
+impl Feasibility {
+    /// `n_ineq` inequality constraints `g <= τ` followed by equality constraints `|h| <= τ`,
+    /// with one tolerance `τ` per constraint, for the enrichment threshold `ε_CV` on the
+    /// coefficients of variation.
+    pub fn new(n_ineq: usize, tolerances: Array1<f64>, cv_threshold: f64) -> Self {
+        let cv_floors = &tolerances / cv_threshold;
+        Feasibility {
+            n_ineq,
+            tolerances,
+            cv_floors,
+        }
+    }
+
+    /// No constraint
+    pub fn unconstrained() -> Self {
+        Feasibility::new(0, Array1::zeros(0), 1.)
+    }
+
+    /// The number of constraints
+    pub fn n_constraints(&self) -> usize {
+        self.tolerances.len()
+    }
+
+    /// The number of inequality constraints
+    pub fn n_ineq(&self) -> usize {
+        self.n_ineq
+    }
+
+    /// The tolerances of the constraints
+    pub fn tolerances(&self) -> &Array1<f64> {
+        &self.tolerances
+    }
+
+    /// Whether the constraint values `c` `[g..., h...]` are feasible
+    pub fn is_feasible(&self, c: &ArrayView1<f64>) -> bool {
+        c.iter().enumerate().all(|(k, &v)| {
+            if k < self.n_ineq {
+                v <= self.tolerances[k]
+            } else {
+                v.abs() <= self.tolerances[k]
+            }
+        })
+    }
+
+    /// The constraint violation `Σ max(g, 0) + Σ |h|` (C-22)
+    pub fn violation(&self, c: &ArrayView1<f64>) -> f64 {
+        c.iter()
+            .enumerate()
+            .map(|(k, &v)| if k < self.n_ineq { v.max(0.) } else { v.abs() })
+            .sum()
+    }
+
+    /// The largest coefficient of variation over the quantities of interest of a PCE
+    /// `[f_obj, g..., h...]` (C-26). The denominator of a constraint is floored at
+    /// `τ / ε_CV`, so that an active constraint (zero mean) is considered certain when its
+    /// standard deviation is below its tolerance `τ` (D27).
+    pub fn max_cv(&self, pce: &Pce) -> f64 {
+        let (mean, var) = (pce.mean(), pce.variance());
+        (0..mean.len())
+            .map(|j| self.cv(j, mean[j], var[j]))
+            .fold(0., f64::max)
+    }
+
+    /// The quantity of interest with the largest coefficient of variation (C-EGMDO, 3.3)
+    pub fn most_uncertain(&self, pce: &Pce) -> usize {
+        let (mean, var) = (pce.mean(), pce.variance());
+        (0..mean.len())
+            .max_by(|&i, &j| {
+                self.cv(i, mean[i], var[i])
+                    .total_cmp(&self.cv(j, mean[j], var[j]))
+                    .then(j.cmp(&i))
+            })
+            .unwrap_or(0)
+    }
+
+    fn cv(&self, j: usize, mean: f64, variance: f64) -> f64 {
+        if j == 0 {
+            coefficient_of_variation(mean, variance)
+        } else {
+            variance.max(0.).sqrt() / mean.abs().max(self.cv_floors[j - 1])
+        }
+    }
+}
+
+/// The quantities of interest `[f_obj, g..., h...]` of the PCEs at the `DoE_UQ` points for
+/// the samples `xi` `(n, dim)`: one `(n, n_qoi)` matrix per point
+pub fn qoi_samples(uq: &[PointUq], xi: &ArrayView2<f64>) -> Vec<Array2<f64>> {
+    uq.iter().map(|u| u.pce.eval(xi)).collect()
+}
+
+/// The minima of the quantities of interest over the `DoE_UQ` points, for samples of `Ξ`
+#[derive(Clone, Debug)]
+pub struct SampleMinima {
+    /// The current minimum `f'_min(Ξ)` of each sample: the minimum objective over the feasible
+    /// points, or the objective at the least-violating point if none is feasible (C-20, C-22).
+    /// Without constraints, it is `Ŷ_min(Ξ)` (15).
+    pub f_min: Array1<f64>,
+    /// For each sample, the feasible point of minimum objective, if any (ties to the lowest
+    /// index)
+    pub feasible_argmin: Vec<Option<usize>>,
+    /// For each sample, the point of minimum constraint violation (ties to the lowest objective)
+    pub least_violation: Vec<usize>,
+    n_points: usize,
+}
+
+impl SampleMinima {
+    /// The minima over the `DoE_UQ` points of the PCEs `uq` for the samples `xi` `(n, dim)`
+    pub fn new(uq: &[PointUq], xi: &ArrayView2<f64>, feasibility: &Feasibility) -> Self {
+        let values = qoi_samples(uq, xi);
+        let n = xi.nrows();
+        let mut f_min = Array1::zeros(n);
+        let mut feasible_argmin = Vec::with_capacity(n);
+        let mut least_violation = Vec::with_capacity(n);
+        for s in 0..n {
+            let mut best: Option<usize> = None;
+            let mut least = 0;
+            let mut least_theta = f64::INFINITY;
+            for (i, v) in values.iter().enumerate() {
+                let row = v.row(s);
+                let (f, c) = (row[0], row.slice(ndarray::s![1..]));
+                if feasibility.is_feasible(&c) && best.is_none_or(|b| f < values[b][[s, 0]]) {
+                    best = Some(i);
+                }
+                let theta = feasibility.violation(&c);
+                if theta < least_theta || (theta == least_theta && f < values[least][[s, 0]]) {
+                    least = i;
+                    least_theta = theta;
+                }
+            }
+            f_min[s] = values[best.unwrap_or(least)][[s, 0]];
+            feasible_argmin.push(best);
+            least_violation.push(least);
+        }
+        SampleMinima {
+            f_min,
+            feasible_argmin,
+            least_violation,
+            n_points: uq.len(),
+        }
+    }
+
+    /// The probability `P_sol` (C-25) of each `DoE_UQ` point to be the feasible minimizer.
+    /// Samples without a feasible point count for no point (D26). Without constraints, it is
+    /// `P_min` (18).
+    pub fn probability_of_solution(&self) -> Array1<f64> {
+        let mut counts = Array1::<f64>::zeros(self.n_points);
+        for i in self.feasible_argmin.iter().flatten() {
+            counts[*i] += 1.;
+        }
+        counts / self.feasible_argmin.len().max(1) as f64
+    }
+
+    /// The probability of each `DoE_UQ` point to be the least-violating one (D26 fallback)
+    pub fn probability_of_least_violation(&self) -> Array1<f64> {
+        let mut counts = Array1::<f64>::zeros(self.n_points);
+        for i in self.least_violation.iter() {
+            counts[*i] += 1.;
+        }
+        counts / self.least_violation.len().max(1) as f64
+    }
+}
+
+/// The expected improvement (16, C-19) over the disciplinary (`Ξ`) and KL-GP interpolation
+/// (`η`) uncertainties, estimated with fixed samples (common random numbers, decision D9) so
+/// that it is a deterministic function of the design point.
 pub struct ExpectedImprovement<'a> {
     field: &'a KlGpField,
     zeta: Array2<f64>,
@@ -90,12 +240,26 @@ impl<'a> ExpectedImprovement<'a> {
 
     /// The expected improvement at design points `z` `(n_z, nx)`
     pub fn value(&self, z: &Array2<f64>) -> Result<Array1<f64>> {
+        Ok(self.values(z)?.0)
+    }
+
+    /// The WB2 criterion `scale · EI(z) - m_0(z)` at design points `z` `(n_z, nx)` (C-24)
+    pub fn wb2(&self, z: &Array2<f64>, scale: f64) -> Result<Array1<f64>> {
+        let (ei, m0) = self.values(z)?;
+        Ok(ei * scale - m0)
+    }
+
+    /// The expected improvement and the expectation `m_0` of the objective model
+    fn values(&self, z: &Array2<f64>) -> Result<(Array1<f64>, Array1<f64>)> {
         let pred = self.field.predict(z)?;
         let field = self
             .field
             .sample_from(&pred, &self.zeta.view(), &self.eta.view());
         let improvement = (&self.y_min.view().insert_axis(Axis(0)) - &field).mapv(|v| v.max(0.));
-        Ok(improvement.mean_axis(Axis(1)).expect("non-empty samples"))
+        Ok((
+            improvement.mean_axis(Axis(1)).expect("non-empty samples"),
+            pred.mean.column(0).to_owned(),
+        ))
     }
 }
 
@@ -106,37 +270,58 @@ pub struct LocalOptimum {
     pub x: Array1<f64>,
     /// The function value at the optimum
     pub value: f64,
+    /// The largest constraint violation `max(c, 0)` at the optimum (0 when feasible)
+    pub violation: f64,
+}
+
+impl LocalOptimum {
+    /// Whether the optimum satisfies the constraints
+    pub fn is_feasible(&self) -> bool {
+        self.violation <= FEASIBILITY_EPSILON
+    }
 }
 
 /// Minimizes `f` over the box `xlimits` `(nx, 2)` with COBYLA started from each row of
-/// `starts` `(n_starts, nx)`, in parallel. The optimization works in coordinates normalized
-/// to `[0, 1]^nx` with an initial radius of `0.5`.
-///
-/// Returns the local optima sorted by increasing value; non-finite values are dropped.
+/// `starts` `(n_starts, nx)`, in parallel. See [multistart_minimize_constrained].
 pub fn multistart_minimize(
     f: &(dyn Fn(&Array1<f64>) -> f64 + Sync),
+    xlimits: &Array2<f64>,
+    starts: &Array2<f64>,
+) -> Vec<LocalOptimum> {
+    multistart_minimize_constrained(f, &|_, _| unreachable!("no constraint"), 0, xlimits, starts)
+}
+
+/// Minimizes `f` subject to `c_k(x) <= 0`, `k = 0..n_constraints`, over the box `xlimits`
+/// `(nx, 2)`, with COBYLA started from each row of `starts` `(n_starts, nx)`, in parallel.
+/// `constraint(k, x)` returns `c_k(x)`. The optimization works in coordinates normalized to
+/// `[0, 1]^nx` with an initial radius of `0.5`.
+///
+/// Returns the local optima with a finite value: the feasible ones by increasing value,
+/// then the infeasible ones by increasing violation.
+pub fn multistart_minimize_constrained(
+    f: &(dyn Fn(&Array1<f64>) -> f64 + Sync),
+    constraint: &(dyn Fn(usize, &Array1<f64>) -> f64 + Sync),
+    n_constraints: usize,
     xlimits: &Array2<f64>,
     starts: &Array2<f64>,
 ) -> Vec<LocalOptimum> {
     let lower = xlimits.column(0).to_owned();
     let width = &xlimits.column(1) - &xlimits.column(0);
     let bounds = vec![(0., 1.); xlimits.nrows()];
+    let unscale = |x: &[f64]| &lower + &(Array1::from_vec(x.to_vec()) * &width);
     let mut optima: Vec<LocalOptimum> = starts
         .outer_iter()
         .into_par_iter()
         .map(|start| {
             let xinit = ((&start - &lower) / &width).mapv(|v| v.clamp(0., 1.));
-            let objective = |x: &[f64], _: Option<&mut [f64]>| {
-                f(&(&lower + &(Array1::from_vec(x.to_vec()) * &width)))
-            };
-            let (value, x) = minimize(
+            let (_, x) = minimize(
                 Algorithm::Cobyla,
-                &objective,
-                &|_, _, _| unreachable!("no constraint"),
+                &|x: &[f64], _: Option<&mut [f64]>| f(&unscale(x)),
+                &|k: usize, x: &[f64], _: Option<&mut [f64]>| constraint(k, &unscale(x)),
                 Settings {
                     xinit: xinit.as_slice().expect("contiguous start"),
                     bounds: &bounds,
-                    n_constraints: 0,
+                    n_constraints,
                     max_evals: OPTIM_MAX_EVALS,
                     ftol_abs: 0.,
                     ftol_rel: 1e-8,
@@ -144,14 +329,24 @@ pub fn multistart_minimize(
                     bounded_evaluations: true,
                 },
             );
+            let x = unscale(&x);
+            let violation = (0..n_constraints)
+                .map(|k| constraint(k, &x).max(0.))
+                .fold(0., f64::max);
             LocalOptimum {
-                x: &lower + &(Array1::from_vec(x) * &width),
-                value,
+                value: f(&x),
+                x,
+                violation,
             }
         })
-        .filter(|o| o.value.is_finite())
+        .filter(|o| o.value.is_finite() && o.violation.is_finite())
         .collect();
-    optima.sort_by(|a, b| a.value.total_cmp(&b.value));
+    optima.sort_by(|a, b| match (a.is_feasible(), b.is_feasible()) {
+        (true, true) => a.value.total_cmp(&b.value),
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        (false, false) => a.violation.total_cmp(&b.violation),
+    });
     optima
 }
 
@@ -159,7 +354,7 @@ pub fn multistart_minimize(
 mod tests {
     use super::*;
     use crate::kl::KlDecomposition;
-    use crate::pce::normal_samples;
+    use crate::pce::{HermiteBasis, normal_samples};
     use crate::surrogates::GpSettings;
     use crate::uq::{UqSettings, coefficients, doe_uq};
     use approx::assert_abs_diff_eq;
@@ -171,6 +366,84 @@ mod tests {
         assert_abs_diff_eq!(coefficient_of_variation(-2., 0.04), 0.1);
         assert_abs_diff_eq!(coefficient_of_variation(0., 0.04), 0.2);
         assert_abs_diff_eq!(coefficient_of_variation(1., -1e-20), 0.);
+    }
+
+    /// A PCE of 3 quantities in 1 variable with the given (mean, std) of degree 1
+    fn pce(moments: &[(f64, f64)]) -> Pce {
+        let basis = HermiteBasis::new(1, 1);
+        let mut coefs = Array2::zeros((2, moments.len()));
+        for (j, (m, s)) in moments.iter().enumerate() {
+            coefs[[0, j]] = *m;
+            coefs[[1, j]] = *s;
+        }
+        Pce::new(basis, coefs).unwrap()
+    }
+
+    #[test]
+    fn test_feasibility() {
+        let feas = Feasibility::new(1, array![1e-4, 1e-3], 0.01);
+        assert!(feas.is_feasible(&array![0., 0.].view()));
+        assert!(feas.is_feasible(&array![1e-4, -1e-3].view()));
+        assert!(!feas.is_feasible(&array![1e-3, 0.].view()));
+        assert!(!feas.is_feasible(&array![-1., 0.1].view()));
+        assert_abs_diff_eq!(feas.violation(&array![2., -0.5].view()), 2.5);
+        assert_abs_diff_eq!(feas.violation(&array![-2., 0.5].view()), 0.5);
+
+        // Objective CV 0.1; inequality with zero mean: std / (τ / ε_CV) = 1e-3 (D27);
+        // equality CV 0.5
+        let p = pce(&[(2., 0.2), (0., 1e-5), (1., 0.5)]);
+        assert_abs_diff_eq!(feas.max_cv(&p), 0.5);
+        assert_eq!(feas.most_uncertain(&p), 2);
+        // An active constraint is uncertain when its std exceeds its tolerance
+        let p = pce(&[(2., 0.2), (0., 1e-3), (1., 0.05)]);
+        assert_abs_diff_eq!(feas.max_cv(&p), 0.1);
+        let p = pce(&[(2., 0.02), (0., 1e-3), (1., 0.05)]);
+        assert_abs_diff_eq!(feas.max_cv(&p), 0.1);
+        assert_eq!(feas.most_uncertain(&p), 1);
+        // Without constraints, only the objective counts
+        let p = pce(&[(-2., 0.2)]);
+        assert_abs_diff_eq!(Feasibility::unconstrained().max_cv(&p), 0.1);
+    }
+
+    fn point(moments: &[(f64, f64)]) -> PointUq {
+        PointUq {
+            pce: pce(moments),
+            n_failed: 0,
+            reliable: true,
+        }
+    }
+
+    #[test]
+    fn test_sample_minima() {
+        let feas = Feasibility::new(1, array![0.], 0.01);
+        // Point 0: low objective, always infeasible. Point 1: feasible iff ξ < 0.
+        // Point 2: high objective, always feasible.
+        let uq = vec![
+            point(&[(-1., 0.), (1., 0.)]),
+            point(&[(0., 0.), (0., 1.)]),
+            point(&[(1., 0.), (-1., 0.)]),
+        ];
+        let xi = array![[-0.5], [0.5]];
+        let minima = SampleMinima::new(&uq, &xi.view(), &feas);
+        assert_eq!(minima.feasible_argmin, vec![Some(1), Some(2)]);
+        assert_eq!(minima.f_min, array![0., 1.]);
+        assert_abs_diff_eq!(minima.probability_of_solution(), array![0., 0.5, 0.5]);
+
+        // No feasible point: f'_min at the least-violating point, which counts for no P_sol
+        let uq = vec![point(&[(-1., 0.), (2., 0.)]), point(&[(0., 0.), (1., 0.)])];
+        let minima = SampleMinima::new(&uq, &xi.view(), &feas);
+        assert_eq!(minima.feasible_argmin, vec![None, None]);
+        assert_eq!(minima.least_violation, vec![1, 1]);
+        assert_eq!(minima.f_min, array![0., 0.]);
+        assert_eq!(minima.probability_of_solution().sum(), 0.);
+        assert_abs_diff_eq!(minima.probability_of_least_violation(), array![0., 1.]);
+
+        // Without constraints: the minimum objective, and P_sol = P_min sums to 1
+        let uq = vec![point(&[(0., 1.)]), point(&[(0., -1.)])];
+        let minima = SampleMinima::new(&uq, &xi.view(), &Feasibility::unconstrained());
+        assert_eq!(minima.f_min, array![-0.5, -0.5]);
+        assert_eq!(minima.feasible_argmin, vec![Some(0), Some(1)]);
+        assert_abs_diff_eq!(minima.probability_of_solution().sum(), 1.);
     }
 
     #[test]
@@ -185,6 +458,20 @@ mod tests {
         // The minimum on a bound
         let optima = multistart_minimize(&f, &array![[2., 3.], [-5., 5.]], &array![[2.5, 0.]]);
         assert_abs_diff_eq!(optima[0].x, array![2., -2.], epsilon = 1e-3);
+    }
+
+    #[test]
+    fn test_multistart_minimize_constrained() {
+        // min x0 + x1 s.t. x0² + x1² <= 1: optimum at -(1, 1)/sqrt(2)
+        let f = |x: &Array1<f64>| x[0] + x[1];
+        let c = |_: usize, x: &Array1<f64>| x[0] * x[0] + x[1] * x[1] - 1.;
+        let xlimits = array![[-2., 2.], [-2., 2.]];
+        let starts = array![[1.5, 1.5], [0., 0.], [-1.5, 0.5]];
+        let optima = multistart_minimize_constrained(&f, &c, 1, &xlimits, &starts);
+        assert!(optima[0].is_feasible(), "{optima:?}");
+        let r = 1. / 2f64.sqrt();
+        assert_abs_diff_eq!(optima[0].x, array![-r, -r], epsilon = 1e-3);
+        assert_abs_diff_eq!(optima[0].value, -2. * r, epsilon = 1e-3);
     }
 
     #[test]
@@ -206,25 +493,21 @@ mod tests {
 
         // P_min is a probability distribution over DoE_UQ
         let xi_p = normal_samples(10_000, 2, 1);
-        let pmin = probability_of_minimum(&uq, &xi_p.view());
+        let minima = SampleMinima::new(&uq, &xi_p.view(), &Feasibility::unconstrained());
+        let pmin = minima.probability_of_solution();
         assert_abs_diff_eq!(pmin.sum(), 1., epsilon = 1e-12);
         assert!(pmin.iter().all(|&p| (0. ..=1.).contains(&p)));
-        let y_min = pce_minimum(&uq, &xi_p.view());
-        let samples = objective_samples(&uq, &xi_p.view());
-        assert!(
-            samples
-                .columns()
-                .into_iter()
-                .zip(y_min.iter())
-                .all(|(s, m)| s.iter().all(|v| v >= m))
-        );
+        let samples = qoi_samples(&uq, &xi_p.view());
+        for (s, m) in minima.f_min.iter().enumerate() {
+            assert!(samples.iter().all(|v| v[[s, 0]] >= *m));
+        }
 
         let kl = KlDecomposition::new(&coefficients(&uq, 0), settings.kl_threshold).unwrap();
         let field = crate::kl::KlGpField::fit(&z_uq, kl, basis, &GpSettings::default()).unwrap();
         let xi_ei = normal_samples(2000, 2, 2);
         let eta = normal_samples(2000, field.kl().n_modes() + 1, 3);
-        let ei =
-            ExpectedImprovement::new(&field, pce_minimum(&uq, &xi_ei.view()), &xi_ei.view(), eta);
+        let y_min = SampleMinima::new(&uq, &xi_ei.view(), &Feasibility::unconstrained()).f_min;
+        let ei = ExpectedImprovement::new(&field, y_min, &xi_ei.view(), eta);
 
         // EI is non-negative, deterministic, and almost zero at DoE_UQ points
         let z = Array::linspace(-5., 5., 101).insert_axis(Axis(1));
@@ -238,6 +521,11 @@ mod tests {
             at_doe.iter().all(|&v| v < 1e-2 * max),
             "EI at DoE_UQ {at_doe}, max {max}"
         );
+
+        // WB2 = scale · EI - m_0
+        let wb2 = ei.wb2(&z, 2.).unwrap();
+        let m0 = field.expectation(&z).unwrap();
+        assert_abs_diff_eq!(wb2, &values * 2. - &m0, epsilon = 1e-12);
 
         // Its maximization finds at least the best grid value
         let f = |x: &Array1<f64>| -ei.value(&x.view().insert_axis(Axis(0)).to_owned()).unwrap()[0];
