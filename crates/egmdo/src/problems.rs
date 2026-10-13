@@ -372,9 +372,18 @@ mod tests {
         let tp = compound_cylinder();
         let couplings = TrueCouplings::new(&tp.problem, &tp.disciplines).unwrap();
         let z = array![7., 9., 15., 8e-3];
-        let (_, status) = solve_one(&couplings, &z.view(), &MdaSettings::default()).unwrap();
+        let plain = MdaSettings {
+            retry_relaxations: vec![],
+            ..MdaSettings::default()
+        };
+        let (_, status) = solve_one(&couplings, &z.view(), &plain).unwrap();
         assert!(!status.is_converged());
         let (_, status) = solve_one(&couplings, &z.view(), &tp.mda).unwrap();
         assert!(status.is_converged());
+        // The default retries with relaxation recover the plain Jacobi failure (D33)
+        let (y, status) = solve_one(&couplings, &z.view(), &MdaSettings::default()).unwrap();
+        assert!(status.is_converged());
+        let (y_ref, _) = solve_one(&couplings, &z.view(), &tp.mda).unwrap();
+        assert_abs_diff_eq!(y, y_ref, epsilon = 1e-4 * y_ref.mapv(f64::abs).sum());
     }
 }
