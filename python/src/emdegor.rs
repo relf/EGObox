@@ -1,4 +1,4 @@
-//! `Egmdo`: efficient global multidisciplinary design optimization (EGMDO and its constrained
+//! `Emdegor`: efficient global multidisciplinary design optimization (EGMDO and its constrained
 //! extension C-EGMDO), where the disciplinary solvers are replaced by GP surrogates enriched
 //! adaptively. See the `egobox-egmdo` crate.
 
@@ -70,7 +70,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for EnrichmentStrategy {
 ///     variables used by the discipline (in `design_inputs` order) followed by the coupling
 ///     variables it receives (in `coupling_inputs` order), and each output row holds the
 ///     coupling variables it computes (in `coupling_outputs` order).
-///     Required by `Egmdo.minimize()`, not by the ask/tell interface.
+///     Required by `Emdegor.minimize()`, not by the ask/tell interface.
 /// coupling_inputs : list of int
 ///     Indices of the coupling variables received by the discipline.
 /// coupling_bounds : list of [lower, upper] or array[len(coupling_inputs), 2]
@@ -185,10 +185,10 @@ impl Discipline {
     }
 }
 
-/// True evaluations of a discipline requested by `Egmdo.ask()`
+/// True evaluations of a discipline requested by `Emdegor.ask()`
 #[gen_stub_pyclass]
 #[pyclass(skip_from_py_object, module = "egobox")]
-pub(crate) struct EgmdoRequest {
+pub(crate) struct EmdegorRequest {
     /// Index of the discipline in the problem
     #[pyo3(get)]
     discipline: usize,
@@ -199,10 +199,10 @@ pub(crate) struct EgmdoRequest {
 
 #[gen_stub_pymethods]
 #[pymethods]
-impl EgmdoRequest {
+impl EmdegorRequest {
     fn __repr__(&self, py: Python) -> PyResult<String> {
         repr_kwargs(
-            "EgmdoRequest",
+            "EmdegorRequest",
             &[
                 ("discipline", self.discipline.into_pyobject(py)?.into_any()),
                 ("x", self.x.bind(py).clone().into_any()),
@@ -221,7 +221,7 @@ type TrainingData = (Py<PyArray2<f64>>, Py<PyArray2<f64>>);
 /// of the minimum position and value, summarized by their means and standard deviations.
 #[gen_stub_pyclass]
 #[pyclass(skip_from_py_object, module = "egobox")]
-pub(crate) struct EgmdoResult {
+pub(crate) struct EmdegorResult {
     /// Best point of the uncertainty quantification DoE: the lowest objective mean among the
     /// points whose constraint means are feasible
     #[pyo3(get)]
@@ -263,7 +263,7 @@ pub(crate) struct EgmdoResult {
     history: Vec<Py<PyDict>>,
 }
 
-impl EgmdoResult {
+impl EmdegorResult {
     fn new(py: Python, n_disciplines: usize, result: egmdo::EgmdoResult) -> PyResult<Self> {
         let history = result
             .history
@@ -280,7 +280,7 @@ impl EgmdoResult {
                 Ok(d.unbind())
             })
             .collect::<PyResult<_>>()?;
-        Ok(EgmdoResult {
+        Ok(EmdegorResult {
             z_best: result.z_best.to_pyarray(py).unbind(),
             f_best: result.f_best,
             z_star_mean: result.z_star_mean().into_pyarray(py).unbind(),
@@ -304,10 +304,10 @@ impl EgmdoResult {
 
 #[gen_stub_pymethods]
 #[pymethods]
-impl EgmdoResult {
+impl EmdegorResult {
     fn __repr__(&self, py: Python) -> PyResult<String> {
         repr_kwargs(
-            "EgmdoResult",
+            "EmdegorResult",
             &[
                 ("z_star_mean", self.z_star_mean.bind(py).clone().into_any()),
                 ("y_min_mean", self.y_min_mean.into_pyobject(py)?.into_any()),
@@ -322,7 +322,7 @@ impl EgmdoResult {
     }
 }
 
-/// Efficient global multidisciplinary design optimization (EGMDO)
+/// Emdegor, efficient global multidisciplinary design optimizer (EGMDO and C-EGMDO)
 ///
 /// Minimizes an objective subject to constraints, both cheap functions of the design variables
 /// and of coupling variables computed by expensive disciplines which depend on each other.
@@ -406,7 +406,7 @@ impl EgmdoResult {
 ///
 #[gen_stub_pyclass]
 #[pyclass(skip_from_py_object, module = "egobox")]
-pub(crate) struct Egmdo {
+pub(crate) struct Emdegor {
     problem: egmdo::MdoProblem,
     config: egmdo::EgmdoConfig,
     funs: Vec<Option<Py<PyAny>>>,
@@ -416,7 +416,7 @@ pub(crate) struct Egmdo {
 
 #[gen_stub_pymethods]
 #[pymethods]
-impl Egmdo {
+impl Emdegor {
     #[new]
     #[pyo3(signature = (
         xspecs,
@@ -492,7 +492,7 @@ impl Egmdo {
                 }
                 _ => {
                     return Err(PyValueError::new_err(format!(
-                        "xspecs[{i}]: Egmdo handles continuous design variables only"
+                        "xspecs[{i}]: Emdegor handles continuous design variables only"
                     )));
                 }
             }
@@ -584,7 +584,7 @@ impl Egmdo {
         // Validate the configuration against the problem
         egmdo::EgmdoSolver::new(problem.clone(), config.clone()).map_err(egmdo_err)?;
 
-        Ok(Egmdo {
+        Ok(Emdegor {
             problem,
             config,
             funs,
@@ -602,10 +602,10 @@ impl Egmdo {
     ///
     /// Returns
     /// -------
-    /// EgmdoResult
+    /// EmdegorResult
     ///
     #[pyo3(signature = (max_iters = None))]
-    fn minimize(&self, py: Python, max_iters: Option<usize>) -> PyResult<EgmdoResult> {
+    fn minimize(&self, py: Python, max_iters: Option<usize>) -> PyResult<EmdegorResult> {
         let funs = self
             .funs
             .iter()
@@ -637,7 +637,7 @@ impl Egmdo {
                 .collect::<PyResult<Vec<_>>>()?;
             run(py, errors, || solver.tell(outputs))?;
         }
-        EgmdoResult::new(
+        EmdegorResult::new(
             py,
             self.problem.disciplines().len(),
             solver.result().map_err(egmdo_err)?,
@@ -652,16 +652,16 @@ impl Egmdo {
     ///
     /// Returns
     /// -------
-    /// list of EgmdoRequest, or None when the optimization is finished (see `result()`)
+    /// list of EmdegorRequest, or None when the optimization is finished (see `result()`)
     ///
-    fn ask(&mut self, py: Python) -> PyResult<Option<Vec<EgmdoRequest>>> {
+    fn ask(&mut self, py: Python) -> PyResult<Option<Vec<EmdegorRequest>>> {
         if self.solver.is_none() {
             self.solver = Some(
                 egmdo::EgmdoSolver::new(self.problem.clone(), self.config.clone())
                     .map_err(egmdo_err)?,
             );
         }
-        let Egmdo {
+        let Emdegor {
             solver,
             callback_error,
             ..
@@ -671,7 +671,7 @@ impl Egmdo {
         Ok(requests.map(|requests| {
             requests
                 .into_iter()
-                .map(|r| EgmdoRequest {
+                .map(|r| EmdegorRequest {
                     discipline: r.discipline,
                     x: r.x.into_pyarray(py).unbind(),
                 })
@@ -688,7 +688,7 @@ impl Egmdo {
     ///
     fn tell(&mut self, py: Python, outputs: Vec<PyReadonlyArray2<f64>>) -> PyResult<()> {
         let outputs: Vec<Array2<f64>> = outputs.iter().map(|y| y.as_array().to_owned()).collect();
-        let Egmdo {
+        let Emdegor {
             solver,
             callback_error,
             ..
@@ -703,14 +703,14 @@ impl Egmdo {
     ///
     /// Returns
     /// -------
-    /// EgmdoResult
+    /// EmdegorResult
     ///
-    fn result(&self, py: Python) -> PyResult<EgmdoResult> {
+    fn result(&self, py: Python) -> PyResult<EmdegorResult> {
         let solver = self
             .solver
             .as_ref()
             .ok_or_else(|| PyValueError::new_err("the optimization is not started: call ask()"))?;
-        EgmdoResult::new(
+        EmdegorResult::new(
             py,
             self.problem.disciplines().len(),
             solver.result().map_err(egmdo_err)?,

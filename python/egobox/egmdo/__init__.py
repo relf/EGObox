@@ -2,7 +2,7 @@
 
 The disciplinary solvers of a multidisciplinary design optimization problem are replaced by
 Gaussian process surrogates, enriched adaptively where the optimum is likely to be.
-See `Egmdo` and `Discipline`.
+See `Emdegor` and `Discipline`.
 
 References
 ----------
@@ -17,9 +17,9 @@ Struct. Multidisc. Optim. 67:23, 2024.
 from ..egobox import (
     CorrelationSpec,
     Discipline,
-    Egmdo,
-    EgmdoRequest,
-    EgmdoResult,
+    Emdegor,
+    EmdegorRequest,
+    EmdegorResult,
     EnrichmentStrategy,
     InfillStrategy,
 )
@@ -27,9 +27,9 @@ from ..egobox import (
 __all__ = [
     "CorrelationSpec",
     "Discipline",
-    "Egmdo",
-    "EgmdoRequest",
-    "EgmdoResult",
+    "Emdegor",
+    "EmdegorRequest",
+    "EmdegorResult",
     "EnrichmentStrategy",
     "InfillStrategy",
 ]

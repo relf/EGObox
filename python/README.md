@@ -64,9 +64,9 @@ print(f"Pareto front of {len(res.y_pareto)} points")  # res.x_pareto, res.y_pare
 print(f"Compromise point f={res.y_opt} at x={res.x_opt}")
 ```
 
-### Egmdo multidisciplinary design optimizer (experimental)
+### Emdegor multidisciplinary design optimizer (experimental)
 
-`Egmdo` minimizes an objective, subject to constraints, computed from coupling variables of
+`Emdegor` minimizes an objective, subject to constraints, computed from coupling variables of
 expensive disciplines which depend on each other (EGMDO and C-EGMDO algorithms). Each discipline is
 replaced by Gaussian process surrogates enriched only where the optimum is likely to be, which saves
 many disciplinary evaluations. Coupling variables are identified by their index; `qoi(z, y)` returns
@@ -103,10 +103,10 @@ def qoi(z: np.ndarray, y: np.ndarray) -> np.ndarray:
     return np.column_stack([f, 3.16 - y[:, 0], y[:, 1] - 24.0])  # [f, g1, g2]
 
 
-egmdo = egx.Egmdo(
+emdegor = egx.Emdegor(
     [[-10.0, 10.0], [0.0, 10.0], [0.0, 10.0]], [d1, d2], qoi, n_ineq=2, seed=0
 )
-res = egmdo.minimize(max_iters=10)
+res = emdegor.minimize(max_iters=10)
 print(
     f"Best point {res.z_best}, f={res.f_best}, with {res.n_evaluations} disciplinary evaluations"
 )

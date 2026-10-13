@@ -3,7 +3,7 @@ import unittest
 import numpy as np
 
 import egobox as egx
-from egobox.egmdo import Discipline, Egmdo, EnrichmentStrategy
+from egobox.egmdo import Discipline, Emdegor, EnrichmentStrategy
 
 # Classic constrained Sellar problem (C-EGMDO paper): optimum z* = (1.9776, 0, 0), f* = 3.1834
 SELLAR_XLIMITS = [[-10.0, 10.0], [0.0, 10.0], [0.0, 10.0]]
@@ -61,7 +61,7 @@ def toy_qoi(z: np.ndarray, y: np.ndarray) -> np.ndarray:
     return (np.cos((y[:, 0] + np.exp(-y[:, 1])) / np.pi) + z[:, 0] / 20.0)[:, None]
 
 
-def toy_egmdo(**kwargs) -> Egmdo:
+def toy_emdegor(**kwargs) -> Emdegor:
     disciplines = [
         Discipline(
             "y1",
@@ -85,12 +85,12 @@ def toy_egmdo(**kwargs) -> Egmdo:
         "seed": 0,
     }
     options.update(kwargs)
-    return Egmdo([[-5.0, 5.0]], disciplines, toy_qoi, **options)
+    return Emdegor([[-5.0, 5.0]], disciplines, toy_qoi, **options)
 
 
-class TestEgmdo(unittest.TestCase):
+class TestEmdegor(unittest.TestCase):
     def test_constrained_sellar(self):
-        egmdo = Egmdo(
+        emdegor = Emdegor(
             SELLAR_XLIMITS,
             sellar_disciplines(),
             sellar_qoi,
@@ -99,7 +99,7 @@ class TestEgmdo(unittest.TestCase):
             n_mc=200,
             seed=0,
         )
-        res = egmdo.minimize(max_iters=10)
+        res = emdegor.minimize(max_iters=10)
         # The best point is the constrained optimum
         np.testing.assert_allclose(res.z_best, SELLAR_Z_REF, atol=1e-2)
         self.assertAlmostEqual(res.f_best, SELLAR_F_REF, delta=0.01 * SELLAR_F_REF)
@@ -127,17 +127,17 @@ class TestEgmdo(unittest.TestCase):
         ):
             self.assertEqual(x.shape, (n, 4))
             np.testing.assert_allclose(y, fun(x))
-        self.assertIn("EgmdoResult(", repr(res))
+        self.assertIn("EmdegorResult(", repr(res))
 
     def test_toy_problem_with_egmdo_paper_settings(self):
-        egmdo = toy_egmdo(
+        emdegor = toy_emdegor(
             acquisition=egx.InfillStrategy.EI,
             enrichment=EnrichmentStrategy.ALL,
             p_threshold=None,
             n_mc=100,
             gp_kernel=egx.CorrelationSpec.SQUARED_EXPONENTIAL,
         )
-        res = egmdo.minimize()
+        res = emdegor.minimize()
         self.assertEqual(len(res.history), 5)
         self.assertTrue(all(h["wb2_scale"] is None for h in res.history))
         # All disciplines are enriched together
@@ -151,39 +151,39 @@ class TestEgmdo(unittest.TestCase):
             egx.InfillStrategy.LOG_EI,
             4,  # integer value of LOG_EI
         ]:
-            res = toy_egmdo(acquisition=acquisition, max_iters=2, n_sim=10).minimize()
+            res = toy_emdegor(acquisition=acquisition, max_iters=2, n_sim=10).minimize()
             self.assertEqual(len(res.history), 2)
 
     def test_ask_tell_reproduces_minimize(self):
         funs = [toy_y1, toy_y2]
-        egmdo = toy_egmdo()
-        expected = egmdo.minimize()
+        emdegor = toy_emdegor()
+        expected = emdegor.minimize()
         with self.assertRaises(ValueError):
-            egmdo.tell([])  # no request yet
+            emdegor.tell([])  # no request yet
         n_requests = 0
-        while (requests := egmdo.ask()) is not None:
+        while (requests := emdegor.ask()) is not None:
             n_requests += 1
             for r in requests:
-                self.assertIsInstance(r, egx.EgmdoRequest)
+                self.assertIsInstance(r, egx.EmdegorRequest)
                 self.assertIn(r.discipline, (0, 1))
-            egmdo.tell([funs[r.discipline](r.x) for r in requests])
-        self.assertIsNone(egmdo.ask())
-        res = egmdo.result()
+            emdegor.tell([funs[r.discipline](r.x) for r in requests])
+        self.assertIsNone(emdegor.ask())
+        res = emdegor.result()
         self.assertGreater(n_requests, 0)
         np.testing.assert_array_equal(res.z_star, expected.z_star)
         self.assertEqual(res.n_evaluations, expected.n_evaluations)
         # Restart
-        egmdo.reset()
+        emdegor.reset()
         with self.assertRaises(ValueError):
-            egmdo.result()
+            emdegor.result()
 
     def test_ask_tell_without_functions(self):
-        egmdo = Egmdo(
+        emdegor = Emdegor(
             SELLAR_XLIMITS, sellar_disciplines(with_funs=False), sellar_qoi, n_ineq=2
         )
         with self.assertRaises(ValueError):
-            egmdo.minimize()
-        requests = egmdo.ask()
+            emdegor.minimize()
+        requests = emdegor.ask()
         self.assertEqual([r.discipline for r in requests], [0, 1])
         self.assertEqual([r.x.shape[1] for r in requests], [4, 4])
 
@@ -192,7 +192,7 @@ class TestEgmdo(unittest.TestCase):
         def qoi(z, y):
             return np.column_stack([sellar_qoi(z, y), z[:, 0] - 1.0])
 
-        egmdo = Egmdo(
+        emdegor = Emdegor(
             SELLAR_XLIMITS,
             sellar_disciplines(),
             qoi,
@@ -204,7 +204,7 @@ class TestEgmdo(unittest.TestCase):
             n_sim=20,
             seed=0,
         )
-        res = egmdo.minimize()
+        res = emdegor.minimize()
         self.assertLessEqual(res.z_best[0], 1.0 + 1e-4)
 
     def test_callback_errors(self):
@@ -212,7 +212,7 @@ class TestEgmdo(unittest.TestCase):
             raise RuntimeError("qoi failure")
 
         with self.assertRaisesRegex(RuntimeError, "qoi failure"):
-            Egmdo(
+            Emdegor(
                 SELLAR_XLIMITS, sellar_disciplines(), failing_qoi, n_ineq=2, seed=0
             ).minimize(max_iters=1)
 
@@ -220,7 +220,7 @@ class TestEgmdo(unittest.TestCase):
             return np.zeros((z.shape[0], 1))
 
         with self.assertRaisesRegex(ValueError, "qoi should return an array of shape"):
-            Egmdo(
+            Emdegor(
                 SELLAR_XLIMITS, sellar_disciplines(), bad_shape_qoi, n_ineq=2, seed=0
             ).minimize(max_iters=1)
 
@@ -236,18 +236,18 @@ class TestEgmdo(unittest.TestCase):
             coupling_outputs=[1],
         )
         with self.assertRaisesRegex(ValueError, "discipline failure"):
-            Egmdo(SELLAR_XLIMITS, disciplines, sellar_qoi, n_ineq=2, seed=0).minimize(
+            Emdegor(SELLAR_XLIMITS, disciplines, sellar_qoi, n_ineq=2, seed=0).minimize(
                 max_iters=1
             )
 
     def test_invalid_problems(self):
         d = sellar_disciplines()
         with self.assertRaisesRegex(ValueError, "computed by several disciplines"):
-            Egmdo(SELLAR_XLIMITS, [d[0], d[0]], sellar_qoi, n_ineq=2)
+            Emdegor(SELLAR_XLIMITS, [d[0], d[0]], sellar_qoi, n_ineq=2)
         with self.assertRaisesRegex(ValueError, "coupling_bounds"):
             Discipline("y1", sellar_y1, coupling_inputs=[1], coupling_outputs=[0])
         with self.assertRaisesRegex(ValueError, "gp_kernel"):
-            Egmdo(
+            Emdegor(
                 SELLAR_XLIMITS,
                 d,
                 sellar_qoi,
@@ -255,11 +255,11 @@ class TestEgmdo(unittest.TestCase):
                 gp_kernel=egx.CorrelationSpec.MATERN32,
             )
         with self.assertRaisesRegex(ValueError, "constraint tolerances"):
-            Egmdo(SELLAR_XLIMITS, d, sellar_qoi, n_ineq=2, cstr_tol=[1e-4])
+            Emdegor(SELLAR_XLIMITS, d, sellar_qoi, n_ineq=2, cstr_tol=[1e-4])
         with self.assertRaisesRegex(ValueError, "continuous"):
-            Egmdo([egx.XSpec(egx.XType.INT, [0, 3])] * 3, d, sellar_qoi, n_ineq=2)
+            Emdegor([egx.XSpec(egx.XType.INT, [0, 3])] * 3, d, sellar_qoi, n_ineq=2)
         with self.assertRaises(ValueError):
-            Egmdo(SELLAR_XLIMITS, d, sellar_qoi, enrichment=3)
+            Emdegor(SELLAR_XLIMITS, d, sellar_qoi, enrichment=3)
 
     def test_discipline(self):
         d = Discipline(

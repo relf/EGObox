@@ -1,8 +1,8 @@
 #![doc = include_str!("../README.md")]
 
 mod belfegor;
-mod egmdo;
 mod egor;
+mod emdegor;
 mod gp_config;
 mod gp_mix;
 mod moo_config;
@@ -17,8 +17,8 @@ pub(crate) mod logging;
 pub(crate) mod types;
 
 use belfegor::*;
-use egmdo::*;
 use egor::*;
+use emdegor::*;
 use gp_mix::*;
 use sampling::*;
 use sparse_gp_mix::*;
@@ -85,10 +85,10 @@ fn egobox(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Belfegor>()?;
 
     // Multidisciplinary design optimizer
-    m.add_class::<Egmdo>()?;
+    m.add_class::<Emdegor>()?;
     m.add_class::<Discipline>()?;
-    m.add_class::<EgmdoRequest>()?;
-    m.add_class::<EgmdoResult>()?;
+    m.add_class::<EmdegorRequest>()?;
+    m.add_class::<EmdegorResult>()?;
     m.add_class::<EnrichmentStrategy>()?;
 
     Ok(())
