@@ -235,7 +235,7 @@ Use the papers' test cases, which come with reference results:
 
 The aeroelastic wing of C-EGMDO (section 4.2) relies on Code Aster and an in-house VLM solver; it is not reproducible here.
 
-The results are in `doc/egmdo_benchmarks.md`, reproduced by the `egmdo_benchmarks` example of `egobox-egmdo`. They include an `Egor` baseline on the MDF formulation and the WB2S option (spec D35). On constrained Sellar, some samples of the final minimum position `Ẑ*` fall in the mirrored basin `z1 ≈ −1.8`, although the best `DoE_UQ` point is the optimum. WB2S does not change this: the EI is zero almost everywhere once the disciplinary GPs are enriched, so the bias comes from the final estimation with the model (19). Improving that estimation is an extension.
+The results are in `doc/egmdo_benchmarks.md`, reproduced by the `egmdo_benchmarks` example of `egobox-egmdo`. They include an `Egor` baseline on the MDF formulation, and the WB2S (spec D35) and Monte Carlo LogEI (spec D36) options. LogEI removes the flat zones of the CEI but does not beat WB2 overall, so WB2 stays the default. On constrained Sellar, some samples of the final minimum position `Ẑ*` fall in the mirrored basin `z1 ≈ −1.8`, although the best `DoE_UQ` point is the optimum. WB2S does not change this: the EI is zero almost everywhere once the disciplinary GPs are enriched, so the bias comes from the final estimation with the model (19). Improving that estimation is an extension.
 
 Tests should verify:
 

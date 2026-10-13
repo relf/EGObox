@@ -41,10 +41,25 @@ pub enum Acquisition {
     /// at each iteration, `scale = 100 |m_0(z_max)| / EI(z_max)`, where `z_max` maximizes the
     /// EI over the starting points of the acquisition optimization (D35)
     Wb2s,
+    /// The logarithm of a smoothed expected improvement (Monte Carlo qLogEI of Ament et al.
+    /// 2023), informative where the EI estimate is exactly 0 (D36)
+    LogEi,
 }
 
 /// The ratio between the WB2S exploitation and exploration terms at the point of maximum EI
 pub const WB2S_RATIO: f64 = 100.;
+
+/// The temperature of the LogEI softplus, relative to the spread of the objective over
+/// `DoE_UQ` (D36)
+pub const LOG_EI_RELATIVE_TEMPERATURE: f64 = 1e-6;
+
+/// The criterion maximized by the acquisition step
+#[derive(Clone, Copy)]
+enum Criterion {
+    Ei,
+    Wb2(f64),
+    LogEi(f64),
+}
 
 impl Default for Acquisition {
     fn default() -> Self {
@@ -556,12 +571,13 @@ impl EgmdoSolver {
         let ei = ExpectedImprovement::new(&field, f_min, &xi.view(), eta);
         let mut starts = self.uniform_points(self.config.n_starts);
         let (n_constraints, constraint) = constraints.as_inequalities(&self.feasibility);
-        let maximize = |scale: Option<f64>, starts: &Array2<f64>| {
+        let maximize = |criterion: Criterion, starts: &Array2<f64>| {
             let objective = |z: &Array1<f64>| {
                 let z = z.view().insert_axis(Axis(0)).to_owned();
-                let value = match scale {
-                    None => ei.value(&z),
-                    Some(scale) => ei.wb2(&z, scale),
+                let value = match criterion {
+                    Criterion::Ei => ei.value(&z),
+                    Criterion::Wb2(scale) => ei.wb2(&z, scale),
+                    Criterion::LogEi(tau) => ei.log_value(&z, tau),
                 };
                 value.map_or(f64::INFINITY, |v| -v[0])
             };
@@ -573,12 +589,12 @@ impl EgmdoSolver {
                 starts,
             )
         };
-        let wb2_scale = match self.config.acquisition {
-            Acquisition::Ei => None,
-            Acquisition::Wb2 { scale } => Some(scale),
+        let criterion = match self.config.acquisition {
+            Acquisition::Ei => Criterion::Ei,
+            Acquisition::Wb2 { scale } => Criterion::Wb2(scale),
             Acquisition::Wb2s => {
                 // Scale computed at the maximum of the EI (D35)
-                let ei_optima = maximize(None, &starts);
+                let ei_optima = maximize(Criterion::Ei, &starts);
                 let scale = match ei_optima.first() {
                     Some(best) => {
                         starts = concatenate![Axis(0), starts, best.x.view().insert_axis(Axis(0))];
@@ -586,10 +602,25 @@ impl EgmdoSolver {
                     }
                     None => 1.,
                 };
-                Some(scale)
+                Criterion::Wb2(scale)
+            }
+            Acquisition::LogEi => {
+                // Temperature relative to the spread of the objective over DoE_UQ (D36)
+                let means: Array1<f64> = self.uq.iter().map(|u| u.pce.mean()[0]).collect();
+                let spread = means.std(0.);
+                let scale = if spread > 0. {
+                    spread
+                } else {
+                    means.mapv(f64::abs).mean().unwrap_or(1.).max(1.)
+                };
+                Criterion::LogEi(LOG_EI_RELATIVE_TEMPERATURE * scale)
             }
         };
-        let optima = maximize(wb2_scale, &starts);
+        let wb2_scale = match criterion {
+            Criterion::Wb2(scale) => Some(scale),
+            _ => None,
+        };
+        let optima = maximize(criterion, &starts);
         let max_criterion = optima.first().map_or(0., |o| -o.value);
 
         // The best proposed point which is not already in DoE_UQ (D25)
@@ -1064,6 +1095,20 @@ mod tests {
         };
         let result = minimize(&tp.problem, &tp.disciplines, config).unwrap();
         assert!(result.history.iter().all(|h| h.wb2_scale.is_none()));
+    }
+
+    #[test]
+    fn test_log_ei_acquisition() {
+        let tp = problems::toy_constrained();
+        let config = EgmdoConfig {
+            acquisition: Acquisition::LogEi,
+            ..toy_constrained_config(0)
+        };
+        let result = minimize(&tp.problem, &tp.disciplines, config).unwrap();
+        assert!(result.history.iter().all(|h| h.wb2_scale.is_none()));
+        // The LogEI stays finite, so a new point is proposed at every iteration
+        assert!(result.history.iter().all(|h| h.max_criterion.is_finite()));
+        assert!(result.history.iter().all(|h| h.z_new.is_some()));
     }
 
     #[test]

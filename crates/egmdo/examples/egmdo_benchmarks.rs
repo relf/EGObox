@@ -99,6 +99,10 @@ fn cases() -> Vec<Case> {
         acquisition: Acquisition::Wb2s,
         ..EgmdoConfig::default()
     };
+    let log_ei = || EgmdoConfig {
+        acquisition: Acquisition::LogEi,
+        ..EgmdoConfig::default()
+    };
     let cei = || EgmdoConfig {
         acquisition: Acquisition::Ei,
         ..EgmdoConfig::default()
@@ -112,6 +116,7 @@ fn cases() -> Vec<Case> {
                 ("EGMDO paper", toy_doe(EgmdoConfig::egmdo())),
                 ("defaults", toy_doe(EgmdoConfig::default())),
                 ("defaults, WB2S", toy_doe(wb2s())),
+                ("defaults, LogEI", toy_doe(log_ei())),
             ],
             egor_iters: 20,
         },
@@ -123,6 +128,7 @@ fn cases() -> Vec<Case> {
                 ("EGMDO paper", sellar(EgmdoConfig::egmdo())),
                 ("defaults", sellar(EgmdoConfig::default())),
                 ("defaults, WB2S", sellar(wb2s())),
+                ("defaults, LogEI", sellar(log_ei())),
             ],
             egor_iters: 40,
         },
@@ -144,6 +150,7 @@ fn cases() -> Vec<Case> {
                 ("defaults (WB2)", toy_constrained(EgmdoConfig::default())),
                 ("defaults, WB2S", toy_constrained(wb2s())),
                 ("defaults, CEI", toy_constrained(cei())),
+                ("defaults, LogEI", toy_constrained(log_ei())),
             ],
             egor_iters: 20,
         },
@@ -155,6 +162,7 @@ fn cases() -> Vec<Case> {
                 ("defaults (WB2)", sellar_constrained(EgmdoConfig::default())),
                 ("defaults, WB2S", sellar_constrained(wb2s())),
                 ("defaults, CEI", sellar_constrained(cei())),
+                ("defaults, LogEI", sellar_constrained(log_ei())),
             ],
             egor_iters: 40,
         },
