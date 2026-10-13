@@ -80,13 +80,21 @@ import egobox as egx
 # Sellar problem: y1 = z1² + z2 + z3 - 0.2 y2, y2 = sqrt(y1) + z1 + z2
 d1 = egx.Discipline(
     "y1",
-    lambda x: (x[:, 0] ** 2 + x[:, 1] + x[:, 2] - 0.2 * x[:, 3])[:, None],  # x = [z, y2]
-    coupling_inputs=[1], coupling_bounds=[[0.0, 25.0]], coupling_outputs=[0],
+    lambda x: (x[:, 0] ** 2 + x[:, 1] + x[:, 2] - 0.2 * x[:, 3])[
+        :, None
+    ],  # x = [z, y2]
+    coupling_inputs=[1],
+    coupling_bounds=[[0.0, 25.0]],
+    coupling_outputs=[0],
 )
 d2 = egx.Discipline(
     "y2",
-    lambda x: (np.sqrt(np.maximum(x[:, 3], 0)) + x[:, 0] + x[:, 1])[:, None],  # x = [z, y1]
-    coupling_inputs=[0], coupling_bounds=[[0.0, 25.0]], coupling_outputs=[1],
+    lambda x: (np.sqrt(np.maximum(x[:, 3], 0)) + x[:, 0] + x[:, 1])[
+        :, None
+    ],  # x = [z, y1]
+    coupling_inputs=[0],
+    coupling_bounds=[[0.0, 25.0]],
+    coupling_outputs=[1],
 )
 
 
@@ -95,9 +103,13 @@ def qoi(z: np.ndarray, y: np.ndarray) -> np.ndarray:
     return np.column_stack([f, 3.16 - y[:, 0], y[:, 1] - 24.0])  # [f, g1, g2]
 
 
-egmdo = egx.Egmdo([[-10.0, 10.0], [0.0, 10.0], [0.0, 10.0]], [d1, d2], qoi, n_ineq=2, seed=0)
+egmdo = egx.Egmdo(
+    [[-10.0, 10.0], [0.0, 10.0], [0.0, 10.0]], [d1, d2], qoi, n_ineq=2, seed=0
+)
 res = egmdo.minimize(max_iters=10)
-print(f"Best point {res.z_best}, f={res.f_best}, with {res.n_evaluations} disciplinary evaluations")
+print(
+    f"Best point {res.z_best}, f={res.f_best}, with {res.n_evaluations} disciplinary evaluations"
+)
 ```
 
 ### Gpx surrogate model
