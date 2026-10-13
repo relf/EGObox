@@ -37,3 +37,4 @@ log.workspace = true
 
 [dev-dependencies]
 approx.workspace = true
+egobox-ego = { version = "0.42.0", path = "../ego" }
