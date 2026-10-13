@@ -367,7 +367,7 @@ The paper's typesetting of (23) contains typos: it prints `B/r` instead of `B/r�
 | D9 | EI estimation | Fixed samples per iteration, `N_EI = 2000` |
 | D10 | `P_min` estimation | `n_P = 10⁴` fresh samples, ties to lowest index |
 | D11 | Coefficient of variation | Absolute value of the mean |
-| D12 | Zero mean | `|E| < 1e-12` |
+| D12 | Zero mean | `\|E\| < 1e-12` |
 | D13 | Budget | Optional budget of disciplinary evaluations |
 | D14 | Duplicate enrichment | Not added; point skipped for the current Algorithm 1 call |
 | D15 | Stopping | `n_max` or budget; maximum EI recorded |
@@ -379,6 +379,8 @@ The paper's typesetting of (23) contains typos: it prints `B/r` instead of `B/r�
 | D32 | Failing `DoE_UQ` point | Dropped when no more than `P` random MDAs converge; error below 2 points |
 | D33 | MDA retries | Failed resolutions retried with `ω = 0.5`, then `0.25` |
 | D34 | GP kernel | Matérn 5/2 by default; squared exponential (papers) as an option |
+| D35 | WB2S | Adaptive scale `100 \|m_0\| / EI_max` at the maximum of the EI |
+| D36 | LogEI | Smoothed Monte Carlo log (C)EI (qLogEI), temperature `10⁻⁶ σ` of the objective over `DoE_UQ` |
 
 ## 13. Default settings
 
@@ -481,6 +483,10 @@ WB2(z) = CEI(z) − m_0(z)                                                      
 ```
 
 `m_0(z)` is the mean of the KL-GP of the mean vector (section 5), i.e. the expectation of the objective model (19) over `Ξ`. CEI is estimated by Monte Carlo with the same fixed samples as EI (D9). WB2 is less multimodal than CEI and easier to maximize: on Sellar, it converged in 96 runs out of 100 against 63 for CEI. **Decision D23:** WB2 takes an optional scale on CEI (`scale · CEI − m_0`, default 1), as `Egor`'s `WB2Criterion` does. A scale other than 1 (WB2S) is not studied by the paper.
+
+**Decision D35 (WB2S).** `Acquisition::Wb2s` adapts the scale at each iteration, as `Egor`'s WB2S (Bartoli et al. 2019): `scale = 100 |m_0(z_EI)| / EI_max`, where `EI_max` is the maximum of the EI under the constraint models, reached at `z_EI`. The scale is 1 when `EI_max` is negligible (below `100 ε`). `Egor` computes `EI_max` over the starting points of the infill optimization. Here the EI is zero almost everywhere once the disciplinary GPs are enriched, so the EI is maximized first; `z_EI` is then added to the starting points of the WB2 optimization. This costs one more multistart optimization per iteration.
+
+**Decision D36 (LogEI).** `Acquisition::LogEi` maximizes the logarithm of a smoothed (C)EI, as the Monte Carlo qLogEI of Ament et al. (2023): `LogEI(z) = log((1/N) Σ_s τ softplus(Δ_s(z)/τ))` with `Δ_s(z) = f'_min(Ξ_s) − Ỹ_obj(z, Ξ_s, η_s)`, computed with a log-sum-exp over the same fixed samples as the EI (D9). Where some samples improve, it is close to `log EI`. Where none does, the EI estimate is exactly 0, and its flat zones stall the optimizer (C-EGMDO, section 4.1.1); the LogEI stays finite there, about `max_s Δ_s/τ`, and ranks the points by how close they come to improving. The analytic LogEI assumes a Gaussian prediction and does not apply to the non-Gaussian field (14). The temperature is `τ = 10⁻⁶ × σ`, where `σ` is the standard deviation of the objective PCE means over `DoE_UQ` (or their mean absolute value if it is 0), since the objective is not standardized.
 
 **Optimization.**
 
@@ -635,7 +641,7 @@ This problem couples a Code Aster beam model with an in-house VLM solver, throug
 | D24 | Acquisition optimizer | Multistart COBYLA with the constraint models (`egobox_gp::basin_optimizer`); a local optimum is feasible up to `1e-6`, COBYLA's final radius |
 | D25 | Duplicate `DoE_UQ` point | Next best multistart point; threshold `1e-6` in `[0, 1]^n` |
 | D26 | `P_sol` | Samples without a feasible point count for none; least-violation fallback when all `P_sol < ε_P` |
-| D27 | Constraint CV | Denominator `max(|E|, τ / ε_CV)`: an active constraint is certain when its std is below `τ` |
+| D27 | Constraint CV | Denominator `max(\|E\|, τ / ε_CV)`: an active constraint is certain when its std is below `τ` |
 | D28 | Sobol index of a discipline | Closed index of its group of `ξ` |
 | D29 | Results | Best feasible `DoE_UQ` point and constrained distributions of `Ẑ*`, `Ŷ_min` |
 | D30 | Sellar objective | `z3²` (the paper's `z3³` is a typo) |
@@ -646,7 +652,7 @@ The library defaults follow C-EGMDO, the more recent and more robust variant, wi
 
 | Option | Values | Default | EGMDO (2020) | C-EGMDO (2024) |
 |---|---|---|---|---|
-| Acquisition | `Ei`, `Wb2 { scale }` | `Wb2 { scale: 1 }` | `Ei` | `Wb2` |
+| Acquisition | `Ei`, `Wb2 { scale }`, `Wb2s` (D35), `LogEi` (D36) | `Wb2 { scale: 1 }` | `Ei` | `Wb2` |
 | Enrichment | `All`, `Sobol` | `Sobol` | `All` | `Sobol` |
 | `ε_P` | > 0 | `10⁻³` | `1/n_UQ` | `10⁻³` |
 | `ε_CV` | > 0 | 0.01 | 0.01 | 0.01 |

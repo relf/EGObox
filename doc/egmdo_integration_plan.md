@@ -235,7 +235,7 @@ Use the papers' test cases, which come with reference results:
 
 The aeroelastic wing of C-EGMDO (section 4.2) relies on Code Aster and an in-house VLM solver; it is not reproducible here.
 
-On constrained Sellar, some samples of the final minimum position `Ẑ*` fall in the mirrored basin `z1 ≈ −1.8`, where the model (19) is less accurate, although the best `DoE_UQ` point is the optimum. Late iterations of WB2 (scale 1) exploit the current minimum rather than explore that basin: the benchmarks study the WB2 scale (WB2S) and the number of iterations.
+The results are in `doc/egmdo_benchmarks.md`, reproduced by the `egmdo_benchmarks` example of `egobox-egmdo`. They include an `Egor` baseline on the MDF formulation, and the WB2S (spec D35) and Monte Carlo LogEI (spec D36) options. LogEI removes the flat zones of the CEI but does not beat WB2 overall, so WB2 stays the default. On constrained Sellar, some samples of the final minimum position `Ẑ*` fall in the mirrored basin `z1 ≈ −1.8`, although the best `DoE_UQ` point is the optimum. WB2S does not change this: the EI is zero almost everywhere once the disciplinary GPs are enriched, so the bias comes from the final estimation with the model (19). Improving that estimation is an extension.
 
 Tests should verify:
 
@@ -270,8 +270,10 @@ After correctness is established:
 - profile GP fitting, random MDAs, PCE, KL, acquisition optimization and true engineering evaluations separately;
 - investigate incremental GP updates if they provide a measurable benefit;
 - add parallel discipline evaluations;
-- try other kernels and other criteria (e.g. WB2s, upper trust bound constraint relaxation), which the papers suggest. C-EGMDO tested constraint relaxation by quantiles of the constraint PCEs, which was less robust than the mean, so it is not in the first release;
+- try other kernels and other criteria (e.g. upper trust bound constraint relaxation), which the papers suggest. C-EGMDO tested constraint relaxation by quantiles of the constraint PCEs, which was less robust than the mean, so it is not in the first release;
 - add a stopping criterion based on the maximum EI value;
+- improve the final estimation of `Ẑ*` and `Ŷ_min` (model (19)) away from the enriched regions, e.g. by restricting it to the basin of the best `DoE_UQ` point or by enriching where its samples disagree;
+- benchmark against `Egor` on the IDF formulation;
 - support costly constraints that do not depend on the couplings, with their own surrogate;
 - consider objectives and constraints computed by expensive disciplines;
 - consider high-dimensional couplings with reduced-order models (Berthelin et al., 2022) or KPLS;
