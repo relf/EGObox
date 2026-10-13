@@ -142,6 +142,7 @@ pub struct MdoProblem {
     qoi: Arc<dyn QoiFn>,
     n_ineq: usize,
     n_eq: usize,
+    deterministic: Vec<usize>,
 }
 
 impl std::fmt::Debug for MdoProblem {
@@ -152,6 +153,7 @@ impl std::fmt::Debug for MdoProblem {
             .field("n_couplings", &self.n_couplings)
             .field("n_ineq", &self.n_ineq)
             .field("n_eq", &self.n_eq)
+            .field("deterministic", &self.deterministic)
             .finish()
     }
 }
@@ -263,6 +265,7 @@ impl MdoProblem {
             qoi: Arc::new(qoi),
             n_ineq: 0,
             n_eq: 0,
+            deterministic: vec![],
         })
     }
 
@@ -272,6 +275,40 @@ impl MdoProblem {
         self.n_ineq = n_ineq;
         self.n_eq = n_eq;
         self
+    }
+
+    /// Declares that the constraints of indices `indices` (in `0..n_ineq + n_eq`, inequality
+    /// constraints first) depend on the design variables only. They are evaluated directly
+    /// instead of being modelled (decision D22).
+    pub fn deterministic_constraints(mut self, indices: &[usize]) -> Self {
+        self.deterministic = indices.to_vec();
+        self
+    }
+
+    /// Whether constraint `k` depends on the design variables only
+    pub fn is_deterministic_constraint(&self, k: usize) -> bool {
+        self.deterministic.contains(&k)
+    }
+
+    /// The indices of the constraints declared as depending on the design variables only
+    pub fn deterministic_constraint_indices(&self) -> &[usize] {
+        &self.deterministic
+    }
+
+    /// Evaluates the constraints `[g..., h...]` declared as depending on the design variables
+    /// only at design points `z`, as a `(n, n_ineq + n_eq)` matrix whose other columns are
+    /// meaningless.
+    pub(crate) fn eval_deterministic_constraints(
+        &self,
+        z: &ArrayView2<f64>,
+    ) -> Result<Array2<f64>> {
+        let y = self
+            .coupling_start()
+            .broadcast((z.nrows(), self.n_couplings))
+            .expect("broadcast couplings")
+            .to_owned();
+        let qoi = self.eval_qoi(z, &y.view())?;
+        Ok(qoi.slice(ndarray::s![.., 1..]).to_owned())
     }
 
     /// The `(n, 2)` bounds of the design space

@@ -5,9 +5,9 @@
 //! [EvaluationRequest]s; the caller evaluates them and gives the outputs back with
 //! [EgmdoSolver::tell]. [minimize] runs this loop with given disciplinary solvers.
 
+use crate::constraints::ConstraintModels;
 use crate::criteria::{
-    ExpectedImprovement, coefficient_of_variation, multistart_minimize, objective_samples,
-    pce_minimum, probability_of_minimum,
+    ExpectedImprovement, Feasibility, SampleMinima, multistart_minimize_constrained, qoi_samples,
 };
 use crate::errors::{EgmdoError, Result};
 use crate::kl::{KlDecomposition, KlGpField};
@@ -26,9 +26,48 @@ use rayon::prelude::*;
 /// duplicate of a `DoE_UQ` point (decision D25)
 pub const DOE_UQ_DUPLICATE_TOLERANCE: f64 = 1e-6;
 
+/// The acquisition criterion maximized to choose the point added to `DoE_UQ`
+/// (specification, sections 6 and 18)
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Acquisition {
+    /// The (constrained) expected improvement (16, C-19), as in the EGMDO paper
+    Ei,
+    /// The WB2 criterion `scale · EI - m_0` (C-24), less multimodal than the EI
+    Wb2 {
+        /// Scale of the expected improvement (1 in the C-EGMDO paper, D23)
+        scale: f64,
+    },
+}
+
+impl Default for Acquisition {
+    fn default() -> Self {
+        Acquisition::Wb2 { scale: 1. }
+    }
+}
+
+/// The disciplines enriched at an enrichment point (specification, section 20)
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Enrichment {
+    /// Every discipline, as in the EGMDO paper
+    All,
+    /// The discipline with the largest Sobol index of the most uncertain quantity of
+    /// interest, as in the C-EGMDO paper
+    #[default]
+    Sobol,
+}
+
 /// Configuration of the EGMDO algorithm
+///
+/// The defaults follow the C-EGMDO paper (specification, section 23); [EgmdoConfig::egmdo]
+/// gives the settings of the EGMDO paper.
 #[derive(Clone, Debug)]
 pub struct EgmdoConfig {
+    /// The acquisition criterion
+    pub acquisition: Acquisition,
+    /// The disciplines enriched at an enrichment point
+    pub enrichment: Enrichment,
+    /// The tolerance of each constraint `[g..., h...]` (D21); `None` gives `1e-4`
+    pub constraint_tolerances: Option<Vec<f64>>,
     /// Size of the initial design of experiments of each discipline;
     /// `None` gives `2 d_i` for a discipline with `d_i` inputs
     pub n_doe_disciplines: Option<Vec<usize>>,
@@ -66,9 +105,30 @@ pub struct EgmdoConfig {
     pub seed: Option<u64>,
 }
 
+impl EgmdoConfig {
+    /// The settings of the EGMDO paper: expected improvement, enrichment of all disciplines,
+    /// `ε_P = 1 / n_UQ`, `n_MC = 100` and squared exponential GPs
+    pub fn egmdo() -> Self {
+        EgmdoConfig {
+            acquisition: Acquisition::Ei,
+            enrichment: Enrichment::All,
+            p_threshold: None,
+            uq: UqSettings {
+                n_mc: Some(100),
+                ..UqSettings::default()
+            },
+            gp: GpSettings::paper(),
+            ..EgmdoConfig::default()
+        }
+    }
+}
+
 impl Default for EgmdoConfig {
     fn default() -> Self {
         EgmdoConfig {
+            acquisition: Acquisition::default(),
+            enrichment: Enrichment::default(),
+            constraint_tolerances: None,
             n_doe_disciplines: None,
             doe_disciplines: None,
             n_doe_uq: 20,
@@ -103,8 +163,8 @@ pub struct EvaluationRequest {
 pub struct IterationRecord {
     /// The point added to `DoE_UQ`, if any (D25)
     pub z_new: Option<Array1<f64>>,
-    /// The maximum value of the expected improvement
-    pub max_ei: f64,
+    /// The maximum value of the acquisition criterion
+    pub max_criterion: f64,
     /// The number of KL modes
     pub n_modes: usize,
     /// The number of enrichments of the disciplinary GPs
@@ -118,7 +178,8 @@ pub struct IterationRecord {
 /// The result of an EGMDO run
 #[derive(Clone)]
 pub struct EgmdoResult {
-    /// The `DoE_UQ` point with the lowest objective PCE mean
+    /// The `DoE_UQ` point with the lowest objective PCE mean among the points whose constraint
+    /// PCE means are feasible, or with the lowest mean violation if none is (D29)
     pub z_best: Array1<f64>,
     /// The objective PCE mean at `z_best`
     pub f_best: f64,
@@ -138,6 +199,8 @@ pub struct EgmdoResult {
     pub uq: Vec<PointUq>,
     /// The final KL-GP random field, giving the objective model (19)
     pub field: KlGpField,
+    /// The final constraint models
+    pub constraints: ConstraintModels,
 }
 
 impl EgmdoResult {
@@ -179,6 +242,7 @@ pub struct EgmdoSolver {
     rng: Xoshiro256Plus,
     basis: HermiteBasis,
     xi_regression: Array2<f64>,
+    feasibility: Feasibility,
     state: State,
     pending: Vec<EvaluationRequest>,
     models: Option<DisciplinaryModels>,
@@ -211,6 +275,27 @@ impl EgmdoSolver {
                 doe.ncols()
             )));
         }
+        let n_constraints = problem.n_ineq() + problem.n_eq();
+        let tolerances = match &config.constraint_tolerances {
+            Some(tol) if tol.len() != n_constraints => {
+                return Err(EgmdoError::InvalidData(format!(
+                    "{} constraint tolerances given for {n_constraints} constraints",
+                    tol.len()
+                )));
+            }
+            Some(tol) => Array1::from_vec(tol.clone()),
+            None => Array1::from_elem(n_constraints, 1e-4),
+        };
+        if let Some(&k) = problem
+            .deterministic_constraint_indices()
+            .iter()
+            .find(|&&k| k >= n_constraints)
+        {
+            return Err(EgmdoError::InvalidProblem(format!(
+                "deterministic constraint {k} does not exist ({n_constraints} constraints)"
+            )));
+        }
+        let feasibility = Feasibility::new(problem.n_ineq(), tolerances, config.cv_threshold);
         let seed = config
             .seed
             .unwrap_or_else(|| Xoshiro256Plus::from_entropy().r#gen());
@@ -225,6 +310,7 @@ impl EgmdoSolver {
             rng,
             basis,
             xi_regression,
+            feasibility,
             state: State::Start,
             pending: vec![],
             models: None,
@@ -445,21 +531,39 @@ impl EgmdoSolver {
         KlGpField::fit(&self.doe_uq, kl, self.basis.clone(), &self.config.gp)
     }
 
-    /// Step 1: adds the point maximizing the expected improvement to `DoE_UQ` (section 6)
+    fn constraint_models(&self) -> Result<ConstraintModels> {
+        ConstraintModels::fit(&self.problem, &self.doe_uq, &self.uq, &self.config.gp)
+    }
+
+    /// Step 1: adds the point maximizing the acquisition criterion under the constraint models
+    /// to `DoE_UQ` (sections 6 and 18)
     fn acquisition(&mut self) -> Result<()> {
         let field = self.field()?;
+        let constraints = self.constraint_models()?;
         let n_modes = field.kl().n_modes();
         let xi = normal_samples(self.config.n_ei_samples, self.basis.dim(), self.rng.r#gen());
         let eta = normal_samples(self.config.n_ei_samples, n_modes + 1, self.rng.r#gen());
-        let ei =
-            ExpectedImprovement::new(&field, pce_minimum(&self.uq, &xi.view()), &xi.view(), eta);
+        let f_min = SampleMinima::new(&self.uq, &xi.view(), &self.feasibility).f_min;
+        let ei = ExpectedImprovement::new(&field, f_min, &xi.view(), eta);
+        let acquisition = self.config.acquisition;
         let objective = |z: &Array1<f64>| {
-            ei.value(&z.view().insert_axis(Axis(0)).to_owned())
-                .map_or(f64::INFINITY, |v| -v[0])
+            let z = z.view().insert_axis(Axis(0)).to_owned();
+            let value = match acquisition {
+                Acquisition::Ei => ei.value(&z),
+                Acquisition::Wb2 { scale } => ei.wb2(&z, scale),
+            };
+            value.map_or(f64::INFINITY, |v| -v[0])
         };
         let starts = self.uniform_points(self.config.n_starts);
-        let optima = multistart_minimize(&objective, self.problem.xlimits(), &starts);
-        let max_ei = optima.first().map_or(0., |o| -o.value);
+        let (n_constraints, constraint) = constraints.as_inequalities(&self.feasibility);
+        let optima = multistart_minimize_constrained(
+            &objective,
+            &constraint,
+            n_constraints,
+            self.problem.xlimits(),
+            &starts,
+        );
+        let max_criterion = optima.first().map_or(0., |o| -o.value);
 
         // The best proposed point which is not already in DoE_UQ (D25)
         let width = &self.problem.xlimits().column(1) - &self.problem.xlimits().column(0);
@@ -493,12 +597,12 @@ impl EgmdoSolver {
             }
         };
         log::info!(
-            "Iteration {}: max EI = {max_ei:e}, M = {n_modes}, z_new = {z_new:?}",
+            "Iteration {}: max criterion = {max_criterion:e}, M = {n_modes}, z_new = {z_new:?}",
             self.iter
         );
         self.history.push(IterationRecord {
             z_new,
-            max_ei,
+            max_criterion,
             n_modes,
             n_enrichments: 0,
             n_failed_mdas: self.uq.iter().map(|u| u.n_failed).sum(),
@@ -507,27 +611,55 @@ impl EgmdoSolver {
         Ok(())
     }
 
-    /// Step 2 (Algorithm 1): the `DoE_UQ` point where to enrich the disciplinary GPs, if any
+    /// Step 2 (Algorithm 1, C-EGMDO Algorithm 2): the `DoE_UQ` point where to enrich the
+    /// disciplinary GPs, if any (sections 7 and 19)
     fn next_enrichment(&mut self, skipped: &[usize]) -> Result<Option<usize>> {
         let xi = normal_samples(
             self.config.n_pmin_samples,
             self.basis.dim(),
             self.rng.r#gen(),
         );
-        let pmin = probability_of_minimum(&self.uq, &xi.view());
+        let minima = SampleMinima::new(&self.uq, &xi.view(), &self.feasibility);
         let threshold = self.config.p_threshold.unwrap_or(1. / self.uq.len() as f64);
+        let mut p = minima.probability_of_solution();
+        if p.iter().all(|&v| v < threshold) {
+            // No point is likely to be the feasible solution: least violation (D26)
+            p = minima.probability_of_least_violation();
+        }
         let mut candidates: Vec<usize> = (0..self.uq.len())
-            .filter(|&i| pmin[i] >= threshold && !skipped.contains(&i))
+            .filter(|&i| p[i] >= threshold && !skipped.contains(&i))
             .collect();
-        candidates.sort_by(|&i, &j| pmin[j].total_cmp(&pmin[i]));
-        Ok(candidates.into_iter().find(|&i| {
-            let pce = &self.uq[i].pce;
-            coefficient_of_variation(pce.mean()[0], pce.variance()[0]) > self.config.cv_threshold
-        }))
+        candidates.sort_by(|&i, &j| p[j].total_cmp(&p[i]));
+        Ok(candidates
+            .into_iter()
+            .find(|&i| self.feasibility.max_cv(&self.uq[i].pce) > self.config.cv_threshold))
     }
 
-    /// The evaluations enriching every discipline at `DoE_UQ` point `index` (section 8),
-    /// or `None` if the mean MDA does not converge there
+    /// The disciplines to enrich at `DoE_UQ` point `index` (section 20)
+    fn disciplines_to_enrich(&self, index: usize) -> Vec<usize> {
+        let disciplines = self.problem.disciplines();
+        match self.config.enrichment {
+            Enrichment::All => (0..disciplines.len()).collect(),
+            Enrichment::Sobol => {
+                let pce = &self.uq[index].pce;
+                let quantity = self.feasibility.most_uncertain(pce);
+                // One random variable per coupling variable: a discipline's group is the
+                // variables of its outputs (D28)
+                let indices: Vec<f64> = disciplines
+                    .iter()
+                    .map(|d| pce.closed_sobol_index(quantity, d.coupling_output_indices()))
+                    .collect();
+                let best = (0..indices.len())
+                    .max_by(|&i, &j| indices[i].total_cmp(&indices[j]).then(j.cmp(&i)))
+                    .expect("at least one discipline");
+                log::debug!("Sobol indices of quantity {quantity}: {indices:?}");
+                vec![best]
+            }
+        }
+    }
+
+    /// The evaluations enriching the selected disciplines at `DoE_UQ` point `index`
+    /// (sections 8 and 20), or `None` if the mean MDA does not converge there
     fn enrichment_requests(&self, index: usize) -> Result<Option<Vec<EvaluationRequest>>> {
         let z = self.doe_uq.row(index);
         let mean = SurrogateCouplings::mean(&self.problem, self.models.as_ref().expect("models"));
@@ -538,26 +670,27 @@ impl EgmdoSolver {
         }
         let y = y.insert_axis(Axis(0));
         Ok(Some(
-            self.problem
-                .disciplines()
-                .iter()
-                .enumerate()
-                .map(|(i, d)| EvaluationRequest {
+            self.disciplines_to_enrich(index)
+                .into_iter()
+                .map(|i| EvaluationRequest {
                     discipline: i,
-                    x: d.inputs(&z, &y.view()),
+                    x: self.problem.disciplines()[i].inputs(&z, &y.view()),
                 })
                 .collect(),
         ))
     }
 
-    /// Final model (19) and estimation of the minimum (section 10)
+    /// Final model (19) and estimation of the minimum under the constraint models
+    /// (sections 10 and 21)
     fn finalize(&mut self) -> Result<()> {
         let field = self.field()?;
+        let constraints = self.constraint_models()?;
         let xi = normal_samples(self.config.n_sim, self.basis.dim(), self.rng.r#gen());
         let zeta = field.zeta(&xi.view());
-        let doe_values = objective_samples(&self.uq, &xi.view());
+        let doe_values = qoi_samples(&self.uq, &xi.view());
         let random_starts = self.uniform_points(5 * self.config.n_sim);
         let xlimits = self.problem.xlimits().clone();
+        let (n_constraints, constraint) = constraints.as_inequalities(&self.feasibility);
 
         let minima: Vec<(Array1<f64>, f64)> = (0..self.config.n_sim)
             .into_par_iter()
@@ -571,20 +704,27 @@ impl EgmdoSolver {
                 };
                 // Starts: the 5 best DoE_UQ points for this sample and 5 random points (D16)
                 let mut order: Vec<usize> = (0..self.doe_uq.nrows()).collect();
-                order.sort_by(|&i, &j| doe_values[[i, k]].total_cmp(&doe_values[[j, k]]));
+                order.sort_by(|&i, &j| doe_values[i][[k, 0]].total_cmp(&doe_values[j][[k, 0]]));
                 order.truncate(5);
                 let starts = concatenate![
                     Axis(0),
                     self.doe_uq.select(Axis(0), &order),
                     random_starts.slice(s![5 * k..5 * k + 5, ..])
                 ];
-                let best = multistart_minimize(&model, &xlimits, &starts)
-                    .into_iter()
-                    .next()
-                    .expect("at least one finite local minimum");
+                let best = multistart_minimize_constrained(
+                    &model,
+                    &constraint,
+                    n_constraints,
+                    &xlimits,
+                    &starts,
+                )
+                .into_iter()
+                .next()
+                .expect("at least one finite local minimum");
                 (best.x, best.value)
             })
             .collect();
+        drop(constraint);
         let mut z_star = Array2::zeros((self.config.n_sim, self.problem.nx()));
         let mut y_min = Array1::zeros(self.config.n_sim);
         for (s, (z, y)) in minima.into_iter().enumerate() {
@@ -592,13 +732,26 @@ impl EgmdoSolver {
             y_min[s] = y;
         }
 
-        let means: Array1<f64> = self.uq.iter().map(|u| u.pce.mean()[0]).collect();
-        let best = (0..means.len())
-            .min_by(|&i, &j| means[i].total_cmp(&means[j]))
-            .expect("non-empty DoE_UQ");
+        // Best DoE_UQ point by PCE means, among the feasible ones if any (D29)
+        let means: Vec<Array1<f64>> = self.uq.iter().map(|u| u.pce.mean()).collect();
+        let feasible: Vec<usize> = (0..means.len())
+            .filter(|&i| self.feasibility.is_feasible(&means[i].slice(s![1..])))
+            .collect();
+        let best = if feasible.is_empty() {
+            (0..means.len()).min_by(|&i, &j| {
+                self.feasibility
+                    .violation(&means[i].slice(s![1..]))
+                    .total_cmp(&self.feasibility.violation(&means[j].slice(s![1..])))
+            })
+        } else {
+            feasible
+                .into_iter()
+                .min_by(|&i, &j| means[i][0].total_cmp(&means[j][0]))
+        }
+        .expect("non-empty DoE_UQ");
         self.result = Some(EgmdoResult {
             z_best: self.doe_uq.row(best).to_owned(),
-            f_best: means[best],
+            f_best: means[best][0],
             z_star,
             y_min,
             n_evaluations: self.n_evaluations(),
@@ -607,6 +760,7 @@ impl EgmdoSolver {
             doe_uq: self.doe_uq.clone(),
             uq: self.uq.clone(),
             field,
+            constraints,
         });
         Ok(())
     }
@@ -658,6 +812,8 @@ mod tests {
     /// The setting of the 1-D toy problem in the EGMDO paper (section 2)
     fn toy_config(seed: u64) -> EgmdoConfig {
         EgmdoConfig {
+            acquisition: Acquisition::Ei,
+            enrichment: Enrichment::All,
             n_doe_disciplines: Some(vec![5, 4]),
             doe_uq: Some(array![[-4.3], [-2.5], [0.5], [3.7]]),
             max_iters: 5,
@@ -804,5 +960,146 @@ mod tests {
         };
         assert!(EgmdoSolver::new(tp.problem.clone(), config).is_err());
         assert!(minimize(&tp.problem, &tp.disciplines[..1], EgmdoConfig::default()).is_err());
+
+        // Constraint tolerances and deterministic constraints must match the constraints
+        let tp = problems::sellar_constrained();
+        let config = EgmdoConfig {
+            constraint_tolerances: Some(vec![1e-4]),
+            ..EgmdoConfig::default()
+        };
+        assert!(EgmdoSolver::new(tp.problem.clone(), config).is_err());
+        let problem = tp.problem.clone().deterministic_constraints(&[2]);
+        assert!(EgmdoSolver::new(problem, EgmdoConfig::default()).is_err());
+    }
+
+    #[test]
+    fn test_egmdo_preset() {
+        let config = EgmdoConfig::egmdo();
+        assert_eq!(config.acquisition, Acquisition::Ei);
+        assert_eq!(config.enrichment, Enrichment::All);
+        assert_eq!(config.p_threshold, None);
+        assert_eq!(config.uq.n_mc, Some(100));
+        assert_eq!(config.gp.kernel, crate::Kernel::SquaredExponential);
+        let default = EgmdoConfig::default();
+        assert_eq!(default.acquisition, Acquisition::Wb2 { scale: 1. });
+        assert_eq!(default.enrichment, Enrichment::Sobol);
+        assert_eq!(default.gp.kernel, crate::Kernel::Matern52);
+    }
+
+    /// The setting of the constrained 1-D toy problem in the C-EGMDO paper (section 2.1),
+    /// with the default C-EGMDO options
+    fn toy_constrained_config(seed: u64) -> EgmdoConfig {
+        EgmdoConfig {
+            n_doe_disciplines: Some(vec![5, 4]),
+            doe_uq: Some(array![[-3.6], [-2.], [1.2], [3.8]]),
+            max_iters: 5,
+            seed: Some(seed),
+            ..EgmdoConfig::default()
+        }
+    }
+
+    #[test]
+    fn test_sobol_enrichment_requests_one_discipline() {
+        let tp = problems::toy_constrained();
+        let mut solver = EgmdoSolver::new(tp.problem.clone(), toy_constrained_config(0)).unwrap();
+        let mut requests = solver.ask().unwrap();
+        let mut first = true;
+        let mut n_enrichments = 0;
+        while let Some(reqs) = requests {
+            if !first {
+                assert_eq!(reqs.len(), 1, "Sobol enrichment of a single discipline");
+                assert_eq!(reqs[0].x.nrows(), 1);
+                n_enrichments += 1;
+            }
+            first = false;
+            let outputs = reqs
+                .iter()
+                .map(|r| tp.eval_discipline(r.discipline, &r.x))
+                .collect();
+            solver.tell(outputs).unwrap();
+            requests = solver.ask().unwrap();
+        }
+        let result = solver.result().unwrap();
+        assert!(n_enrichments > 0);
+        assert_eq!(
+            result.n_evaluations.iter().sum::<usize>(),
+            9 + n_enrichments,
+            "one evaluation per enrichment"
+        );
+    }
+
+    /// Whether the estimated minimum value is within `rel` of the reference
+    /// (the papers' convergence criterion)
+    fn converged(tp: &problems::TestProblem, result: &EgmdoResult, rel: f64) -> bool {
+        (result.y_min_mean() - tp.f_ref).abs() < rel * tp.f_ref.abs()
+    }
+
+    #[test]
+    fn test_constrained_toy_problem_robustness() {
+        // Constrained optimum z* = -2.403 (C-EGMDO paper: -2.42), with the constraint active.
+        // About 85% of the runs converge within 1% (17 of seeds 0..20).
+        let tp = problems::toy_constrained();
+        let mut summary = vec![];
+        for seed in 0..10 {
+            let result =
+                minimize(&tp.problem, &tp.disciplines, toy_constrained_config(seed)).unwrap();
+            summary.push((
+                seed,
+                converged(&tp, &result, 0.01),
+                result.z_star_mean()[0],
+                result.y_min_mean(),
+                result.n_evaluations.clone(),
+            ));
+        }
+        let n_converged = summary.iter().filter(|s| s.1).count();
+        assert!(
+            n_converged >= 6,
+            "runs (seed, converged, E[z*], E[y_min], evaluations): {summary:?}"
+        );
+        // The converged runs find the constrained optimum, not the unconstrained one (-3.0)
+        for s in summary.iter().filter(|s| s.1) {
+            assert!((s.2 - tp.z_ref[0]).abs() < 0.2, "{summary:?}");
+        }
+    }
+
+    #[test]
+    fn test_constrained_sellar_problem() {
+        // Setting of the C-EGMDO paper (section 4.1): 96% of the runs converge within 1% with
+        // 22.8 disciplinary evaluations on average. Observed: 19 of seeds 0..20, 24.4 evaluations.
+        // A run converges when its estimated minimum is within 1% (papers' criterion), or when
+        // its best point is the optimum: some samples of Ẑ* can fall in the mirrored basin
+        // z1 ≈ -1.8 and bias the estimated minimum although the optimum was found.
+        // The trajectories depend on the GP training backend (c-cobyla, blas) and platform.
+        let tp = problems::sellar_constrained();
+        let mut summary = vec![];
+        for seed in 0..8 {
+            let config = EgmdoConfig {
+                n_doe_disciplines: Some(vec![5, 5]),
+                n_doe_uq: 20,
+                max_iters: 10,
+                uq: UqSettings {
+                    n_mc: Some(200),
+                    ..UqSettings::default()
+                },
+                seed: Some(seed),
+                ..EgmdoConfig::default()
+            };
+            let result = minimize(&tp.problem, &tp.disciplines, config).unwrap();
+            let (_, qoi, _) = tp.evaluate(&result.z_best.view()).unwrap();
+            let best_is_optimum =
+                (qoi[0] - tp.f_ref).abs() < 0.01 * tp.f_ref.abs() && qoi[1] <= 1e-3;
+            summary.push((
+                seed,
+                converged(&tp, &result, 0.01) || best_is_optimum,
+                result.z_best.clone(),
+                qoi,
+                result.n_evaluations.iter().sum::<usize>(),
+            ));
+        }
+        assert!(
+            summary.iter().filter(|s| s.1).count() >= 5,
+            "runs (seed, converged, z_best, true qoi at z_best, evaluations): {summary:?}"
+        );
+        assert!(summary.iter().all(|s| s.4 <= 40), "{summary:?}");
     }
 }

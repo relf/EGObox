@@ -514,7 +514,9 @@ estimated with `n_P` samples as in (18).
 CV(z^(i)) = max_j  sqrt(Var[QoI_j(z^(i))]) / |E[QoI_j(z^(i))]|                   (C-26)
 ```
 
-with the absolute value of D11. **Decision D27:** for a constraint, the denominator is `max(|E|, τ)`. An active constraint has a mean close to zero, so its CV can stay large even when its standard deviation is negligible. With this floor, a constraint whose standard deviation is below `ε_CV · τ` counts as certain.
+with the absolute value of D11. **Decision D27:** for a constraint, the denominator is `max(|E|, τ / ε_CV)`. An active constraint has a mean close to zero, so its CV can stay large even when its standard deviation is negligible. With this floor, an active constraint counts as certain when its standard deviation is below its tolerance `τ`.
+
+The floor was first set to `τ`, which requires a standard deviation below `ε_CV · τ = 10⁻⁶`; GP interpolation rarely reaches it. On the constrained Sellar problem (C-EGMDO setting, seeds 0 to 9), that floor led to 19.9 and 11.4 evaluations per discipline, against 12.8 and 10.0 with `τ / ε_CV` (paper: 13.0 and 9.8). Raising `τ` instead also loosens feasibility, and the best point degrades. With `τ / ε_CV`, over seeds 0 to 19 and Matérn 5/2 GPs, 19/20 runs converge within 1% with 24.4 evaluations in total on average (paper: 96/100 and 22.8). On the constrained toy problem, 17/20 runs converge, against 9/20 with the squared exponential kernel.
 
 **Algorithm** (C-EGMDO defaults: `ε_CV = 0.01`, `ε_P = 10⁻³`):
 
@@ -630,17 +632,17 @@ This problem couples a Code Aster beam model with an in-house VLM solver, throug
 | D21 | Tolerance | Per-constraint tolerance `τ`, default `1e-4` |
 | D22 | Constraints of `z` only | Evaluated directly, no PCE or GP |
 | D23 | WB2 scale | Optional scale on CEI, default 1 |
-| D24 | Acquisition optimizer | Multistart COBYLA with the constraint models |
+| D24 | Acquisition optimizer | Multistart COBYLA with the constraint models (`egobox_gp::basin_optimizer`); a local optimum is feasible up to `1e-6`, COBYLA's final radius |
 | D25 | Duplicate `DoE_UQ` point | Next best multistart point; threshold `1e-6` in `[0, 1]^n` |
 | D26 | `P_sol` | Samples without a feasible point count for none; least-violation fallback when all `P_sol < ε_P` |
-| D27 | Constraint CV | Denominator `max(|E|, τ)` |
+| D27 | Constraint CV | Denominator `max(|E|, τ / ε_CV)`: an active constraint is certain when its std is below `τ` |
 | D28 | Sobol index of a discipline | Closed index of its group of `ξ` |
 | D29 | Results | Best feasible `DoE_UQ` point and constrained distributions of `Ẑ*`, `Ŷ_min` |
 | D30 | Sellar objective | `z3²` (the paper's `z3³` is a typo) |
 
 ## 23. Options and defaults
 
-The library defaults follow C-EGMDO, the more recent and more robust variant. Benchmarks reproducing the 2020 paper set the EGMDO values explicitly.
+The library defaults follow C-EGMDO, the more recent and more robust variant, with Matérn 5/2 GPs (D34). `EgmdoConfig::egmdo()` gives the settings of the 2020 paper.
 
 | Option | Values | Default | EGMDO (2020) | C-EGMDO (2024) |
 |---|---|---|---|---|
