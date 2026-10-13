@@ -27,6 +27,10 @@ pub struct MdaSettings {
     /// Relaxation factor `ω` in `]0, 1]`: `y ← (1 - ω) y + ω F(y)` (decision D31).
     /// `1` is the plain non-linear Jacobi method of the EGMDO paper.
     pub relaxation: f64,
+    /// Relaxation factors, in `]0, 1]`, used in turn to retry the resolutions which did not
+    /// converge, from their starting point. Only factors smaller than `relaxation` are used
+    /// (decision D33).
+    pub retry_relaxations: Vec<f64>,
 }
 
 impl Default for MdaSettings {
@@ -36,6 +40,7 @@ impl Default for MdaSettings {
             eps_abs: 1e-12,
             max_iters: 500,
             relaxation: 1.,
+            retry_relaxations: vec![0.5, 0.25],
         }
     }
 }
@@ -237,17 +242,60 @@ pub fn solve(
             y0.ncols()
         )));
     }
-    if !(settings.relaxation > 0. && settings.relaxation <= 1.) {
+    let valid = |w: &f64| *w > 0. && *w <= 1.;
+    if !valid(&settings.relaxation) || !settings.retry_relaxations.iter().all(valid) {
         return Err(EgmdoError::InvalidData(format!(
-            "MDA relaxation must be in ]0, 1], got {}",
-            settings.relaxation
+            "MDA relaxation factors must be in ]0, 1], got {} and retries {:?}",
+            settings.relaxation, settings.retry_relaxations
         )));
     }
-    let omega = settings.relaxation;
-    let mut y = y0;
+    let mut y = y0.clone();
     let mut status = vec![MdaStatus::MaxIterations; y.nrows()];
-    let mut active: Vec<usize> = (0..y.nrows()).collect();
+    let all: Vec<usize> = (0..y.nrows()).collect();
+    iterate(
+        couplings,
+        z,
+        &mut y,
+        &mut status,
+        all,
+        settings.relaxation,
+        settings,
+    )?;
 
+    // Retry the failed resolutions with stronger relaxation (D33)
+    for &omega in settings
+        .retry_relaxations
+        .iter()
+        .filter(|&&w| w < settings.relaxation)
+    {
+        let failed: Vec<usize> = (0..y.nrows())
+            .filter(|&r| !status[r].is_converged())
+            .collect();
+        if failed.is_empty() {
+            break;
+        }
+        for &r in failed.iter() {
+            y.row_mut(r).assign(&y0.row(r));
+        }
+        iterate(couplings, z, &mut y, &mut status, failed, omega, settings)?;
+    }
+    Ok(MdaSolution { y, status })
+}
+
+/// Relaxed Jacobi iterations of the states `rows` of `y`, updating their status
+fn iterate(
+    couplings: &impl Couplings,
+    z: &ArrayView1<f64>,
+    y: &mut Array2<f64>,
+    status: &mut [MdaStatus],
+    rows: Vec<usize>,
+    omega: f64,
+    settings: &MdaSettings,
+) -> Result<()> {
+    for &r in rows.iter() {
+        status[r] = MdaStatus::MaxIterations;
+    }
+    let mut active = rows;
     for iter in 1..=settings.max_iters {
         if active.is_empty() {
             break;
@@ -270,7 +318,7 @@ pub fn solve(
         }
         active = still_active;
     }
-    Ok(MdaSolution { y, status })
+    Ok(())
 }
 
 /// Solves one MDA at design point `z`, starting from [MdoProblem::coupling_start].

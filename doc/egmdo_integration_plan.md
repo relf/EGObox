@@ -67,10 +67,10 @@ The unconstrained EGMDO is the special case of C-EGMDO with no constraints, all-
 
 Reuse:
 
-- `egobox-gp`: `GaussianProcess` with constant mean and squared exponential kernel; `predict` and `predict_var` give `μ_i` and `σ_i`. No new GP capability is required.
+- `egobox-gp`: `GaussianProcess` with constant mean and a Matérn 5/2 kernel by default, or the papers' squared exponential (spec decision D34); `predict` and `predict_var` give `μ_i` and `σ_i`. No new GP capability is required.
 - `egobox-doe`: seeded `Lhs` for `DoE_fi` and `DoE_UQ`.
-- `linfa-linalg`: symmetric eigendecomposition for the KL step (already used by `egobox-gp`).
-- `egobox-ego`: the COBYLA multistart optimizer used for acquisition maximization; it supports the GP-mean constraints of the constrained acquisition. The `optimizers` module is currently private (`crates/ego/src/lib.rs`), so reusing it means making it public. That is an addition to the public API, not a breaking change. Alternatively, `egmdo` can call the `cobyla` crate directly.
+- `linfa-linalg`: symmetric eigendecomposition for the KL step and QR least squares for the PCE.
+- `egobox_gp::basin_optimizer`: the COBYLA adapter shared with `Egor` (constraints `c ≤ 0`), used for the multistart acquisition maximization and the final estimation. It already supports the constraints of the constrained acquisition, so `egobox-ego` does not need to make its private `optimizers` module public.
 - `Egor` conventions: inequality constraints `g ≤ 0` and a constraint tolerance, so that EGMDO and `Egor` problems are written the same way.
 
 New numerical code (not available in EGObox): Hermite PCE with least-squares regression and PCE-based Sobol indices, KL decomposition of the PCE vector, Monte Carlo EI/CEI.
@@ -310,7 +310,7 @@ Before finalizing the public API, decide:
 3. The exact ask/tell contract: request and response types, how pending requests are tracked, and how failed evaluations are reported.
 4. How Python exceptions in callbacks reach the user (follow the existing pattern in `python/src/errors.rs`).
 5. How non-converged random MDAs are handled in PCE regression.
-6. Which internal `egobox-ego` utilities are made public, or whether `egmdo` depends on `cobyla` directly.
+6. Settled: no `egobox-ego` utility is made public; the acquisition uses `egobox_gp::basin_optimizer`.
 7. How constraints are declared (functions of `(z, y)` returning a vector, or one function per constraint), and the equality tolerance.
 8. The option names and defaults that select between EGMDO and C-EGMDO behaviors (acquisition criterion, enrichment strategy, `ε_P`).
 
