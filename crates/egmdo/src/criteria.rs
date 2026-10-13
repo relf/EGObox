@@ -249,17 +249,64 @@ impl<'a> ExpectedImprovement<'a> {
         Ok(ei * scale - m0)
     }
 
+    /// The logarithm of the smoothed expected improvement at design points `z` `(n_z, nx)`,
+    /// as the Monte Carlo qLogEI of Ament et al. (2023) (D36):
+    ///
+    /// ```text
+    /// LogEI(z) = log( (1/N) Σ_s τ softplus(Δ_s(z) / τ) ),   Δ_s(z) = f'_min(Ξ_s) - Ỹ(z, Ξ_s, η_s)
+    /// ```
+    ///
+    /// computed with a log-sum-exp. It is close to `log EI` where some samples improve, and
+    /// stays finite and informative where none does (about `max_s Δ_s / τ`), whereas the EI
+    /// estimate is then exactly 0.
+    pub fn log_value(&self, z: &Array2<f64>, tau: f64) -> Result<Array1<f64>> {
+        let improvement = self.improvement(z)?;
+        let n = improvement.ncols() as f64;
+        Ok(improvement
+            .rows()
+            .into_iter()
+            .map(|delta| {
+                let logs: Vec<f64> = delta.iter().map(|d| log_softplus(d / tau)).collect();
+                let max = logs.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+                let sum: f64 = logs.iter().map(|l| (l - max).exp()).sum();
+                tau.ln() + max + sum.ln() - n.ln()
+            })
+            .collect())
+    }
+
     /// The expected improvement and the expectation `m_0` of the objective model
     fn values(&self, z: &Array2<f64>) -> Result<(Array1<f64>, Array1<f64>)> {
         let pred = self.field.predict(z)?;
-        let field = self
-            .field
-            .sample_from(&pred, &self.zeta.view(), &self.eta.view());
-        let improvement = (&self.y_min.view().insert_axis(Axis(0)) - &field).mapv(|v| v.max(0.));
+        let improvement = self.improvement_from(&pred).mapv(|v| v.max(0.));
         Ok((
             improvement.mean_axis(Axis(1)).expect("non-empty samples"),
             pred.mean.column(0).to_owned(),
         ))
+    }
+
+    /// The improvements `Δ_s(z) = f'_min(Ξ_s) - Ỹ(z, Ξ_s, η_s)`, as a `(n_z, N)` matrix
+    fn improvement(&self, z: &Array2<f64>) -> Result<Array2<f64>> {
+        Ok(self.improvement_from(&self.field.predict(z)?))
+    }
+
+    fn improvement_from(&self, pred: &crate::kl::KlGpPrediction) -> Array2<f64> {
+        let field = self
+            .field
+            .sample_from(pred, &self.zeta.view(), &self.eta.view());
+        &self.y_min.view().insert_axis(Axis(0)) - &field
+    }
+}
+
+/// `log(softplus(x)) = log(log(1 + exp(x)))`, computed without overflow nor underflow
+fn log_softplus(x: f64) -> f64 {
+    if x < -30. {
+        // softplus(x) = exp(x) (1 - exp(x)/2 + ...)
+        x
+    } else if x > 30. {
+        // softplus(x) = x + log(1 + exp(-x)), with exp(-x) negligible
+        x.ln()
+    } else {
+        x.exp().ln_1p().ln()
     }
 }
 
@@ -359,6 +406,17 @@ mod tests {
     use crate::uq::{UqSettings, coefficients, doe_uq};
     use approx::assert_abs_diff_eq;
     use ndarray::{Array, array};
+
+    #[test]
+    fn test_log_softplus() {
+        for x in [-50f64, -31., -10., -1., 0., 1., 10., 29., 31., 50.] {
+            let exact = x.exp().ln_1p().ln();
+            assert_abs_diff_eq!(log_softplus(x), exact, epsilon = 1e-10);
+        }
+        // No overflow nor underflow far in the tails
+        assert_eq!(log_softplus(-1e4), -1e4);
+        assert_abs_diff_eq!(log_softplus(1e4), 1e4f64.ln(), epsilon = 1e-12);
+    }
 
     #[test]
     fn test_coefficient_of_variation() {
@@ -526,6 +584,19 @@ mod tests {
         let wb2 = ei.wb2(&z, 2.).unwrap();
         let m0 = field.expectation(&z).unwrap();
         assert_abs_diff_eq!(wb2, &values * 2. - &m0, epsilon = 1e-12);
+
+        // LogEI ≈ log EI where the EI is not negligible, finite where the EI estimate is 0
+        let log_ei = ei.log_value(&z, 1e-9).unwrap();
+        assert!(log_ei.iter().all(|v| v.is_finite()));
+        for (l, e) in log_ei.iter().zip(values.iter()) {
+            if *e > 1e-3 * max {
+                assert_abs_diff_eq!(*l, e.ln(), epsilon = 1e-4);
+            }
+        }
+        // DoE_UQ points, where (almost) no sample improves, keep a finite value
+        let z_far = array![[-4.3], [0.5]];
+        let log_far = ei.log_value(&z_far, 1e-9).unwrap();
+        assert!(log_far.iter().all(|v| v.is_finite()));
 
         // Its maximization finds at least the best grid value
         let f = |x: &Array1<f64>| -ei.value(&x.view().insert_axis(Axis(0)).to_owned()).unwrap()[0];
