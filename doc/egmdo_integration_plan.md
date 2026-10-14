@@ -105,8 +105,8 @@ Represent each discipline explicitly with at least:
 
 - a stable name or identifier;
 - the design variables it uses;
-- the coupling variables it receives and the ones it produces, with their dimensions;
-- **initial bounds `C(i)` for the coupling variables it receives**. They are required to sample the initial disciplinary DoE over `Z × C(i)`. They are only an initial guess: enrichment points may fall outside them;
+- the coupling variables it receives and the ones it produces;
+- **initial bounds `C(i)` for the coupling variables it receives**. They are required to sample the initial disciplinary DoE over `Z × C(i)`. They are only an initial guess: enrichment points may fall outside them. In Python, each coupling variable is declared once, by name, with its initial range, and `C(i)` is assembled from the ranges of the couplings the discipline receives;
 - an evaluation callback.
 
 EGObox GPs have a single scalar output. **One GP is trained per scalar coupling output**, and each has its own random variable `ξ`. The stochastic dimension `n_ξ` is therefore the total number of scalar coupling outputs; with the paper's scalar couplings it equals `n_d`. The PCE size grows as `(n_ξ + d)! / (n_ξ! d!)`, which limits the practical number of coupling outputs (documented as a limitation).
