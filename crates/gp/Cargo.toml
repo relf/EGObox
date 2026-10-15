@@ -67,3 +67,7 @@ harness = false
 [[bench]]
 name = "corr"
 harness = false
+
+[[bench]]
+name = "predict"
+harness = false

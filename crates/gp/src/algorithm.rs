@@ -11,8 +11,6 @@ use linfa::prelude::{Dataset, DatasetBase, Fit, Float, PredictInplace};
 #[cfg(not(feature = "blas"))]
 use linfa_linalg::{cholesky::*, eigh::*, qr::*, svd::*, triangular::*};
 #[cfg(feature = "blas")]
-use log::warn;
-#[cfg(feature = "blas")]
 use ndarray_linalg::{cholesky::*, eigh::*, qr::*, svd::*, triangular::*};
 
 use linfa_pls::PlsRegression;
@@ -27,6 +25,7 @@ use rayon::prelude::*;
 #[cfg(feature = "serializable")]
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::sync::OnceLock;
 use std::time::Instant;
 
 /// Default number of multistart for hyperparameters optimization
@@ -57,6 +56,9 @@ pub(crate) struct GpInnerParams<F: Float> {
     ft: Array2<F>,
     /// R upper triangle matrix of QR decomposition of the matrix Ft
     ft_qr_r: Array2<F>,
+    /// \[R\]^-1 x F, prediction-only term computed lazily on first use (not serialized)
+    #[cfg_attr(feature = "serializable", serde(skip))]
+    r_inv_f: OnceLock<Array2<F>>,
 }
 
 impl<F: Float> Clone for GpInnerParams<F> {
@@ -68,8 +70,41 @@ impl<F: Float> Clone for GpInnerParams<F> {
             r_chol: self.r_chol.to_owned(),
             ft: self.ft.to_owned(),
             ft_qr_r: self.ft_qr_r.to_owned(),
+            r_inv_f: self.r_inv_f.clone(),
         }
     }
+}
+
+impl<F: Float> GpInnerParams<F> {
+    /// \[R\]^-1 x F = Rc^-T x Ft where Rc is the Cholesky factor of \[R\]
+    fn r_inv_f(&self) -> &Array2<F> {
+        self.r_inv_f
+            .get_or_init(|| tri_solve(&self.r_chol.t(), self.ft.to_owned(), UPLO::Upper))
+    }
+}
+
+/// Solve `a . x = b` where `a` is a triangular matrix whose non-zero part is given by `uplo`
+#[cfg(not(feature = "blas"))]
+fn tri_solve<F: Float>(
+    a: &ArrayBase<impl Data<Elem = F>, Ix2>,
+    b: Array2<F>,
+    uplo: UPLO,
+) -> Array2<F> {
+    a.solve_triangular_into(b, uplo).unwrap()
+}
+
+/// See non blas version
+#[cfg(feature = "blas")]
+fn tri_solve<F: Float>(
+    a: &ArrayBase<impl Data<Elem = F>, Ix2>,
+    b: Array2<F>,
+    uplo: UPLO,
+) -> Array2<F> {
+    a.view()
+        .with_lapack()
+        .solve_triangular_into(uplo, Diag::NonUnit, b.with_lapack())
+        .unwrap()
+        .without_lapack()
 }
 
 /// A GP regression is an interpolation method where the
@@ -565,6 +600,7 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GaussianProc
                 r_chol: l,
                 ft,
                 ft_qr_r,
+                r_inv_f: OnceLock::new(),
             },
             w_star: self.w_star,
             xt_norm: NormalizedData {
@@ -710,6 +746,7 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GaussianProc
                 r_chol: l,
                 ft,
                 ft_qr_r: ft_qr_r.without_lapack(),
+                r_inv_f: OnceLock::new(),
             },
             w_star: self.w_star,
             xt_norm: NormalizedData {
@@ -838,154 +875,102 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GaussianProc
         jac
     }
 
-    /// Predict variance derivatives at a point `x` specified as a (nx,) vector where x has nx components.
-    /// Returns a (nx,) vector containing variance derivatives at `x` wrt each nx components
-    #[cfg(not(feature = "blas"))]
-    pub fn predict_var_gradients_single(
+    /// Predict value, variance and their derivatives at a point `x` specified as a (nx,) vector.
+    /// The correlation and its jacobian are evaluated once, and the four predictions share
+    /// the two triangular solves against the Cholesky factor of \[R\].
+    fn _predict_valvar_with_gradients_single(
         &self,
         x: &ArrayBase<impl Data<Elem = F>, Ix1>,
-    ) -> Array1<F> {
-        let x = &(x.to_owned().insert_axis(Axis(0)));
+    ) -> (F, F, Array1<F>, Array1<F>) {
+        let inners = &self.inner_params;
         let xnorm = (x - &self.xt_norm.mean) / &self.xt_norm.std;
-        let sigma2 = self.inner_params.sigma2;
-        let r_chol = &self.inner_params.r_chol;
 
-        let (r, dr) = self.params.corr.rval_with_jac(
-            &xnorm.row(0),
-            &self.xt_norm.data,
-            &self.theta,
-            &self.w_star,
+        // r(x, X) (n, 1) and dr(x, X)/dx (n, nx)
+        let (r, dr) =
+            self.params
+                .corr
+                .rval_with_jac(&xnorm, &self.xt_norm.data, &self.theta, &self.w_star);
+        // f(x) (1, p) and df(x)/dx (p, nx)
+        let f = self.params.mean.coefs(&xnorm.view().insert_axis(Axis(0)));
+        let df = self.params.mean.jac(&xnorm);
+
+        // Value and its derivatives
+        let val = (f.dot(&inners.beta) + r.t().dot(&inners.gamma))[[0, 0]];
+        let dval = df.t().dot(&inners.beta) + dr.t().dot(&inners.gamma);
+
+        // rt = Rc^-1 . r(x, X)
+        let rt = tri_solve(&inners.r_chol, r, UPLO::Lower);
+        // With A = f(x) - r(x, X)^t . R^-1 . F = f(x) - rt^t . Ft and Ft = Q . Rq
+        // u = Rq^-t . (Ft^t . rt - f(x)^t) = -Rq^-t . A^t
+        let u = tri_solve(
+            &inners.ft_qr_r.t(),
+            inners.ft.t().dot(&rt) - f.t(),
+            UPLO::Lower,
         );
+        let mse = F::one() - rt.mapv(|v| v * v).sum() + u.mapv(|v| v * v).sum();
 
-        // rho1 = Rc^-1 . r(x, X)
-        let rho1 = r_chol.solve_triangular(&r, UPLO::Lower).unwrap();
-
-        // inv_kr = Rc^t^-1 . Rc^-1 . r(x, X) = R^-1 . r(x, X)
-        let inv_kr = r_chol.t().solve_triangular(&rho1, UPLO::Upper).unwrap();
-
-        // p1 = ((dr(x, X)/dx)^t . R^-1 . r(x, X))^t = ((R^-1 . r(x, X))^t . dr(x, X)/dx) = r(x, X)^t . R^-1 . dr(x, X)/dx = p2
-        // let p1 = dr.t().dot(&inv_kr).t().to_owned();
-
-        // p2 = ((R^-1 . r(x, X))^t . dr(x, X)/dx)^t = dr(x, X)/dx)^t . R^-1 . r(x, X) = p1
+        // inv_kr = Rc^-t . Rc^-1 . r(x, X) = R^-1 . r(x, X)
+        let inv_kr = tri_solve(&inners.r_chol.t(), rt, UPLO::Upper);
+        // p2 = r(x, X)^t . R^-1 . dr(x, X)/dx
         let p2 = inv_kr.t().dot(&dr);
 
-        let f_x = self.params.mean.coefs(&xnorm).t().to_owned();
-        let f_mean = self.params.mean.coefs(&self.xt_norm.data);
-
-        // rho2 = Rc^-1 . F(X)
-        let rho2 = r_chol.solve_triangular(&f_mean, UPLO::Lower).unwrap();
-        // inv_kf = Rc^-1^t . Rc^-1 . F(X) = R^-1 . F(X)
-        let inv_kf = r_chol.t().solve_triangular(&rho2, UPLO::Upper).unwrap();
-
-        // A = f(x)^t - r(x, X)^t . R^-1 . F(X)   -> (1 x m)
-        let a_mat = f_x.t().to_owned() - r.t().dot(&inv_kf);
-
-        // B = F(X)^t . R^-1 . F(X)
-        let b_mat = f_mean.t().dot(&inv_kf);
-        // rho3 = Bc
-        let rho3 = b_mat.cholesky().unwrap();
-        // inv_bat = Bc^-1 . A^t
-        let inv_bat = rho3.solve_triangular(&a_mat.t(), UPLO::Lower).unwrap();
-        // D = Bc^t-1 . Bc^-1 . A^t = B^-1 . A^t
-        let d_mat = rho3.t().solve_triangular(&inv_bat, UPLO::Upper).unwrap();
-
-        let df = self.params.mean.jac(&xnorm.row(0));
-
+        // B = F^t . R^-1 . F = Rq^t . Rq hence D = B^-1 . A^t = -Rq^-1 . u
+        let d_mat = tri_solve(&inners.ft_qr_r, u.mapv(|v| -v), UPLO::Upper);
         // dA/dx = df(x)/dx^t - dr(x, X)/dx^t . R^-1 . F
-        let d_a = df.t().to_owned() - dr.t().dot(&inv_kf);
-
-        // p3 = (dA/dx . B^-1 . A^t)^t = A . B^-1 . dA/dx^t
-        // let p3 = d_a.dot(&d_mat).t().to_owned();
-
-        // p4 = (B^-1 . A)^t . dA/dx^t = A^t . B^-1 . dA/dx^t = p3
+        let d_a = df.t().to_owned() - dr.t().dot(inners.r_inv_f());
+        // p4 = A . B^-1 . dA/dx^t
         let p4 = d_mat.t().dot(&d_a.t());
-        let two = F::cast(2.);
-        let prime = (p4 - p2).mapv(|v| two * v);
 
         let x_std = &self.xt_norm.std;
-        let dvar = (prime / x_std).mapv(|v| v * sigma2);
-        dvar.row(0).into_owned()
+        let y_std = self.yt_norm.std[0];
+        let sigma2 = inners.sigma2;
+        let two = F::cast(2.);
+        (
+            val * y_std + self.yt_norm.mean[0],
+            // Mean Squared Error might be slightly negative depending on
+            // machine precision: set to zero in that case
+            sigma2 * if mse < F::zero() { F::zero() } else { mse },
+            dval.column(0).to_owned() * y_std / x_std,
+            (p4 - p2).row(0).mapv(|v| two * sigma2 * v) / x_std,
+        )
     }
 
-    /// See non blas version
-    #[cfg(feature = "blas")]
+    /// Predict output values, variances and their derivatives at a set of points `x`
+    /// specified as a (n, nx) matrix where x has nx components.
+    /// Returns (values (n,), variances (n,), value derivatives (n, nx), variance derivatives (n, nx)).
+    /// Cheaper than calling `predict_valvar` and `predict_valvar_gradients` separately
+    /// as the computations are shared.
+    #[allow(clippy::type_complexity)]
+    pub fn predict_valvar_with_gradients(
+        &self,
+        x: &ArrayBase<impl Data<Elem = F>, Ix2>,
+    ) -> Result<(Array1<F>, Array1<F>, Array2<F>, Array2<F>)> {
+        let mut vals = Array1::zeros(x.nrows());
+        let mut vars = Array1::zeros(x.nrows());
+        let mut val_derivs = Array2::zeros((x.nrows(), x.ncols()));
+        let mut var_derivs = Array2::zeros((x.nrows(), x.ncols()));
+        Zip::from(&mut vals)
+            .and(&mut vars)
+            .and(val_derivs.rows_mut())
+            .and(var_derivs.rows_mut())
+            .and(x.rows())
+            .for_each(|val, var, mut val_der, mut var_der, x| {
+                let (v, s, dv, ds) = self._predict_valvar_with_gradients_single(&x);
+                *val = v;
+                *var = s;
+                val_der.assign(&dv);
+                var_der.assign(&ds);
+            });
+        Ok((vals, vars, val_derivs, var_derivs))
+    }
+
+    /// Predict variance derivatives at a point `x` specified as a (nx,) vector where x has nx components.
+    /// Returns a (nx,) vector containing variance derivatives at `x` wrt each nx components
     pub fn predict_var_gradients_single(
         &self,
         x: &ArrayBase<impl Data<Elem = F>, Ix1>,
     ) -> Array1<F> {
-        let x = &(x.to_owned().insert_axis(Axis(0)));
-        let xnorm = (x - &self.xt_norm.mean) / &self.xt_norm.std;
-
-        let dx = pairwise_differences(&xnorm, &self.xt_norm.data);
-
-        let sigma2 = self.inner_params.sigma2;
-        let r_chol = &self.inner_params.r_chol.to_owned().with_lapack();
-
-        let r = self
-            .params
-            .corr
-            .rval_from_distances(&dx, &self.theta, &self.w_star)
-            .with_lapack();
-        let dr = self
-            .params
-            .corr
-            .jac(&xnorm.row(0), &self.xt_norm.data, &self.theta, &self.w_star)
-            .with_lapack();
-
-        let rho1 = r_chol
-            .solve_triangular(UPLO::Lower, Diag::NonUnit, &r)
-            .unwrap();
-        let inv_kr = r_chol
-            .t()
-            .solve_triangular(UPLO::Upper, Diag::NonUnit, &rho1)
-            .unwrap();
-
-        // let p1 = dr.t().dot(&inv_kr).t().to_owned();
-
-        let p2 = inv_kr.t().dot(&dr);
-
-        let f_x = self.params.mean.coefs(x).t().to_owned();
-        let f_mean = self.params.mean.coefs(&self.xt_norm.data).with_lapack();
-
-        let rho2 = r_chol
-            .solve_triangular(UPLO::Lower, Diag::NonUnit, &f_mean)
-            .unwrap();
-        let inv_kf = r_chol
-            .t()
-            .solve_triangular(UPLO::Upper, Diag::NonUnit, &rho2)
-            .unwrap();
-
-        let a_mat = f_x.t().to_owned().with_lapack() - r.t().dot(&inv_kf);
-
-        let b_mat = f_mean.t().dot(&inv_kf);
-
-        let d_mat = match b_mat.cholesky(UPLO::Lower) {
-            Ok(rho3) => {
-                let inv_bat = rho3
-                    .solve_triangular(UPLO::Upper, Diag::NonUnit, &a_mat.t().to_owned())
-                    .unwrap();
-                rho3.t()
-                    .solve_triangular(UPLO::Upper, Diag::NonUnit, &inv_bat)
-                    .unwrap()
-            }
-            Err(_) => {
-                warn!("Cholesky decomposition error during variance dervivatives computation");
-                Array2::zeros((b_mat.nrows(), b_mat.ncols()))
-            }
-        };
-
-        let df = self.params.mean.jac(&xnorm.row(0)).with_lapack();
-
-        let d_a = df.t().to_owned() - dr.t().dot(&inv_kf);
-        // let p3 = d_a.dot(&d_mat).t();
-        let p4 = d_mat.t().dot(&d_a.t());
-
-        let two = F::cast(2.);
-        let prime_t = (p4 - p2).without_lapack().mapv(|v| two * v);
-
-        let x_std = &self.xt_norm.std;
-        let dvar = (prime_t / x_std).mapv(|v| v * sigma2);
-        dvar.row(0).into_owned()
+        self._predict_valvar_with_gradients_single(x).3
     }
 
     /// Predict variance derivatives at a set of points `x` specified as a (n, nx) matrix where x has nx components.
@@ -1004,15 +989,7 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GaussianProc
         &self,
         x: &ArrayBase<impl Data<Elem = F>, Ix2>,
     ) -> (Array2<F>, Array2<F>) {
-        let mut val_derivs = Array::zeros((x.nrows(), x.ncols()));
-        let mut var_derivs = Array::zeros((x.nrows(), x.ncols()));
-        Zip::from(val_derivs.rows_mut())
-            .and(var_derivs.rows_mut())
-            .and(x.rows())
-            .for_each(|mut val_der, mut var_der, x| {
-                val_der.assign(&self.predict_jacobian(&x).column(0));
-                var_der.assign(&self.predict_var_gradients_single(&x));
-            });
+        let (_, _, val_derivs, var_derivs) = self.predict_valvar_with_gradients(x).unwrap();
         (val_derivs, var_derivs)
     }
 }
@@ -1344,6 +1321,7 @@ fn reduced_likelihood<F: Float>(
             r_chol,
             ft,
             ft_qr_r,
+            r_inv_f: OnceLock::new(),
         },
     ))
 }
@@ -1434,6 +1412,7 @@ fn reduced_likelihood<F: Float>(
             r_chol: r_chol.without_lapack(),
             ft: ft.without_lapack(),
             ft_qr_r: ft_qr_r.without_lapack(),
+            r_inv_f: OnceLock::new(),
         },
     ))
 }
@@ -2153,6 +2132,116 @@ mod tests {
         let trajs = krg.sample_eig(&x, n_traj);
         assert_eq!(&[n_plot, n_traj], trajs.shape());
         assert!(!trajs.fold(false, |acc, v| acc || v.is_nan())); // check no nans
+    }
+
+    fn sin_mix(x: &Array2<f64>) -> Array1<f64> {
+        let x0 = x.column(0);
+        let x1 = x.column(1);
+        let x2 = x.column(2);
+        &x0 * &x0 + x1.mapv(f64::sin) * x2 + &x0 * &x2
+    }
+
+    /// Check analytic derivatives `deriv` (n, nx) at `x` against central finite differences of `f`
+    fn assert_fdiff_close(
+        f: impl Fn(&Array2<f64>) -> Array1<f64>,
+        x: &Array2<f64>,
+        deriv: &Array2<f64>,
+        scale: f64,
+    ) {
+        let e = 1e-6;
+        for (i, xi) in x.rows().into_iter().enumerate() {
+            for k in 0..x.ncols() {
+                let mut xp = xi.to_owned().insert_axis(Axis(0));
+                let mut xm = xp.clone();
+                xp[[0, k]] += e;
+                xm[[0, k]] -= e;
+                let fdiff = (f(&xp)[0] - f(&xm)[0]) / (2. * e);
+                assert_abs_diff_eq!(
+                    deriv[[i, k]],
+                    fdiff,
+                    epsilon = 1e-2 * fdiff.abs() + 1e-9 * scale
+                );
+            }
+        }
+    }
+
+    macro_rules! test_gp_valvar_with_gradients {
+        ($regr:ident, $corr:ident, $kpls:literal) => {
+            paste! {
+                #[test]
+                fn [<test_gp_valvar_with_gradients_ $regr:snake _ $corr:snake _kpls_ $kpls>]() {
+                    let mut rng = Xoshiro256Plus::seed_from_u64(42);
+                    let xlimits = array![[-3., 3.], [-3., 3.], [-3., 3.]];
+                    let xt = Lhs::new(&xlimits).with_rng(rng.clone()).sample(30);
+                    let yt = sin_mix(&xt);
+
+                    let params = GaussianProcess::<f64, [<$regr Mean>], [<$corr Corr>]>::params(
+                        [<$regr Mean>]::default(),
+                        [<$corr Corr>]::default(),
+                    );
+                    let params = if $kpls > 0 { params.kpls_dim(Some($kpls)) } else { params };
+                    let gp = params.fit(&Dataset::new(xt, yt)).expect("GP fitting");
+
+                    let x = Array::random_using((5, 3), Uniform::new(-3., 3.), &mut rng);
+                    let (vals, vars, dvals, dvars) = gp.predict_valvar_with_gradients(&x).unwrap();
+
+                    // Same values as the separate prediction methods
+                    let (expected_vals, expected_vars) = gp.predict_valvar(&x).unwrap();
+                    let var_scale = gp.variance();
+                    assert_abs_diff_eq!(vals, expected_vals, epsilon = 1e-8 * (1. + expected_vals.mapv(f64::abs).sum()));
+                    assert_abs_diff_eq!(vars, expected_vars, epsilon = 1e-8 * var_scale);
+                    let (val_grads, var_grads) = gp.predict_valvar_gradients(&x);
+                    assert_abs_diff_eq!(dvals, gp.predict_gradients(&x), epsilon = 1e-8 * (1. + dvals.mapv(f64::abs).sum()));
+                    assert_abs_diff_eq!(dvals, val_grads);
+                    assert_abs_diff_eq!(dvars, var_grads);
+                    assert_abs_diff_eq!(dvars, gp.predict_var_gradients(&x));
+
+                    // Derivatives match finite differences
+                    let val_scale = 1. + vals.mapv(f64::abs).sum();
+                    assert_fdiff_close(|x| gp.predict(x).unwrap(), &x, &dvals, val_scale);
+                    assert_fdiff_close(|x| gp.predict_var(x).unwrap(), &x, &dvars, var_scale);
+                }
+            }
+        };
+    }
+
+    test_gp_valvar_with_gradients!(Constant, SquaredExponential, 0);
+    test_gp_valvar_with_gradients!(Linear, SquaredExponential, 0);
+    test_gp_valvar_with_gradients!(Quadratic, SquaredExponential, 0);
+    test_gp_valvar_with_gradients!(Constant, Matern52, 0);
+    test_gp_valvar_with_gradients!(Linear, Matern32, 0);
+    test_gp_valvar_with_gradients!(Quadratic, Matern52, 0);
+    test_gp_valvar_with_gradients!(Constant, AbsoluteExponential, 0);
+    test_gp_valvar_with_gradients!(Constant, SquaredExponential, 2);
+    test_gp_valvar_with_gradients!(Linear, Matern52, 1);
+
+    #[cfg(feature = "serializable")]
+    #[test]
+    fn test_valvar_with_gradients_after_deserialization() {
+        let xlimits = array![[-3., 3.], [-3., 3.], [-3., 3.]];
+        let xt = Lhs::new(&xlimits)
+            .with_rng(Xoshiro256Plus::seed_from_u64(42))
+            .sample(20);
+        let yt = sin_mix(&xt);
+        let gp = GaussianProcess::<f64, LinearMean, Matern52Corr>::params(
+            LinearMean::default(),
+            Matern52Corr::default(),
+        )
+        .fit(&Dataset::new(xt, yt))
+        .expect("GP fitting");
+
+        let x = array![[0.5, -1.2, 2.], [-2.5, 0.3, -0.7]];
+        // populate the lazily computed term before saving: it must not be serialized
+        let expected = gp.predict_valvar_with_gradients(&x).unwrap();
+        let json = serde_json::to_string(&gp).unwrap();
+        assert!(!json.contains("r_inv_f"));
+        let loaded: GaussianProcess<f64, LinearMean, Matern52Corr> =
+            serde_json::from_str(&json).unwrap();
+        let actual = loaded.predict_valvar_with_gradients(&x).unwrap();
+        assert_abs_diff_eq!(actual.0, expected.0, epsilon = 1e-10);
+        assert_abs_diff_eq!(actual.1, expected.1, epsilon = 1e-10);
+        assert_abs_diff_eq!(actual.2, expected.2, epsilon = 1e-10);
+        assert_abs_diff_eq!(actual.3, expected.3, epsilon = 1e-10);
     }
 
     fn assert_rel_or_abs_error(y_deriv: f64, fdiff: f64) {
