@@ -379,37 +379,11 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GaussianProc
     ) -> (Array2<F>, Array2<F>) {
         let inners = &self.inner_params;
 
-        let corr_t = corr.t().to_owned();
-        #[cfg(feature = "blas")]
-        let rt = inners
-            .r_chol
-            .to_owned()
-            .with_lapack()
-            .solve_triangular(UPLO::Lower, Diag::NonUnit, &corr_t.with_lapack())
-            .unwrap()
-            .without_lapack();
-        #[cfg(not(feature = "blas"))]
-        let rt = inners
-            .r_chol
-            .solve_triangular(&corr_t, UPLO::Lower)
-            .unwrap();
-
+        // rt = Rc^-1 . r(x, X)^t
+        let rt = tri_solve(&inners.r_chol, corr.t().to_owned(), UPLO::Lower);
+        // u = Rq^-t . (Ft^t . rt - f(x)^t) where Rq^t is lower triangular
         let rhs = inners.ft.t().dot(&rt) - self.params.mean.coefs(xnorm).t();
-        #[cfg(feature = "blas")]
-        let u = inners
-            .ft_qr_r
-            .to_owned()
-            .t()
-            .with_lapack()
-            .solve_triangular(UPLO::Upper, Diag::NonUnit, &rhs.with_lapack())
-            .unwrap()
-            .without_lapack();
-        #[cfg(not(feature = "blas"))]
-        let u = inners
-            .ft_qr_r
-            .t()
-            .solve_triangular(&rhs, UPLO::Lower)
-            .unwrap();
+        let u = tri_solve(&inners.ft_qr_r.t(), rhs, UPLO::Lower);
         (rt, u)
     }
 
