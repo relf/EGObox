@@ -65,6 +65,16 @@ pub trait GpSurrogateExt {
     /// return ((n, ), (n, xdim)) where first array is the predicted values
     /// and second array is the derivatives of the variance wrt each input dimension
     fn predict_valvar_gradients(&self, x: &ArrayView2<f64>) -> Result<(Array2<f64>, Array2<f64>)>;
+    /// Predict output values, variances and their derivatives at n points
+    /// return ((n, ), (n, ), (n, xdim), (n, xdim)) arrays being respectively the predicted values,
+    /// the variances, the derivatives of the values and the derivatives of the variances
+    /// wrt each input dimension. Cheaper than calling `predict_valvar` and
+    /// `predict_valvar_gradients` separately when computations can be shared.
+    #[allow(clippy::type_complexity)]
+    fn predict_valvar_with_gradients(
+        &self,
+        x: &ArrayView2<f64>,
+    ) -> Result<(Array1<f64>, Array1<f64>, Array2<f64>, Array2<f64>)>;
     /// Sample trajectories
     fn sample(&self, x: &ArrayView2<f64>, n_traj: usize) -> Result<Array2<f64>>;
     /// Predict the posterior covariance matrix between n points given as (n, xdim) matrix:
@@ -211,6 +221,9 @@ macro_rules! declare_surrogate {
                 }
                 fn predict_valvar_gradients(&self, x: &ArrayView2<f64>) -> Result<(Array2<f64>, Array2<f64>)> {
                     Ok(self.0.predict_valvar_gradients(x))
+                }
+                fn predict_valvar_with_gradients(&self, x: &ArrayView2<f64>) -> Result<(Array1<f64>, Array1<f64>, Array2<f64>, Array2<f64>)> {
+                    Ok(self.0.predict_valvar_with_gradients(x)?)
                 }
                 fn sample(&self, x: &ArrayView2<f64>, n_traj: usize) -> Result<Array2<f64>> {
                     Ok(self.0.sample(x, n_traj))
@@ -389,6 +402,14 @@ macro_rules! declare_sgp_surrogate {
                 }
                 fn predict_valvar_gradients(&self, x: &ArrayView2<f64>) -> Result<(Array2<f64>, Array2<f64>)> {
                     Ok((self.0.predict_gradients(x), self.0.predict_var_gradients(x)))
+                }
+                fn predict_valvar_with_gradients(&self, x: &ArrayView2<f64>) -> Result<(Array1<f64>, Array1<f64>, Array2<f64>, Array2<f64>)> {
+                    Ok((
+                        self.0.predict(x)?,
+                        self.0.predict_var(x)?,
+                        self.0.predict_gradients(x),
+                        self.0.predict_var_gradients(x),
+                    ))
                 }
                 fn sample(&self, x: &ArrayView2<f64>, n_traj: usize) -> Result<Array2<f64>> {
                     Ok(self.0.sample(x, n_traj))

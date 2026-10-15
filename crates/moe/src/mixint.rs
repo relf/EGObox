@@ -921,6 +921,15 @@ impl GpSurrogateExt for MixintGpMixture {
         self.moe.predict_valvar_gradients(&xcast)
     }
 
+    fn predict_valvar_with_gradients(
+        &self,
+        x: &ArrayView2<f64>,
+    ) -> Result<(Array1<f64>, Array1<f64>, Array2<f64>, Array2<f64>)> {
+        let cow_x = CowArray::from(x);
+        let xcast = self.cast_to_model_space(&cow_x);
+        self.moe.predict_valvar_with_gradients(&xcast)
+    }
+
     fn sample(&self, x: &ArrayView2<f64>, n_traj: usize) -> Result<Array2<f64>> {
         let cow_x = CowArray::from(x);
         let xcast = self.cast_to_model_space(&cow_x);
