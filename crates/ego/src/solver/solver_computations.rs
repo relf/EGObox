@@ -250,21 +250,17 @@ where
     ) -> f64 {
         let x = Array::from_shape_vec((1, x.len()), x.to_vec()).unwrap();
 
-        let (pred, var) = cstr_model.predict_valvar(&x.view()).unwrap();
-        let sigma = var[0].sqrt();
-        let cstr_val = pred[0];
-
-        if let Some(grad) = gradient {
-            let (pred_grad, var_grad) = cstr_model.predict_valvar_gradients(&x.view()).unwrap();
+        let (cstr_val, sigma) = if let Some(grad) = gradient {
+            let (pred, var, pred_grad, var_grad) =
+                cstr_model.predict_valvar_with_gradients(&x.view()).unwrap();
+            let sigma = var[0].sqrt();
+            // d(sigma)/dx = d(var)/dx / (2 * sigma)
             let sigma_prime = if sigma < f64::EPSILON {
-                0.
+                Array1::zeros(var_grad.ncols())
             } else {
-                var_grad[[0, 0]] / (2. * sigma)
+                var_grad.row(0).mapv(|v| v / (2. * sigma))
             };
-            let grd = pred_grad
-                .row(0)
-                .mapv(|v| (v + CSTR_DOUBT * sigma_prime) / scale_cstr)
-                .to_vec();
+            let grd = ((&pred_grad.row(0) + &(sigma_prime * CSTR_DOUBT)) / scale_cstr).to_vec();
             let grd_coop = grd
                 .iter()
                 .enumerate()
@@ -272,7 +268,11 @@ where
                 .map(|(_, &g)| g)
                 .collect::<Vec<_>>();
             grad[..].copy_from_slice(&grd_coop);
-        }
+            (pred[0], sigma)
+        } else {
+            let (pred, var) = cstr_model.predict_valvar(&x.view()).unwrap();
+            (pred[0], var[0].sqrt())
+        };
         (cstr_val + CSTR_DOUBT * sigma) / scale_cstr
     }
 
@@ -750,6 +750,49 @@ mod tests {
             .check()
             .unwrap();
         EgorSolver::new(config)
+    }
+
+    #[test]
+    fn test_upper_trust_bound_cstr_gradient() {
+        use egobox_moe::GpMixture;
+        use linfa::prelude::{Dataset, Fit};
+        use ndarray_rand::rand::SeedableRng;
+
+        let xt = Lhs::new(&array![[-2., 2.], [-2., 2.], [-2., 2.]])
+            .with_rng(Xoshiro256Plus::seed_from_u64(42))
+            .sample(8);
+        let yt = xt.map_axis(Axis(1), |x: ndarray::ArrayView1<f64>| {
+            x[0] * x[1] + x[2].sin() + x[0] * x[0]
+        });
+        let model = GpMixture::params()
+            .fit(&Dataset::new(xt, yt))
+            .expect("GP fitted");
+        let utb = |x: &[f64], grad: Option<&mut [f64]>| {
+            EgorSolver::<GpMixtureParams<f64>, Cstr>::upper_trust_bound_cstr(
+                &model,
+                x,
+                grad,
+                2.,
+                &[0, 1, 2],
+            )
+        };
+
+        let x = [0.3, -1.1, 0.7];
+        let mut grad = [0.; 3];
+        let value = utb(&x, Some(&mut grad));
+        assert_eq!(value, utb(&x, None));
+
+        // the uncertainty term must weigh in the gradient for the test to be meaningful
+        let (_, var) = model.predict_valvar(&array![x]).unwrap();
+        assert!(var[0].sqrt() > 0.1);
+        let e = 1e-5;
+        for k in 0..3 {
+            let (mut xp, mut xm) = (x, x);
+            xp[k] += e;
+            xm[k] -= e;
+            let fdiff = (utb(&xp, None) - utb(&xm, None)) / (2. * e);
+            approx::assert_abs_diff_eq!(grad[k], fdiff, epsilon = 1e-2 * fdiff.abs() + 1e-6);
+        }
     }
 
     #[test]

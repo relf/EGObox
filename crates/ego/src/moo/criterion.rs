@@ -50,12 +50,17 @@ pub(crate) fn predict_normalized(
     let mut dsigma = Array2::zeros((n_obj, nx));
     for (j, model) in obj_models.iter().enumerate() {
         let range = normalization.range()[j];
-        let (p, v) = model.predict_valvar(&pt).ok()?;
+        let (p, v, grads) = if with_grad {
+            let (p, v, dp, dv) = model.predict_valvar_with_gradients(&pt).ok()?;
+            (p, v, Some((dp, dv)))
+        } else {
+            let (p, v) = model.predict_valvar(&pt).ok()?;
+            (p, v, None)
+        };
         let std = v[0].max(0.).sqrt();
         mu[j] = p[0];
         sigma[j] = std / range;
-        if with_grad {
-            let (dp, dv) = model.predict_valvar_gradients(&pt).ok()?;
+        if let Some((dp, dv)) = grads {
             dmu.row_mut(j).assign(&(&dp.row(0) / range));
             if std > f64::EPSILON {
                 dsigma.row_mut(j).assign(&(&dv.row(0) / (2. * std * range)));

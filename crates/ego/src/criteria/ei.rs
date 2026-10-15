@@ -79,8 +79,8 @@ impl InfillCriterion for ExpectedImprovement {
         _scale: Option<f64>,
     ) -> Array1<f64> {
         let pt = ArrayView::from_shape((1, x.len()), x).unwrap();
-        match obj_model.predict_valvar(&pt) {
-            Ok((p, s)) => {
+        match obj_model.predict_valvar_with_gradients(&pt) {
+            Ok((p, s, y_prime, var_prime)) => {
                 if s[0] < f64::EPSILON {
                     Array1::zeros(pt.len())
                 } else {
@@ -112,7 +112,6 @@ impl InfillCriterion for ExpectedImprovement {
                     let weighted_sigma = k * sigma;
                     let arg = diff_y / weighted_sigma;
 
-                    let (y_prime, var_prime) = obj_model.predict_valvar_gradients(&pt).unwrap();
                     let y_prime = y_prime.row(0);
                     let sig_2_prime = var_prime.row(0);
                     let sig_prime = sig_2_prime.mapv(|v| k * v / (2. * sigma));
@@ -231,8 +230,8 @@ impl InfillCriterion for LogExpectedImprovement {
     ) -> Array1<f64> {
         let pt = ArrayView::from_shape((1, x.len()), x).unwrap();
 
-        match obj_model.predict_valvar(&pt) {
-            Ok((p, s)) => {
+        match obj_model.predict_valvar_with_gradients(&pt) {
+            Ok((p, s, y_prime, var_prime)) => {
                 if s[0] < f64::EPSILON {
                     Array1::from_elem(pt.len(), f64::MIN)
                 } else {
@@ -243,7 +242,6 @@ impl InfillCriterion for LogExpectedImprovement {
                     let weighted_sigma = k * sigma;
                     let arg = diff_y / weighted_sigma;
 
-                    let (y_prime, var_prime) = obj_model.predict_valvar_gradients(&pt).unwrap();
                     let y_prime = y_prime.row(0);
                     let sig_2_prime = var_prime.row(0);
                     let sig_prime = sig_2_prime.mapv(|v| k * v / (2. * sigma));

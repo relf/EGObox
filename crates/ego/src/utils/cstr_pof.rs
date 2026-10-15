@@ -27,15 +27,14 @@ fn pof(x: &[f64], cstr_model: &dyn MixtureGpSurrogate, cstr_tol: f64) -> f64 {
 /// constraint surrogate model.
 fn pof_grad(x: &[f64], cstr_model: &dyn MixtureGpSurrogate, cstr_tol: f64) -> Array1<f64> {
     let pt = ArrayView::from_shape((1, x.len()), x).unwrap();
-    match cstr_model.predict_valvar(&pt) {
-        Ok((p, s)) => {
+    match cstr_model.predict_valvar_with_gradients(&pt) {
+        Ok((p, s, y_prime, var_prime)) => {
             if s[0] < f64::EPSILON {
                 Array1::zeros(pt.len())
             } else {
                 let pred = p[0];
                 let sigma = s[0].sqrt();
                 let arg = (cstr_tol - pred) / sigma;
-                let (y_prime, var_prime) = cstr_model.predict_valvar_gradients(&pt).unwrap();
                 let y_prime = y_prime.row(0);
                 let sig_2_prime = var_prime.row(0);
                 let sig_prime = sig_2_prime.mapv(|v| v / (2. * sigma));
