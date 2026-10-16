@@ -14,7 +14,7 @@
 //! * the multidisciplinary analysis (MDA) solver: [mda],
 //! * the polynomial chaos expansions (PCE) with Sobol indices: [pce],
 //! * the uncertainty quantification of the objective and constraints at design points, with
-//!   solved or linearized random MDAs: [uq],
+//!   solved or linearized random MDAs, perfectly or GP-correlated across design points: [uq],
 //! * the Karhunen–Loève decomposition and KL-GP random field of the objective: [kl],
 //! * the enrichment criteria: [criteria], and the constraint models: [constraints],
 //! * the test problems of the EGMDO and C-EGMDO papers: [problems].
