@@ -131,6 +131,20 @@ impl GpSurrogateExt for AffinedSurrogate {
         Ok((val_grad * self.scale, var_grad * (self.scale * self.scale)))
     }
 
+    fn predict_valvar_with_gradients(
+        &self,
+        x: &ArrayView2<f64>,
+    ) -> Result<(Array1<f64>, Array1<f64>, Array2<f64>, Array2<f64>)> {
+        let (val, var, val_grad, var_grad) = self.inner.predict_valvar_with_gradients(x)?;
+        let scale2 = self.scale * self.scale;
+        Ok((
+            val * self.scale + self.offset,
+            var * scale2,
+            val_grad * self.scale,
+            var_grad * scale2,
+        ))
+    }
+
     fn sample(&self, x: &ArrayView2<f64>, n_traj: usize) -> Result<Array2<f64>> {
         let samples = self.inner.sample(x, n_traj)?;
         Ok(samples * self.scale + self.offset)

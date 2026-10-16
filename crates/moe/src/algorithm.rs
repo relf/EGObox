@@ -543,6 +543,16 @@ impl GpSurrogateExt for GpMixture {
         }
     }
 
+    fn predict_valvar_with_gradients(
+        &self,
+        x: &ArrayView2<f64>,
+    ) -> Result<(Array1<f64>, Array1<f64>, Array2<f64>, Array2<f64>)> {
+        match self.recombination {
+            Recombination::Hard => self.predict_valvar_with_gradients_hard(x),
+            Recombination::Smooth(_) => self.predict_valvar_with_gradients_smooth(x),
+        }
+    }
+
     fn sample(&self, x: &ArrayView2<f64>, n_traj: usize) -> Result<Array2<f64>> {
         if self.n_clusters() != 1 {
             return Err(MoeError::SampleError(format!(
@@ -756,46 +766,8 @@ impl GpMixture {
         &self,
         x: &ArrayBase<impl Data<Elem = f64>, Ix2>,
     ) -> Result<Array2<f64>> {
-        let probas = self.gmx.predict_probas(x);
-        let probas_drv = self.gmx.predict_probas_derivatives(x);
-
-        let mut drv = Array2::<f64>::zeros((x.nrows(), x.ncols()));
-
-        Zip::from(drv.rows_mut())
-            .and(x.rows())
-            .and(probas.rows())
-            .and(probas_drv.outer_iter())
-            .for_each(|mut y, xi, p, pprime| {
-                let xii = xi.insert_axis(Axis(0));
-                let preds: Array1<f64> = self
-                    .experts
-                    .iter()
-                    .map(|gp| gp.predict_var(&xii).unwrap()[0])
-                    .collect();
-                let drvs: Vec<Array1<f64>> = self
-                    .experts
-                    .iter()
-                    .map(|gp| gp.predict_var_gradients(&xii).unwrap().row(0).to_owned())
-                    .collect();
-
-                let preds = preds.insert_axis(Axis(1));
-                let mut preds_drv = Array2::zeros((self.experts.len(), xi.len()));
-                Zip::indexed(preds_drv.rows_mut()).for_each(|i, mut jc| jc.assign(&drvs[i]));
-
-                let mut term1 = Array2::zeros((self.experts.len(), xi.len()));
-                Zip::from(term1.rows_mut())
-                    .and(&p)
-                    .and(preds_drv.rows())
-                    .for_each(|mut t, p, der| t.assign(&(der.to_owned().mapv(|v| v * p * p))));
-                let term1 = term1.sum_axis(Axis(0));
-
-                let term2 = (p.to_owned() * pprime * preds).mapv(|v| 2. * v);
-                let term2 = term2.sum_axis(Axis(0));
-
-                y.assign(&(term1 + term2));
-            });
-
-        Ok(drv)
+        let (_, _, _, var_drv) = self.predict_valvar_with_gradients_smooth(x)?;
+        Ok(var_drv)
     }
 
     /// Predict outputs and variances at a set of points `x` specified as (n, nx) matrix.
@@ -828,64 +800,45 @@ impl GpMixture {
         &self,
         x: &ArrayBase<impl Data<Elem = f64>, Ix2>,
     ) -> Result<(Array2<f64>, Array2<f64>)> {
+        let (_, _, val_drv, var_drv) = self.predict_valvar_with_gradients_smooth(x)?;
+        Ok((val_drv, var_drv))
+    }
+
+    /// Predict outputs, variances and their derivatives at a set of points `x` specified as (n, nx) matrix.
+    /// The smooth recombination of each cluster expert responsability is used to get the result:
+    /// with p_k the responsability of the kth expert predicting (mu_k, var_k),
+    /// mu = sum_k p_k mu_k and var = sum_k p_k^2 var_k.
+    #[allow(clippy::type_complexity)]
+    fn predict_valvar_with_gradients_smooth(
+        &self,
+        x: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+    ) -> Result<(Array1<f64>, Array1<f64>, Array2<f64>, Array2<f64>)> {
         let probas = self.gmx.predict_probas(x);
+        // (n, n_clusters, nx)
         let probas_drv = self.gmx.predict_probas_derivatives(x);
 
+        let mut vals = Array1::<f64>::zeros(x.nrows());
+        let mut vars = Array1::<f64>::zeros(x.nrows());
         let mut val_drv = Array2::<f64>::zeros((x.nrows(), x.ncols()));
         let mut var_drv = Array2::<f64>::zeros((x.nrows(), x.ncols()));
-
-        Zip::from(val_drv.rows_mut())
-            .and(var_drv.rows_mut())
-            .and(x.rows())
-            .and(probas.rows())
-            .and(probas_drv.outer_iter())
-            .for_each(|mut val_y, mut var_y, xi, p, pprime| {
-                let xii = xi.insert_axis(Axis(0));
-                let (preds, vars): (Vec<f64>, Vec<f64>) = self
-                    .experts
-                    .iter()
-                    .map(|gp| {
-                        let (pred, var) = gp.predict_valvar(&xii).unwrap();
-                        (pred[0], var[0])
-                    })
-                    .unzip();
-                let preds: Array2<f64> = Array1::from(preds).insert_axis(Axis(1));
-                let vars: Array2<f64> = Array1::from(vars).insert_axis(Axis(1));
-                let (drvs, var_drvs): (Vec<Array1<f64>>, Vec<Array1<f64>>) = self
-                    .experts
-                    .iter()
-                    .map(|gp| {
-                        let (predg, varg) = gp.predict_valvar_gradients(&xii).unwrap();
-                        (predg.row(0).to_owned(), varg.row(0).to_owned())
-                    })
-                    .unzip();
-
-                let mut preds_drv = Array2::zeros((self.experts.len(), xi.len()));
-                let mut vars_drv = Array2::zeros((self.experts.len(), xi.len()));
-                Zip::indexed(preds_drv.rows_mut()).for_each(|i, mut jc| jc.assign(&drvs[i]));
-                Zip::indexed(vars_drv.rows_mut()).for_each(|i, mut jc| jc.assign(&var_drvs[i]));
-
-                let mut val_term1 = Array2::zeros((self.experts.len(), xi.len()));
-                Zip::from(val_term1.rows_mut())
-                    .and(&p)
-                    .and(preds_drv.rows())
-                    .for_each(|mut t, p, der| t.assign(&(der.to_owned().mapv(|v| v * p))));
-                let val_term1 = val_term1.sum_axis(Axis(0));
-                let val_term2 = pprime.to_owned() * preds;
-                let val_term2 = val_term2.sum_axis(Axis(0));
-                val_y.assign(&(val_term1 + val_term2));
-
-                let mut var_term1 = Array2::zeros((self.experts.len(), xi.len()));
-                Zip::from(var_term1.rows_mut())
-                    .and(&p)
-                    .and(vars_drv.rows())
-                    .for_each(|mut t, p, der| t.assign(&(der.to_owned().mapv(|v| v * p * p))));
-                let var_term1 = var_term1.sum_axis(Axis(0));
-                let var_term2 = (p.to_owned() * pprime * vars).mapv(|v| 2. * v);
-                let var_term2 = var_term2.sum_axis(Axis(0));
-                var_y.assign(&(var_term1 + var_term2));
-            });
-        Ok((val_drv, var_drv))
+        for (i, xi) in x.rows().into_iter().enumerate() {
+            let xii = xi.insert_axis(Axis(0));
+            for (k, gp) in self.experts.iter().enumerate() {
+                let (val, var, dval, dvar) = gp.predict_valvar_with_gradients(&xii)?;
+                let (val, var) = (val[0], var[0]);
+                let p = probas[[i, k]];
+                let dp = probas_drv.slice(s![i, k, ..]);
+                // dmu = sum_k p_k dmu_k + dp_k mu_k
+                vals[i] += p * val;
+                val_drv.row_mut(i).scaled_add(p, &dval.row(0));
+                val_drv.row_mut(i).scaled_add(val, &dp);
+                // dvar = sum_k p_k^2 dvar_k + 2 p_k dp_k var_k
+                vars[i] += p * p * var;
+                var_drv.row_mut(i).scaled_add(p * p, &dvar.row(0));
+                var_drv.row_mut(i).scaled_add(2. * p * var, &dp);
+            }
+        }
+        Ok((vals, vars, val_drv, var_drv))
     }
 
     /// Predict outputs at a set of points `x` specified as (n, nx) matrix.
@@ -1017,6 +970,30 @@ impl GpMixture {
         Ok((val_drv, var_drv))
     }
 
+    /// Predict outputs, variances and their derivatives at a set of points `x` specified as (n, nx) matrix.
+    /// Gaussian Mixture is used to get the cluster where the point belongs (highest responsability)
+    /// The expert of the cluster is used to predict the values.
+    #[allow(clippy::type_complexity)]
+    pub fn predict_valvar_with_gradients_hard(
+        &self,
+        x: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+    ) -> Result<(Array1<f64>, Array1<f64>, Array2<f64>, Array2<f64>)> {
+        let mut vals = Array1::<f64>::zeros(x.nrows());
+        let mut vars = Array1::<f64>::zeros(x.nrows());
+        let mut val_drv = Array2::<f64>::zeros((x.nrows(), x.ncols()));
+        let mut var_drv = Array2::<f64>::zeros((x.nrows(), x.ncols()));
+        let clustering = self.gmx.predict(x);
+        for (i, (xi, &c)) in x.rows().into_iter().zip(&clustering).enumerate() {
+            let (val, var, dval, dvar) =
+                self.experts[c].predict_valvar_with_gradients(&xi.insert_axis(Axis(0)))?;
+            vals[i] = val[0];
+            vars[i] = var[0];
+            val_drv.row_mut(i).assign(&dval.row(0));
+            var_drv.row_mut(i).assign(&dvar.row(0));
+        }
+        Ok((vals, vars, val_drv, var_drv))
+    }
+
     /// Sample `n_traj` trajectories at a set of points `x` specified as (n, nx) matrix.
     /// using the expert `ith` of the mixture.
     /// Returns the samples as a (n, n_traj) matrix where the ith row
@@ -1069,6 +1046,15 @@ impl GpMixture {
         x: &ArrayBase<impl Data<Elem = f64>, Ix2>,
     ) -> Result<(Array2<f64>, Array2<f64>)> {
         <GpMixture as GpSurrogateExt>::predict_valvar_gradients(self, &x.view())
+    }
+
+    /// Predict outputs, variances and their derivatives at a set of points `x` specified as (n, nx) matrix.
+    #[allow(clippy::type_complexity)]
+    pub fn predict_valvar_with_gradients(
+        &self,
+        x: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+    ) -> Result<(Array1<f64>, Array1<f64>, Array2<f64>, Array2<f64>)> {
+        <GpMixture as GpSurrogateExt>::predict_valvar_with_gradients(self, &x.view())
     }
 
     /// Sample `n_traj` trajectories at a set of points `x` specified as (n, nx) matrix.
@@ -1754,6 +1740,86 @@ mod tests {
                     assert_abs_diff_eq!(y_deriv, deriv, epsilon = 1e-12);
                     assert_abs_diff_eq!(v_deriv, vardrv, epsilon = 1e-12);
                 }
+            }
+        }
+    }
+
+    fn sin_mix(x: &Array2<f64>) -> Array1<f64> {
+        let x0 = x.column(0);
+        let x1 = x.column(1);
+        let x2 = x.column(2);
+        &x0 * &x0 + x1.mapv(f64::sin) * x2 + &x0 * &x2
+    }
+
+    /// Check analytic derivatives `deriv` (n, nx) at `x` against central finite differences of `f`
+    fn assert_fdiff_close(
+        f: impl Fn(&Array2<f64>) -> Array1<f64>,
+        x: &Array2<f64>,
+        deriv: &Array2<f64>,
+        scale: f64,
+    ) {
+        let e = 1e-6;
+        for (i, xi) in x.rows().into_iter().enumerate() {
+            for k in 0..x.ncols() {
+                let mut xp = xi.to_owned().insert_axis(Axis(0));
+                let mut xm = xp.clone();
+                xp[[0, k]] += e;
+                xm[[0, k]] -= e;
+                let fdiff = (f(&xp)[0] - f(&xm)[0]) / (2. * e);
+                assert_abs_diff_eq!(
+                    deriv[[i, k]],
+                    fdiff,
+                    epsilon = 1e-2 * fdiff.abs() + 1e-9 * scale
+                );
+            }
+        }
+    }
+
+    /// Recombinations with more input dimensions than clusters
+    #[test]
+    fn test_valvar_with_gradients_3d() {
+        let mut rng = Xoshiro256Plus::seed_from_u64(0);
+        let xt = Lhs::new(&array![[-3., 3.], [-3., 3.], [-3., 3.]])
+            .with_rng(rng.clone())
+            .sample(60);
+        let yt = sin_mix(&xt);
+        let x = Array::random_using((5, 3), Uniform::new(-3., 3.), &mut rng);
+
+        for recomb in [Recombination::Hard, Recombination::Smooth(Some(1.))] {
+            let moe = GpMixture::params()
+                .n_clusters(NbClusters::fixed(2))
+                .recombination(recomb)
+                .with_rng(rng.clone())
+                .fit(&Dataset::new(xt.to_owned(), yt.to_owned()))
+                .expect("MOE fitted");
+
+            let (vals, vars, dvals, dvars) = moe.predict_valvar_with_gradients(&x).unwrap();
+            let val_scale = 1. + vals.mapv(f64::abs).sum();
+            let var_scale = 1. + vars.mapv(f64::abs).sum();
+            assert_abs_diff_eq!(vals, moe.predict(&x).unwrap(), epsilon = 1e-10 * val_scale);
+            assert_abs_diff_eq!(
+                vars,
+                moe.predict_var(&x).unwrap(),
+                epsilon = 1e-10 * var_scale
+            );
+            let (val_grads, var_grads) = moe.predict_valvar_gradients(&x).unwrap();
+            assert_abs_diff_eq!(
+                dvals,
+                moe.predict_gradients(&x).unwrap(),
+                epsilon = 1e-10 * val_scale
+            );
+            assert_abs_diff_eq!(dvals, val_grads, epsilon = 1e-10 * val_scale);
+            assert_abs_diff_eq!(
+                dvars,
+                moe.predict_var_gradients(&x).unwrap(),
+                epsilon = 1e-10 * var_scale
+            );
+            assert_abs_diff_eq!(dvars, var_grads, epsilon = 1e-10 * var_scale);
+
+            if let Recombination::Smooth(_) = recomb {
+                // hard recombination is discontinuous at cluster boundaries
+                assert_fdiff_close(|x| moe.predict(x).unwrap(), &x, &dvals, val_scale);
+                assert_fdiff_close(|x| moe.predict_var(x).unwrap(), &x, &dvars, var_scale);
             }
         }
     }
