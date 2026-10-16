@@ -9,13 +9,13 @@ Integrate the **Efficient Global Multidisciplinary Design Optimization (EGMDO)**
 
 The first release targets **continuous, bounded, single-objective MDO problems, with or without constraints**. It is built in two steps: the unconstrained EGMDO first, then the C-EGMDO extensions on top of it. The problem definition and data structures are designed for constraints from the start. It will use EGObox's existing numerical and Gaussian-process (GP) capabilities where appropriate, while keeping EGMDO's orchestration separate from the existing `Egor` optimization loop.
 
-The initial integration should not require a dependency on OpenMDAO. Users will provide disciplinary evaluation functions; an optional OpenMDAO adapter can be added to make it convenient to wrap OpenMDAO models.
+EGObox does not depend on any MDO framework. Users provide disciplinary evaluation functions, or answer the ask/tell requests themselves. Adapters to MDO frameworks such as OpenMDAO or GEMSEO are not part of EGObox; they can be built outside it on top of ask/tell.
 
 ## 2. Design principles
 
 - **Keep the EGMDO algorithm separate from `Egor`.** EGMDO manages several disciplinary surrogates and a non-Gaussian random objective; it should not be forced into a conventional single-objective infill-criterion interface.
 - **Reuse EGObox infrastructure.** Reuse existing GP, design-of-experiments (DoE), linear algebra and optimization functionality where it matches the published algorithm.
-- **Keep the core framework-independent.** The Rust core should not depend on OpenMDAO or its Python object model.
+- **Stay framework-independent.** Neither the Rust core nor the Python package depends on an MDO framework.
 - **Use explicit discipline definitions.** The first version should not attempt to infer arbitrary disciplinary structure automatically from an MDO framework.
 - **Separate disciplinary evaluations from full MDA evaluations.** These serve different purposes and should be represented explicitly in the API.
 - **Follow the paper.** Implement the original EGMDO equations, approximation methods, and enrichment logic rather than substituting a generic EGO loop. Any deviation is documented in the specification.
@@ -83,19 +83,17 @@ The Rust core owns the algorithm state and runs all surrogate computations. It d
 - the caller evaluates the true disciplines and passes the outputs back with `tell(...)`;
 - `minimize()` is a convenience wrapper that runs this loop with user-provided callbacks.
 
-This follows the existing `suggest` pattern (`crates/ego/src/solver/egor_service.rs`, `python/src/egor.rs`). Python callbacks never run inside Rust loops, and framework adapters (OpenMDAO, GEMSEO) only have to answer requests.
+This follows the existing `suggest` pattern (`crates/ego/src/solver/egor_service.rs`, `python/src/egor.rs`). Python callbacks never run inside Rust loops, and MDO frameworks (OpenMDAO, GEMSEO), outside EGObox, only have to answer requests.
 
 ### Python API
 
-Expose a user-facing API under `egobox.egmdo`, with an optional adapter namespace such as `egobox.egmdo.openmdao`.
+Expose a user-facing API under `egobox.egmdo`.
 
 The initial API accepts explicit discipline specifications, Python evaluation functions, a cheap objective function and optional cheap constraint functions, and exposes both `minimize()` and ask/tell.
 
-### Optional OpenMDAO adapter
+### MDO frameworks
 
-The adapter should be a thin layer that answers enrichment requests by running individual OpenMDAO components, and runs the full model for validation. The EGMDO core must remain independent of OpenMDAO.
-
-Do not require automatic introspection of arbitrary OpenMDAO models in the first version.
+Adapters to MDO frameworks are not part of EGObox. A framework drives EGMDO through ask/tell: it answers each request by running the requested discipline at the given inputs, and runs its own full model for validation.
 
 ## 5. Discipline evaluation model
 
@@ -233,19 +231,9 @@ Tests should verify:
 - reproducibility for a given seed;
 - reference results within documented tolerances.
 
-### Stage D — Add the optional OpenMDAO adapter
+### Stage D — Framework adapters (out of scope)
 
-Provide a documented way to answer EGMDO enrichment requests with OpenMDAO disciplinary evaluations.
-
-Requirements:
-
-- explicitly map named OpenMDAO variables to discipline inputs and outputs;
-- support individual discipline evaluation where the model permits it;
-- support a full coupled model run for validation and true MDA evaluations;
-- keep OpenMDAO imports and dependencies out of the Rust core;
-- report clear errors for missing variables, dimension mismatches, failed component runs, and failed MDA convergence.
-
-Do not assume `Problem.run_model()` alone provides the disciplinary observations required by EGMDO. Full-model execution and individual component execution must be handled as separate capabilities.
+Adapters to MDO frameworks such as OpenMDAO are not part of EGObox (section 4). Ask/tell is the integration point.
 
 ### Stage E — Profile and extend
 
@@ -261,7 +249,7 @@ After correctness is established:
 - support costly constraints that do not depend on the couplings, with their own surrogate;
 - consider objectives and constraints computed by expensive disciplines;
 - consider high-dimensional couplings with reduced-order models (Berthelin et al., 2022) or KPLS;
-- consider more general variable types and additional framework adapters.
+- consider more general variable types.
 
 ## 7. Initial scope and deferred features
 
@@ -286,8 +274,8 @@ After correctness is established:
 | Constraint relaxation | Deferred |
 | Multi-objective optimization | Deferred |
 | Mixed-integer variables | Deferred |
-| OpenMDAO dependency in core | None |
-| OpenMDAO adapter | Optional, after core interface is stable |
+| MDO framework dependency | None, in the Rust core and the Python package |
+| MDO framework adapters (OpenMDAO, GEMSEO) | Not part of EGObox; ask/tell is the integration point |
 
 ## 8. API and implementation decisions to settle
 
@@ -312,8 +300,7 @@ The initial implementation is ready for a first release when:
 - EGMDO and C-EGMDO need fewer disciplinary evaluations than `Egor` applied to the true MDA objective and constraints (median and spread over fixed seeds);
 - runs are reproducible for a given seed;
 - tests cover variable mapping, MDA, PCE, Sobol indices, KL, KL-GPs, EI/CEI/WB2, `P_min`/`P_sol`, constraint violation, enrichment and stopping behavior;
-- Python users can provide discipline callbacks, or use ask/tell, without installing OpenMDAO;
-- the optional OpenMDAO integration does not leak framework dependencies into the Rust core;
+- Python users can provide discipline callbacks, or use ask/tell, without any MDO framework;
 - API and documentation clearly distinguish disciplinary evaluations, true MDA evaluations, and surrogate MDA evaluations.
 
 ## 10. References
@@ -323,8 +310,6 @@ The initial implementation is ready for a first release when:
 - S. Dubreuil, N. Bartoli, C. Gogu, T. Lefebvre, J. Mas Colomer, *Extreme value oriented random field discretization based on an hybrid polynomial chaos expansion – kriging approach*, Computer Methods in Applied Mechanics and Engineering 332:540–571, 2018 (KL-GP random field and EI estimation)
 - B. Sudret, *Global sensitivity analysis using polynomial chaos expansions*, Reliability Engineering & System Safety 93(7):964–979, 2008 (Sobol indices from PCE coefficients)
 - G. Berthelin, S. Dubreuil, M. Salaün, N. Bartoli, C. Gogu, *Disciplinary proper orthogonal decomposition and interpolation for the resolution of parameterized multidisciplinary analysis*, International Journal for Numerical Methods in Engineering 123(15):3594–3626, 2022 (Sobol-based disciplinary enrichment, high-dimensional couplings)
-- OpenMDAO documentation: [https://openmdao.org/](https://openmdao.org/)
-- GEMSEO (possible future adapter, not the first target): [https://gemseo.org/](https://gemseo.org/)
 
 ## 11. Immediate next steps
 
@@ -334,7 +319,7 @@ The initial implementation is ready for a first release when:
 4. Implement the EGMDO criteria and algorithms.
 5. Add the C-EGMDO extensions.
 6. Reproduce the papers' results and compare with `Egor` on the true MDA.
-7. Add the Python bindings, then the OpenMDAO adapter.
+7. Add the Python bindings.
 
 ## 12. Delivery
 
@@ -357,7 +342,7 @@ The initial implementation is ready for a first release when:
 | 6 | `egmdo-constraints` | C-EGMDO: constraint GPs, CEI, WB2, `P_sol`, constraint violation, Sobol enrichment | B′ |
 | 7 | `egmdo-benchmarks` | Papers' test cases at scale, robustness studies, comparison with `Egor` on the true MDA | C |
 | 8 | `egmdo-python` | `egobox.egmdo` Python bindings, type stubs, tests and documentation | B/C |
-| 9 | `egmdo-openmdao` | Optional `egobox.egmdo.openmdao` adapter | D |
+| 9 | — | Dropped: MDO framework adapters (OpenMDAO) are not part of EGObox | — |
 | 10 | `egmdo-linearized-mda` | Linearized random MDA (D37, issue #493), compared with the solved random MDA for several initial DoE sizes | E |
 
 Stage E items get their own PRs once the first release is merged into `master`, except the alternatives to the rank-one disciplinary GP of issue #493, studied with its author on `egmdo`:
