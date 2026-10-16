@@ -57,6 +57,14 @@ impl DisciplinaryGp {
         })
     }
 
+    /// Predicts the gradients of the mean at inputs `x` `(n, dim)`, as a `(n, dim)` matrix
+    pub fn predict_gradients(&self, x: &ArrayBase<impl Data<Elem = f64>, Ix2>) -> Array2<f64> {
+        match self {
+            DisciplinaryGp::SquaredExponential(gp) => gp.predict_gradients(x),
+            DisciplinaryGp::Matern52(gp) => gp.predict_gradients(x),
+        }
+    }
+
     /// The optimized `theta` hyperparameters (inverse length scales)
     pub fn theta(&self) -> &Array1<f64> {
         match self {
@@ -247,6 +255,15 @@ impl DisciplinaryModels {
                 .assign(&gp.predict_var(x)?.mapv(|v| v.max(0.).sqrt()));
         }
         Ok((mean, std))
+    }
+
+    /// Predicts the gradients of the means of the outputs of discipline `i` at inputs `x`
+    /// of shape `(n, input_dim)`: element `q` is the `(n, input_dim)` matrix of output `q`.
+    pub fn predict_gradients(&self, i: usize, x: &Array2<f64>) -> Vec<Array2<f64>> {
+        self.gps[i]
+            .iter()
+            .map(|gp| gp.predict_gradients(x))
+            .collect()
     }
 
     /// The GPs of discipline `i`, one per output

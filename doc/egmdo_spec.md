@@ -52,7 +52,7 @@ GP settings (paper, "Replication of results"):
 | Input scaling | Centred and reduced | Built in (`xt_norm`) |
 | Hyperparameters | Maximum likelihood, length scales in `[0.3, 100]` | `ThetaTuning::Full` with `θ = 1/ℓ ∈ [0.01, 3.33]` |
 
-Predictions used by the algorithm: the mean `μ_q` (`predict`) and the standard deviation `σ_q = sqrt(predict_var)`. No sampling or gradient capability is needed.
+Predictions used by the algorithm: the mean `μ_q` (`predict`) and the standard deviation `σ_q = sqrt(predict_var)`. No sampling capability is needed. The gradient of the mean (`predict_gradients`) is used only by the linearized random MDA (D37).
 
 **Decision D34 (kernel).** The default kernel is Matérn 5/2, for the disciplinary GPs and the KL-GPs; the papers' squared exponential is an option (`GpSettings::paper()`). Both kernels use `θ` as an inverse length scale, with the same bounds. With the small initial DoEs of the method, maximum likelihood often puts a squared exponential length scale at its upper bound, and the GP becomes overconfident. Its standard deviation then underestimates the error, so the coefficient of variation stays below `ε_CV` and Algorithm 1 does not enrich where it should. On the 1-D toy problem:
 
@@ -91,6 +91,20 @@ Convergence (paper): the mean relative change of the coupling variables between 
 - **Decision D33:** the resolutions which do not converge are retried from their starting point with stronger relaxation, `ω = 0.5` then `0.25` (only the factors smaller than the base `ω` are used). Random MDAs fail mostly near the edges of the design space: there the couplings leave the training boxes `C(i)`, the GPs extrapolate with large `σ`, and some realizations `μ + σ ξ` have iteration factors larger than 1 in magnitude, so plain Jacobi cycles. The paper's plain Jacobi is still used whenever it converges.
 - **Decision D5:** a sample whose MDA does not converge (iteration limit, non-finite value), even after the retries of D33, is excluded from the PCE regression sample of section 4, and counted. If fewer than `max(P, n_MC / 2)` samples remain, the PCE at that point is flagged as unreliable and reported; the run continues.
 - **Decision D32:** if no more than `P` random MDAs converge at a `DoE_UQ` point, its PCE cannot be fitted: the point is dropped from `DoE_UQ` with a warning, and counted in the iteration history. A proposed point `z_new` in that case is not added. The run fails only if fewer than 2 `DoE_UQ` points remain.
+
+**Decision D37 (linearized random MDA).** As an option (`RandomMda::Linearized`, issue #493), the random MDA is linearized at the solution `y_0` of the mean MDA. With `J_qp = ∂μ_q/∂y_p` the Jacobian of the GP means with respect to the coupling variables and `σ_q` the GP standard deviations, both at `(z, y_0)`:
+
+```text
+y(z, Ξ) = y_0 + (I − J)⁻¹ diag(σ) Ξ
+```
+
+- This is the first-order expansion of (9) in `Ξ`. The variation of `σ`, or of the GP error, along `y` is a second-order term, so the full GP posterior has the same expansion: the linearization does not depend on the rank-one assumption at a given `z`.
+- The quantities of interest are evaluated on these samples and their PCEs fitted as in section 4, on the same samples `Ξ^(k)` (D6). The rest of the method is unchanged.
+- One mean MDA and the GP mean gradients replace the `n_MC` random MDAs at each design point. No random MDA is solved, so D5, D32 and D33 do not apply.
+- The point falls back to the solved random MDAs where the mean MDA does not converge, or where `I − J` is ill-conditioned: the ratio of the extreme singular values of `S⁻¹(I − J)S` is below `10⁻⁸`, with `S = diag(|y_0| + σ)` so that the test does not depend on the units of the coupling variables (on the compound cylinder they differ by 10⁶).
+- The approximation holds when `σ` is small with respect to the curvature of the GP means. It misses the non-Gaussian coupling variables of large uncertainties, as at the beginning of a run with small initial DoEs.
+
+The default is the papers' solved random MDA.
 
 The same solver gives:
 
@@ -381,6 +395,7 @@ The paper's typesetting of (23) contains typos: it prints `B/r` instead of `B/r�
 | D34 | GP kernel | Matérn 5/2 by default; squared exponential (papers) as an option |
 | D35 | WB2S | Adaptive scale `100 \|m_0\| / EI_max` at the maximum of the EI |
 | D36 | LogEI | Smoothed Monte Carlo log (C)EI (qLogEI), temperature `10⁻⁶ σ` of the objective over `DoE_UQ` |
+| D37 | Linearized random MDA | Optional `y_0 + (I − J)⁻¹ diag(σ) Ξ` at the mean MDA solution; fallback to the solved random MDAs; solved by default |
 
 ## 13. Default settings
 
@@ -398,6 +413,7 @@ The paper's typesetting of (23) contains typos: it prints `B/r` instead of `B/r�
 | MDA relaxation | `ω` | 1 | D31 |
 | MDA retry relaxations | | 0.5, 0.25 | D33 |
 | GP kernel | | Matérn 5/2 | D34 |
+| Random MDA | | solved | D37 |
 | EI Monte Carlo samples | `N_EI` | 2000 | D9 |
 | EI optimizer | | COBYLA, `rhobeg = 0.5` on `[0, 1]^n`, 20 starts | paper |
 | `P_min` samples | `n_P` | 10⁴ | D10 |
@@ -411,6 +427,7 @@ The paper's typesetting of (23) contains typos: it prints `B/r` instead of `B/r�
 |---|---|---|---|
 | 1, 2 | `problem`, `disciplines` | `egobox-gp`, `egobox-doe::Lhs` | input mapping, DoE sizes and bounds, GP settings |
 | 3 | `mda` | — | toy and Sellar true MDA vs analytical/fixed-point solutions; `Ξ = 0` equals mean MDA; failure counting |
+| 3 (D37) | `uq` | `linfa-linalg` SVD, `predict_gradients` | coupling Jacobian vs finite differences of the mean MDA map; solved random MDA equals `y_0 + t L Ξ` to first order in `t`; PCE moments close to the solved random MDA; fallback |
 | 4 | `pce` | `linfa-linalg` QR | orthonormality of the basis (Monte Carlo), exact recovery of polynomial targets, moments vs Monte Carlo |
 | 5 | `kl` | `egobox-gp`, `linfa-linalg` `eigh` | energy truncation, reconstruction of `Ŷ_obj` at `DoE_UQ`, KL-GP interpolation, sign invariance |
 | 6, 7 | `criteria` | multistart COBYLA of `egobox_gp::basin_optimizer`, as `Egor` | EI ≈ 0 at `DoE_UQ`, EI ≥ 0, determinism with fixed samples, `P_min` sums to 1, `cv` with negative and zero mean |
@@ -657,6 +674,7 @@ The library defaults follow C-EGMDO, the more recent and more robust variant, wi
 | `ε_P` | > 0 | `10⁻³` | `1/n_UQ` | `10⁻³` |
 | `ε_CV` | > 0 | 0.01 | 0.01 | 0.01 |
 | GP kernel | `Matern52`, `SquaredExponential` | `Matern52` (D34) | `SquaredExponential` | `SquaredExponential` |
+| Random MDA | `Solved`, `Linearized` (D37) | `Solved` | `Solved` | `Solved` |
 | `n_MC` | `≥ P + 1` | `max(200, 2P)` | 100 | 200 to 500 |
 | Constraint tolerance `τ` | ≥ 0 per constraint | `1e-4` | — | — |
 
