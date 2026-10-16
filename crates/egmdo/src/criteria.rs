@@ -403,7 +403,7 @@ mod tests {
     use crate::kl::KlDecomposition;
     use crate::pce::{HermiteBasis, normal_samples};
     use crate::surrogates::GpSettings;
-    use crate::uq::{UqSettings, coefficients, doe_uq};
+    use crate::uq::{RandomMda, UqSettings, coefficients, doe_uq};
     use approx::assert_abs_diff_eq;
     use ndarray::{Array, array};
 
@@ -468,6 +468,7 @@ mod tests {
             pce: pce(moments),
             n_failed: 0,
             reliable: true,
+            linearized: false,
         }
     }
 
@@ -546,6 +547,7 @@ mod tests {
             &xi.view(),
             &basis,
             &tp.mda,
+            RandomMda::Solved,
         )
         .unwrap();
 
