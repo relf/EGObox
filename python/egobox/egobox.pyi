@@ -12,9 +12,14 @@ __all__ = [
     "ConstraintStrategy",
     "CorrelationSpec",
     "CstrSpec",
+    "Discipline",
     "Egor",
     "EgorOptim",
     "EimAggregation",
+    "Emdegor",
+    "EmdegorRequest",
+    "EmdegorResult",
+    "EnrichmentStrategy",
     "ExitStatus",
     "FailsafeStrategy",
     "FeasibleInfillStrategy",
@@ -371,6 +376,48 @@ class CstrSpec:
     def __repr__(self) -> builtins.str: ...
 
 @typing.final
+class Discipline:
+    r"""
+    A discipline of a multidisciplinary design optimization (MDO) problem
+    
+    The discipline computes some coupling variables from some design variables and from the
+    coupling variables computed by the other disciplines. Variables are referred to by the names
+    declared in `Emdegor` (`design` and `couplings`).
+    
+    Parameters
+    ----------
+    name : str
+        Unique name of the discipline.
+    fun : callable, optional
+        The disciplinary solver, evaluated on a batch of points:
+        `fun(x: array[n, len(inputs)]) -> array[n, len(outputs)]`, the columns of `x` being the
+        `inputs` variables and the returned columns the `outputs` variables, in the given orders.
+        Required by `Emdegor.minimize()`, not by the ask/tell interface.
+    inputs : list of str
+        Names of the design and coupling variables received by the discipline, in any order.
+    outputs : list of str
+        Names of the coupling variables computed by the discipline.
+    """
+    @property
+    def name(self) -> builtins.str:
+        r"""
+        Name of the discipline
+        """
+    @property
+    def inputs(self) -> builtins.list[builtins.str]:
+        r"""
+        Names of the variables received by the discipline, in the column order of its inputs
+        """
+    @property
+    def outputs(self) -> builtins.list[builtins.str]:
+        r"""
+        Names of the coupling variables computed by the discipline, in the column order of its
+        outputs
+        """
+    def __new__(cls, name: builtins.str, fun: typing.Callable[[numpy.typing.NDArray[numpy.float64]], numpy.typing.NDArray[numpy.float64]] | None = None, inputs: typing.Sequence[builtins.str] = [], outputs: typing.Sequence[builtins.str] = []) -> Discipline: ...
+    def __repr__(self) -> builtins.str: ...
+
+@typing.final
 class Egor:
     r"""
     Optimizer constructor
@@ -667,6 +714,258 @@ class EgorOptim:
     def __iter__(self) -> typing.Iterator[numpy.typing.NDArray[numpy.float64]]:
         r"""
         Iterate over (x_opt, y_opt) to allow `x_opt, y_opt = egor.minimize(...)`
+        """
+    def __repr__(self) -> builtins.str: ...
+
+@typing.final
+class Emdegor:
+    r"""
+    Emdegor, efficient global multidisciplinary design optimizer (EGMDO and C-EGMDO)
+    
+    Minimizes an objective subject to constraints, both cheap functions of the design variables
+    and of coupling variables computed by expensive disciplines which depend on each other.
+    Each disciplinary solver is replaced by Gaussian process surrogates (one per coupling
+    variable), enriched adaptively where the optimum is likely to be, with as few disciplinary
+    evaluations as possible.
+    
+    The defaults follow the C-EGMDO paper (Cardoso et al. 2024): WB2 acquisition, enrichment of
+    the discipline with the largest Sobol index, with Matérn 5/2 GPs. The settings of the EGMDO
+    paper (Dubreuil et al. 2020) are `acquisition=InfillStrategy.EI`,
+    `enrichment=EnrichmentStrategy.ALL`, `p_threshold=None`, `n_mc=100` and
+    `gp_kernel=CorrelationSpec.SQUARED_EXPONENTIAL`.
+    
+    Parameters
+    ----------
+    design : dict of str to [lower, upper]
+        Names and bounds of the continuous design variables, in the column order of the design
+        points (`z`).
+    couplings : dict of str to [lower, upper]
+        Names and initial ranges of the scalar coupling variables, in the column order of the
+        coupling points (`y`). The ranges are only used to sample the initial disciplinary
+        designs of experiments. Each coupling variable is computed by exactly one discipline.
+    disciplines : list of Discipline
+        The disciplines, wired to the variables by their names.
+    qoi : callable
+        The cheap quantities of interest, evaluated on a batch of points:
+        `qoi(z: array[n, len(design)], y: array[n, len(couplings)]) -> array[n, 1 + n_ineq + n_eq]`
+        returning the objective, then the inequality constraints `g <= 0`, then the equality
+        constraints `h = 0`. It is called from several threads.
+    n_ineq : int
+        Number of inequality constraints returned by `qoi`.
+    n_eq : int
+        Number of equality constraints returned by `qoi`.
+    deterministic_constraints : list of int, optional
+        Indices (in 0..n_ineq + n_eq) of the constraints which depend on the design variables
+        only: they are evaluated directly instead of being modelled.
+    cstr_tol : list of float, optional
+        Tolerance of each constraint, default 1e-4.
+    max_iters : int
+        Number of iterations (points added to the uncertainty quantification DoE).
+    acquisition : InfillStrategy
+        Acquisition criterion: InfillStrategy.WB2 (default), InfillStrategy.WB2S,
+        InfillStrategy.EI or InfillStrategy.LOG_EI (Monte Carlo estimates, constrained when the
+        problem has constraints).
+    wb2_scale : float
+        Scale of the expected improvement in the WB2 criterion (InfillStrategy.WB2 only).
+    enrichment : EnrichmentStrategy
+        Disciplines evaluated at an enrichment point, EnrichmentStrategy.SOBOL (default) or
+        EnrichmentStrategy.ALL.
+    gp_kernel : CorrelationSpec
+        Kernel of the GPs, CorrelationSpec.MATERN52 (default) or
+        CorrelationSpec.SQUARED_EXPONENTIAL.
+    n_doe : list of int, optional
+        Size of the initial design of experiments of each discipline (default 2 x its number of
+        inputs).
+    doe : list of array[n_i, len(inputs_i)], optional
+        Initial designs of experiments of the disciplines (inputs to evaluate, columns in the
+        order of `Discipline.inputs`), overrides `n_doe`.
+    n_doe_uq : int
+        Size of the initial design of experiments of the uncertainty quantification.
+    doe_uq : array[n, len(design)], optional
+        Initial design of experiments of the uncertainty quantification, overrides `n_doe_uq`.
+    cv_threshold : float
+        Enrichment threshold on the coefficients of variation of the quantities of interest.
+    p_threshold : float, optional
+        Enrichment threshold on the probability of being the solution; None gives 1 / n_doe_uq.
+    n_mc : int, optional
+        Number of random MDAs per point of the uncertainty quantification (default max(200, 2P),
+        P being the size of the polynomial chaos basis).
+    pce_degree : int
+        Total degree of the polynomial chaos expansions.
+    n_ei_samples : int
+        Number of Monte Carlo samples of the acquisition criterion.
+    n_pmin_samples : int
+        Number of Monte Carlo samples of the probability of being the solution.
+    n_starts : int
+        Number of starting points of the acquisition optimization.
+    n_sim : int
+        Number of samples of the final estimation of the minimum.
+    max_evaluations : int, optional
+        Budget of true disciplinary evaluations, all disciplines included.
+    mda_relaxation : float in ]0, 1]
+        Relaxation of the Jacobi iterations of the multidisciplinary analyses.
+    seed : int >= 0, optional
+        Random generator seed, for reproducible runs.
+    """
+    @property
+    def design_names(self) -> builtins.list[builtins.str]:
+        r"""
+        Names of the design variables, in the column order of the design points
+        """
+    @property
+    def coupling_names(self) -> builtins.list[builtins.str]:
+        r"""
+        Names of the coupling variables, in the column order of the coupling points
+        """
+    def __new__(cls, design: typing.Mapping[builtins.str, typing.Sequence[builtins.float]], couplings: typing.Mapping[builtins.str, typing.Sequence[builtins.float]], disciplines: typing.Sequence[Discipline], qoi: typing.Callable[[numpy.typing.NDArray[numpy.float64], numpy.typing.NDArray[numpy.float64]], numpy.typing.NDArray[numpy.float64]], n_ineq: builtins.int = 0, n_eq: builtins.int = 0, deterministic_constraints: typing.Optional[typing.Sequence[builtins.int]] = None, cstr_tol: typing.Optional[typing.Sequence[builtins.float]] = None, max_iters: builtins.int = 10, acquisition: InfillStrategy = InfillStrategy.WB2, wb2_scale: builtins.float = 1.0, enrichment: EnrichmentStrategy = EnrichmentStrategy.SOBOL, gp_kernel: builtins.int = 8, n_doe: typing.Optional[typing.Sequence[builtins.int]] = None, doe: typing.Optional[typing.Sequence[numpy.typing.NDArray[numpy.float64]]] = None, n_doe_uq: builtins.int = 20, doe_uq: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, cv_threshold: builtins.float = 0.01, p_threshold: typing.Optional[builtins.float] = 0.001, n_mc: typing.Optional[builtins.int] = None, pce_degree: builtins.int = 3, n_ei_samples: builtins.int = 2000, n_pmin_samples: builtins.int = 10000, n_starts: builtins.int = 20, n_sim: builtins.int = 100, max_evaluations: typing.Optional[builtins.int] = None, mda_relaxation: builtins.float = 1.0, seed: typing.Optional[builtins.int] = None) -> Emdegor: ...
+    def minimize(self, max_iters: typing.Optional[builtins.int] = None) -> EmdegorResult:
+        r"""
+        Minimize the objective with the disciplinary solvers given as `Discipline.fun`.
+        
+        Parameters
+        ----------
+        max_iters : int, optional
+            Number of iterations, overriding the one given to the constructor.
+        
+        Returns
+        -------
+        EmdegorResult
+        """
+    def ask(self) -> typing.Optional[builtins.list[EmdegorRequest]]:
+        r"""
+        Ask for the next true disciplinary evaluations (ask/tell interface).
+        
+        Runs the algorithm until it needs true evaluations of the disciplines. The outputs of the
+        requested evaluations have to be given back with `tell()`. The first call starts a new
+        optimization of `max_iters` iterations.
+        
+        Returns
+        -------
+        list of EmdegorRequest, or None when the optimization is finished (see `result()`)
+        """
+    def tell(self, outputs: typing.Sequence[numpy.typing.NDArray[numpy.float64]]) -> None:
+        r"""
+        Give the outputs of the evaluations requested by the last `ask()`.
+        
+        Parameters
+        ----------
+        outputs : list of array[n, len(outputs)]
+            outputs[k] holds the outputs of request k, one row per input point, columns in the
+            order of `Discipline.outputs`.
+        """
+    def result(self) -> EmdegorResult:
+        r"""
+        The result of the ask/tell optimization, once `ask()` has returned None.
+        
+        Returns
+        -------
+        EmdegorResult
+        """
+    def reset(self) -> None:
+        r"""
+        Discard the current ask/tell optimization: the next `ask()` starts a new one.
+        """
+
+@typing.final
+class EmdegorRequest:
+    r"""
+    True evaluations of a discipline requested by `Emdegor.ask()`
+    """
+    @property
+    def discipline(self) -> builtins.int:
+        r"""
+        Index of the discipline in the list given to `Emdegor`
+        """
+    @property
+    def x(self) -> numpy.typing.NDArray[numpy.float64]:
+        r"""
+        Inputs of the discipline, one point per row, columns in the order of `Discipline.inputs`
+        """
+    def __repr__(self) -> builtins.str: ...
+
+@typing.final
+class EmdegorResult:
+    r"""
+    Result of an EGMDO optimization
+    
+    The minimum is estimated by Monte Carlo on the final model of the objective, which accounts
+    for the remaining uncertainty of the disciplinary surrogates: `z_star` and `y_min` hold samples
+    of the minimum position and value, summarized by their means and standard deviations.
+    Design points have their columns in the order of `design_names`.
+    """
+    @property
+    def design_names(self) -> builtins.list[builtins.str]:
+        r"""
+        Names of the design variables, in the column order of the design points
+        """
+    @property
+    def coupling_names(self) -> builtins.list[builtins.str]:
+        r"""
+        Names of the coupling variables, in the column order of the coupling points
+        """
+    @property
+    def z_best(self) -> numpy.typing.NDArray[numpy.float64]:
+        r"""
+        Best point of the uncertainty quantification DoE: the lowest objective mean among the
+        points whose constraint means are feasible
+        """
+    @property
+    def f_best(self) -> builtins.float:
+        r"""
+        Objective mean at `z_best`
+        """
+    @property
+    def z_star(self) -> numpy.typing.NDArray[numpy.float64]:
+        r"""
+        Samples of the minimum position, one per row
+        """
+    @property
+    def y_min(self) -> numpy.typing.NDArray[numpy.float64]:
+        r"""
+        Samples of the minimum value
+        """
+    @property
+    def z_star_mean(self) -> numpy.typing.NDArray[numpy.float64]:
+        r"""
+        Mean of the minimum position
+        """
+    @property
+    def z_star_std(self) -> numpy.typing.NDArray[numpy.float64]:
+        r"""
+        Standard deviation of the minimum position
+        """
+    @property
+    def y_min_mean(self) -> builtins.float:
+        r"""
+        Mean of the minimum value
+        """
+    @property
+    def y_min_std(self) -> builtins.float:
+        r"""
+        Standard deviation of the minimum value
+        """
+    @property
+    def n_evaluations(self) -> builtins.list[builtins.int]:
+        r"""
+        Number of true evaluations of each discipline
+        """
+    @property
+    def doe_uq(self) -> numpy.typing.NDArray[numpy.float64]:
+        r"""
+        Final design of experiments of the uncertainty quantification
+        """
+    @property
+    def disciplinary_doe(self) -> builtins.list[tuple[numpy.typing.NDArray[numpy.float64], numpy.typing.NDArray[numpy.float64]]]:
+        r"""
+        Training data (x, y) of each discipline, i.e. all its true evaluations, columns in the
+        order of its `inputs` and `outputs`
+        """
+    @property
+    def history(self) -> builtins.list[dict]:
+        r"""
+        Per-iteration records: dicts with keys `z_new` (point added to the uncertainty
+        quantification DoE, or None), `max_criterion`, `wb2_scale`, `n_modes`, `n_enrichments`,
+        `n_failed_mdas` and `n_dropped_points`
         """
     def __repr__(self) -> builtins.str: ...
 
@@ -1944,6 +2243,21 @@ class EimAggregation(enum.Enum):
     r"""
     Minimum over front points of the expected hypervolume improvement of the
     hyper-rectangle dominated by the point improved by the expected improvements
+    """
+
+@typing.final
+class EnrichmentStrategy(enum.Enum):
+    r"""
+    EnrichmentStrategy specifies which disciplines are evaluated at an enrichment point.
+    """
+    ALL = ...
+    r"""
+    Every discipline, as in the EGMDO paper (Dubreuil et al. 2020)
+    """
+    SOBOL = ...
+    r"""
+    Only the discipline with the largest Sobol index of the most uncertain quantity of
+    interest, as in the C-EGMDO paper (Cardoso et al. 2024)
     """
 
 @typing.final
