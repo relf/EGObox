@@ -104,9 +104,11 @@ The model is moreover a KL-GP field, not a `MixtureGpSurrogate`, and the `grad` 
 
 Issue #493 proposes alternatives to the rank-one disciplinary GP of the random MDA (9). The first one is implemented: the random MDA is linearized at the mean MDA solution, `y(Ξ) = y_0 + (I − J)⁻¹ diag(σ) Ξ` (D37), and the PCEs are fitted on these samples as before. The comparison below varies the size of the initial disciplinary DoEs, i.e. the level of disciplinary GP uncertainty.
 
+The example also compares the correlations across design points (D38, next section); the tables of this section are its columns and rows for the perfect correlation.
+
 ```text
-cargo run -p egobox-egmdo --release --example egmdo_linearized -- uq 10
-cargo run -p egobox-egmdo --release --example egmdo_linearized -- opt 10
+cargo run -p egobox-egmdo --release --example egmdo_uncertainty -- uq 10
+cargo run -p egobox-egmdo --release --example egmdo_uncertainty -- opt 10
 ```
 
 ### Uncertainty quantification only
@@ -197,3 +199,133 @@ The defaults (C-EGMDO options, Matérn 5/2) with the problem settings of the ben
 - **No random MDA is solved, except at about 1% of the points.** The linearization falls back to the solved random MDAs where the mean MDA does not converge: 0 to 4 points per row out of 90 to 400, on the Sellar problems. These hard points concentrate the remaining failed random MDAs.
 - **The scaling of `I − J` matters.** On the compound cylinder, the two coupling variables differ by six orders of magnitude, and the unscaled singular values of `I − J` have a ratio of 10⁻¹² although the coupling loop is well-posed (`J_12 J_21 ≈ −0.7`). The conditioning is tested on `S⁻¹(I − J)S`, `S = diag(|y_0| + σ)` (D37).
 - **The uncertainty quantification is 5 to 35 times faster, the whole run 10 to 60% faster.** On these small problems, the random MDAs are a minor part of a run, which is dominated by the acquisition optimization, the KL-GPs and the `P_min` sampling. The gain grows with the number of coupling variables and the cost of the GP predictions.
+
+## Correlation across design points (D38)
+
+The second alternative of issue #493 replaces the perfect correlation of the disciplinary uncertainty across `DoE_UQ` (one `Ξ` shared by every point) by the GP posterior correlation between the disciplinary inputs at the mean MDA solutions (D38). The same example compares both correlations, with the solved and the linearized random MDAs (commands in the previous section).
+
+### Uncertainty quantification only
+
+Same setting as the previous section, with the solved random MDA:
+
+- *GP correlation between points*: posterior correlations `ρ_q(i, l)` between the `DoE_UQ` points, all couplings and pairs, median [10%, 90%];
+- *P_min distance*: total variation distance between `P_min` (`P_sol` with constraints) with the GP posterior and with the perfect correlation, median over the seeds;
+- *same most probable minimizer*: number of seeds where both `P_min` have the same mode.
+
+| Problem | Initial DoE per discipline | GP correlation between points | P_min distance GP/perfect correlation | Same most probable minimizer GP/perfect |
+|---|---|---|---|---|
+| toy | 3 | 0.24 [0.05, 1.00] | 0.111 | 9/10 |
+| toy | 4 | 0.07 [-0.32, 0.55] | 0.091 | 9/10 |
+| toy | 6 | -0.09 [-0.88, 0.72] | 0.040 | 10/10 |
+| toy | 10 | -0.03 [-0.50, 0.34] | 0.001 | 10/10 |
+| sellar_modified | 4 | 0.05 [-0.30, 0.67] | 0.286 | 9/10 |
+| sellar_modified | 5 | 0.03 [-0.39, 0.66] | 0.256 | 9/10 |
+| sellar_modified | 8 | 0.01 [-0.53, 0.62] | 0.017 | 10/10 |
+| sellar_modified | 12 | -0.01 [-0.63, 0.75] | 0.000 | 10/10 |
+| compound_cylinder | 5 | 0.07 [-0.40, 0.75] | 0.226 | 9/10 |
+| compound_cylinder | 8 | 0.13 [-0.45, 0.70] | 0.114 | 10/10 |
+| compound_cylinder | 12 | 0.07 [-0.41, 0.57] | 0.046 | 10/10 |
+| compound_cylinder | 16 | 0.03 [-0.42, 0.50] | 0.029 | 10/10 |
+| toy_constrained | 3 | 0.24 [-0.18, 1.00] | 0.148 | 8/10 |
+| toy_constrained | 4 | 0.07 [-0.31, 0.62] | 0.105 | 9/10 |
+| toy_constrained | 6 | 0.04 [-0.81, 0.80] | 0.000 | 10/10 |
+| toy_constrained | 10 | -0.03 [-0.50, 0.43] | 0.000 | 10/10 |
+| sellar_constrained | 4 | 0.09 [-0.40, 0.74] | 0.338 | 9/10 |
+| sellar_constrained | 5 | 0.05 [-0.40, 0.73] | 0.238 | 8/10 |
+| sellar_constrained | 8 | 0.05 [-0.50, 0.74] | 0.100 | 9/10 |
+| sellar_constrained | 12 | 0.08 [-0.56, 0.89] | 0.179 | 9/10 |
+
+### Whole algorithm
+
+Same setting as the previous section, with the four combinations of random MDA and correlation. The rows with the perfect correlation are those of the previous section; with the perfect correlation, the results are bit-identical to the implementation before D38.
+
+| Problem | Initial DoE per discipline | Random MDA | Correlation | Converged (papers' criterion) | Best point optimal | Disciplinary evaluations | Failed random MDAs | Solved points (lin. fallbacks) | Median time (s) |
+|---|---|---|---|---|---|---|---|---|---|
+| toy | 3 | Solved | Perfect | 10/10 | 10/10 | 14.4 ± 1.9 | 0 | 90 | 0.80 |
+| toy | 3 | Linearized | Perfect | 10/10 | 10/10 | 14.4 ± 2.3 | 0 | 0 | 0.51 |
+| toy | 3 | Solved | GpPosterior | 10/10 | 10/10 | 14.7 ± 3.0 | 1 | 90 | 0.82 |
+| toy | 3 | Linearized | GpPosterior | 10/10 | 9/10 | 15.0 ± 2.0 | 0 | 0 | 0.57 |
+| toy | 4 | Solved | Perfect | 10/10 | 10/10 | 14.7 ± 2.5 | 0 | 90 | 0.55 |
+| toy | 4 | Linearized | Perfect | 9/10 | 7/10 | 13.9 ± 1.8 | 0 | 0 | 0.47 |
+| toy | 4 | Solved | GpPosterior | 10/10 | 8/10 | 15.9 ± 2.8 | 2 | 90 | 0.68 |
+| toy | 4 | Linearized | GpPosterior | 9/10 | 6/10 | 13.8 ± 1.7 | 0 | 0 | 0.54 |
+| toy | 6 | Solved | Perfect | 10/10 | 10/10 | 15.2 ± 2.2 | 0 | 90 | 0.38 |
+| toy | 6 | Linearized | Perfect | 10/10 | 10/10 | 14.5 ± 1.1 | 0 | 0 | 0.35 |
+| toy | 6 | Solved | GpPosterior | 10/10 | 10/10 | 15.2 ± 2.2 | 0 | 90 | 0.49 |
+| toy | 6 | Linearized | GpPosterior | 9/10 | 10/10 | 14.5 ± 1.3 | 0 | 0 | 0.48 |
+| toy | 10 | Solved | Perfect | 10/10 | 9/10 | 24.6 ± 2.2 | 2 | 90 | 0.52 |
+| toy | 10 | Linearized | Perfect | 9/10 | 9/10 | 23.9 ± 1.7 | 0 | 0 | 0.46 |
+| toy | 10 | Solved | GpPosterior | 10/10 | 10/10 | 24.9 ± 2.7 | 2 | 90 | 0.69 |
+| toy | 10 | Linearized | GpPosterior | 10/10 | 9/10 | 24.1 ± 2.0 | 0 | 0 | 0.51 |
+| sellar_modified | 4 | Solved | Perfect | 8/10 | 9/10 | 20.2 ± 2.4 | 7 | 300 | 3.55 |
+| sellar_modified | 4 | Linearized | Perfect | 8/10 | 8/10 | 18.8 ± 2.4 | 9 | 2 | 2.57 |
+| sellar_modified | 4 | Solved | GpPosterior | 8/10 | 9/10 | 20.3 ± 2.6 | 15 | 300 | 6.77 |
+| sellar_modified | 4 | Linearized | GpPosterior | 9/10 | 9/10 | 18.9 ± 2.7 | 21 | 2 | 7.60 |
+| sellar_modified | 5 | Solved | Perfect | 10/10 | 10/10 | 20.1 ± 2.0 | 58 | 300 | 3.66 |
+| sellar_modified | 5 | Linearized | Perfect | 9/10 | 10/10 | 19.2 ± 2.2 | 88 | 1 | 3.06 |
+| sellar_modified | 5 | Solved | GpPosterior | 10/10 | 10/10 | 19.8 ± 2.0 | 0 | 300 | 7.18 |
+| sellar_modified | 5 | Linearized | GpPosterior | 9/10 | 10/10 | 19.4 ± 2.1 | 0 | 0 | 6.63 |
+| sellar_modified | 8 | Solved | Perfect | 8/10 | 9/10 | 21.7 ± 1.7 | 0 | 300 | 2.82 |
+| sellar_modified | 8 | Linearized | Perfect | 8/10 | 9/10 | 21.1 ± 1.4 | 0 | 0 | 2.25 |
+| sellar_modified | 8 | Solved | GpPosterior | 9/10 | 9/10 | 21.7 ± 1.1 | 0 | 300 | 6.70 |
+| sellar_modified | 8 | Linearized | GpPosterior | 10/10 | 10/10 | 21.8 ± 2.4 | 0 | 0 | 6.66 |
+| sellar_modified | 12 | Solved | Perfect | 9/10 | 9/10 | 27.9 ± 1.8 | 3 | 299 | 2.71 |
+| sellar_modified | 12 | Linearized | Perfect | 9/10 | 9/10 | 27.9 ± 2.2 | 124 | 1 | 2.28 |
+| sellar_modified | 12 | Solved | GpPosterior | 8/10 | 9/10 | 27.9 ± 1.8 | 3 | 300 | 6.33 |
+| sellar_modified | 12 | Linearized | GpPosterior | 9/10 | 9/10 | 27.6 ± 1.4 | 4 | 2 | 6.30 |
+| compound_cylinder | 5 | Solved | Perfect | 10/10 | 7/10 | 21.5 ± 3.6 | 1 | 400 | 8.53 |
+| compound_cylinder | 5 | Linearized | Perfect | 10/10 | 8/10 | 22.0 ± 3.5 | 0 | 0 | 6.98 |
+| compound_cylinder | 5 | Solved | GpPosterior | 10/10 | 8/10 | 21.8 ± 3.2 | 0 | 400 | 16.16 |
+| compound_cylinder | 5 | Linearized | GpPosterior | 10/10 | 7/10 | 22.5 ± 3.3 | 0 | 0 | 16.29 |
+| compound_cylinder | 8 | Solved | Perfect | 10/10 | 8/10 | 25.2 ± 2.4 | 0 | 400 | 8.13 |
+| compound_cylinder | 8 | Linearized | Perfect | 10/10 | 9/10 | 25.6 ± 2.9 | 0 | 0 | 6.39 |
+| compound_cylinder | 8 | Solved | GpPosterior | 10/10 | 10/10 | 25.8 ± 2.2 | 0 | 400 | 17.38 |
+| compound_cylinder | 8 | Linearized | GpPosterior | 10/10 | 9/10 | 25.6 ± 2.8 | 0 | 0 | 15.45 |
+| compound_cylinder | 12 | Solved | Perfect | 10/10 | 9/10 | 30.7 ± 1.3 | 0 | 399 | 7.63 |
+| compound_cylinder | 12 | Linearized | Perfect | 10/10 | 9/10 | 30.9 ± 1.4 | 0 | 0 | 6.23 |
+| compound_cylinder | 12 | Solved | GpPosterior | 10/10 | 10/10 | 31.0 ± 1.4 | 0 | 400 | 17.92 |
+| compound_cylinder | 12 | Linearized | GpPosterior | 10/10 | 9/10 | 30.8 ± 1.3 | 0 | 0 | 16.61 |
+| compound_cylinder | 16 | Solved | Perfect | 10/10 | 7/10 | 36.6 ± 1.0 | 0 | 400 | 6.82 |
+| compound_cylinder | 16 | Linearized | Perfect | 10/10 | 10/10 | 36.8 ± 0.9 | 0 | 0 | 5.92 |
+| compound_cylinder | 16 | Solved | GpPosterior | 10/10 | 9/10 | 36.6 ± 1.0 | 0 | 400 | 17.09 |
+| compound_cylinder | 16 | Linearized | GpPosterior | 10/10 | 9/10 | 37.0 ± 0.9 | 0 | 0 | 15.38 |
+| toy_constrained | 3 | Solved | Perfect | 8/10 | 7/10 | 21.5 ± 1.9 | 0 | 90 | 1.08 |
+| toy_constrained | 3 | Linearized | Perfect | 10/10 | 9/10 | 20.1 ± 2.1 | 0 | 0 | 0.46 |
+| toy_constrained | 3 | Solved | GpPosterior | 7/10 | 5/10 | 24.7 ± 9.8 | 0 | 90 | 1.23 |
+| toy_constrained | 3 | Linearized | GpPosterior | 9/10 | 8/10 | 20.2 ± 2.0 | 0 | 0 | 0.55 |
+| toy_constrained | 4 | Solved | Perfect | 9/10 | 5/10 | 22.0 ± 2.7 | 0 | 90 | 0.87 |
+| toy_constrained | 4 | Linearized | Perfect | 8/10 | 5/10 | 20.4 ± 1.8 | 0 | 0 | 0.46 |
+| toy_constrained | 4 | Solved | GpPosterior | 9/10 | 5/10 | 21.8 ± 2.9 | 0 | 90 | 0.88 |
+| toy_constrained | 4 | Linearized | GpPosterior | 8/10 | 5/10 | 20.4 ± 1.6 | 0 | 0 | 0.49 |
+| toy_constrained | 6 | Solved | Perfect | 9/10 | 8/10 | 21.0 ± 1.3 | 2 | 90 | 0.64 |
+| toy_constrained | 6 | Linearized | Perfect | 9/10 | 9/10 | 20.0 ± 1.1 | 0 | 0 | 0.35 |
+| toy_constrained | 6 | Solved | GpPosterior | 9/10 | 9/10 | 21.7 ± 1.9 | 2 | 90 | 0.71 |
+| toy_constrained | 6 | Linearized | GpPosterior | 9/10 | 9/10 | 20.0 ± 1.1 | 0 | 0 | 0.43 |
+| toy_constrained | 10 | Solved | Perfect | 10/10 | 8/10 | 28.2 ± 0.9 | 0 | 90 | 0.64 |
+| toy_constrained | 10 | Linearized | Perfect | 10/10 | 6/10 | 27.8 ± 0.9 | 0 | 0 | 0.38 |
+| toy_constrained | 10 | Solved | GpPosterior | 10/10 | 7/10 | 28.3 ± 0.9 | 0 | 90 | 0.68 |
+| toy_constrained | 10 | Linearized | GpPosterior | 10/10 | 6/10 | 27.8 ± 0.9 | 0 | 0 | 0.43 |
+| sellar_constrained | 4 | Solved | Perfect | 8/10 | 10/10 | 23.4 ± 1.5 | 0 | 293 | 2.90 |
+| sellar_constrained | 4 | Linearized | Perfect | 8/10 | 10/10 | 23.9 ± 2.3 | 0 | 0 | 2.69 |
+| sellar_constrained | 4 | Solved | GpPosterior | 9/10 | 10/10 | 23.8 ± 1.8 | 0 | 294 | 4.72 |
+| sellar_constrained | 4 | Linearized | GpPosterior | 6/10 | 9/10 | 23.1 ± 1.9 | 0 | 0 | 4.42 |
+| sellar_constrained | 5 | Solved | Perfect | 9/10 | 9/10 | 23.6 ± 2.2 | 97 | 295 | 2.86 |
+| sellar_constrained | 5 | Linearized | Perfect | 8/10 | 10/10 | 24.2 ± 2.1 | 86 | 3 | 2.37 |
+| sellar_constrained | 5 | Solved | GpPosterior | 8/10 | 10/10 | 23.8 ± 1.7 | 6 | 295 | 4.47 |
+| sellar_constrained | 5 | Linearized | GpPosterior | 6/10 | 8/10 | 24.8 ± 2.7 | 67 | 4 | 4.12 |
+| sellar_constrained | 8 | Solved | Perfect | 9/10 | 10/10 | 26.5 ± 2.5 | 0 | 293 | 2.77 |
+| sellar_constrained | 8 | Linearized | Perfect | 9/10 | 10/10 | 26.3 ± 2.2 | 0 | 0 | 2.27 |
+| sellar_constrained | 8 | Solved | GpPosterior | 10/10 | 10/10 | 26.0 ± 2.3 | 0 | 296 | 4.11 |
+| sellar_constrained | 8 | Linearized | GpPosterior | 10/10 | 10/10 | 26.2 ± 2.2 | 0 | 0 | 4.12 |
+| sellar_constrained | 12 | Solved | Perfect | 10/10 | 8/10 | 33.6 ± 2.4 | 13 | 293 | 2.73 |
+| sellar_constrained | 12 | Linearized | Perfect | 10/10 | 9/10 | 33.7 ± 2.2 | 229 | 4 | 2.08 |
+| sellar_constrained | 12 | Solved | GpPosterior | 10/10 | 9/10 | 34.5 ± 2.1 | 244 | 294 | 4.24 |
+| sellar_constrained | 12 | Linearized | GpPosterior | 10/10 | 9/10 | 34.0 ± 2.0 | 242 | 4 | 4.19 |
+
+### Findings
+
+- **The perfect correlation of the papers is far from the GP posterior correlation.** Between `DoE_UQ` points, the median posterior correlation is between −0.09 and 0.24, and the 10–90% range typically spans −0.5 to 0.7, on every problem and for every DoE size. Only with 3 points per discipline on the toy problems do some pairs come close to 1.
+- **It changes `P_min` only while the disciplinary uncertainty is large.** With 3 to 5 points per discipline, `P_min` moves by 0.09 to 0.34 in total variation, and the most probable minimizer changes in 1 or 2 seeds out of 10. From 6 points per discipline on the toy problems, 8 on modified Sellar and 12 on the compound cylinder, the distance is below 0.05. On constrained Sellar it stays between 0.1 and 0.18 up to 12 points.
+- **The optimization results are equivalent.** Over the 20 problem and DoE size combinations, the four models converge in 183 to 187 runs out of 200, and the best point is optimal in 170 to 177 runs, with the same number of disciplinary evaluations. The largest differences are on constrained Sellar with 4 and 5 points per discipline, where the linearized random MDA with the GP correlation converges in 6/10 runs against 8 or 9/10 for the other models, its best point still being optimal in 9 and 8 runs. They are within the noise of 10 runs per row.
+- **The GP correlation costs 1.5 to 2.5 times the run time on the Sellar problems and the compound cylinder** (little on the toy problems). With decorrelated points, the covariance of the objective over `DoE_UQ` has many more significant eigenvalues: on constrained Sellar, the KL keeps 17 to 23 modes against 5 to 7, so 3 times as many KL-GPs are trained and predicted. The random MDAs are then a minor part of the run, and the linearization no longer saves time.
+- **The rank-one assumption across design points does not limit the method on these problems.** The perfect correlation keeps the KL small and the results unchanged, so it stays the default. The GP correlation remains available, as the more faithful model of the disciplinary uncertainty, for problems where the uncertainty stays large.

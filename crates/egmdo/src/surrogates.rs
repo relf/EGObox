@@ -65,6 +65,17 @@ impl DisciplinaryGp {
         }
     }
 
+    /// Predicts the posterior covariance matrix `(n, n)` between the inputs `x` `(n, dim)`
+    pub fn predict_covariance(
+        &self,
+        x: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+    ) -> Result<Array2<f64>> {
+        Ok(match self {
+            DisciplinaryGp::SquaredExponential(gp) => gp.predict_covariance(x)?,
+            DisciplinaryGp::Matern52(gp) => gp.predict_covariance(x)?,
+        })
+    }
+
     /// The optimized `theta` hyperparameters (inverse length scales)
     pub fn theta(&self) -> &Array1<f64> {
         match self {
@@ -263,6 +274,15 @@ impl DisciplinaryModels {
         self.gps[i]
             .iter()
             .map(|gp| gp.predict_gradients(x))
+            .collect()
+    }
+
+    /// Predicts the posterior covariance matrices `(n, n)` of the outputs of discipline `i`
+    /// between the inputs `x` of shape `(n, input_dim)`, one per output
+    pub fn predict_covariance(&self, i: usize, x: &Array2<f64>) -> Result<Vec<Array2<f64>>> {
+        self.gps[i]
+            .iter()
+            .map(|gp| gp.predict_covariance(x))
             .collect()
     }
 

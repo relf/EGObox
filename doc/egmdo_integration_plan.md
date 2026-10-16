@@ -344,10 +344,11 @@ The initial implementation is ready for a first release when:
 | 8 | `egmdo-python` | `egobox.egmdo` Python bindings, type stubs, tests and documentation | B/C |
 | 9 | — | Dropped: MDO framework adapters (OpenMDAO) are not part of EGObox | — |
 | 10 | `egmdo-linearized-mda` | Linearized random MDA (D37, issue #493), compared with the solved random MDA for several initial DoE sizes | E |
+| 11 | `egmdo-gp-correlation` | Correlation across design points from the GP posteriors (D38, issue #493), with the solved or the linearized random MDA | E |
 
 Stage E items get their own PRs once the first release is merged into `master`, except the alternatives to the rank-one disciplinary GP of issue #493, studied with its author on `egmdo`:
 
 1. the linearized random MDA (PR 10);
-2. the correlation across design points from the GP posterior covariance, in place of the shared `Ξ`, with the solved or the linearized random MDA;
+2. the correlation across design points from the GP posterior covariance, in place of the shared `Ξ`, with the solved or the linearized random MDA (PR 11);
 3. a local KL expansion of the disciplinary GPs around the mean MDA solution, if the correlation across design points matters;
 4. a hybrid that solves the random MDAs while the uncertainty is large and linearizes them afterwards.
