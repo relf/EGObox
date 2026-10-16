@@ -342,7 +342,7 @@ The initial implementation is ready for a first release when:
 
 - `egmdo` is the integration branch, created from `master`. Nothing is merged into `master` until the acceptance criteria of section 9 are met.
 - Each PR has its own branch created from `egmdo` and targets `egmdo`. Branches are named `egmdo-<topic>`. (`egmdo/<topic>` is not possible because Git cannot have both a branch `egmdo` and branches under `egmdo/`.)
-- `master` is merged into `egmdo` periodically (merge, not rebase, since `egmdo` is shared) to keep it up to date with the rest of EGObox.
+- `egmdo` is rebased on `master` periodically, to keep it up to date with the rest of EGObox; the open `egmdo-<topic>` branches are then rebased on the new `egmdo`.
 - The final integration is a single PR from `egmdo` to `master`.
 
 ### PR sequence
