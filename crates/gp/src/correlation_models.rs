@@ -55,6 +55,25 @@ pub trait CorrelationModel<F: Float>: Clone + Copy + Default + fmt::Display + Sy
         weights: &ArrayBase<impl Data<Elem = F>, Ix2>,
     ) -> Array2<F>;
 
+    /// Transform `distances` once before repeated correlation computations with
+    /// [`CorrelationModel::rval_from_prepared_distances`] for varying `theta`
+    /// (e.g. during likelihood optimization). Default: distances are kept unchanged.
+    fn prepare_distances(&self, distances: Array2<F>) -> Array2<F> {
+        distances
+    }
+
+    /// Compute correlation function r(x, x') given distances transformed by
+    /// [`CorrelationModel::prepare_distances`], `theta` parameters and PLS `weights`
+    /// (see [`CorrelationModel::rval_from_distances`]).
+    fn rval_from_prepared_distances(
+        &self,
+        prepared: &ArrayBase<impl Data<Elem = F>, Ix2>,
+        theta: &ArrayBase<impl Data<Elem = F>, Ix1>,
+        weights: &ArrayBase<impl Data<Elem = F>, Ix2>,
+    ) -> Array2<F> {
+        self.rval_from_distances(prepared, theta, weights)
+    }
+
     /// Compute gradients of `r(x, x')` at given `x` given a set of `x'` training samples, aka `xtrain`,
     /// `theta` parameters, and PLS `weights`.
     /// The returned jacobian matrix is dr/dx where r is the correlation function vector between x and xtrain (shape nt).
@@ -123,10 +142,24 @@ impl<F: Float> CorrelationModel<F> for SquaredExponentialCorr {
         theta: &ArrayBase<impl Data<Elem = F>, Ix1>,
         weights: &ArrayBase<impl Data<Elem = F>, Ix2>,
     ) -> Array2<F> {
+        self.rval_from_prepared_distances(&self.prepare_distances(d.to_owned()), theta, weights)
+    }
+
+    /// Squared distances
+    fn prepare_distances(&self, distances: Array2<F>) -> Array2<F> {
+        distances.mapv_into(|v| v * v)
+    }
+
+    fn rval_from_prepared_distances(
+        &self,
+        d_sq: &ArrayBase<impl Data<Elem = F>, Ix2>,
+        theta: &ArrayBase<impl Data<Elem = F>, Ix1>,
+        weights: &ArrayBase<impl Data<Elem = F>, Ix2>,
+    ) -> Array2<F> {
         let theta_w_sq = (theta * weights).mapv(|v| v * v).sum_axis(Axis(1));
-        let r = d.mapv(|v| v * v).dot(&theta_w_sq);
+        let r = d_sq.dot(&theta_w_sq);
         r.mapv(|v| F::exp(F::cast(-0.5) * v))
-            .into_shape_with_order((d.nrows(), 1))
+            .into_shape_with_order((d_sq.nrows(), 1))
             .unwrap()
     }
 
@@ -217,10 +250,24 @@ impl<F: Float> CorrelationModel<F> for AbsoluteExponentialCorr {
         theta: &ArrayBase<impl Data<Elem = F>, Ix1>,
         weights: &ArrayBase<impl Data<Elem = F>, Ix2>,
     ) -> Array2<F> {
+        self.rval_from_prepared_distances(&self.prepare_distances(d.to_owned()), theta, weights)
+    }
+
+    /// Absolute distances
+    fn prepare_distances(&self, distances: Array2<F>) -> Array2<F> {
+        distances.mapv_into(|v| v.abs())
+    }
+
+    fn rval_from_prepared_distances(
+        &self,
+        d_abs: &ArrayBase<impl Data<Elem = F>, Ix2>,
+        theta: &ArrayBase<impl Data<Elem = F>, Ix1>,
+        weights: &ArrayBase<impl Data<Elem = F>, Ix2>,
+    ) -> Array2<F> {
         let theta_w = weights.mapv(|v| v.abs()).dot(theta);
-        let r = d.mapv(|v| v.abs()).dot(&theta_w);
+        let r = d_abs.dot(&theta_w);
         r.mapv(|v| F::exp(-v))
-            .into_shape_with_order((d.nrows(), 1))
+            .into_shape_with_order((d_abs.nrows(), 1))
             .unwrap()
     }
 

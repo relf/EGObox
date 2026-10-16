@@ -1095,7 +1095,7 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>, D: Data<Elem
                 |v| Ok(v.rotations().0.to_owned()),
             )?;
         };
-        let x_distances = DiffMatrix::new(&xtrain.data);
+        let mut x_distances = DiffMatrix::new(&xtrain.data);
         let sums = x_distances
             .d
             .mapv(|v| num_traits::float::Float::abs(v))
@@ -1103,6 +1103,10 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>, D: Data<Elem
         if *sums.min().unwrap() == F::zero() {
             log::warn!("Warning: multiple x have the same value (at least same row twice).");
         }
+        // Distances are transformed once for all correlation computations below
+        let prepared_distances = self
+            .corr()
+            .prepare_distances(std::mem::take(&mut x_distances.d));
         let fx = self.mean().coefs(&xtrain.data);
 
         let opt_params = match self.theta_tuning() {
@@ -1129,9 +1133,11 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>, D: Data<Elem
                             return f64::INFINITY;
                         }
                     }
-                    let rxx = self
-                        .corr()
-                        .rval_from_distances(&x_distances.d, &theta, &w_star);
+                    let rxx = self.corr().rval_from_prepared_distances(
+                        &prepared_distances,
+                        &theta,
+                        &w_star,
+                    );
                     match reduced_likelihood(&fx, rxx, &x_distances, &ytrain, self.nugget()) {
                         Ok(r) => unsafe { -(*(&r.0 as *const F as *const f64)) },
                         Err(_) => f64::INFINITY,
@@ -1205,9 +1211,9 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>, D: Data<Elem
             }
         };
 
-        let rxx = self
-            .corr()
-            .rval_from_distances(&x_distances.d, &opt_params, &w_star);
+        let rxx =
+            self.corr()
+                .rval_from_prepared_distances(&prepared_distances, &opt_params, &w_star);
         let (lkh, inner_params) =
             reduced_likelihood(&fx, rxx, &x_distances, &ytrain, self.nugget())?;
         Ok(GaussianProcess {
