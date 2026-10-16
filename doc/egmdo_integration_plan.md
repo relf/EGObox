@@ -273,7 +273,7 @@ After correctness is established:
 | Discipline outputs | One or more scalar coupling outputs |
 | Coupling | Explicit mappings, initial coupling bounds |
 | Surrogates | One GP per scalar coupling output |
-| Uncertainty model | Simplified GP, one standard normal per GP |
+| Uncertainty model | Simplified GP, one standard normal per GP; optionally linearized at the mean MDA solution (D37) |
 | Random objective | Hermite PCE + KL decomposition + KL-GPs |
 | Constraints | Cheap inequality and equality constraints of `(z, y)`, PCE + GP of the mean |
 | Acquisition | EI/CEI or WB2 |
@@ -342,7 +342,7 @@ The initial implementation is ready for a first release when:
 
 - `egmdo` is the integration branch, created from `master`. Nothing is merged into `master` until the acceptance criteria of section 9 are met.
 - Each PR has its own branch created from `egmdo` and targets `egmdo`. Branches are named `egmdo-<topic>`. (`egmdo/<topic>` is not possible because Git cannot have both a branch `egmdo` and branches under `egmdo/`.)
-- `master` is merged into `egmdo` periodically (merge, not rebase, since `egmdo` is shared) to keep it up to date with the rest of EGObox.
+- `egmdo` is rebased on `master` periodically, to keep it up to date with the rest of EGObox; the open `egmdo-<topic>` branches are then rebased on the new `egmdo`.
 - The final integration is a single PR from `egmdo` to `master`.
 
 ### PR sequence
@@ -358,5 +358,11 @@ The initial implementation is ready for a first release when:
 | 7 | `egmdo-benchmarks` | Papers' test cases at scale, robustness studies, comparison with `Egor` on the true MDA | C |
 | 8 | `egmdo-python` | `egobox.egmdo` Python bindings, type stubs, tests and documentation | B/C |
 | 9 | `egmdo-openmdao` | Optional `egobox.egmdo.openmdao` adapter | D |
+| 10 | `egmdo-linearized-mda` | Linearized random MDA (D37, issue #493), compared with the solved random MDA for several initial DoE sizes | E |
 
-Stage E items get their own PRs once the first release is merged into `master`.
+Stage E items get their own PRs once the first release is merged into `master`, except the alternatives to the rank-one disciplinary GP of issue #493, studied with its author on `egmdo`:
+
+1. the linearized random MDA (PR 10);
+2. the correlation across design points from the GP posterior covariance, in place of the shared `Ξ`, with the solved or the linearized random MDA;
+3. a local KL expansion of the disciplinary GPs around the mean MDA solution, if the correlation across design points matters;
+4. a hybrid that solves the random MDAs while the uncertainty is large and linearizes them afterwards.
