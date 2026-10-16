@@ -99,3 +99,101 @@ The papers report evaluations per discipline; they are summed here.
 - **The current minimum is random and coupled with the field.** `f'_min(Ξ)` is the (feasible) minimum of the `DoE_UQ` PCEs for the same sample `Ξ` as `Ỹ_obj(z, Ξ, η)`. A scalar `fmin` loses this coupling, which lets the criterion tell the disciplinary uncertainty from the KL-GP interpolation uncertainty.
 
 The model is moreover a KL-GP field, not a `MixtureGpSurrogate`, and the `grad` methods of the `InfillCriterion` trait have no Monte Carlo counterpart here. A Gaussian moment-matched variant could call `egobox-ego`'s LogEI, but it would be a different criterion from the papers'. The Monte Carlo LogEI (D36) is the counterpart, from the same paper (qLogEI), that keeps the field and the coupling. `egobox-ego`'s WB2S scaling rule is reused, in D35.
+
+## Linearized random MDA (D37)
+
+Issue #493 proposes alternatives to the rank-one disciplinary GP of the random MDA (9). The first one is implemented: the random MDA is linearized at the mean MDA solution, `y(Ξ) = y_0 + (I − J)⁻¹ diag(σ) Ξ` (D37), and the PCEs are fitted on these samples as before. The comparison below varies the size of the initial disciplinary DoEs, i.e. the level of disciplinary GP uncertainty.
+
+```text
+cargo run -p egobox-egmdo --release --example egmdo_linearized -- uq 10
+cargo run -p egobox-egmdo --release --example egmdo_linearized -- opt 10
+```
+
+### Uncertainty quantification only
+
+With the same disciplinary GPs (initial DoEs of the given size per discipline, Matérn 5/2) and the same design points (the problem's `DoE_UQ`), the objective PCEs and `P_min` (`P_sol` with constraints) from both random MDAs, over 10 seeds:
+
+- *Objective std*: standard deviation of the objective PCE with the solved random MDA, median over the design points, as the level of uncertainty;
+- *Std ratio* and *mean shift*: linearized std over solved std, and difference of the means in solved standard deviations, median [10%, 90%] over the design points;
+- *P_min distance*: total variation distance between both `P_min` over the design points, median over the seeds; *same most probable minimizer*: number of seeds where both `P_min` have the same mode;
+- *Failed random MDAs*: fraction of the solved random MDAs that do not converge; *fallbacks*: points where the linearization falls back to the solved random MDAs; *time*: per seed, all design points.
+
+| Problem | Initial DoE per discipline | Objective std (solved, median) | Std ratio lin./solved | Mean shift (solved std) | P_min distance (median) | Same most probable minimizer | Failed random MDAs | Fallbacks | Dropped points | Time solved / lin. (s) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| toy | 3 | 0.460 | 0.99 [0.58, 1.25] | 0.15 [0.03, 0.49] | 0.150 | 8/10 | 2.77% | 0/40 | 0 | 0.041 / 0.003 |
+| toy | 4 | 0.523 | 0.99 [0.70, 1.06] | 0.06 [0.00, 0.21] | 0.089 | 8/10 | 0.09% | 0/40 | 0 | 0.024 / 0.002 |
+| toy | 6 | 0.099 | 1.00 [0.98, 1.03] | 0.01 [0.00, 0.02] | 0.001 | 10/10 | 0.00% | 0/40 | 0 | 0.003 / 0.000 |
+| toy | 10 | 0.044 | 1.00 [0.97, 1.02] | 0.01 [0.00, 0.03] | 0.000 | 10/10 | 0.00% | 0/40 | 0 | 0.006 / 0.000 |
+| sellar_modified | 4 | 15.183 | 1.00 [0.95, 1.01] | 0.00 [0.00, 0.05] | 0.031 | 10/10 | 0.00% | 0/200 | 0 | 0.005 / 0.001 |
+| sellar_modified | 5 | 11.834 | 1.00 [0.96, 1.03] | 0.00 [0.00, 0.09] | 0.003 | 9/10 | 0.00% | 0/200 | 0 | 0.019 / 0.001 |
+| sellar_modified | 8 | 2.861 | 1.00 [1.00, 1.00] | 0.00 [0.00, 0.01] | 0.000 | 10/10 | 0.00% | 0/200 | 0 | 0.010 / 0.001 |
+| sellar_modified | 12 | 0.733 | 1.00 [0.99, 1.00] | 0.00 [0.00, 0.01] | 0.000 | 9/10 | 0.00% | 0/200 | 0 | 0.019 / 0.001 |
+| compound_cylinder | 5 | 0.068 | 1.00 [0.70, 1.10] | 0.02 [0.00, 0.20] | 0.115 | 10/10 | 0.01% | 0/200 | 0 | 0.029 / 0.001 |
+| compound_cylinder | 8 | 0.013 | 0.99 [0.78, 1.03] | 0.02 [0.00, 0.11] | 0.013 | 9/10 | 0.12% | 0/200 | 0 | 0.071 / 0.002 |
+| compound_cylinder | 12 | 0.007 | 1.00 [0.96, 1.03] | 0.02 [0.00, 0.04] | 0.004 | 10/10 | 0.00% | 0/200 | 0 | 0.056 / 0.002 |
+| compound_cylinder | 16 | 0.004 | 1.00 [0.98, 1.01] | 0.01 [0.00, 0.03] | 0.003 | 10/10 | 0.00% | 0/200 | 0 | 0.071 / 0.002 |
+| toy_constrained | 3 | 0.450 | 1.00 [0.66, 1.30] | 0.14 [0.01, 0.42] | 0.030 | 7/10 | 2.79% | 0/40 | 0 | 0.036 / 0.002 |
+| toy_constrained | 4 | 0.484 | 1.00 [0.71, 1.10] | 0.06 [0.00, 0.38] | 0.035 | 9/10 | 0.04% | 0/40 | 0 | 0.024 / 0.002 |
+| toy_constrained | 6 | 0.109 | 1.00 [0.99, 1.01] | 0.01 [0.00, 0.02] | 0.000 | 10/10 | 0.00% | 0/40 | 0 | 0.002 / 0.000 |
+| toy_constrained | 10 | 0.065 | 1.00 [0.99, 1.01] | 0.02 [0.01, 0.04] | 0.000 | 10/10 | 0.00% | 0/40 | 0 | 0.005 / 0.000 |
+| sellar_constrained | 4 | 15.993 | 1.00 [0.66, 1.28] | 0.00 [0.00, 0.23] | 0.146 | 7/10 | 0.00% | 0/200 | 0 | 0.009 / 0.001 |
+| sellar_constrained | 5 | 11.406 | 1.00 [0.82, 1.13] | 0.00 [0.00, 0.16] | 0.079 | 8/10 | 0.00% | 0/200 | 0 | 0.009 / 0.001 |
+| sellar_constrained | 8 | 2.718 | 1.00 [0.96, 1.00] | 0.01 [0.00, 0.03] | 0.003 | 10/10 | 0.00% | 0/200 | 0 | 0.011 / 0.001 |
+| sellar_constrained | 12 | 0.990 | 1.00 [0.04, 1.00] | 0.01 [0.00, 0.11] | 0.027 | 10/10 | 0.00% | 0/200 | 0 | 0.020 / 0.001 |
+
+### Whole algorithm
+
+The defaults (C-EGMDO options, Matérn 5/2) with the problem settings of the benchmarks above, except the initial DoE sizes, over 10 seeds (0 to 9). *Failed random MDAs* sums, over the runs, the non-converged random MDAs at the final `DoE_UQ`; *solved points* counts the `DoE_UQ` points where the random MDA was solved (for the linearized runs, the fallbacks).
+
+| Problem | Initial DoE per discipline | Random MDA | Converged (papers' criterion) | Best point optimal | Disciplinary evaluations | Failed random MDAs | Solved points (lin. fallbacks) | Median time (s) |
+|---|---|---|---|---|---|---|---|---|
+| toy | 3 | Solved | 10/10 | 10/10 | 14.4 ± 1.9 | 0 | 90 | 0.66 |
+| toy | 3 | Linearized | 10/10 | 10/10 | 14.4 ± 2.3 | 0 | 0 | 0.40 |
+| toy | 4 | Solved | 10/10 | 10/10 | 14.7 ± 2.5 | 0 | 90 | 0.48 |
+| toy | 4 | Linearized | 9/10 | 7/10 | 13.9 ± 1.8 | 0 | 0 | 0.37 |
+| toy | 6 | Solved | 10/10 | 10/10 | 15.2 ± 2.2 | 0 | 90 | 0.38 |
+| toy | 6 | Linearized | 10/10 | 10/10 | 14.5 ± 1.1 | 0 | 0 | 0.31 |
+| toy | 10 | Solved | 10/10 | 9/10 | 24.6 ± 2.2 | 2 | 90 | 0.49 |
+| toy | 10 | Linearized | 9/10 | 9/10 | 23.9 ± 1.7 | 0 | 0 | 0.36 |
+| sellar_modified | 4 | Solved | 8/10 | 9/10 | 20.2 ± 2.4 | 7 | 300 | 3.13 |
+| sellar_modified | 4 | Linearized | 8/10 | 8/10 | 18.8 ± 2.4 | 9 | 2 | 2.36 |
+| sellar_modified | 5 | Solved | 10/10 | 10/10 | 20.1 ± 2.0 | 58 | 300 | 2.92 |
+| sellar_modified | 5 | Linearized | 9/10 | 10/10 | 19.2 ± 2.2 | 88 | 1 | 2.48 |
+| sellar_modified | 8 | Solved | 8/10 | 9/10 | 21.7 ± 1.7 | 0 | 300 | 2.75 |
+| sellar_modified | 8 | Linearized | 8/10 | 9/10 | 21.1 ± 1.4 | 0 | 0 | 2.23 |
+| sellar_modified | 12 | Solved | 9/10 | 9/10 | 27.9 ± 1.8 | 3 | 299 | 2.46 |
+| sellar_modified | 12 | Linearized | 9/10 | 9/10 | 27.9 ± 2.2 | 124 | 1 | 2.16 |
+| compound_cylinder | 5 | Solved | 10/10 | 7/10 | 21.5 ± 3.6 | 1 | 400 | 8.14 |
+| compound_cylinder | 5 | Linearized | 10/10 | 8/10 | 22.0 ± 3.5 | 0 | 0 | 6.87 |
+| compound_cylinder | 8 | Solved | 10/10 | 8/10 | 25.2 ± 2.4 | 0 | 400 | 8.47 |
+| compound_cylinder | 8 | Linearized | 10/10 | 9/10 | 25.6 ± 2.9 | 0 | 0 | 6.42 |
+| compound_cylinder | 12 | Solved | 10/10 | 9/10 | 30.7 ± 1.3 | 0 | 399 | 8.05 |
+| compound_cylinder | 12 | Linearized | 10/10 | 9/10 | 30.9 ± 1.4 | 0 | 0 | 6.51 |
+| compound_cylinder | 16 | Solved | 10/10 | 7/10 | 36.6 ± 1.0 | 0 | 400 | 6.86 |
+| compound_cylinder | 16 | Linearized | 10/10 | 10/10 | 36.8 ± 0.9 | 0 | 0 | 5.51 |
+| toy_constrained | 3 | Solved | 8/10 | 7/10 | 21.5 ± 1.9 | 0 | 90 | 1.07 |
+| toy_constrained | 3 | Linearized | 10/10 | 9/10 | 20.1 ± 2.1 | 0 | 0 | 0.43 |
+| toy_constrained | 4 | Solved | 9/10 | 5/10 | 22.0 ± 2.7 | 0 | 90 | 0.82 |
+| toy_constrained | 4 | Linearized | 8/10 | 5/10 | 20.4 ± 1.8 | 0 | 0 | 0.43 |
+| toy_constrained | 6 | Solved | 9/10 | 8/10 | 21.0 ± 1.3 | 2 | 90 | 0.57 |
+| toy_constrained | 6 | Linearized | 9/10 | 9/10 | 20.0 ± 1.1 | 0 | 0 | 0.35 |
+| toy_constrained | 10 | Solved | 10/10 | 8/10 | 28.2 ± 0.9 | 0 | 90 | 0.57 |
+| toy_constrained | 10 | Linearized | 10/10 | 6/10 | 27.8 ± 0.9 | 0 | 0 | 0.35 |
+| sellar_constrained | 4 | Solved | 8/10 | 10/10 | 23.4 ± 1.5 | 0 | 293 | 2.74 |
+| sellar_constrained | 4 | Linearized | 8/10 | 10/10 | 23.9 ± 2.3 | 0 | 0 | 2.50 |
+| sellar_constrained | 5 | Solved | 9/10 | 9/10 | 23.6 ± 2.2 | 97 | 295 | 2.69 |
+| sellar_constrained | 5 | Linearized | 8/10 | 10/10 | 24.2 ± 2.1 | 86 | 3 | 2.27 |
+| sellar_constrained | 8 | Solved | 9/10 | 10/10 | 26.5 ± 2.5 | 0 | 293 | 2.61 |
+| sellar_constrained | 8 | Linearized | 9/10 | 10/10 | 26.3 ± 2.2 | 0 | 0 | 2.08 |
+| sellar_constrained | 12 | Solved | 10/10 | 8/10 | 33.6 ± 2.4 | 13 | 293 | 2.67 |
+| sellar_constrained | 12 | Linearized | 10/10 | 9/10 | 33.7 ± 2.2 | 229 | 4 | 2.00 |
+
+### Findings
+
+- **The linearization matches the solved random MDA once the disciplinary GPs are accurate enough:** from 6 points per discipline on the toy problems, 8 on the Sellar problems and 12 on the compound cylinder. The standard deviations then agree within 4% at 80% of the points, the means within 0.05 standard deviation at 90% of the points, and `P_min` within 0.004 in total variation (except constrained Sellar with 12 points, see the outliers below).
+- **It departs from the solved random MDA with very small DoEs (3 to 4 points)**, where `σ` is large with respect to the curvature of the GP means: the standard deviation ratio spreads over [0.6, 1.3] on the toy problems and constrained Sellar, and `P_min` differs by 0.03 to 0.15. The most probable minimizer still agrees in 7 to 10 seeds out of 10.
+- **The optimization results are equivalent.** Over the 20 problem and DoE size combinations, 184 of 200 linearized runs converge against 187 for the solved random MDA, and the best point is optimal in 176 against 172 runs, for the same number of disciplinary evaluations (within 1.6 evaluations, slightly fewer with the linearization). The differences are within the noise of 10 runs per row; the largest is on the toy problem with 4 points per discipline (best point optimal 7/10 against 10/10).
+- **A few outliers remain where the GPs extrapolate.** On constrained Sellar with 12 points per discipline, 10% of the design points have a linearized standard deviation below 4% of the solved one. They are at the edge of the design space (`|z1| ≈ 9`), where `σ_2` reaches 5 to 12 and the objective term `exp(−y_2)` makes the objective distribution extremely heavy-tailed (standard deviations of 10⁹ and more for both random MDAs): the solved random MDA has heavier `y_2` tails. These points are far from the optimum and do not change `P_min`.
+- **No random MDA is solved, except at about 1% of the points.** The linearization falls back to the solved random MDAs where the mean MDA does not converge: 0 to 4 points per row out of 90 to 400, on the Sellar problems. These hard points concentrate the remaining failed random MDAs.
+- **The scaling of `I − J` matters.** On the compound cylinder, the two coupling variables differ by six orders of magnitude, and the unscaled singular values of `I − J` have a ratio of 10⁻¹² although the coupling loop is well-posed (`J_12 J_21 ≈ −0.7`). The conditioning is tested on `S⁻¹(I − J)S`, `S = diag(|y_0| + σ)` (D37).
+- **The uncertainty quantification is 5 to 35 times faster, the whole run 10 to 60% faster.** On these small problems, the random MDAs are a minor part of a run, which is dominated by the acquisition optimization, the KL-GPs and the `P_min` sampling. The gain grows with the number of coupling variables and the cost of the GP predictions.

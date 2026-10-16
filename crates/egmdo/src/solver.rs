@@ -522,6 +522,7 @@ impl EgmdoSolver {
                     &self.xi_regression.view(),
                     &self.basis,
                     &self.config.mda,
+                    self.config.uq.random_mda,
                 )
             })
             .collect();
@@ -638,6 +639,7 @@ impl EgmdoSolver {
                 &self.xi_regression.view(),
                 &self.basis,
                 &self.config.mda,
+                self.config.uq.random_mda,
             ) {
                 Ok(uq) => {
                     self.doe_uq = concatenate![Axis(0), self.doe_uq, z.view().insert_axis(Axis(0))];
@@ -877,6 +879,7 @@ pub fn minimize(
 mod tests {
     use super::*;
     use crate::problems;
+    use crate::uq::RandomMda;
     use ndarray::array;
 
     /// The setting of the 1-D toy problem in the EGMDO paper (section 2)
@@ -972,6 +975,37 @@ mod tests {
         assert!(
             summary.iter().all(|s| s.4.iter().all(|&n| n <= 25)),
             "{summary:?}"
+        );
+    }
+
+    #[test]
+    fn test_linearized_random_mda() {
+        // D37: no random MDA is solved, and the toy problem converges about as often as
+        // with the solved random MDAs (test_toy_problem_robustness)
+        let tp = problems::toy();
+        let mut summary = vec![];
+        for seed in 0..10 {
+            let config = EgmdoConfig {
+                uq: UqSettings {
+                    random_mda: RandomMda::Linearized,
+                    ..UqSettings::default()
+                },
+                ..toy_config(seed)
+            };
+            let result = minimize(&tp.problem, &tp.disciplines, config).unwrap();
+            assert!(result.uq.iter().all(|u| u.linearized && u.n_failed == 0));
+            let converged =
+                (result.z_star_mean()[0] - tp.z_ref[0]).abs() < 0.05 * tp.z_ref[0].abs();
+            summary.push((
+                seed,
+                converged,
+                result.z_star_mean()[0],
+                result.n_evaluations,
+            ));
+        }
+        assert!(
+            summary.iter().filter(|s| s.1).count() >= 6,
+            "runs (seed, converged, E[z*], evaluations): {summary:?}"
         );
     }
 

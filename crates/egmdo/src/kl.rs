@@ -236,7 +236,7 @@ impl KlGpField {
 mod tests {
     use super::*;
     use crate::pce::normal_samples;
-    use crate::uq::{UqSettings, coefficients, doe_uq};
+    use crate::uq::{RandomMda, UqSettings, coefficients, doe_uq};
     use approx::assert_abs_diff_eq;
     use ndarray::{Array, array};
 
@@ -301,6 +301,7 @@ mod tests {
             &xi.view(),
             &basis,
             &tp.mda,
+            RandomMda::Solved,
         )
         .unwrap();
         let coefs = coefficients(&uq, 0);

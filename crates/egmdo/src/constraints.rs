@@ -117,7 +117,7 @@ mod tests {
     use super::*;
     use crate::problems;
     use crate::surrogates::{DisciplinaryModels, initial_doe};
-    use crate::uq::{UqSettings, doe_uq};
+    use crate::uq::{RandomMda, UqSettings, doe_uq};
     use approx::assert_abs_diff_eq;
     use ndarray::{Axis, array, concatenate};
 
@@ -150,7 +150,16 @@ mod tests {
         let basis = settings.basis(2);
         let xi = settings.regression_samples(&basis, 0);
         let z_uq = array![[1., 1., 1.], [2., 0., 0.], [-3., 5., 5.], [0., 8., 2.]];
-        let uq = doe_uq(&problem, &models, &z_uq.view(), &xi.view(), &basis, &tp.mda).unwrap();
+        let uq = doe_uq(
+            &problem,
+            &models,
+            &z_uq.view(),
+            &xi.view(),
+            &basis,
+            &tp.mda,
+            RandomMda::Solved,
+        )
+        .unwrap();
 
         let cm = ConstraintModels::fit(&problem, &z_uq, &uq, &GpSettings::default()).unwrap();
         assert_eq!(cm.n_constraints(), 3);
