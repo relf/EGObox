@@ -22,6 +22,7 @@ c-cobyla = [
     "egobox-gp/c-cobyla",
     "egobox-moe/c-cobyla",
     "egobox-gpx/c-cobyla",
+    "egobox-egmdo/c-cobyla",
 ]
 # Use slsqp crate (C-ported NLopt SLSQP) instead of basin SLSQP
 c-slsqp = ["egobox-ego/c-slsqp"]
@@ -35,6 +36,7 @@ egobox-gp = { version = "0.37.2", path = "../crates/gp" }
 egobox-moe = { version = "0.37.0", path = "../crates/moe" }
 egobox-ego = { version = "0.43.0", path = "../crates/ego" }
 egobox-gpx = { version = "0.6.0", path = "../crates/gpx" }
+egobox-egmdo = { version = "0.1.0", path = "../crates/egmdo" }
 
 
 pyo3 = { version = "0.29.0" }

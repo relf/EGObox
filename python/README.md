@@ -3,7 +3,7 @@
 ![pytests](https://github.com/relf/egobox/actions/workflows/pytest.yml/badge.svg)
 [![DOI](https://joss.theoj.org/papers/10.21105/joss.04737/status.svg)](https://doi.org/10.21105/joss.04737)
 
-`egobox` package is the Python binding of the optimizer named `Egor` (and its multi-objective counterpart `Belfegor`) and the surrogate model `Gpx`, mixture of Gaussian processes, from the [EGObox libraries](https://github.com/relf/egobox?tab=readme-ov-file#egobox---efficient-global-optimization-toolbox) written in Rust.
+`egobox` package is the Python binding of the optimizer named `Egor` (with its multi-objective counterpart `Belfegor` and its multidisciplinary counterpart `Emdegor`) and the surrogate model `Gpx`, mixture of Gaussian processes, from the [EGObox libraries](https://github.com/relf/egobox?tab=readme-ov-file#egobox---efficient-global-optimization-toolbox) written in Rust.
 
 ## Installation
 
@@ -62,6 +62,48 @@ belfegor = egx.Belfegor([[0.0, 1.0], [0.0, 1.0]], n_obj=2, n_doe=10, seed=42)
 res = belfegor.minimize(zdt1, max_iters=20)
 print(f"Pareto front of {len(res.y_pareto)} points")  # res.x_pareto, res.y_pareto
 print(f"Compromise point f={res.y_opt} at x={res.x_opt}")
+```
+
+### Emdegor multidisciplinary design optimizer (experimental)
+
+`Emdegor` minimizes an objective, subject to constraints, computed from coupling variables of
+expensive disciplines which depend on each other (EGMDO and C-EGMDO algorithms). Each discipline is
+replaced by Gaussian process surrogates enriched only where the optimum is likely to be, which saves
+many disciplinary evaluations. The design and coupling variables are declared once by name, and the
+disciplines are wired to them by name; `qoi(z, y)` returns the cheap objective and constraints
+(`g <= 0`) from the design variables `z` and the couplings `y`, columns in declaration order.
+An ask/tell interface (`ask()`, `tell()`) lets the caller run the disciplines.
+
+```python
+import numpy as np
+import egobox as egx
+
+# Sellar problem: y1 = z1² + z2 + z3 - 0.2 y2, y2 = sqrt(y1) + z1 + z2
+design = {"z1": [-10.0, 10.0], "z2": [0.0, 10.0], "z3": [0.0, 10.0]}
+couplings = {"y1": [0.0, 25.0], "y2": [0.0, 25.0]}  # initial ranges
+
+
+def f1(x: np.ndarray) -> np.ndarray:  # x columns: z1, z2, z3, y2
+    return (x[:, 0] ** 2 + x[:, 1] + x[:, 2] - 0.2 * x[:, 3])[:, None]
+
+
+def f2(x: np.ndarray) -> np.ndarray:  # x columns: z1, z2, y1
+    return (np.sqrt(np.maximum(x[:, 2], 0)) + x[:, 0] + x[:, 1])[:, None]
+
+
+def qoi(z: np.ndarray, y: np.ndarray) -> np.ndarray:  # z: z1, z2, z3; y: y1, y2
+    f = z[:, 2] ** 2 + z[:, 1] + y[:, 0] + np.exp(-y[:, 1])
+    return np.column_stack([f, 3.16 - y[:, 0], y[:, 1] - 24.0])  # [f, g1, g2]
+
+
+d1 = egx.Discipline("d1", f1, inputs=["z1", "z2", "z3", "y2"], outputs=["y1"])
+d2 = egx.Discipline("d2", f2, inputs=["z1", "z2", "y1"], outputs=["y2"])
+emdegor = egx.Emdegor(design, couplings, [d1, d2], qoi, n_ineq=2, seed=0)
+res = emdegor.minimize(max_iters=10)
+print(
+    f"Best point {dict(zip(res.design_names, res.z_best))}, f={res.f_best}, "
+    f"with {res.n_evaluations} disciplinary evaluations"
+)
 ```
 
 ### Gpx surrogate model

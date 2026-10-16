@@ -39,6 +39,16 @@ pub(crate) fn ego_err(e: egobox_ego::EgoError) -> PyErr {
     }
 }
 
+/// Convert an EGMDO error into a Python exception
+pub(crate) fn egmdo_err(e: egobox_egmdo::EgmdoError) -> PyErr {
+    use egobox_egmdo::EgmdoError;
+    let msg = error_chain(&e);
+    match e {
+        EgmdoError::InvalidProblem(_) | EgmdoError::InvalidData(_) => PyValueError::new_err(msg),
+        _ => PyRuntimeError::new_err(msg),
+    }
+}
+
 /// Convert a surrogate model error into a Python exception
 pub(crate) fn moe_err(e: egobox_moe::MoeError) -> PyErr {
     use egobox_moe::MoeError;
