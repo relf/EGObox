@@ -504,6 +504,7 @@ dependencies = [
  "argmin_testfunctions",
  "bincode",
  "egobox-doe",
+ "egobox-egmdo",
  "egobox-ego",
  "egobox-gp",
  "egobox-gpx",

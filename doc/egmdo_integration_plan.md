@@ -105,8 +105,8 @@ Represent each discipline explicitly with at least:
 
 - a stable name or identifier;
 - the design variables it uses;
-- the coupling variables it receives and the ones it produces, with their dimensions;
-- **initial bounds `C(i)` for the coupling variables it receives**. They are required to sample the initial disciplinary DoE over `Z × C(i)`. They are only an initial guess: enrichment points may fall outside them;
+- the coupling variables it receives and the ones it produces;
+- **initial bounds `C(i)` for the coupling variables it receives**. They are required to sample the initial disciplinary DoE over `Z × C(i)`. They are only an initial guess: enrichment points may fall outside them. In Python, each coupling variable is declared once, by name, with its initial range, and `C(i)` is assembled from the ranges of the couplings the discipline receives;
 - an evaluation callback.
 
 EGObox GPs have a single scalar output. **One GP is trained per scalar coupling output**, and each has its own random variable `ξ`. The stochastic dimension `n_ξ` is therefore the total number of scalar coupling outputs; with the paper's scalar couplings it equals `n_d`. The PCE size grows as `(n_ξ + d)! / (n_ξ! d!)`, which limits the practical number of coupling outputs (documented as a limitation).
@@ -119,48 +119,32 @@ The objective `f_obj(z, y)` is a **cheap, explicit function** of the design and 
 
 Constraints follow the same model: inequality constraints `g_m(z, y) ≤ 0` and equality constraints `h_r(z, y) = 0` are cheap, explicit functions of the design and coupling variables. A constraint that depends only on `z` is a special case: it is deterministic, so its feasibility is the same for every random sample. The sign convention is the `Egor` one (`g ≤ 0`); C-EGMDO's equations use `g ≥ 0` and are translated in the specification. Equality constraints are satisfied within a tolerance. Costly constraints that do not depend on the couplings need their own surrogate; they are an extension.
 
-An illustrative Python API (not implemented yet):
+The Python facade is `Emdegor` ("Efficient MultiDisciplinary Egor"), named after `Egor` and `Belfegor`; the Rust crate keeps the algorithm's name. The Python API (`egobox.egmdo`, also exported by `egobox`) declares the design and coupling variables once, by name, with their bounds; the disciplines are wired to them by name. The Rust core identifies variables by index, and the Python layer resolves the names into indices:
 
 ```python
-from egobox.egmdo import Egmdo, Discipline
-
-d1 = Discipline(
-    name="d1",
-    fun=compute_y1,                # (z, y2) -> y1
-    inputs=["z", "y2"],
-    outputs=["y1"],
-    coupling_bounds={"y2": [0.0, 25.0]},
-)
-
-d2 = Discipline(
-    name="d2",
-    fun=compute_y2,                # (z, y1) -> y2
-    inputs=["z", "y1"],
-    outputs=["y2"],
-    coupling_bounds={"y1": [0.0, 25.0]},
-)
+from egobox.egmdo import Discipline, Emdegor
 
 # Classic constrained Sellar problem, as in C-EGMDO
-optimizer = Egmdo(
-    disciplines=[d1, d2],
-    objective=compute_objective,   # cheap function of (z, y1, y2)
-    constraints=[g1, g2],          # cheap functions of (z, y1, y2), g <= 0
-    xlimits=[[-10.0, 10.0], [0.0, 10.0], [0.0, 10.0]],
-    infill="wb2",
-    enrichment="sobol",
-    seed=42,
-)
+design = {"z1": [-10.0, 10.0], "z2": [0.0, 10.0], "z3": [0.0, 10.0]}  # bounds, order = z columns
+couplings = {"y1": [0.0, 25.0], "y2": [0.0, 25.0]}  # initial ranges C(i), order = y columns
 
-# Convenience loop
+# Inputs in any order: it is the column order of x given to the discipline
+d1 = Discipline("d1", compute_y1, inputs=["z1", "z2", "z3", "y2"], outputs=["y1"])
+d2 = Discipline("d2", compute_y2, inputs=["z1", "z2", "y1"], outputs=["y2"])
+
+# qoi(z, y) returns [f, g1, g2] for a batch of points, g <= 0
+optimizer = Emdegor(design, couplings, [d1, d2], qoi, n_ineq=2, seed=42)
+
+# Convenience loop, calling Discipline.fun
 result = optimizer.minimize(max_iters=10)
 
-# Or ask/tell
-request = optimizer.ask()          # disciplinary evaluations to perform
-outputs = evaluate(request)        # caller-side evaluation
-optimizer.tell(request, outputs)
+# Or ask/tell, the caller running the disciplines
+while (requests := optimizer.ask()) is not None:
+    optimizer.tell([evaluate(r.discipline, r.x) for r in requests])
+result = optimizer.result()
 ```
 
-This snippet is a design sketch, not a commitment to the final constructor signatures.
+Every coupling variable is computed by exactly one discipline and has a single initial range. The names are checked when `Emdegor` is built (unknown, duplicated or uncomputed variables, a discipline receiving its own output).
 
 ### Three distinct evaluation modes
 
@@ -307,13 +291,13 @@ After correctness is established:
 
 ## 8. API and implementation decisions to settle
 
-Before finalizing the public API, decide:
+All settled:
 
-1. How input and output variables are represented, including names, dimensions, and vector-valued outputs.
-2. How design and coupling variables are mapped to each discipline's input vector, and how initial coupling bounds are declared.
-3. The exact ask/tell contract: request and response types, how pending requests are tracked, and how failed evaluations are reported.
-4. How Python exceptions in callbacks reach the user (follow the existing pattern in `python/src/errors.rs`).
-5. How non-converged random MDAs are handled in PCE regression.
+1. Settled: variables are scalars, identified by name in Python and by index in the Rust core; vector outputs are several coupling variables of one discipline.
+2. Settled: in Python, a discipline input follows the order of its `inputs` names, and the initial coupling ranges are declared once with the coupling variables; the Rust core uses `[z_i, y_c(i)]`, with initial bounds per coupling input, and the Python layer reorders the columns.
+3. Settled: `ask()` returns the requests `(discipline, x)` of one step (initial DoEs, then one enrichment point per enriched discipline), `tell()` takes their outputs in the same order; failed evaluations are raised as errors.
+4. Settled: as `Egor`, Python exceptions in the `qoi` callback abort the run and are re-raised; exceptions in the disciplines are raised directly. The `qoi` callback is called from several threads, the solver running without the GIL.
+5. Settled: excluded from the regression (spec D5), with relaxation retries (D33) and point dropping (D32).
 6. Settled: no `egobox-ego` utility is made public; the acquisition uses `egobox_gp::basin_optimizer`.
 7. How constraints are declared (functions of `(z, y)` returning a vector, or one function per constraint), and the equality tolerance.
 8. The option names and defaults that select between EGMDO and C-EGMDO behaviors (acquisition criterion, enrichment strategy, `ε_P`).

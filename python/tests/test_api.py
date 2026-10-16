@@ -4,6 +4,13 @@ import numpy as np
 
 
 class TestApi(unittest.TestCase):
+    def test_egmdo_subpackage_reexports(self):
+        import egobox as egx
+        import egobox.egmdo
+
+        for name in egobox.egmdo.__all__:
+            self.assertIs(getattr(egobox.egmdo, name), getattr(egx, name))
+
     def test_egor_accepts_int_and_dict_arguments(self):
         import egobox as egx
 

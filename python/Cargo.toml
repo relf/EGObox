@@ -25,6 +25,7 @@ egobox-gp = { version = "0.39.0", path = "../crates/gp" }
 egobox-moe = { version = "0.39.0", path = "../crates/moe" }
 egobox-ego = { version = "0.45.0", path = "../crates/ego" }
 egobox-gpx = { version = "0.8.0", path = "../crates/gpx" }
+egobox-egmdo = { version = "0.1.0", path = "../crates/egmdo" }
 
 
 pyo3 = { version = "0.29.0" }
