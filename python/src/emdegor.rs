@@ -378,6 +378,11 @@ impl EmdegorResult {
 ///     Budget of true disciplinary evaluations, all disciplines included.
 /// mda_relaxation : float in ]0, 1]
 ///     Relaxation of the Jacobi iterations of the multidisciplinary analyses.
+/// linearized_mda : bool
+///     Linearize the random multidisciplinary analysis at the solution of the mean one,
+///     instead of solving it for each of the n_mc samples (much faster, accurate when the
+///     disciplinary GP uncertainty is small). Points where the mean analysis does not converge
+///     fall back to the solved random analyses.
 /// seed : int >= 0, optional
 ///     Random generator seed, for reproducible runs.
 ///
@@ -427,6 +432,7 @@ impl Emdegor {
         n_sim = 100,
         max_evaluations = None,
         mda_relaxation = 1.,
+        linearized_mda = false,
         seed = None,
     ))]
     #[allow(clippy::too_many_arguments)]
@@ -463,6 +469,7 @@ impl Emdegor {
         n_sim: usize,
         max_evaluations: Option<usize>,
         mda_relaxation: f64,
+        linearized_mda: bool,
         seed: Option<u64>,
     ) -> PyResult<Self> {
         let (design_names, xlimits) = parse_variables(&design, "design variable")?;
@@ -576,6 +583,11 @@ impl Emdegor {
             uq: egmdo::uq::UqSettings {
                 degree: pce_degree,
                 n_mc,
+                random_mda: if linearized_mda {
+                    egmdo::uq::RandomMda::Linearized
+                } else {
+                    egmdo::uq::RandomMda::Solved
+                },
                 ..egmdo::uq::UqSettings::default()
             },
             gp: egmdo::GpSettings {
