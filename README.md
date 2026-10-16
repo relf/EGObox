@@ -297,6 +297,10 @@ Larsson, J. (2026).
 [Basin: Efficient and Extensible Numerical Optimization in Rust](https://doi.org/10.48550/arXiv.2608.11279).
 arXiv:2608.11279. [basin.rs](https://basin.rs)
 
+Marchildon, A. (2026).
+[GpFlash: Maximizing Speed and Minimizing Memory for Gaussian Process Training and Prediction](https://doi.org/10.48550/arXiv.2610.16861).
+arXiv:2610.16861.
+
 smtorg. (2018). [Surrogate modeling toolbox](https://github.com/SMTOrg/smt). GitHub.
 
 ## License
