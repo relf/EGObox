@@ -382,6 +382,27 @@ The paper's typesetting of (23) contains typos: it prints `B/r` instead of `B/r�
 - Paper setting: `n_fi ∈ {d_i + 1, 2d_i, 3d_i, 4d_i}` (`d_1 = 3`, `d_2 = 4`), `n_UQ0 = 20`, `d = 3`, `n_MC = 100`, `n_max = 20`, `ε_cv = 0.01`.
 - Paper results (10 runs per DoE size, Table 7): 6/10 runs converged with `d_i + 1` and 8 to 9 with larger DoEs; 3 to 8 points added on average.
 
+### 11.4 Aerostructures (REMAL, section 4.2)
+
+An elastically supported airfoil in two-dimensional flow, from the REMAL paper (Yuan and Renganathan, *REMAL: Residual Equilibrium Manifold Active Learning for Surrogate-Based Multidisciplinary Design Analysis*, arXiv:2606.13245, 2026), which adapts it from Ghoreishi and Imani (*Bayesian optimization for efficient design of uncertain coupled multidisciplinary systems*, ACC 2020). It is not in the EGMDO papers. It is used for issue #493 because its coupling amplifies the disciplinary uncertainty much more than the papers' problems. The design variable is the span `B ∈ [0, 300]` (cm); the couplings are the lift `L` (kN) and the elastic pitch angle `φ` (rad):
+
+```text
+L = f1(B, φ) = q B C [2π(φ + ψ) + r (1 − cos(π (φ + ψ) / (2 θ0)))] / 1000
+φ = f2(L)    = (1000 L / (k1 (1 + p)) − 1000 L p / (k2 (1 + p))) / (C (z2 − z1))
+f_obj(y)     = ½ (y − μ_t)ᵀ Σ_t⁻¹ (y − μ_t),   y = (L, φ)
+```
+
+Sources: the REMAL paper is used first, and Ghoreishi and Imani only for what it does not give.
+
+- **REMAL:** the equations, the deterministic disciplines, `B ∈ [0, 300)`, the bounds `C(f1) = [−π/2, π/2]` for `φ` and `C(f2) = [0, 300]` for `L`. From the fixed points of its Fig. 7, `L` is in kN.
+- **Ghoreishi and Imani:**
+  - the constants `q = 1 N/cm², C = 10 cm, ψ = 0.05 rad, r = 0.9425, θ0 = 0.26 rad, p = 0.1111, k1 = 4000 N/cm, k2 = 2000 N/cm, z1 = 0.2, z2 = 0.7`;
+  - the design goal. Their disciplines are stochastic, and they minimize the Kullback–Leibler divergence between the joint distribution of `(L, φ)` and the target `N(μ_t, Σ_t)`, with `μ_t = (501.9288 N, 0.0176)` and `Σ_t = [[352.3372, 0.0122], [0.0122, 1.4314e−6]]` (N, rad), reached near `B = 100`.
+  - Here the disciplines are deterministic, and `f_obj` is the divergence between Gaussians of means `y` and `μ_t` and the same covariance `Σ_t`.
+- **References:** `aerostructures` has `z* = 99.9888358`, `f* = 5.01557e−4`. The variant `aerostructures_steep` uses the target `μ_t = y*(700/3)`, the equilibrium at REMAL's hardest test point (its Fig. 9), so `z* = 700/3` and `f* = 0`; this variant is ours.
+
+`φ = 0.035 L`, so `f2` is linear. The loop gain `J = ∂f1/∂φ · ∂f2/∂L` is positive and reaches 0.977 at `B ≈ 233`, where the coupling amplifies the disciplinary errors by `1/(1 − J)`, up to 43 times. It is 0.30 at `B = 100`. The fixed point is unique on `[0, 300]`; Ghoreishi and Imani's range `B ≤ 500` would include several fixed points (from `B ≈ 369`) and none (from `B ≈ 433`, static divergence). Plain Jacobi needs about 1100 iterations near `B = 233`, so the MDA allows 5000 iterations.
+
 ## 12. Decisions summary
 
 | Id | Topic | Decision |
