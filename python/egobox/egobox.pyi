@@ -809,6 +809,10 @@ class Emdegor:
         instead of solving it for each of the n_mc samples (much faster, accurate when the
         disciplinary GP uncertainty is small). Points where the mean analysis does not converge
         fall back to the solved random analyses.
+    gp_correlation : bool
+        Correlate the disciplinary GP uncertainty across the design points of the uncertainty
+        quantification as the GP posteriors, instead of perfectly (one random sample shared by
+        every point, as in the EGMDO papers).
     seed : int >= 0, optional
         Random generator seed, for reproducible runs.
     """
@@ -822,7 +826,7 @@ class Emdegor:
         r"""
         Names of the coupling variables, in the column order of the coupling points
         """
-    def __new__(cls, design: typing.Mapping[builtins.str, typing.Sequence[builtins.float]], couplings: typing.Mapping[builtins.str, typing.Sequence[builtins.float]], disciplines: typing.Sequence[Discipline], qoi: typing.Callable[[numpy.typing.NDArray[numpy.float64], numpy.typing.NDArray[numpy.float64]], numpy.typing.NDArray[numpy.float64]], n_ineq: builtins.int = 0, n_eq: builtins.int = 0, deterministic_constraints: typing.Optional[typing.Sequence[builtins.int]] = None, cstr_tol: typing.Optional[typing.Sequence[builtins.float]] = None, max_iters: builtins.int = 10, acquisition: InfillStrategy = InfillStrategy.WB2, wb2_scale: builtins.float = 1.0, enrichment: EnrichmentStrategy = EnrichmentStrategy.SOBOL, gp_kernel: builtins.int = 8, n_doe: typing.Optional[typing.Sequence[builtins.int]] = None, doe: typing.Optional[typing.Sequence[numpy.typing.NDArray[numpy.float64]]] = None, n_doe_uq: builtins.int = 20, doe_uq: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, cv_threshold: builtins.float = 0.01, p_threshold: typing.Optional[builtins.float] = 0.001, n_mc: typing.Optional[builtins.int] = None, pce_degree: builtins.int = 3, n_ei_samples: builtins.int = 2000, n_pmin_samples: builtins.int = 10000, n_starts: builtins.int = 20, n_sim: builtins.int = 100, max_evaluations: typing.Optional[builtins.int] = None, mda_relaxation: builtins.float = 1.0, linearized_mda: builtins.bool = False, seed: typing.Optional[builtins.int] = None) -> Emdegor: ...
+    def __new__(cls, design: typing.Mapping[builtins.str, typing.Sequence[builtins.float]], couplings: typing.Mapping[builtins.str, typing.Sequence[builtins.float]], disciplines: typing.Sequence[Discipline], qoi: typing.Callable[[numpy.typing.NDArray[numpy.float64], numpy.typing.NDArray[numpy.float64]], numpy.typing.NDArray[numpy.float64]], n_ineq: builtins.int = 0, n_eq: builtins.int = 0, deterministic_constraints: typing.Optional[typing.Sequence[builtins.int]] = None, cstr_tol: typing.Optional[typing.Sequence[builtins.float]] = None, max_iters: builtins.int = 10, acquisition: InfillStrategy = InfillStrategy.WB2, wb2_scale: builtins.float = 1.0, enrichment: EnrichmentStrategy = EnrichmentStrategy.SOBOL, gp_kernel: builtins.int = 8, n_doe: typing.Optional[typing.Sequence[builtins.int]] = None, doe: typing.Optional[typing.Sequence[numpy.typing.NDArray[numpy.float64]]] = None, n_doe_uq: builtins.int = 20, doe_uq: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, cv_threshold: builtins.float = 0.01, p_threshold: typing.Optional[builtins.float] = 0.001, n_mc: typing.Optional[builtins.int] = None, pce_degree: builtins.int = 3, n_ei_samples: builtins.int = 2000, n_pmin_samples: builtins.int = 10000, n_starts: builtins.int = 20, n_sim: builtins.int = 100, max_evaluations: typing.Optional[builtins.int] = None, mda_relaxation: builtins.float = 1.0, linearized_mda: builtins.bool = False, gp_correlation: builtins.bool = False, seed: typing.Optional[builtins.int] = None) -> Emdegor: ...
     def minimize(self, max_iters: typing.Optional[builtins.int] = None) -> EmdegorResult:
         r"""
         Minimize the objective with the disciplinary solvers given as `Discipline.fun`.

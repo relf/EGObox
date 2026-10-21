@@ -1,26 +1,30 @@
-//! Comparison of the solved and linearized random MDAs (decision D37) for several sizes of
-//! the initial disciplinary designs of experiments, i.e. several levels of disciplinary GP
-//! uncertainty.
+//! Comparison of the models of the disciplinary GP uncertainty, for several sizes of the
+//! initial disciplinary designs of experiments, i.e. several levels of uncertainty:
+//! * the solved and linearized random MDAs (decision D37),
+//! * the perfect and GP posterior correlations across design points (decision D38).
 //!
 //! ```text
-//! cargo run -p egobox-egmdo --release --example egmdo_linearized -- uq [n_seeds] [problem...]
-//! cargo run -p egobox-egmdo --release --example egmdo_linearized -- opt [n_seeds] [problem...]
+//! cargo run -p egobox-egmdo --release --example egmdo_uncertainty -- uq [n_seeds] [problem...]
+//! cargo run -p egobox-egmdo --release --example egmdo_uncertainty -- opt [n_seeds] [problem...]
 //! ```
 //!
 //! * `uq` compares the uncertainty quantification only: with the same disciplinary GPs and the
-//!   same design points, the objective PCEs and `P_min` (or `P_sol`) from both random MDAs.
-//! * `opt` runs the whole algorithm with both random MDAs.
+//!   same design points, the objective PCEs and `P_min` (or `P_sol`) from both random MDAs,
+//!   and `P_min` with both correlations.
+//! * `opt` runs the whole algorithm with the four combinations.
 //!
 //! Problems: `toy`, `sellar_modified`, `compound_cylinder`, `toy_constrained`,
 //! `sellar_constrained` (all by default). The results are printed as Markdown tables.
 
 use egobox_doe::{Lhs, SamplingMethod};
-use egobox_egmdo::criteria::{Feasibility, SampleMinima};
+use egobox_egmdo::criteria::{Feasibility, SampleMinima, qoi_joint_samples};
 use egobox_egmdo::pce::normal_samples;
 use egobox_egmdo::problems::{self, TestProblem};
-use egobox_egmdo::uq::{PointUq, RandomMda, UqSettings, point_uq};
+use egobox_egmdo::uq::{
+    Correlation, JointSamples, PointUq, RandomMda, UqSettings, coupling_correlations, point_uq,
+};
 use egobox_egmdo::{DisciplinaryModels, EgmdoConfig, GpSettings, initial_doe, minimize};
-use ndarray::{Array1, array};
+use ndarray::{Array1, Axis, array};
 use ndarray_rand::rand::SeedableRng;
 use rand_xoshiro::Xoshiro256Plus;
 use rayon::prelude::*;
@@ -154,6 +158,13 @@ struct UqStats {
     p_distance: Vec<f64>,
     /// Whether the most probable minimizer is the same, per run
     same_argmax: Vec<bool>,
+    /// GP posterior correlations between the design points, all couplings and pairs
+    correlations: Vec<f64>,
+    /// Total variation distance between the `P_sol` with the GP posterior and the perfect
+    /// correlations (solved random MDA), per run
+    p_distance_correlation: Vec<f64>,
+    /// Whether the most probable minimizer is the same with both correlations, per run
+    same_argmax_correlation: Vec<bool>,
     /// Non-converged random MDAs, over all points
     n_failed: usize,
     /// Points where the linearization fell back to the solved random MDA
@@ -229,8 +240,8 @@ fn compare_uq(case: &Case, n: usize, seed: u64, stats: &mut UqStats) {
     stats.time_solved += t_solved;
     stats.time_linearized += t_linearized;
 
-    let (mut uq_s, mut uq_l) = (vec![], vec![]);
-    for (s, l) in solved.into_iter().zip(linearized) {
+    let (mut uq_s, mut uq_l, mut kept) = (vec![], vec![], vec![]);
+    for (i, (s, l)) in solved.into_iter().zip(linearized).enumerate() {
         stats.n_points += 1;
         match (s, l) {
             (Some(s), Some(l)) => {
@@ -245,6 +256,7 @@ fn compare_uq(case: &Case, n: usize, seed: u64, stats: &mut UqStats) {
                 }
                 uq_s.push(s);
                 uq_l.push(l);
+                kept.push(i);
             }
             _ => stats.n_dropped += 1,
         }
@@ -258,6 +270,36 @@ fn compare_uq(case: &Case, n: usize, seed: u64, stats: &mut UqStats) {
             .p_distance
             .push(0.5 * (&p_s - &p_l).mapv(f64::abs).sum());
         stats.same_argmax.push(argmax(&p_s) == argmax(&p_l));
+
+        // GP posterior correlation across the design points (D38), solved random MDA
+        let z_kept = z.select(Axis(0), &kept);
+        let correlations =
+            coupling_correlations(&tp.problem, &models, &z_kept, &uq_s).expect("correlations");
+        for r in correlations.iter() {
+            for i in 0..r.nrows() {
+                for l in i + 1..r.ncols() {
+                    stats.correlations.push(r[[i, l]]);
+                }
+            }
+        }
+        let samples = JointSamples::draw(
+            Correlation::GpPosterior,
+            &tp.problem,
+            &models,
+            &z_kept,
+            &uq_s,
+            10_000,
+            seed + 2,
+        )
+        .expect("joint samples");
+        let p_g = SampleMinima::from_values(&qoi_joint_samples(&uq_s, &samples), &feas)
+            .probability_of_solution();
+        stats
+            .p_distance_correlation
+            .push(0.5 * (&p_s - &p_g).mapv(f64::abs).sum());
+        stats
+            .same_argmax_correlation
+            .push(argmax(&p_s) == argmax(&p_g));
     }
 }
 
@@ -267,9 +309,9 @@ fn uq_study(n_seeds: u64, selected: &[&String]) {
          Std ratio and mean shift: median [10%, 90%] over the design points.\n"
     );
     println!(
-        "| Problem | Initial DoE per discipline | Objective std (solved, median) | Std ratio lin./solved | Mean shift (solved std) | P_min distance (median) | Same most probable minimizer | Failed random MDAs | Fallbacks | Dropped points | Time solved / lin. (s) |"
+        "| Problem | Initial DoE per discipline | Objective std (solved, median) | Std ratio lin./solved | Mean shift (solved std) | P_min distance lin./solved | Same most probable minimizer lin./solved | Failed random MDAs | Fallbacks | Dropped points | Time solved / lin. (s) | GP correlation between points | P_min distance GP/perfect correlation | Same most probable minimizer GP/perfect |"
     );
-    println!("|---|---|---|---|---|---|---|---|---|---|---|");
+    println!("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
     for case in cases()
         .iter()
         .filter(|c| selected.is_empty() || selected.iter().any(|s| *s == c.name))
@@ -286,7 +328,7 @@ fn uq_study(n_seeds: u64, selected: &[&String]) {
                     .size(),
             );
             println!(
-                "| {} | {n} | {:.3} | {:.2} [{:.2}, {:.2}] | {:.2} [{:.2}, {:.2}] | {:.3} | {}/{} | {:.2}% | {}/{} | {} | {:.3} / {:.3} |",
+                "| {} | {n} | {:.3} | {:.2} [{:.2}, {:.2}] | {:.2} [{:.2}, {:.2}] | {:.3} | {}/{} | {:.2}% | {}/{} | {} | {:.3} / {:.3} | {:.2} [{:.2}, {:.2}] | {:.3} | {}/{} |",
                 case.name,
                 median(&stats.std_solved),
                 median(&stats.std_ratio),
@@ -304,6 +346,12 @@ fn uq_study(n_seeds: u64, selected: &[&String]) {
                 stats.n_dropped,
                 stats.time_solved / n_seeds as f64,
                 stats.time_linearized / n_seeds as f64,
+                median(&stats.correlations),
+                quantile(&stats.correlations, 0.1),
+                quantile(&stats.correlations, 0.9),
+                median(&stats.p_distance_correlation),
+                stats.same_argmax_correlation.iter().filter(|&&b| b).count(),
+                stats.same_argmax_correlation.len(),
             );
         }
     }
@@ -312,16 +360,21 @@ fn uq_study(n_seeds: u64, selected: &[&String]) {
 fn opt_study(n_seeds: u64, selected: &[&String]) {
     println!("Whole algorithm, defaults (C-EGMDO options, Matérn 5/2), {n_seeds} seeds per row.\n");
     println!(
-        "| Problem | Initial DoE per discipline | Random MDA | Converged (papers' criterion) | Best point optimal | Disciplinary evaluations | Failed random MDAs | Solved points (lin. fallbacks) | Median time (s) |"
+        "| Problem | Initial DoE per discipline | Random MDA | Correlation | Converged (papers' criterion) | Best point optimal | Disciplinary evaluations | Failed random MDAs | Solved points (lin. fallbacks) | Median time (s) |"
     );
-    println!("|---|---|---|---|---|---|---|---|---|");
+    println!("|---|---|---|---|---|---|---|---|---|---|");
     for case in cases()
         .iter()
         .filter(|c| selected.is_empty() || selected.iter().any(|s| *s == c.name))
     {
         let tp = (case.problem)();
         for &n in case.doe_sizes.iter() {
-            for model in [RandomMda::Solved, RandomMda::Linearized] {
+            for (model, correlation) in [
+                (RandomMda::Solved, Correlation::Perfect),
+                (RandomMda::Linearized, Correlation::Perfect),
+                (RandomMda::Solved, Correlation::GpPosterior),
+                (RandomMda::Linearized, Correlation::GpPosterior),
+            ] {
                 let (mut converged, mut optimal, mut failed_runs) = (0, 0, 0);
                 let (mut evals, mut times, mut failed_mdas, mut solved_points) =
                     (vec![], vec![], 0, 0);
@@ -330,6 +383,7 @@ fn opt_study(n_seeds: u64, selected: &[&String]) {
                         n_doe_disciplines: Some(vec![n; tp.disciplines.len()]),
                         uq: UqSettings {
                             random_mda: model,
+                            correlation,
                             ..case.config.uq.clone()
                         },
                         seed: Some(seed),
@@ -339,7 +393,10 @@ fn opt_study(n_seeds: u64, selected: &[&String]) {
                     let result = match minimize(&tp.problem, &tp.disciplines, config) {
                         Ok(r) => r,
                         Err(e) => {
-                            eprintln!("{} n = {n} {model:?} seed {seed}: {e}", case.name);
+                            eprintln!(
+                                "{} n = {n} {model:?} {correlation:?} seed {seed}: {e}",
+                                case.name
+                            );
                             failed_runs += 1;
                             continue;
                         }
@@ -369,7 +426,7 @@ fn opt_study(n_seeds: u64, selected: &[&String]) {
                 }
                 let (m, s) = mean_std(&evals);
                 println!(
-                    "| {} | {n} | {model:?} | {converged}/{n_seeds} | {optimal}/{n_seeds} | {m:.1} ± {s:.1} | {failed_mdas} | {solved_points} | {:.2} |{}",
+                    "| {} | {n} | {model:?} | {correlation:?} | {converged}/{n_seeds} | {optimal}/{n_seeds} | {m:.1} ± {s:.1} | {failed_mdas} | {solved_points} | {:.2} |{}",
                     case.name,
                     median(&times),
                     if failed_runs > 0 {
