@@ -345,6 +345,7 @@ The initial implementation is ready for a first release when:
 | 9 | — | Dropped: MDO framework adapters (OpenMDAO) are not part of EGObox | — |
 | 10 | `egmdo-linearized-mda` | Linearized random MDA (D37, issue #493), compared with the solved random MDA for several initial DoE sizes | E |
 | 11 | `egmdo-gp-correlation` | Correlation across design points from the GP posteriors (D38, issue #493), with the solved or the linearized random MDA | E |
+| 12 | `egmdo-aerostructures` | Aerostructures test problem of the REMAL paper (strong coupling), exact GP sample-path reference of the random MDA and `P_min` (issue #493) | E |
 
 Stage E items get their own PRs once the first release is merged into `master`, except the alternatives to the rank-one disciplinary GP of issue #493, studied with its author on `egmdo`:
 
@@ -352,3 +353,5 @@ Stage E items get their own PRs once the first release is merged into `master`, 
 2. the correlation across design points from the GP posterior covariance, in place of the shared `Ξ`, with the solved or the linearized random MDA (PR 11);
 3. a local KL expansion of the disciplinary GPs around the mean MDA solution, if the correlation across design points matters;
 4. a hybrid that solves the random MDAs while the uncertainty is large and linearizes them afterwards.
+
+The papers' problems amplify the disciplinary uncertainty by at most about 2. The aerostructures problem of the REMAL paper (PR 12) amplifies it up to 43 times, and its one-dimensional disciplinary GPs allow an exact sample-path reference to compare these models against.

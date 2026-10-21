@@ -329,3 +329,114 @@ Same setting as the previous section, with the four combinations of random MDA a
 - **The optimization results are equivalent.** Over the 20 problem and DoE size combinations, the four models converge in 183 to 187 runs out of 200, and the best point is optimal in 170 to 177 runs, with the same number of disciplinary evaluations. The largest differences are on constrained Sellar with 4 and 5 points per discipline, where the linearized random MDA with the GP correlation converges in 6/10 runs against 8 or 9/10 for the other models, its best point still being optimal in 9 and 8 runs. They are within the noise of 10 runs per row.
 - **The GP correlation costs 1.5 to 2.5 times the run time on the Sellar problems and the compound cylinder** (little on the toy problems). With decorrelated points, the covariance of the objective over `DoE_UQ` has many more significant eigenvalues: on constrained Sellar, the KL keeps 17 to 23 modes against 5 to 7, so 3 times as many KL-GPs are trained and predicted. The random MDAs are then a minor part of the run, and the linearization no longer saves time.
 - **The rank-one assumption across design points does not limit the method on these problems.** The perfect correlation keeps the KL small and the results unchanged, so it stays the default. The GP correlation remains available, as the more faithful model of the disciplinary uncertainty, for problems where the uncertainty stays large.
+
+## Aerostructures (REMAL, section 4.2)
+
+The papers' problems amplify the disciplinary uncertainty by at most about 2. The aerostructures problem of the REMAL paper (specification, section 11.4) has a positive loop gain reaching 0.977 at `B ≈ 233`, i.e. an amplification `1/(1 − J)` of up to 43. Its disciplinary GPs are one-dimensional at a given span (lift in `φ`, pitch in `L`), so their posterior sample paths can be drawn exactly on fine grids. Each pair of paths is a realization of the disciplinary uncertainty, whose fixed points give an exact reference for the random MDA models of issue #493.
+
+```text
+cargo run -p egobox-egmdo --release --example egmdo_aerostructures -- 10
+cargo run -p egobox-egmdo --release --example egmdo_uncertainty -- uq 10 aerostructures aerostructures_steep
+cargo run -p egobox-egmdo --release --example egmdo_uncertainty -- opt 10 aerostructures aerostructures_steep
+```
+
+Two problems are compared: `aerostructures`, with Ghoreishi and Imani's target (optimum `B ≈ 100`, loop gain 0.30), and `aerostructures_steep`, with the target at REMAL's hardest test point `B = 700/3` (loop gain 0.977). The GPs are trained on initial disciplinary DoEs drawn over the boxes of the REMAL paper (`φ ∈ [−π/2, π/2]`, `L ∈ [0, 300]` kN).
+
+### Exact reference at fixed spans
+
+At each span, 2000 pairs of exact sample paths (lift on 301 values of `φ` in `[−0.6, 2.2]`, pitch on 701 values of `L` in `[−10, 60]`), against 2000 samples of the rank-one solved and of the linearized random MDA (without PCE). The reference fixed point of a pair is the one reached by successive substitution from `φ = 0`; *paths without reached fixed point* left the grids or did not converge. Medians over 10 seeds.
+
+| Initial DoE per discipline | Span B | L* std, reference | Std ratio solved/ref. | Std ratio lin./ref. | KS solved | KS lin. | Paths with several fixed points | Paths without reached fixed point | Failed solved random MDAs | Linearization fallbacks |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 3 | 100.00 | 8.740 | 1.36 | 1.14 | 0.137 | 0.190 | 4.4% | 27.0% | 0.0% | 0 |
+| 3 | 200.00 | 8.519 | 1.42 | 1.14 | 0.104 | 0.175 | 5.1% | 25.3% | 0.0% | 0 |
+| 3 | 225.00 | 8.438 | 1.40 | 1.14 | 0.111 | 0.169 | 5.5% | 24.7% | 0.0% | 0 |
+| 3 | 233.33 | 8.464 | 1.43 | 1.14 | 0.120 | 0.174 | 5.6% | 24.6% | 0.0% | 0 |
+| 3 | 240.00 | 8.506 | 1.44 | 1.14 | 0.120 | 0.175 | 5.6% | 24.7% | 0.0% | 0 |
+| 3 | 300.00 | 8.541 | 1.38 | 1.00 | 0.122 | 0.175 | 5.1% | 26.2% | 0.0% | 0 |
+| 4 | 100.00 | 2.669 | 1.02 | 1.04 | 0.031 | 0.055 | 0.9% | 6.1% | 0.0% | 0 |
+| 4 | 200.00 | 1.737 | 1.04 | 0.98 | 0.031 | 0.072 | 2.6% | 5.3% | 0.0% | 0 |
+| 4 | 225.00 | 1.481 | 1.04 | 0.98 | 0.032 | 0.097 | 3.5% | 4.9% | 0.0% | 0 |
+| 4 | 233.33 | 1.411 | 1.04 | 0.98 | 0.035 | 0.096 | 4.0% | 4.9% | 0.0% | 0 |
+| 4 | 240.00 | 1.398 | 1.04 | 0.98 | 0.037 | 0.114 | 4.0% | 4.8% | 0.0% | 0 |
+| 4 | 300.00 | 1.835 | 1.08 | 0.98 | 0.041 | 0.066 | 2.4% | 5.5% | 0.0% | 0 |
+| 6 | 100.00 | 2.202 | 1.10 | 1.00 | 0.037 | 0.069 | 0.7% | 1.9% | 0.0% | 0 |
+| 6 | 200.00 | 3.772 | 1.08 | 0.95 | 0.038 | 0.114 | 1.3% | 0.5% | 0.0% | 0 |
+| 6 | 225.00 | 4.548 | 1.06 | 1.00 | 0.037 | 0.117 | 1.4% | 0.5% | 0.0% | 0 |
+| 6 | 233.33 | 4.793 | 1.04 | 1.02 | 0.036 | 0.125 | 1.5% | 0.5% | 0.0% | 0 |
+| 6 | 240.00 | 4.968 | 1.04 | 1.02 | 0.038 | 0.126 | 1.4% | 0.4% | 0.0% | 0 |
+| 6 | 300.00 | 6.569 | 1.05 | 0.99 | 0.038 | 0.128 | 1.6% | 1.2% | 0.0% | 0 |
+| 10 | 100.00 | 0.974 | 1.00 | 1.00 | 0.028 | 0.038 | 0.0% | 0.0% | 0.0% | 0 |
+| 10 | 200.00 | 1.048 | 1.02 | 1.00 | 0.031 | 0.036 | 0.0% | 0.0% | 0.0% | 0 |
+| 10 | 225.00 | 1.423 | 1.01 | 1.03 | 0.030 | 0.037 | 0.0% | 0.0% | 0.0% | 0 |
+| 10 | 233.33 | 1.368 | 1.01 | 0.99 | 0.029 | 0.040 | 0.0% | 0.0% | 0.0% | 0 |
+| 10 | 240.00 | 1.386 | 1.01 | 1.01 | 0.028 | 0.041 | 0.0% | 0.0% | 0.0% | 0 |
+| 10 | 300.00 | 4.506 | 1.02 | 1.03 | 0.031 | 0.061 | 0.1% | 0.4% | 0.0% | 0 |
+
+### Exact reference of `P_min`
+
+`P_min` of `aerostructures_steep` over a `DoE_UQ` of 5 spans around its optimum: joint exact sample paths of the lift over the 5 spans (with one pitch path per sample), against the PCEs of the solved random MDA with the perfect and the GP posterior correlations (4000 samples each).
+
+| Initial DoE per discipline | Reference P_min (median over seeds) | TV perfect/ref. | TV GP posterior/ref. | Same most probable minimizer, perfect | Same most probable minimizer, GP posterior |
+|---|---|---|---|---|---|
+| 3 | [0.50, 0.04, 0.03, 0.03, 0.47] | 0.216 | 0.036 | 6/10 | 8/10 |
+| 4 | [0.35, 0.06, 0.04, 0.05, 0.54] | 0.186 | 0.040 | 9/10 | 9/10 |
+| 6 | [0.56, 0.09, 0.05, 0.06, 0.22] | 0.115 | 0.079 | 9/10 | 9/10 |
+| 10 | [0.28, 0.15, 0.08, 0.11, 0.36] | 0.142 | 0.019 | 9/10 | 10/10 |
+
+### Uncertainty quantification
+
+Same columns as in the previous sections (LHS `DoE_UQ` of 5 points):
+
+| Problem | Initial DoE per discipline | Objective std (solved, median) | Std ratio lin./solved | Mean shift (solved std) | P_min distance lin./solved | Same most probable minimizer lin./solved | Failed random MDAs | Fallbacks | Dropped points | Time solved / lin. (s) | GP correlation between points | P_min distance GP/perfect correlation | Same most probable minimizer GP/perfect |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| aerostructures | 4 | 24506.712 | 0.95 [0.41, 1.28] | 0.08 [0.02, 0.36] | 0.102 | 8/10 | 0.00% | 0/50 | 0 | 0.028 / 0.001 | 1.00 [-0.15, 1.00] | 0.289 | 9/10 |
+| aerostructures | 6 | 33575.131 | 0.88 [0.21, 1.23] | 0.12 [0.01, 0.28] | 0.366 | 7/10 | 0.00% | 0/50 | 0 | 0.037 / 0.001 | 0.93 [-0.55, 1.00] | 0.162 | 8/10 |
+| aerostructures | 10 | 6714.301 | 1.01 [0.80, 1.06] | 0.02 [0.00, 0.12] | 0.032 | 10/10 | 0.00% | 0/50 | 0 | 0.048 / 0.001 | 0.74 [-0.32, 1.00] | 0.068 | 10/10 |
+| aerostructures_steep | 4 | 27605.149 | 0.99 [0.53, 1.44] | 0.08 [0.02, 0.39] | 0.108 | 9/10 | 0.00% | 0/50 | 0 | 0.029 / 0.001 | 1.00 [-0.15, 1.00] | 0.287 | 9/10 |
+| aerostructures_steep | 6 | 51705.943 | 0.90 [0.35, 1.18] | 0.08 [0.03, 0.24] | 0.154 | 7/10 | 0.00% | 0/50 | 0 | 0.039 / 0.001 | 0.93 [-0.55, 1.00] | 0.185 | 7/10 |
+| aerostructures_steep | 10 | 10513.416 | 0.99 [0.88, 1.13] | 0.03 [0.01, 0.14] | 0.059 | 10/10 | 0.00% | 0/50 | 0 | 0.047 / 0.001 | 0.74 [-0.32, 1.00] | 0.050 | 10/10 |
+
+### Whole algorithm
+
+With 3 points per discipline, the solved random MDAs near the maximum loop gain take thousands of Jacobi iterations each and a run takes more than 10 minutes, so the smallest DoE is 4 points per discipline. The *best point optimal* column requires the true objective within 1% of `f*`, which is `5·10⁻⁴` or 0 here: it is not meaningful for these problems, and the convergence criterion (`E[Z*]` within 5% of `z*`) is used instead.
+
+| Problem | Initial DoE per discipline | Random MDA | Correlation | Converged (papers' criterion) | Best point optimal | Disciplinary evaluations | Failed random MDAs | Solved points (lin. fallbacks) | Median time (s) |
+|---|---|---|---|---|---|---|---|---|---|
+| aerostructures | 4 | Solved | Perfect | 5/10 | 0/10 | 42.4 ± 23.7 | 243 | 149 | 21.13 |
+| aerostructures | 4 | Linearized | Perfect | 8/10 | 2/10 | 24.8 ± 2.9 | 0 | 0 | 0.86 |
+| aerostructures | 4 | Solved | GpPosterior | 6/10 | 1/10 | 45.5 ± 26.6 | 140 | 150 | 13.42 |
+| aerostructures | 4 | Linearized | GpPosterior | 6/10 | 2/10 | 25.1 ± 2.8 | 0 | 0 | 1.09 |
+| aerostructures | 6 | Solved | Perfect | 6/10 | 0/10 | 50.1 ± 32.4 | 180 | 150 | 6.83 |
+| aerostructures | 6 | Linearized | Perfect | 8/10 | 2/10 | 29.0 ± 4.2 | 0 | 0 | 1.01 |
+| aerostructures | 6 | Solved | GpPosterior | 5/10 | 0/10 | 51.2 ± 30.0 | 17 | 145 | 8.80 |
+| aerostructures | 6 | Linearized | GpPosterior | 8/10 | 2/10 | 30.0 ± 3.2 | 0 | 0 | 1.22 |
+| aerostructures | 10 | Solved | Perfect | 5/10 | 0/10 | 43.7 ± 13.0 | 83 | 145 | 5.70 |
+| aerostructures | 10 | Linearized | Perfect | 9/10 | 0/10 | 34.0 ± 3.9 | 0 | 0 | 1.00 |
+| aerostructures | 10 | Solved | GpPosterior | 7/10 | 0/10 | 49.4 ± 21.3 | 111 | 148 | 22.21 |
+| aerostructures | 10 | Linearized | GpPosterior | 8/10 | 0/10 | 33.8 ± 3.8 | 0 | 0 | 1.05 |
+| aerostructures_steep | 4 | Solved | Perfect | 10/10 | 0/10 | 72.9 ± 34.3 | 8 | 150 | 40.93 |
+| aerostructures_steep | 4 | Linearized | Perfect | 10/10 | 0/10 | 48.4 ± 11.2 | 0 | 0 | 2.47 |
+| aerostructures_steep | 4 | Solved | GpPosterior | 10/10 | 0/10 | 72.6 ± 41.6 | 10 | 150 | 35.35 |
+| aerostructures_steep | 4 | Linearized | GpPosterior | 10/10 | 0/10 | 51.3 ± 10.5 | 0 | 0 | 3.15 |
+| aerostructures_steep | 6 | Solved | Perfect | 10/10 | 0/10 | 104.3 ± 58.6 | 15 | 150 | 58.40 |
+| aerostructures_steep | 6 | Linearized | Perfect | 10/10 | 0/10 | 55.4 ± 17.0 | 0 | 0 | 3.00 |
+| aerostructures_steep | 6 | Solved | GpPosterior | 10/10 | 0/10 | 94.0 ± 41.0 | 6 | 150 | 80.15 |
+| aerostructures_steep | 6 | Linearized | GpPosterior | 10/10 | 0/10 | 59.3 ± 15.8 | 0 | 0 | 3.68 |
+| aerostructures_steep | 10 | Solved | Perfect | 10/10 | 0/10 | 142.1 ± 52.7 | 7 | 150 | 196.46 |
+| aerostructures_steep | 10 | Linearized | Perfect | 10/10 | 0/10 | 73.1 ± 13.8 | 0 | 0 | 4.52 |
+| aerostructures_steep | 10 | Solved | GpPosterior | 10/10 | 0/10 | 147.3 ± 43.0 | 8 | 150 | 293.50 |
+| aerostructures_steep | 10 | Linearized | GpPosterior | 10/10 | 0/10 | 71.3 ± 17.3 | 0 | 0 | 4.80 |
+
+### Findings
+
+- **The rank-one solved random MDA is close to the exact distribution at a given span**, once the GPs have 4 points per discipline or more: standard deviation ratio 1.00 to 1.10, KS distance 0.028 to 0.041. With 3 points, it overestimates the spread (ratio 1.36 to 1.44, KS 0.10 to 0.14), while 4 to 6% of the exact path pairs have several fixed points and a quarter of them reach none.
+- **The linearization gets the spread right but not the shape**: standard deviation ratio 0.95 to 1.14, but KS distance 0.036 to 0.19: with 4 and 6 points per discipline, it is 0.10 to 0.13 at the spans from 225 to 300, around and beyond the maximum loop gain, against 0.04 for the solved random MDA.
+- **The amplification of the true coupling near `B ≈ 233` is not visible in the GP uncertainty.** With GPs trained over the wide boxes of the paper, their uncertainty is large everywhere (reference standard deviation of `L*` from 1 to 9 kN, for `L*` from 0.5 to 17 kN). It does not peak at `B ≈ 233`: it is largest at `B = 300`, or at `B = 100` with 4 points per discipline.
+- **The perfect correlation across design points distorts `P_min`, and the GP posterior correlation corrects it.** Against the exact joint reference, the total variation distance is 0.12 to 0.22 with the perfect correlation, and 0.02 to 0.08 with the GP posterior correlation; the most probable minimizer agrees in 6 to 9 seeds out of 10 against 8 to 10. The GP posterior correlations between the `DoE_UQ` points are high here (medians 0.74 to 1.00), much higher than on the papers' problems.
+- **In the whole runs, the linearized random MDA does better than the solved one.**
+  - On `aerostructures`, it converges in 25/30 and 22/30 runs (perfect and GP correlation), against 16/30 and 18/30 for the solved random MDA, with 25 to 34 disciplinary evaluations against 42 to 51. The solved random MDAs fail often there (17 to 243 failures per row).
+  - On `aerostructures_steep`, every run converges with the four models, but the linearized random MDA needs 48 to 73 evaluations against 73 to 147.
+  - The linearized runs are 6 to 60 times faster (1 to 5 s against 6 to 290 s), since the solved random MDAs near the maximum loop gain take thousands of iterations.
+- **The correlation across design points changes little in the whole runs**, although it changes `P_min` at a given iteration: the convergence rates and evaluations are within the noise of 10 runs per row.
+- **The rank-one assumptions are not the limiting factor on this problem either.** The solved random MDA is a faithful model of the disciplinary uncertainty at a given span, and the perfect correlation, although it misrepresents `P_min`, does not change the results of the algorithm. The cost and the robustness of the solved random MDAs near a loop gain of 1 are the limiting factor, and the linearization removes it.
