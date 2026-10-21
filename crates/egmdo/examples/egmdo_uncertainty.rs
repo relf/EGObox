@@ -14,7 +14,7 @@
 //! * `opt` runs the whole algorithm with the four combinations.
 //!
 //! Problems: `toy`, `sellar_modified`, `compound_cylinder`, `toy_constrained`,
-//! `sellar_constrained` (all by default). The results are printed as Markdown tables.
+//! `sellar_constrained`, `aerostructures`, `aerostructures_steep` (all by default). The results are printed as Markdown tables.
 
 use egobox_doe::{Lhs, SamplingMethod};
 use egobox_egmdo::criteria::{Feasibility, SampleMinima, qoi_joint_samples};
@@ -112,6 +112,36 @@ fn cases() -> Vec<Case> {
             },
             design_criterion: None,
             objective_criterion: Some(0.01),
+        },
+        Case {
+            name: "aerostructures",
+            problem: problems::aerostructures,
+            // With 3 points per discipline, the solved random MDAs near the maximum loop gain
+            // take thousands of Jacobi iterations each, and a run more than 10 minutes
+            doe_sizes: vec![4, 6, 10],
+            config: EgmdoConfig {
+                n_doe_uq: 5,
+                max_iters: 10,
+                mda: problems::aerostructures().mda,
+                ..EgmdoConfig::default()
+            },
+            design_criterion: Some(0.05),
+            objective_criterion: None,
+        },
+        Case {
+            name: "aerostructures_steep",
+            problem: problems::aerostructures_steep,
+            // With 3 points per discipline, the solved random MDAs near the maximum loop gain
+            // take thousands of Jacobi iterations each, and a run more than 10 minutes
+            doe_sizes: vec![4, 6, 10],
+            config: EgmdoConfig {
+                n_doe_uq: 5,
+                max_iters: 10,
+                mda: problems::aerostructures_steep().mda,
+                ..EgmdoConfig::default()
+            },
+            design_criterion: Some(0.05),
+            objective_criterion: None,
         },
     ]
 }
