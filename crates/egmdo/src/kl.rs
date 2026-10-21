@@ -4,10 +4,15 @@
 //! is computed from the PCE coefficients. Its mean and eigenvectors are then interpolated
 //! over the design space by GPs, the KL-GPs, which gives a continuous model of the random
 //! objective (specification, section 5).
+//!
+//! When the disciplinary GP uncertainty is correlated as the GP posteriors across design
+//! points (decision D38), the covariance of the random vector is given by Mehler's formula
+//! ([mehler_covariance]) and its KL random variables are computed from joint samples.
 
 use crate::errors::{EgmdoError, Result};
 use crate::pce::HermiteBasis;
 use crate::surrogates::{DisciplinaryGp, GpSettings};
+use crate::uq::JointSamples;
 use linfa_linalg::eigh::EighInto;
 use ndarray::{Array1, Array2, ArrayBase, ArrayView2, Axis, Data, Ix2, s};
 
@@ -29,9 +34,21 @@ impl KlDecomposition {
     /// points, keeping the smallest number of modes explaining more than `1 - threshold`
     /// of the total variance. No mode is kept if the variance is zero (decision D8).
     pub fn new(coefs: &ArrayBase<impl Data<Elem = f64>, Ix2>, threshold: f64) -> Result<Self> {
+        let a = coefs.slice(s![.., 1..]);
+        Self::from_covariance(coefs, a.dot(&a.t()), threshold)
+    }
+
+    /// Decomposes the random vector over `DoE_UQ` with the PCE coefficients `coefs`
+    /// `(n_UQ, P)` and the covariance `cov` `(n_UQ, n_UQ)`, e.g. from [mehler_covariance]
+    /// (decision D38). The coefficients `b_kj`, hence [KlDecomposition::zeta], assume that
+    /// the PCEs share their random variables (perfect correlation).
+    pub fn from_covariance(
+        coefs: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+        cov: Array2<f64>,
+        threshold: f64,
+    ) -> Result<Self> {
         let mean = coefs.column(0).to_owned();
         let a = coefs.slice(s![.., 1..]);
-        let cov = a.dot(&a.t());
         let (values, vectors) = cov
             .eigh_into()
             .map_err(|e| EgmdoError::InvalidData(format!("KL eigendecomposition failed: {e}")))?;
@@ -94,12 +111,54 @@ impl KlDecomposition {
         basis.eval(xi).slice(s![.., 1..]).dot(&self.b.t())
     }
 
+    /// The KL random variables `ζ_k = φ_kᵀ (Ŷ - μ)` of samples `values` `(n_UQ, n)` of the
+    /// random vector over `DoE_UQ`, as a `(n, M)` matrix. With shared random variables, it is
+    /// [KlDecomposition::zeta].
+    pub fn zeta_from_values(&self, values: &Array2<f64>) -> Array2<f64> {
+        (values - &self.mean.view().insert_axis(Axis(1)))
+            .t()
+            .dot(&self.modes)
+    }
+
     /// The truncated random vector `Ŷ_obj(Ξ)` over `DoE_UQ` at samples `xi`, as a
     /// `(n_UQ, n)` matrix
     pub fn eval(&self, basis: &HermiteBasis, xi: &ArrayView2<f64>) -> Array2<f64> {
         let zeta = self.zeta(basis, xi);
         &self.modes.dot(&zeta.t()) + &self.mean.view().insert_axis(Axis(1))
     }
+}
+
+/// The covariance `(n_UQ, n_UQ)` of the PCEs `coefs` `(n_UQ, P)` over `DoE_UQ` when the random
+/// variable `q` of point `i` has the correlation `correlations[q][[i, l]]` with the one of
+/// point `l` (decision D38). With orthonormal Hermite polynomials, Mehler's formula gives
+///
+/// ```text
+/// K_il = Σ_{α ≠ 0} a_α(i) a_α(l) Π_q ρ_q(i, l)^α_q
+/// ```
+///
+/// which is `Σ_j a_j a_jᵀ` when every correlation is 1.
+pub fn mehler_covariance(
+    coefs: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+    basis: &HermiteBasis,
+    correlations: &[Array2<f64>],
+) -> Array2<f64> {
+    let n = coefs.nrows();
+    let alphas = basis.multi_indices();
+    Array2::from_shape_fn((n, n), |(i, l)| {
+        alphas
+            .iter()
+            .enumerate()
+            .skip(1)
+            .map(|(j, alpha)| {
+                let weight: f64 = alpha
+                    .iter()
+                    .zip(correlations)
+                    .map(|(&a, r)| r[[i, l]].powi(a as i32))
+                    .product();
+                coefs[[i, j]] * coefs[[l, j]] * weight
+            })
+            .sum()
+    })
 }
 
 /// The predictions of the KL-GPs at design points: column 0 for the mean, column `k`
@@ -157,6 +216,22 @@ impl KlGpField {
     /// The KL random variables `ζ_k(Ξ)` at samples `xi` `(n_s, dim)`, as a `(n_s, M)` matrix
     pub fn zeta(&self, xi: &ArrayView2<f64>) -> Array2<f64> {
         self.kl.zeta(&self.basis, xi)
+    }
+
+    /// The KL random variables `ζ_k` of the joint samples `samples` of the `DoE_UQ` points,
+    /// with `values` the quantities of interest of the PCEs at these samples
+    /// ([crate::criteria::qoi_samples]), as a `(n, M)` matrix
+    pub fn zeta_of(&self, samples: &JointSamples, values: &[Array2<f64>]) -> Array2<f64> {
+        match samples {
+            JointSamples::Shared(xi) => self.zeta(&xi.view()),
+            JointSamples::PerPoint(_) => {
+                let mut objective = Array2::zeros((values.len(), samples.n_samples()));
+                for (i, v) in values.iter().enumerate() {
+                    objective.row_mut(i).assign(&v.column(0));
+                }
+                self.kl.zeta_from_values(&objective)
+            }
+        }
     }
 
     /// Predicts the KL-GPs at design points `z` `(n, nx)`
