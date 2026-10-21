@@ -266,6 +266,116 @@ pub fn compound_cylinder() -> TestProblem {
     }
 }
 
+/// Aerostructures problem (REMAL paper, Yuan and Renganathan 2026, section 4.2), an
+/// elastically supported airfoil in two-dimensional flow, with the target of Ghoreishi and
+/// Imani (ACC 2020)
+///
+/// ```text
+/// min  f_obj = ½ (y - μ_t)ᵀ Σ_t⁻¹ (y - μ_t),   y = (L, φ),   B ∈ [0, 300]
+/// L = q B C [2π(φ + ψ) + r (1 - cos(π (φ + ψ) / (2 θ0)))] / 1000
+/// φ = (1000 L / (k1 (1 + p)) - 1000 L p / (k2 (1 + p))) / (C (z2 - z1))
+/// ```
+///
+/// - The span `B` (cm) is the design variable, the lift `L` (kN) and the elastic pitch angle
+///   `φ` (rad) are the coupling variables. The equations, the bounds `B ∈ [0, 300)`,
+///   `L ∈ [0, 300]`, `φ ∈ [-π/2, π/2]` and the units of `L` (kN, from the fixed points of its
+///   figure 7) come from the REMAL paper.
+/// - The constants `q = 1 N/cm², C = 10 cm, ψ = 0.05 rad, r = 0.9425, θ0 = 0.26 rad,
+///   p = 0.1111, k1 = 4000 N/cm, k2 = 2000 N/cm, z1 = 0.2, z2 = 0.7` and the design goal come
+///   from Ghoreishi and Imani (ACC 2020). Their disciplines are stochastic and they minimize
+///   the Kullback–Leibler divergence between the joint distribution of `(L, φ)` and the target
+///   `N(μ_t, Σ_t)`, `μ_t = (0.5019288 kN, 0.0176)`, reached near `B = 100`. Here the
+///   disciplines are deterministic and `f_obj` is the divergence from a Gaussian of mean `y`
+///   and the same covariance `Σ_t`.
+///
+/// The positive loop gain `∂L/∂φ · ∂φ/∂L` reaches 0.977 at `B ≈ 233`, where the coupling
+/// amplifies the disciplinary uncertainty up to 43 times; it is 0.30 at the optimum
+/// `B ≈ 100`. Plain Jacobi needs about 1100 iterations near `B = 233`.
+pub fn aerostructures() -> TestProblem {
+    aerostructures_problem(
+        "aerostructures",
+        AERO_TARGET,
+        99.988_835_753_627_5,
+        5.015_569_380_600_62e-4,
+    )
+}
+
+/// [aerostructures] with the target at the equilibrium of REMAL's hardest test point
+/// `B = 700/3` (its figure 9), where the loop gain is maximal (0.977): the optimum is
+/// `B = 700/3` with `f_obj = 0`. This variant is not in the papers; it places the optimum
+/// where the coupling amplifies the disciplinary uncertainty most.
+pub fn aerostructures_steep() -> TestProblem {
+    aerostructures_problem(
+        "aerostructures_steep",
+        [6.493_904_995_402_41, 0.227_295_441_698_497],
+        700. / 3.,
+        0.,
+    )
+}
+
+/// Target mean `(L, φ)` of Ghoreishi and Imani, in kN and rad
+const AERO_TARGET: [f64; 2] = [0.501_928_8, 0.0176];
+/// Target covariance of Ghoreishi and Imani `[ΣLL, ΣLφ, Σφφ]`, in kN and rad
+const AERO_COVARIANCE: [f64; 3] = [352.3372e-6, 0.0122e-3, 1.4314e-6];
+
+/// The lift `L` (kN) at span `B` (cm) and pitch angle `φ` (rad)
+fn aero_lift(b: f64, phi: f64) -> f64 {
+    let (q, c, psi, r, theta0) = (1., 10., 0.05, 0.9425, 0.26);
+    q * b * c * (2. * PI * (phi + psi) + r * (1. - (PI * (phi + psi) / (2. * theta0)).cos()))
+        / 1000.
+}
+
+/// The elastic pitch angle `φ` (rad) under the lift `L` (kN)
+fn aero_pitch(lift: f64) -> f64 {
+    let (c, p, k1, k2, z1, z2) = (10., 0.1111, 4000., 2000., 0.2, 0.7);
+    let l = 1000. * lift;
+    (l / (k1 * (1. + p)) - l * p / (k2 * (1. + p))) / (c * (z2 - z1))
+}
+
+fn aerostructures_problem(
+    name: &'static str,
+    target: [f64; 2],
+    z_ref: f64,
+    f_ref: f64,
+) -> TestProblem {
+    let disciplines = vec![
+        Discipline::new("lift")
+            .coupling_inputs(&[1], &array![[-PI / 2., PI / 2.]])
+            .coupling_outputs(&[0]),
+        Discipline::new("pitch")
+            .design_inputs(&[])
+            .coupling_inputs(&[0], &array![[0., 300.]])
+            .coupling_outputs(&[1]),
+    ];
+    let [sll, slp, spp] = AERO_COVARIANCE;
+    let det = sll * spp - slp * slp;
+    let qoi = move |_z: &ArrayView2<f64>, y: &ArrayView2<f64>| {
+        column(Array1::from_iter(y.rows().into_iter().map(|y| {
+            let (dl, dp) = (y[0] - target[0], y[1] - target[1]);
+            0.5 * (spp * dl * dl - 2. * slp * dl * dp + sll * dp * dp) / det
+        })))
+    };
+    let problem = MdoProblem::new(&array![[0., 300.]], disciplines, qoi)
+        .expect("valid aerostructures problem");
+    let f1 = |x: &ArrayView2<f64>| {
+        column(Array1::from_iter(
+            x.rows().into_iter().map(|x| aero_lift(x[0], x[1])),
+        ))
+    };
+    let f2 = |x: &ArrayView2<f64>| column(x.column(0).mapv(aero_pitch));
+    TestProblem {
+        name,
+        problem,
+        disciplines: vec![Box::new(f1), Box::new(f2)],
+        mda: MdaSettings {
+            max_iters: 5000,
+            ..MdaSettings::default()
+        },
+        z_ref: array![z_ref],
+        f_ref,
+    }
+}
+
 /// Coefficient of variation over `r ∈ [a, c]` of the tangential stress
 /// `σ(r) = A1 + B1/r²` on `[a, b]` and `A2 + B2/r²` on `]b, c]`
 fn cylinder_stress_cv(a: f64, b: f64, c: f64, p: f64) -> f64 {
@@ -385,5 +495,44 @@ mod tests {
         assert!(status.is_converged());
         let (y_ref, _) = solve_one(&couplings, &z.view(), &tp.mda).unwrap();
         assert_abs_diff_eq!(y, y_ref, epsilon = 1e-4 * y_ref.mapv(f64::abs).sum());
+    }
+
+    #[test]
+    fn test_aerostructures() {
+        let tp = aerostructures();
+        // Fixed points: REMAL figure 7 (L in kN) and Ghoreishi's target near B = 100
+        let (y, _, status) = tp.evaluate(&array![100.].view()).unwrap();
+        assert!(status.is_converged());
+        assert_abs_diff_eq!(y[0], 0.502_013, epsilon = 1e-5);
+        assert_abs_diff_eq!(y[1], aero_pitch(y[0]), epsilon = 1e-4 * y[1]);
+        assert_abs_diff_eq!(aero_pitch(1.), 0.035, epsilon = 1e-5);
+        let (y, _, status) = tp.evaluate(&array![300.].view()).unwrap();
+        assert!(status.is_converged());
+        assert_abs_diff_eq!(y[0], 17.059_04, epsilon = 1e-3);
+        // Unique and increasing fixed point, converged by plain Jacobi up to the maximum
+        // loop gain near B = 233
+        let mut previous = f64::NEG_INFINITY;
+        for b in [0., 50., 150., 220., 230., 233., 234., 236., 260., 300.] {
+            let (y, _, status) = tp.evaluate(&array![b].view()).unwrap();
+            assert!(status.is_converged(), "B = {b}: {status:?}");
+            assert!(y[0] >= previous, "B = {b}");
+            previous = y[0];
+        }
+        // The reference is the minimum of the objective on the true MDA
+        let (_, qoi, _) = tp.evaluate(&tp.z_ref.view()).unwrap();
+        assert_abs_diff_eq!(qoi[0], tp.f_ref, epsilon = 1e-6);
+        for dz in [-1., -0.1, 0.1, 1.] {
+            let (_, q, _) = tp.evaluate(&(&tp.z_ref + dz).view()).unwrap();
+            assert!(q[0] > tp.f_ref, "B = z_ref + {dz}");
+        }
+
+        let tp = aerostructures_steep();
+        let (_, qoi, status) = tp.evaluate(&tp.z_ref.view()).unwrap();
+        assert!(status.is_converged());
+        assert_abs_diff_eq!(qoi[0], 0., epsilon = 1e-6);
+        for dz in [-1., 1.] {
+            let (_, q, _) = tp.evaluate(&(&tp.z_ref + dz).view()).unwrap();
+            assert!(q[0] > 1., "B = z_ref + {dz}: f = {}", q[0]);
+        }
     }
 }
