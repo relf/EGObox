@@ -161,6 +161,20 @@ class TestEmdegor(unittest.TestCase):
         self.assertAlmostEqual(res.f_best, SELLAR_F_REF, delta=0.01 * SELLAR_F_REF)
         self.assertLessEqual(sum(res.n_evaluations), 40)
 
+    def test_gp_correlation(self):
+        # GP posterior correlation across the uncertainty quantification points
+        for linearized in [False, True]:
+            emdegor = sellar_emdegor(
+                n_doe=[5, 5],
+                n_mc=200,
+                linearized_mda=linearized,
+                gp_correlation=True,
+                seed=0,
+            )
+            res = emdegor.minimize(max_iters=10)
+            self.assertAlmostEqual(res.f_best, SELLAR_F_REF, delta=0.01 * SELLAR_F_REF)
+            self.assertLessEqual(sum(res.n_evaluations), 40)
+
     def test_toy_problem_with_egmdo_paper_settings(self):
         emdegor = toy_emdegor(
             acquisition=egx.InfillStrategy.EI,

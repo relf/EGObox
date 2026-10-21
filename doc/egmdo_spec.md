@@ -170,6 +170,22 @@ The final model of the objective uses the KL-GP means only:
 Ŷ_obj(z, Ξ) ≈ m_0(z) + Σ_{k=1..M} ζ_k(Ξ) m_k(z)                              (19)
 ```
 
+**Decision D38 (correlation across design points).** In (9), the variable `ξ_q` is shared by every design point, so the disciplinary uncertainty is perfectly correlated over `DoE_UQ`. As an option (`Correlation::GpPosterior`, issue #493), each point `z_i` has its own variables `u_q(i) ~ N(0, 1)`. The correlation of `u_q(i)` and `u_q(l)` is `ρ_q(i, l)`, the posterior correlation of GP `q` between its inputs at the mean MDA solutions of both points (the mean of the converged random MDAs where the mean MDA does not converge). The variables of different couplings stay independent.
+
+- The PCE of each point is fitted in its own variables, on the same samples as before (D6). Their marginal law is unchanged, and so are the coefficients of variation and the Sobol indices (sections 7 and 20).
+- The covariance of the PCEs over `DoE_UQ`, which replaces `Σ_j a_j a_jᵀ` in (13), is given by Mehler's formula for orthonormal Hermite polynomials:
+
+  ```text
+  K_il = Σ_{α≠0} a_α(i) a_α(l) Π_q ρ_q(i, l)^α_q
+  ```
+
+- Joint samples are `u_q = W_q R_q^{1/2}`, with `W_q` independent standard normal samples and `R_q^{1/2}` the symmetric square root of the correlation matrix (eigenvalues below `10⁻¹²` times the largest one set to zero). They replace the samples of `Ξ` in `Ŷ_min` (15), `P_min` (18), `f'_min` (C-20), `P_sol` (C-25) and the final estimation. Each PCE is evaluated at the variables of its own point.
+- The KL random variables are the projections `ζ_k = φ̂_kᵀ (Ŷ − μ_Ŷ)` of the sampled vector. With shared variables, this is `Σ_j b_kj H_j(Ξ)`. The KL-GP field (14) and the criteria are unchanged.
+- The correlations are recomputed whenever `DoE_UQ` or the disciplinary GPs change.
+- With `ρ = 1` everywhere, this is the papers' model. `Correlation::Perfect` keeps its implementation, and its results are bit-identical.
+
+The default is the papers' perfect correlation.
+
 ## 6. Step 1: where to reduce uncertainty (expected improvement)
 
 The minimum of the discretized random field over `DoE_UQ` is
@@ -396,6 +412,7 @@ The paper's typesetting of (23) contains typos: it prints `B/r` instead of `B/r�
 | D35 | WB2S | Adaptive scale `100 \|m_0\| / EI_max` at the maximum of the EI |
 | D36 | LogEI | Smoothed Monte Carlo log (C)EI (qLogEI), temperature `10⁻⁶ σ` of the objective over `DoE_UQ` |
 | D37 | Linearized random MDA | Optional `y_0 + (I − J)⁻¹ diag(σ) Ξ` at the mean MDA solution; fallback to the solved random MDAs; solved by default |
+| D38 | Correlation across design points | Optional GP posterior correlation of the variables of each point, at the mean MDA solutions; Mehler covariance for the KL; perfect by default |
 
 ## 13. Default settings
 
@@ -414,6 +431,7 @@ The paper's typesetting of (23) contains typos: it prints `B/r` instead of `B/r�
 | MDA retry relaxations | | 0.5, 0.25 | D33 |
 | GP kernel | | Matérn 5/2 | D34 |
 | Random MDA | | solved | D37 |
+| Correlation across design points | | perfect | D38 |
 | EI Monte Carlo samples | `N_EI` | 2000 | D9 |
 | EI optimizer | | COBYLA, `rhobeg = 0.5` on `[0, 1]^n`, 20 starts | paper |
 | `P_min` samples | `n_P` | 10⁴ | D10 |
@@ -430,6 +448,7 @@ The paper's typesetting of (23) contains typos: it prints `B/r` instead of `B/r�
 | 3 (D37) | `uq` | `linfa-linalg` SVD, `predict_gradients` | coupling Jacobian vs finite differences of the mean MDA map; solved random MDA equals `y_0 + t L Ξ` to first order in `t`; PCE moments close to the solved random MDA; fallback |
 | 4 | `pce` | `linfa-linalg` QR | orthonormality of the basis (Monte Carlo), exact recovery of polynomial targets, moments vs Monte Carlo |
 | 5 | `kl` | `egobox-gp`, `linfa-linalg` `eigh` | energy truncation, reconstruction of `Ŷ_obj` at `DoE_UQ`, KL-GP interpolation, sign invariance |
+| 5 (D38) | `uq`, `kl`, `solver` | `predict_covariance`, `linfa-linalg` `eigh` | correlation matrices (unit diagonal, symmetric, PSD, larger for close points); correlation of the joint samples; Mehler covariance equals `Σ a_j a_jᵀ` for `ρ = 1` and the covariance of the joint samples; projected `ζ` equals the PCE form with shared variables; toy problem converges; `Perfect` bit-identical |
 | 6, 7 | `criteria` | multistart COBYLA of `egobox_gp::basin_optimizer`, as `Egor` | EI ≈ 0 at `DoE_UQ`, EI ≥ 0, determinism with fixed samples, `P_min` sums to 1, `cv` with negative and zero mean |
 | 7, 8, 9 | `solver` | — | Algorithm 1 stops when all candidates have `cv ≤ ε_cv`; one evaluation per discipline per enrichment; ask/tell sequence; reproducibility for a seed |
 | 10 | `solver`, `result` | — | statistics of `Ẑ*` and `Ŷ_min` on a problem with a known minimum |
@@ -675,6 +694,7 @@ The library defaults follow C-EGMDO, the more recent and more robust variant, wi
 | `ε_CV` | > 0 | 0.01 | 0.01 | 0.01 |
 | GP kernel | `Matern52`, `SquaredExponential` | `Matern52` (D34) | `SquaredExponential` | `SquaredExponential` |
 | Random MDA | `Solved`, `Linearized` (D37) | `Solved` | `Solved` | `Solved` |
+| Correlation across design points | `Perfect`, `GpPosterior` (D38) | `Perfect` | `Perfect` | `Perfect` |
 | `n_MC` | `≥ P + 1` | `max(200, 2P)` | 100 | 200 to 500 |
 | Constraint tolerance `τ` | ≥ 0 per constraint | `1e-4` | — | — |
 

@@ -7,15 +7,18 @@
 
 use crate::constraints::ConstraintModels;
 use crate::criteria::{
-    ExpectedImprovement, Feasibility, SampleMinima, multistart_minimize_constrained, qoi_samples,
+    ExpectedImprovement, Feasibility, SampleMinima, multistart_minimize_constrained,
+    qoi_joint_samples,
 };
 use crate::errors::{EgmdoError, Result};
-use crate::kl::{KlDecomposition, KlGpField};
+use crate::kl::{KlDecomposition, KlGpField, mehler_covariance};
 use crate::mda::{MdaSettings, SurrogateCouplings, solve_one};
 use crate::pce::{HermiteBasis, normal_samples};
 use crate::problem::{DisciplineFn, MdoProblem};
 use crate::surrogates::{DisciplinaryModels, GpSettings, initial_doe};
-use crate::uq::{PointUq, UqSettings, coefficients, point_uq};
+use crate::uq::{
+    Correlation, JointSamples, PointUq, UqSettings, coefficients, coupling_correlations, point_uq,
+};
 use egobox_doe::{Lhs, SamplingMethod};
 use ndarray::{Array1, Array2, Axis, concatenate, s};
 use ndarray_rand::rand::{Rng, SeedableRng};
@@ -552,8 +555,37 @@ impl EgmdoSolver {
     }
 
     fn field(&self) -> Result<KlGpField> {
-        let kl = KlDecomposition::new(&coefficients(&self.uq, 0), self.config.uq.kl_threshold)?;
+        let coefs = coefficients(&self.uq, 0);
+        let kl = match self.config.uq.correlation {
+            Correlation::Perfect => KlDecomposition::new(&coefs, self.config.uq.kl_threshold)?,
+            Correlation::GpPosterior => {
+                // Covariance of the PCEs with GP-correlated variables across DoE_UQ (D38)
+                let correlations = coupling_correlations(
+                    &self.problem,
+                    self.models.as_ref().expect("models"),
+                    &self.doe_uq,
+                    &self.uq,
+                )?;
+                let cov = mehler_covariance(&coefs, &self.basis, &correlations);
+                KlDecomposition::from_covariance(&coefs, cov, self.config.uq.kl_threshold)?
+            }
+        };
         KlGpField::fit(&self.doe_uq, kl, self.basis.clone(), &self.config.gp)
+    }
+
+    /// `n` joint samples of the disciplinary uncertainty at the `DoE_UQ` points, with the
+    /// configured correlation across points (D38)
+    fn joint_samples(&mut self, n: usize) -> Result<JointSamples> {
+        let seed = self.rng.r#gen();
+        JointSamples::draw(
+            self.config.uq.correlation,
+            &self.problem,
+            self.models.as_ref().expect("models"),
+            &self.doe_uq,
+            &self.uq,
+            n,
+            seed,
+        )
     }
 
     fn constraint_models(&self) -> Result<ConstraintModels> {
@@ -566,10 +598,12 @@ impl EgmdoSolver {
         let field = self.field()?;
         let constraints = self.constraint_models()?;
         let n_modes = field.kl().n_modes();
-        let xi = normal_samples(self.config.n_ei_samples, self.basis.dim(), self.rng.r#gen());
+        let samples = self.joint_samples(self.config.n_ei_samples)?;
         let eta = normal_samples(self.config.n_ei_samples, n_modes + 1, self.rng.r#gen());
-        let f_min = SampleMinima::new(&self.uq, &xi.view(), &self.feasibility).f_min;
-        let ei = ExpectedImprovement::new(&field, f_min, &xi.view(), eta);
+        let values = qoi_joint_samples(&self.uq, &samples);
+        let f_min = SampleMinima::from_values(&values, &self.feasibility).f_min;
+        let zeta = field.zeta_of(&samples, &values);
+        let ei = ExpectedImprovement::with_zeta(&field, f_min, zeta, eta);
         let mut starts = self.uniform_points(self.config.n_starts);
         let (n_constraints, constraint) = constraints.as_inequalities(&self.feasibility);
         let maximize = |criterion: Criterion, starts: &Array2<f64>| {
@@ -675,12 +709,9 @@ impl EgmdoSolver {
     /// Step 2 (Algorithm 1, C-EGMDO Algorithm 2): the `DoE_UQ` point where to enrich the
     /// disciplinary GPs, if any (sections 7 and 19)
     fn next_enrichment(&mut self, skipped: &[usize]) -> Result<Option<usize>> {
-        let xi = normal_samples(
-            self.config.n_pmin_samples,
-            self.basis.dim(),
-            self.rng.r#gen(),
-        );
-        let minima = SampleMinima::new(&self.uq, &xi.view(), &self.feasibility);
+        let samples = self.joint_samples(self.config.n_pmin_samples)?;
+        let minima =
+            SampleMinima::from_values(&qoi_joint_samples(&self.uq, &samples), &self.feasibility);
         let threshold = self.config.p_threshold.unwrap_or(1. / self.uq.len() as f64);
         let mut p = minima.probability_of_solution();
         if p.iter().all(|&v| v < threshold) {
@@ -746,9 +777,9 @@ impl EgmdoSolver {
     fn finalize(&mut self) -> Result<()> {
         let field = self.field()?;
         let constraints = self.constraint_models()?;
-        let xi = normal_samples(self.config.n_sim, self.basis.dim(), self.rng.r#gen());
-        let zeta = field.zeta(&xi.view());
-        let doe_values = qoi_samples(&self.uq, &xi.view());
+        let samples = self.joint_samples(self.config.n_sim)?;
+        let doe_values = qoi_joint_samples(&self.uq, &samples);
+        let zeta = field.zeta_of(&samples, &doe_values);
         let random_starts = self.uniform_points(5 * self.config.n_sim);
         let xlimits = self.problem.xlimits().clone();
         let (n_constraints, constraint) = constraints.as_inequalities(&self.feasibility);
@@ -879,7 +910,7 @@ pub fn minimize(
 mod tests {
     use super::*;
     use crate::problems;
-    use crate::uq::RandomMda;
+    use crate::uq::{Correlation, RandomMda};
     use ndarray::array;
 
     /// The setting of the 1-D toy problem in the EGMDO paper (section 2)
@@ -1007,6 +1038,39 @@ mod tests {
             summary.iter().filter(|s| s.1).count() >= 6,
             "runs (seed, converged, E[z*], evaluations): {summary:?}"
         );
+    }
+
+    #[test]
+    fn test_gp_posterior_correlation() {
+        // D38: the toy problem converges with the GP posterior correlation across DoE_UQ,
+        // with the solved and the linearized random MDAs
+        let tp = problems::toy();
+        for random_mda in [RandomMda::Solved, RandomMda::Linearized] {
+            let mut summary = vec![];
+            for seed in 0..10 {
+                let config = EgmdoConfig {
+                    uq: UqSettings {
+                        random_mda,
+                        correlation: Correlation::GpPosterior,
+                        ..UqSettings::default()
+                    },
+                    ..toy_config(seed)
+                };
+                let result = minimize(&tp.problem, &tp.disciplines, config).unwrap();
+                let converged =
+                    (result.z_star_mean()[0] - tp.z_ref[0]).abs() < 0.05 * tp.z_ref[0].abs();
+                summary.push((
+                    seed,
+                    converged,
+                    result.z_star_mean()[0],
+                    result.n_evaluations,
+                ));
+            }
+            assert!(
+                summary.iter().filter(|s| s.1).count() >= 6,
+                "{random_mda:?}: runs (seed, converged, E[z*], evaluations): {summary:?}"
+            );
+        }
     }
 
     #[test]

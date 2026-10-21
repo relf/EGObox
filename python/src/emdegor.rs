@@ -383,6 +383,10 @@ impl EmdegorResult {
 ///     instead of solving it for each of the n_mc samples (much faster, accurate when the
 ///     disciplinary GP uncertainty is small). Points where the mean analysis does not converge
 ///     fall back to the solved random analyses.
+/// gp_correlation : bool
+///     Correlate the disciplinary GP uncertainty across the design points of the uncertainty
+///     quantification as the GP posteriors, instead of perfectly (one random sample shared by
+///     every point, as in the EGMDO papers).
 /// seed : int >= 0, optional
 ///     Random generator seed, for reproducible runs.
 ///
@@ -433,6 +437,7 @@ impl Emdegor {
         max_evaluations = None,
         mda_relaxation = 1.,
         linearized_mda = false,
+        gp_correlation = false,
         seed = None,
     ))]
     #[allow(clippy::too_many_arguments)]
@@ -470,6 +475,7 @@ impl Emdegor {
         max_evaluations: Option<usize>,
         mda_relaxation: f64,
         linearized_mda: bool,
+        gp_correlation: bool,
         seed: Option<u64>,
     ) -> PyResult<Self> {
         let (design_names, xlimits) = parse_variables(&design, "design variable")?;
@@ -587,6 +593,11 @@ impl Emdegor {
                     egmdo::uq::RandomMda::Linearized
                 } else {
                     egmdo::uq::RandomMda::Solved
+                },
+                correlation: if gp_correlation {
+                    egmdo::uq::Correlation::GpPosterior
+                } else {
+                    egmdo::uq::Correlation::Perfect
                 },
                 ..egmdo::uq::UqSettings::default()
             },

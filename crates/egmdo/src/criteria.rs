@@ -16,7 +16,7 @@
 use crate::errors::Result;
 use crate::kl::KlGpField;
 use crate::pce::Pce;
-use crate::uq::PointUq;
+use crate::uq::{JointSamples, PointUq};
 use egobox_gp::basin_optimizer::{Algorithm, Settings, minimize};
 use ndarray::{Array1, Array2, ArrayView1, ArrayView2, Axis};
 use rayon::prelude::*;
@@ -139,6 +139,15 @@ pub fn qoi_samples(uq: &[PointUq], xi: &ArrayView2<f64>) -> Vec<Array2<f64>> {
     uq.iter().map(|u| u.pce.eval(xi)).collect()
 }
 
+/// The quantities of interest of the PCEs at the `DoE_UQ` points for the joint samples
+/// `samples` (decision D38): one `(n, n_qoi)` matrix per point
+pub fn qoi_joint_samples(uq: &[PointUq], samples: &JointSamples) -> Vec<Array2<f64>> {
+    uq.iter()
+        .enumerate()
+        .map(|(i, u)| u.pce.eval(&samples.point(i)))
+        .collect()
+}
+
 /// The minima of the quantities of interest over the `DoE_UQ` points, for samples of `Ξ`
 #[derive(Clone, Debug)]
 pub struct SampleMinima {
@@ -157,8 +166,13 @@ pub struct SampleMinima {
 impl SampleMinima {
     /// The minima over the `DoE_UQ` points of the PCEs `uq` for the samples `xi` `(n, dim)`
     pub fn new(uq: &[PointUq], xi: &ArrayView2<f64>, feasibility: &Feasibility) -> Self {
-        let values = qoi_samples(uq, xi);
-        let n = xi.nrows();
+        Self::from_values(&qoi_samples(uq, xi), feasibility)
+    }
+
+    /// The minima over the `DoE_UQ` points of the samples `values` of their quantities of
+    /// interest, one `(n, n_qoi)` matrix per point ([qoi_samples], [qoi_joint_samples])
+    pub fn from_values(values: &[Array2<f64>], feasibility: &Feasibility) -> Self {
+        let n = values.first().map_or(0, |v| v.nrows());
         let mut f_min = Array1::zeros(n);
         let mut feasible_argmin = Vec::with_capacity(n);
         let mut least_violation = Vec::with_capacity(n);
@@ -186,7 +200,7 @@ impl SampleMinima {
             f_min,
             feasible_argmin,
             least_violation,
-            n_points: uq.len(),
+            n_points: values.len(),
         }
     }
 
@@ -230,9 +244,20 @@ impl<'a> ExpectedImprovement<'a> {
         xi: &ArrayView2<f64>,
         eta: Array2<f64>,
     ) -> Self {
+        Self::with_zeta(field, y_min, field.zeta(xi), eta)
+    }
+
+    /// The expected improvement with the samples `zeta` `(n, M)` of the KL random variables
+    /// ([KlGpField::zeta_of]) and `eta` `(n, M + 1)`
+    pub fn with_zeta(
+        field: &'a KlGpField,
+        y_min: Array1<f64>,
+        zeta: Array2<f64>,
+        eta: Array2<f64>,
+    ) -> Self {
         ExpectedImprovement {
             field,
-            zeta: field.zeta(xi),
+            zeta,
             eta,
             y_min,
         }
@@ -469,6 +494,7 @@ mod tests {
             n_failed: 0,
             reliable: true,
             linearized: false,
+            y_mean: Array1::zeros(1),
         }
     }
 
