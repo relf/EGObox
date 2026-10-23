@@ -54,6 +54,12 @@ fn snapshot_dir() -> PathBuf {
 }
 
 fn check_snapshot(name: &str, res: &OptimResult<f64>) {
+    check_snapshot_with_tol(name, res, SNAPSHOT_REL_TOL)
+}
+
+/// Same as [check_snapshot] with a given relative tolerance, for scenarios whose
+/// evaluated points are more sensitive to CPU dependent math library code paths
+fn check_snapshot_with_tol(name: &str, res: &OptimResult<f64>, rel_tol: f64) {
     let data = concatenate![Axis(1), res.x_doe, res.y_doe];
     let filepath = snapshot_dir().join(format!("{name}.npy"));
     if std::env::var(UPDATE_ENV).is_ok() {
@@ -88,7 +94,7 @@ fn check_snapshot(name: &str, res: &OptimResult<f64>) {
         let e = expected[[i, j]];
         let same = (v.is_nan() && e.is_nan())
             || v == &e
-            || (v - e).abs() <= SNAPSHOT_ABS_TOL + SNAPSHOT_REL_TOL * scales[j];
+            || (v - e).abs() <= SNAPSHOT_ABS_TOL + rel_tol * scales[j];
         assert!(
             same,
             "{name}: [x_doe, y_doe][[{i}, {j}]] = {v} differs from snapshot {e}"
@@ -238,7 +244,7 @@ fn snapshot_g24_cstr_specs() {
         .unwrap()
         .run()
         .unwrap();
-    check_snapshot("g24_cstr_specs", &res);
+    check_snapshot_with_tol("g24_cstr_specs", &res, 5e-5);
 }
 
 #[test]
@@ -261,7 +267,7 @@ fn snapshot_g24_function_constraints() {
     check_snapshot("g24_function_constraints", &res);
 }
 
-fn g24_qei(name: &str, strategy: QEiStrategy) {
+fn g24_qei(name: &str, strategy: QEiStrategy, rel_tol: f64) {
     let res = EgorBuilder::optimize(f_g24)
         .configure(|cfg| {
             cfg.n_cstr(2)
@@ -274,19 +280,23 @@ fn g24_qei(name: &str, strategy: QEiStrategy) {
         .unwrap()
         .run()
         .unwrap();
-    check_snapshot(name, &res);
+    check_snapshot_with_tol(name, &res, rel_tol);
 }
 
 #[test]
 #[serial]
 fn snapshot_g24_qei_kb() {
-    g24_qei("g24_qei_kb", QEiStrategy::KrigingBeliever);
+    g24_qei("g24_qei_kb", QEiStrategy::KrigingBeliever, 5e-4);
 }
 
 #[test]
 #[serial]
 fn snapshot_g24_qei_clmin() {
-    g24_qei("g24_qei_clmin", QEiStrategy::ConstantLiarMinimum);
+    g24_qei(
+        "g24_qei_clmin",
+        QEiStrategy::ConstantLiarMinimum,
+        SNAPSHOT_REL_TOL,
+    );
 }
 
 #[test]

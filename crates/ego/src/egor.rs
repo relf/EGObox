@@ -693,6 +693,47 @@ mod tests {
 
     #[test]
     #[serial]
+    fn test_xsinx_with_noise_ratio() {
+        // xsinx with a deterministic pseudo-noise of amplitude 0.5
+        let noisy_xsinx =
+            |x: &ArrayView2<f64>| -> Array2<f64> { xsinx(x) + x.mapv(|v| 0.5 * (1000. * v).sin()) };
+        let initial_doe = Lhs::new(&array![[0.0, 25.0]])
+            .with_rng(Xoshiro256Plus::seed_from_u64(42))
+            .sample(8);
+        let res = EgorBuilder::optimize(noisy_xsinx)
+            .configure(|cfg| {
+                cfg.configure_gp(|gp| {
+                    gp.noise_ratio(crate::ParamTuning::Optimized {
+                        init: 1e-2,
+                        bounds: (1e-10, 10.),
+                    })
+                })
+                .max_iters(15)
+                .doe(&initial_doe)
+                .seed(42)
+            })
+            .min_within(&array![[0.0, 25.0]])
+            .expect("Egor should be configured")
+            .run()
+            .expect("Egor should minimize noisy xsinx");
+        assert_abs_diff_eq!(array![18.9], res.x_opt, epsilon = 0.5);
+
+        let obj_model = &res.state.surrogate.models[0];
+        let noise_variance = obj_model.experts()[0].noise_variance();
+        println!("Estimated noise variance = {noise_variance}");
+        assert!(noise_variance > 0.);
+    }
+
+    #[test]
+    fn test_gp_config_without_noise_ratio_deserialization() {
+        let mut value = serde_json::to_value(crate::GpConfig::default()).unwrap();
+        value.as_object_mut().unwrap().remove("noise_ratio");
+        let gp_config: crate::GpConfig = serde_json::from_value(value).unwrap();
+        assert_eq!(gp_config.noise_ratio, crate::ParamTuning::Fixed(0.));
+    }
+
+    #[test]
+    #[serial]
     fn test_xsinx_ei_egor_builder() {
         let initial_doe = array![[0.], [7.], [25.]];
         let res = EgorBuilder::optimize(xsinx)

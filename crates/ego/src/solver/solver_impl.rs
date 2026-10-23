@@ -253,6 +253,7 @@ where
         builder.set_n_clusters(self.config.gp.n_clusters.clone());
         builder.set_recombination(self.config.gp.recombination);
         builder.set_optim_params(self.config.gp.n_start, self.config.gp.max_eval);
+        builder.set_noise_ratio(self.config.gp.noise_ratio.clone());
         let mut model = None;
 
         let dim = self.config.gp.kpls_dim.unwrap_or(xt.ncols());
