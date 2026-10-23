@@ -2568,7 +2568,8 @@ mod tests {
         let json = serde_json::to_string(&gp).unwrap();
         let loaded: GaussianProcess<f64, ConstantMean, SquaredExponentialCorr> =
             serde_json::from_str(&json).unwrap();
-        assert_eq!(loaded.noise_ratio(), gp.noise_ratio());
+        // JSON float round trip may differ by one ulp
+        assert_abs_diff_eq!(loaded.noise_ratio(), gp.noise_ratio(), epsilon = 1e-15);
         assert_eq!(loaded.params.noise_ratio(), gp.params.noise_ratio());
 
         // Models saved before noise ratio introduction load as noise-free models
