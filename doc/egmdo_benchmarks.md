@@ -440,3 +440,97 @@ With 3 points per discipline, the solved random MDAs near the maximum loop gain 
   - The linearized runs are 6 to 60 times faster (1 to 5 s against 6 to 290 s), since the solved random MDAs near the maximum loop gain take thousands of iterations.
 - **The correlation across design points changes little in the whole runs**, although it changes `P_min` at a given iteration: the convergence rates and evaluations are within the noise of 10 runs per row.
 - **The rank-one assumptions are not the limiting factor on this problem either.** The solved random MDA is a faithful model of the disciplinary uncertainty at a given span, and the perfect correlation, although it misrepresents `P_min`, does not change the results of the algorithm. The cost and the robustness of the solved random MDAs near a loop gain of 1 are the limiting factor, and the linearization removes it.
+
+### Local KL (prototype)
+
+Issue #493 also proposes a local Karhunen–Loève expansion of the disciplinary GPs around the mean MDA solution, as a trust region. Following the discussion with its author, it is prototyped in the reference example, without changing the solver:
+
+- at each span, the trust region of each coupling is `y_0 ± k σ_y`, where `y_0` is the mean MDA solution and `σ_y` the standard deviation of the linearized random MDA (D37);
+- each GP posterior is expanded on its trust region with `m` modes (eigenpairs of the posterior covariance on the grid points of the trust region), and extended to the whole grid by Nyström, `ψ_i = C(·, T) v_i / λ_i`;
+- *rescaled*: the expansion is scaled so that its pointwise variance is the posterior variance (with one mode, it is then close to the rank-one model).
+
+```text
+cargo run -p egobox-egmdo --release --example egmdo_aerostructures -- local-kl 10
+```
+
+The fixed points are found on wider grids than in the previous tables (`φ ∈ [−1, 4]`, `L ∈ [−20, 120]` kN). For the exact paths, the rank-one fields on the grids and the local KL, `L*` is the fixed point closest to the mean MDA solution, found by sign changes on the grids. This rule does not depend on a solver, so the comparison isolates the uncertainty model; the solved random MDA uses the Jacobi iterations of the solver. With 8000 samples on both sides, the KS distance between identical distributions is about 0.013 (median) and below 0.022 (95%).
+
+| Initial DoE per discipline | Model | KS vs exact | Std ratio vs exact | Variance captured, lift / pitch | Coverage | Paths without reached fixed point |
+|---|---|---|---|---|---|---|
+| 3 | Exact sample paths (reference) | | | | | 2.8% |
+| 3 | Rank-one, solved random MDA (EGMDO) | 0.054 [0.108] | 1.15 [0.97, 1.38] | — | — | 0.0% |
+| 3 | Rank-one fields on the grids | 0.020 [0.071] | 1.03 [1.00, 1.16] | — | — | 3.9% |
+| 3 | Linearized random MDA | 0.125 [0.226] | 0.97 [0.39, 1.35] | — | — | 0.0% |
+| 3 | Local KL, m = 1, k = 3 | 0.074 [0.112] | 0.90 [0.78, 0.97] | 0.671 / 0.994 | 0.95 | 1.8% |
+| 3 | Local KL, m = 2, k = 3 | 0.037 [0.087] | 0.98 [0.86, 1.00] | 0.854 / 1.000 | 0.95 | 2.2% |
+| 3 | Local KL, m = 4, k = 3 | 0.018 [0.040] | 1.00 [0.97, 1.02] | 0.975 / 1.000 | 0.95 | 2.6% |
+| 3 | Local KL, m = 8, k = 3 | 0.015 [0.022] | 1.01 [1.00, 1.02] | 0.998 / 1.000 | 0.95 | 2.7% |
+| 3 | Local KL, m = 4, k = 2 | 0.019 [0.033] | 1.00 [0.98, 1.02] | 0.989 / 1.000 | 0.87 | 2.3% |
+| 3 | Local KL, m = 4, k = 5 | 0.021 [0.051] | 0.99 [0.95, 1.03] | 0.941 / 1.000 | 1.00 | 2.6% |
+| 3 | Local KL rescaled, m = 1, k = 3 | 0.023 [0.058] | 1.02 [0.97, 1.14] | 0.671 / 0.994 | 0.95 | 3.5% |
+| 3 | Local KL rescaled, m = 2, k = 3 | 0.018 [0.053] | 1.01 [0.99, 1.11] | 0.854 / 1.000 | 0.95 | 3.5% |
+| 3 | Local KL rescaled, m = 4, k = 3 | 0.018 [0.031] | 1.02 [0.98, 1.07] | 0.975 / 1.000 | 0.95 | 3.3% |
+| 3 | Local KL rescaled, m = 8, k = 3 | 0.014 [0.018] | 1.01 [0.98, 1.02] | 0.998 / 1.000 | 0.95 | 3.1% |
+| 3 | Local KL rescaled, m = 4, k = 2 | 0.020 [0.025] | 1.01 [0.98, 1.05] | 0.989 / 1.000 | 0.87 | 3.2% |
+| 3 | Local KL rescaled, m = 4, k = 5 | 0.019 [0.041] | 1.03 [0.99, 1.08] | 0.941 / 1.000 | 1.00 | 3.4% |
+| 3 | *Check: rank-one on the grids vs solved random MDA (KS)* | 0.047 [0.071] | | | | |
+| 4 | Exact sample paths (reference) | | | | | 0.1% |
+| 4 | Rank-one, solved random MDA (EGMDO) | 0.032 [0.063] | 1.00 [0.96, 1.43] | — | — | 0.0% |
+| 4 | Rank-one fields on the grids | 0.019 [0.051] | 1.01 [0.98, 1.40] | — | — | 0.2% |
+| 4 | Linearized random MDA | 0.058 [0.112] | 0.98 [0.47, 1.17] | — | — | 0.0% |
+| 4 | Local KL, m = 1, k = 3 | 0.032 [0.231] | 0.92 [0.55, 1.00] | 0.942 / 1.000 | 0.99 | 0.0% |
+| 4 | Local KL, m = 2, k = 3 | 0.015 [0.043] | 0.98 [0.89, 1.00] | 0.999 / 1.000 | 0.99 | 0.0% |
+| 4 | Local KL, m = 4, k = 3 | 0.012 [0.019] | 0.99 [0.94, 1.01] | 1.000 / 1.000 | 0.99 | 0.1% |
+| 4 | Local KL, m = 8, k = 3 | 0.014 [0.018] | 1.00 [0.94, 1.01] | 1.000 / 1.000 | 0.99 | 0.1% |
+| 4 | Local KL, m = 4, k = 2 | 0.014 [0.020] | 0.99 [0.95, 1.01] | 1.000 / 1.000 | 0.94 | 0.0% |
+| 4 | Local KL, m = 4, k = 5 | 0.014 [0.023] | 0.99 [0.95, 1.01] | 1.000 / 1.000 | 1.00 | 0.1% |
+| 4 | Local KL rescaled, m = 1, k = 3 | 0.019 [0.144] | 1.00 [0.29, 1.05] | 0.942 / 1.000 | 0.99 | 0.1% |
+| 4 | Local KL rescaled, m = 2, k = 3 | 0.015 [0.030] | 0.99 [0.96, 1.07] | 0.999 / 1.000 | 0.99 | 0.1% |
+| 4 | Local KL rescaled, m = 4, k = 3 | 0.013 [0.019] | 1.00 [0.96, 1.02] | 1.000 / 1.000 | 0.99 | 0.1% |
+| 4 | Local KL rescaled, m = 8, k = 3 | 0.014 [0.019] | 1.00 [0.98, 1.02] | 1.000 / 1.000 | 0.99 | 0.1% |
+| 4 | Local KL rescaled, m = 4, k = 2 | 0.014 [0.020] | 1.00 [0.99, 1.04] | 1.000 / 1.000 | 0.94 | 0.1% |
+| 4 | Local KL rescaled, m = 4, k = 5 | 0.013 [0.022] | 1.00 [0.97, 1.03] | 1.000 / 1.000 | 1.00 | 0.1% |
+| 4 | *Check: rank-one on the grids vs solved random MDA (KS)* | 0.021 [0.034] | | | | |
+| 6 | Exact sample paths (reference) | | | | | 0.0% |
+| 6 | Rank-one, solved random MDA (EGMDO) | 0.020 [0.037] | 1.00 [0.98, 1.22] | — | — | 0.0% |
+| 6 | Rank-one fields on the grids | 0.015 [0.028] | 1.01 [0.99, 1.10] | — | — | 0.1% |
+| 6 | Linearized random MDA | 0.097 [0.150] | 0.99 [0.54, 1.19] | — | — | 0.0% |
+| 6 | Local KL, m = 1, k = 3 | 0.032 [0.115] | 0.95 [0.83, 0.98] | 0.915 / 0.997 | 0.99 | 0.0% |
+| 6 | Local KL, m = 2, k = 3 | 0.020 [0.061] | 0.97 [0.94, 0.99] | 0.986 / 1.000 | 0.99 | 0.0% |
+| 6 | Local KL, m = 4, k = 3 | 0.015 [0.020] | 0.99 [0.96, 1.00] | 0.999 / 1.000 | 0.99 | 0.0% |
+| 6 | Local KL, m = 8, k = 3 | 0.015 [0.021] | 0.99 [0.98, 1.01] | 1.000 / 1.000 | 0.99 | 0.0% |
+| 6 | Local KL, m = 4, k = 2 | 0.015 [0.020] | 0.99 [0.96, 1.00] | 1.000 / 1.000 | 0.95 | 0.0% |
+| 6 | Local KL, m = 4, k = 5 | 0.015 [0.028] | 0.99 [0.97, 1.00] | 0.997 / 1.000 | 1.00 | 0.0% |
+| 6 | Local KL rescaled, m = 1, k = 3 | 0.019 [0.040] | 0.98 [0.95, 1.06] | 0.915 / 0.997 | 0.99 | 0.0% |
+| 6 | Local KL rescaled, m = 2, k = 3 | 0.018 [0.023] | 0.99 [0.97, 1.04] | 0.986 / 1.000 | 0.99 | 0.1% |
+| 6 | Local KL rescaled, m = 4, k = 3 | 0.015 [0.020] | 0.99 [0.98, 1.02] | 0.999 / 1.000 | 0.99 | 0.0% |
+| 6 | Local KL rescaled, m = 8, k = 3 | 0.015 [0.021] | 0.99 [0.98, 1.01] | 1.000 / 1.000 | 0.99 | 0.0% |
+| 6 | Local KL rescaled, m = 4, k = 2 | 0.015 [0.020] | 0.99 [0.98, 1.02] | 1.000 / 1.000 | 0.95 | 0.0% |
+| 6 | Local KL rescaled, m = 4, k = 5 | 0.015 [0.019] | 1.00 [0.98, 1.01] | 0.997 / 1.000 | 1.00 | 0.0% |
+| 6 | *Check: rank-one on the grids vs solved random MDA (KS)* | 0.018 [0.026] | | | | |
+| 10 | Exact sample paths (reference) | | | | | 0.0% |
+| 10 | Rank-one, solved random MDA (EGMDO) | 0.021 [0.035] | 1.00 [0.97, 1.02] | — | — | 0.0% |
+| 10 | Rank-one fields on the grids | 0.012 [0.019] | 1.00 [0.98, 1.01] | — | — | 0.0% |
+| 10 | Linearized random MDA | 0.021 [0.065] | 1.00 [0.89, 1.04] | — | — | 0.0% |
+| 10 | Local KL, m = 1, k = 3 | 0.017 [0.024] | 0.98 [0.92, 1.00] | 0.966 / 0.986 | 1.00 | 0.0% |
+| 10 | Local KL, m = 2, k = 3 | 0.015 [0.020] | 0.99 [0.97, 1.00] | 0.999 / 0.998 | 1.00 | 0.0% |
+| 10 | Local KL, m = 4, k = 3 | 0.012 [0.017] | 0.99 [0.98, 1.01] | 1.000 / 0.999 | 1.00 | 0.0% |
+| 10 | Local KL, m = 8, k = 3 | 0.013 [0.019] | 1.00 [0.98, 1.02] | 1.000 / 1.000 | 1.00 | 0.0% |
+| 10 | Local KL, m = 4, k = 2 | 0.012 [0.017] | 0.99 [0.98, 1.01] | 1.000 / 0.999 | 0.95 | 0.0% |
+| 10 | Local KL, m = 4, k = 5 | 0.013 [0.018] | 0.99 [0.98, 1.01] | 1.000 / 0.999 | 1.00 | 0.0% |
+| 10 | Local KL rescaled, m = 1, k = 3 | 0.013 [0.020] | 1.00 [0.98, 1.01] | 0.966 / 0.986 | 1.00 | 0.0% |
+| 10 | Local KL rescaled, m = 2, k = 3 | 0.014 [0.020] | 1.00 [0.98, 1.01] | 0.999 / 0.998 | 1.00 | 0.0% |
+| 10 | Local KL rescaled, m = 4, k = 3 | 0.012 [0.017] | 0.99 [0.98, 1.01] | 1.000 / 0.999 | 1.00 | 0.0% |
+| 10 | Local KL rescaled, m = 8, k = 3 | 0.013 [0.019] | 1.00 [0.98, 1.02] | 1.000 / 1.000 | 1.00 | 0.0% |
+| 10 | Local KL rescaled, m = 4, k = 2 | 0.012 [0.017] | 0.99 [0.98, 1.01] | 1.000 / 0.999 | 0.95 | 0.0% |
+| 10 | Local KL rescaled, m = 4, k = 5 | 0.012 [0.017] | 0.99 [0.98, 1.01] | 1.000 / 0.999 | 1.00 | 0.0% |
+| 10 | *Check: rank-one on the grids vs solved random MDA (KS)* | 0.018 [0.026] | | | | |
+
+Findings:
+
+- **The local KL converges to the exact distribution.** With 4 modes and `k = 3`, the median KS distance is 0.012 to 0.018 for every DoE size, at the noise level; with 3 points per discipline, 8 modes bring it to 0.015. The 4 modes capture 97.5% of the lift variance on the trust region, and all the pitch variance.
+- **It improves on the rank-one model in its worst cases only.** The rank-one fields are at the noise level in median (KS 0.012 to 0.020), but not in the worst seeds and spans with small DoEs: the 90% quantile of their KS is 0.071 with 3 points per discipline and 0.051 with 4, against 0.040 and 0.019 for the local KL with 4 modes, and their standard deviation ratio reaches 1.40 against at most 1.07. From 6 points per discipline, both are at the noise level.
+- **Too few modes is worse than the rank-one model.** With 1 mode, the truncated expansion loses variance (KS 0.074 and standard deviation ratio 0.90 with 3 points per discipline). The rescaling restores the variance and brings 1 mode back to about the rank-one model, but with outliers (90% KS 0.144 with 4 points). From 4 modes, the rescaling changes nothing.
+- **The trust region `y_0 ± 3 σ_y` is a good size.** It contains 95 to 100% of the exact fixed points; `k = 2` (87 to 95%) and `k = 5` (100%) give similar KS distances with 4 modes, `k = 5` being slightly worse with 3 points per discipline since the same modes cover a larger region.
+- **The solved random MDA differs from the rank-one fields on the grids only by the solver**: KS 0.018 to 0.021 between them from 4 points per discipline, at the noise level for 2000 against 8000 samples. With 3 points, the Jacobi iterations and the closest-root rule select different fixed points (KS 0.047), the exact paths having several fixed points or none more often.
+- **The gain concerns the small DoEs only.** The local KL with 4 modes is exact at a given span where the rank-one model deviates, with 3 to 4 points per discipline. In the solver, it would replace one variable per scalar coupling by `m`, i.e. 8 instead of 2 here, and a degree-3 PCE of 165 terms instead of 10. Since the whole runs were not sensitive to the rank-one model so far, the gain for the algorithm is likely small.
