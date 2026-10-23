@@ -57,7 +57,7 @@
 
 use crate::utils::{EGOR_USE_GP_VAR_PORTFOLIO, EGOR_USE_STATE_RECORDING};
 use crate::{HotStartMode, MooConfig, criteria::*, errors::Result, types::*};
-use egobox_gp::ThetaTuning;
+use egobox_gp::{ParamTuning, ThetaTuning};
 use egobox_moe::NbClusters;
 use egobox_moe::Recombination;
 use egobox_moe::{CorrelationSpec, RegressionSpec};
@@ -95,6 +95,15 @@ pub struct GpConfig {
     pub(crate) n_start: usize,
     /// Number of likelihood evaluation during one internal optimization
     pub(crate) max_eval: usize,
+    /// Tuning of the noise-to-signal ratio of a gaussian noise on objective
+    /// and constraints values (no noise by default)
+    #[serde(default = "no_noise_ratio")]
+    pub(crate) noise_ratio: ParamTuning<f64>,
+}
+
+/// Default noise ratio tuning: no noise, GP models interpolate function values
+fn no_noise_ratio() -> ParamTuning<f64> {
+    ParamTuning::Fixed(0.)
 }
 
 impl Default for GpConfig {
@@ -108,6 +117,7 @@ impl Default for GpConfig {
             theta_tuning: ThetaTuning::default(),
             n_start: EGO_GP_OPTIM_N_START,
             max_eval: EGO_GP_OPTIM_MAX_EVAL,
+            noise_ratio: no_noise_ratio(),
         }
     }
 }
@@ -172,6 +182,19 @@ impl GpConfig {
     /// Sets the number of likelihood evaluation during one internal optimization
     pub fn max_eval(mut self, max_eval: usize) -> Self {
         self.max_eval = max_eval;
+        self
+    }
+
+    /// Sets the tuning of the noise-to-signal ratio `tau^2 / sigma^2` used by GP models,
+    /// where `tau^2` is the variance of a gaussian noise on function values and `sigma^2`
+    /// the GP process variance.
+    ///
+    /// By default the ratio is fixed to 0: GP models interpolate function values.
+    /// For noisy functions, the ratio can be estimated along with GP hyperparameters, e.g.
+    /// `ParamTuning::Optimized { init: 1e-2, bounds: (1e-10, 10.) }`,
+    /// so that GP models smooth noisy values (see [egobox_gp::GpParams::noise_ratio]).
+    pub fn noise_ratio(mut self, noise_ratio: ParamTuning<f64>) -> Self {
+        self.noise_ratio = noise_ratio;
         self
     }
 }
@@ -855,6 +878,10 @@ impl EgorConfig {
                 config.gp.theta_tuning.init()
             );
             config.gp.theta_tuning = config.gp.theta_tuning.to_fixed();
+            if let ParamTuning::Optimized { init, bounds: _ } = config.gp.noise_ratio {
+                log::info!("n_start is 0, setting noise ratio value to {init}");
+                config.gp.noise_ratio = ParamTuning::Fixed(init);
+            }
         }
 
         // When both CoEGO and KPLS are enabled, KPLS takes priority for GP training

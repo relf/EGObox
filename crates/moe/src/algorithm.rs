@@ -291,6 +291,7 @@ impl GpMixtureValidParams<f64> {
                 expert_params.n_start(self.n_start());
                 expert_params.max_eval(self.max_eval());
                 expert_params.kpls_dim(self.kpls_dim());
+                expert_params.noise_ratio(self.noise_ratio().clone());
                 if nc > 0 && self.theta_tunings().len() == 1 {
                     expert_params.theta_tuning(self.theta_tunings()[0].clone());
                 } else {
@@ -1314,6 +1315,7 @@ mod tests {
     use approx::assert_abs_diff_eq;
     use argmin_testfunctions::rosenbrock;
     use egobox_doe::{Lhs, SamplingMethod};
+    use egobox_gp::ParamTuning;
     use ndarray::{Array, Array2, Zip, array};
     use ndarray_npy::write_npy;
     use ndarray_rand::RandomExt;
@@ -1990,5 +1992,53 @@ mod tests {
             .predict_var_gradients(&x)
             .expect("MOE smooth prediction");
         assert_abs_diff_eq!(preds_hard, preds_smooth, epsilon = 1e-5);
+    }
+
+    /// Noisy observations of sin(x) on [0, 10] with a gaussian noise of std `noise_std`
+    fn noisy_sin(nt: usize, noise_std: f64) -> (Array2<f64>, Array1<f64>) {
+        let mut rng = Xoshiro256Plus::seed_from_u64(42);
+        let xt = Lhs::new(&array![[0., 10.]])
+            .with_rng(rng.clone())
+            .sample(nt);
+        let noise = Array1::random_using(
+            nt,
+            ndarray_rand::rand_distr::Normal::new(0., noise_std).unwrap(),
+            &mut rng,
+        );
+        let yt = xt.column(0).mapv(f64::sin) + noise;
+        (xt, yt)
+    }
+
+    #[test]
+    fn test_moe_noise_ratio() {
+        let noise_std = 0.1;
+        let (xt, yt) = noisy_sin(40, noise_std);
+        let ds = Dataset::new(xt, yt);
+
+        let moe = GpMixture::params()
+            .n_clusters(NbClusters::fixed(1))
+            .with_rng(Xoshiro256Plus::seed_from_u64(0))
+            .fit(&ds)
+            .expect("MOE fitted");
+        assert_eq!(moe.experts()[0].noise_variance(), 0.);
+
+        // Noise ratio is also used when selecting the best expert by cross-validation
+        let moe = GpMixture::params()
+            .n_clusters(NbClusters::fixed(1))
+            .correlation_spec(CorrelationSpec::SQUAREDEXPONENTIAL | CorrelationSpec::MATERN52)
+            .noise_ratio(ParamTuning::Optimized {
+                init: 1e-2,
+                bounds: (1e-8, 10.),
+            })
+            .with_rng(Xoshiro256Plus::seed_from_u64(0))
+            .fit(&ds)
+            .expect("MOE fitted");
+        let noise_var = noise_std * noise_std;
+        let estimated = moe.experts()[0].noise_variance();
+        println!("{moe}");
+        assert!(
+            estimated > noise_var / 4. && estimated < 4. * noise_var,
+            "noise variance {estimated} should be close to {noise_var}"
+        );
     }
 }

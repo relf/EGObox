@@ -241,6 +241,18 @@
 //! each modeled function will be retained. You can also simply specify `RegressionSpec::ALL` and `CorrelationSpec::ALL` to
 //! test all available combinations but remember that the more you test the slower it runs.
 //!
+//! * When function values are noisy, gaussian processes can smooth them instead of interpolating them
+//!   by estimating the noise-to-signal ratio `tau^2 / sigma^2` (noise variance over process variance)
+//!   along with the other GP hyperparameters. By default no noise is modeled.
+//!
+//! ```no_run
+//! # use egobox_ego::{EgorConfig, ParamTuning};
+//! # let egor_config = EgorConfig::default();
+//!     egor_config.configure_gp(|gp_conf| {
+//!         gp_conf.noise_ratio(ParamTuning::Optimized { init: 1e-2, bounds: (1e-10, 10.) })
+//!     });
+//! ```
+//!
 //! * the TREGO algorithm described in \[[Diouane2023](#Diouane2023)\] activated with
 //!   the default gl1-4 configuration from the reference paper
 //!
@@ -435,7 +447,7 @@ pub use crate::utils::{
     EGOR_USE_GP_VAR_PORTFOLIO, HotStartMode, find_best_result_index, find_compromise_index,
     find_pareto_front_indices, load_gp_models,
 };
-pub use egobox_moe::{CorrelationSpec, RegressionSpec};
+pub use egobox_moe::{CorrelationSpec, ParamTuning, RegressionSpec};
 
 mod moo;
 mod optimizers;

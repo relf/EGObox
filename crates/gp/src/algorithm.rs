@@ -3,7 +3,7 @@ use crate::mean_models::*;
 use crate::optimization::{CobylaParams, optimize_params, prepare_multistart};
 use crate::parameters::{GpParams, GpValidParams};
 use crate::utils::{DiffMatrix, NormalizedData, pairwise_differences};
-use crate::{ThetaTuning, correlation_models::*};
+use crate::{ParamTuning, ThetaTuning, correlation_models::*};
 
 use linfa::dataset::{WithLapack, WithoutLapack};
 use linfa::prelude::{Dataset, DatasetBase, Fit, Float, PredictInplace};
@@ -209,6 +209,9 @@ fn tri_solve<F: Float>(
 pub struct GaussianProcess<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> {
     /// Parameter of the autocorrelation model equal to the inverse of length scale
     theta: Array1<F>,
+    /// Noise-to-signal ratio `tau^2 / sigma^2` (0 when no noise is modeled)
+    #[cfg_attr(feature = "serializable", serde(default = "F::zero"))]
+    noise_ratio: F,
     /// Reduced likelihood value (result from internal optimization)
     /// Maybe used to compare different trained models
     likelihood: F,
@@ -247,6 +250,7 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> Clone
     fn clone(&self) -> Self {
         Self {
             theta: self.theta.to_owned(),
+            noise_ratio: self.noise_ratio,
             likelihood: self.likelihood,
             inner_params: self.inner_params.clone(),
             w_star: self.w_star.to_owned(),
@@ -264,13 +268,13 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> fmt::Display
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "GP(mean={}, corr={}, theta={}, variance={}, likelihood={})",
-            self.params.mean,
-            self.params.corr,
-            self.theta,
-            self.inner_params.sigma2,
-            self.likelihood,
-        )
+            "GP(mean={}, corr={}, theta={}, variance={}",
+            self.params.mean, self.params.corr, self.theta, self.inner_params.sigma2,
+        )?;
+        if self.noise_ratio > F::zero() {
+            write!(f, ", noise variance={}", self.noise_variance())?;
+        }
+        write!(f, ", likelihood={})", self.likelihood)
     }
 }
 
@@ -441,6 +445,17 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GaussianProc
         self.inner_params.sigma2
     }
 
+    /// Noise-to-signal ratio `tau^2 / sigma^2` used by the model (0 when no noise is modeled)
+    pub fn noise_ratio(&self) -> F {
+        self.noise_ratio
+    }
+
+    /// Estimated variance `tau^2` of the gaussian noise on training outputs
+    /// (0 when no noise is modeled)
+    pub fn noise_variance(&self) -> F {
+        self.noise_ratio * self.inner_params.sigma2
+    }
+
     /// Retrieve reduced likelihood value
     pub fn likelihood(&self) -> F {
         self.likelihood
@@ -485,14 +500,15 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GaussianProc
         // R21 (m, n): correlation between new points and existing training points.
         let r21 = self._compute_correlation(&xnew_norm);
 
-        // R22 (m, m): correlation among the new points themselves (+ nugget),
+        // R22 (m, m): correlation among the new points themselves (+ nugget and noise ratio),
         // built the same way `reduced_likelihood` builds R for a fresh fit.
         let new_distances = DiffMatrix::new(&xnew_norm);
         let rnew =
             self.params
                 .corr
                 .rval_from_distances(&new_distances.d, &self.theta, &self.w_star);
-        let mut r22: Array2<F> = Array2::<F>::eye(m).mapv(|v| v + v * self.params.nugget());
+        let diag = self.params.nugget() + self.noise_ratio;
+        let mut r22: Array2<F> = Array2::<F>::eye(m).mapv(|v| v + v * diag);
         for (i, ij) in new_distances.d_indices.outer_iter().enumerate() {
             r22[[ij[0], ij[1]]] = rnew[[i, 0]];
             r22[[ij[1], ij[0]]] = rnew[[i, 0]];
@@ -566,6 +582,7 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GaussianProc
 
         Ok(GaussianProcess {
             theta: self.theta,
+            noise_ratio: self.noise_ratio,
             likelihood,
             inner_params: GpInnerParams {
                 sigma2: sigma2_n * self.yt_norm.std[0] * self.yt_norm.std[0],
@@ -618,7 +635,8 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GaussianProc
             self.params
                 .corr
                 .rval_from_distances(&new_distances.d, &self.theta, &self.w_star);
-        let mut r22: Array2<F> = Array2::<F>::eye(m).mapv(|v| v + v * self.params.nugget());
+        let diag = self.params.nugget() + self.noise_ratio;
+        let mut r22: Array2<F> = Array2::<F>::eye(m).mapv(|v| v + v * diag);
         for (i, ij) in new_distances.d_indices.outer_iter().enumerate() {
             r22[[ij[0], ij[1]]] = rnew[[i, 0]];
             r22[[ij[1], ij[0]]] = rnew[[i, 0]];
@@ -712,6 +730,7 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GaussianProc
 
         Ok(GaussianProcess {
             theta: self.theta,
+            noise_ratio: self.noise_ratio,
             likelihood,
             inner_params: GpInnerParams {
                 sigma2: sigma2_n * self.yt_norm.std[0] * self.yt_norm.std[0],
@@ -1109,43 +1128,21 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>, D: Data<Elem
             .prepare_distances(std::mem::take(&mut x_distances.d));
         let fx = self.mean().coefs(&xtrain.data);
 
-        let opt_params = match self.theta_tuning() {
-            ThetaTuning::Fixed(init) => {
-                // Easy path no optimization
-                init.to_owned()
-            }
+        // Noise ratio: either fixed or optimized along with theta
+        let (noise_bounds, noise0) = match self.noise_ratio() {
+            ParamTuning::Fixed(ratio) => (None, *ratio),
+            ParamTuning::Optimized { init, bounds } => (Some(*bounds), *init),
+        };
+
+        // Theta base value, components to optimize (none when theta is fixed) and their bounds
+        let (theta_base, active, theta_bounds) = match self.theta_tuning() {
+            ThetaTuning::Fixed(init) => (init.to_owned(), vec![], vec![]),
             ThetaTuning::Full { init: _, bounds }
             | ThetaTuning::Partial {
                 init: _,
                 bounds,
                 active: _,
             } => {
-                let base: f64 = 10.;
-                let objfn = |x: &[f64], _gradient: Option<&mut [f64]>, _params: &mut ()| -> f64 {
-                    let mut theta = theta0.to_owned();
-                    let xarr = x.iter().map(|v| base.powf(*v)).collect::<Vec<_>>();
-                    std::iter::zip(active.clone(), xarr).for_each(|(i, xi)| theta[i] = F::cast(xi));
-
-                    for v in theta.iter() {
-                        // check theta as optimizer may return nan values
-                        if v.is_nan() {
-                            // shortcut return worst value wrt to rlf minimization
-                            return f64::INFINITY;
-                        }
-                    }
-                    let rxx = self.corr().rval_from_prepared_distances(
-                        &prepared_distances,
-                        &theta,
-                        &w_star,
-                    );
-                    match reduced_likelihood(&fx, rxx, &x_distances, &ytrain, self.nugget()) {
-                        Ok(r) => unsafe { -(*(&r.0 as *const F as *const f64)) },
-                        Err(_) => f64::INFINITY,
-                    }
-                };
-
-                // Multistart: user theta0 + 1e-5, 1e-4, 1e-3, 1e-2, 0.1, 1., 10.
-                // let bounds = vec![(F::cast(-6.), F::cast(2.)); theta0.len()];
                 let bounds_dim = bounds.len();
                 let bounds = if bounds_dim == 1 {
                     vec![bounds[0]; w_star.ncols()]
@@ -1159,53 +1156,106 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>, D: Data<Elem
                     )
                 };
 
-                // Select init params and bounds wrt to activity
+                // Select bounds wrt to activity
                 let active_bounds = bounds
                     .iter()
                     .enumerate()
                     .filter(|(i, _)| active.contains(i))
                     .map(|(_, &b)| b)
                     .collect::<Vec<_>>();
-                let (theta_inits, bounds) = prepare_multistart(
-                    self.n_start(),
-                    &theta0.select(Axis(0), &active),
-                    &active_bounds,
-                );
-                debug!("Optimize with multistart theta = {theta_inits:?} and bounds = {bounds:?}");
-                let now = Instant::now();
-                let opt_params = (0..theta_inits.nrows())
-                    .into_par_iter()
-                    .map(|i| {
-                        optimize_params(
-                            objfn,
-                            &theta_inits.row(i).to_owned(),
-                            &bounds,
-                            CobylaParams {
-                                maxeval: (10 * theta_inits.ncols())
-                                    .clamp(GP_COBYLA_MIN_EVAL, self.max_eval()),
-                                ..CobylaParams::default()
-                            },
-                        )
-                    })
-                    .reduce(
-                        || (f64::INFINITY, Array::ones((theta_inits.ncols(),))),
-                        |a, b| if b.0 < a.0 { b } else { a },
-                    );
-                debug!("elapsed optim = {:?}", now.elapsed().as_millis());
-                opt_params.1.mapv(|v| F::cast(base.powf(v)))
+                (theta0.to_owned(), active, active_bounds)
             }
         };
+        let n_theta = active.len();
 
-        // In case of partial optimization we set only active components
-        let opt_params = match self.theta_tuning() {
-            ThetaTuning::Fixed(_) | ThetaTuning::Full { init: _, bounds: _ } => opt_params,
+        let (opt_active, opt_noise) = if n_theta == 0 && noise_bounds.is_none() {
+            // Easy path no optimization
+            (Array1::zeros(0), noise0)
+        } else {
+            let base: f64 = 10.;
+            let objfn = |x: &[f64], _gradient: Option<&mut [f64]>, _params: &mut ()| -> f64 {
+                let mut theta = theta_base.to_owned();
+                std::iter::zip(&active, &x[..n_theta])
+                    .for_each(|(&i, xi)| theta[i] = F::cast(base.powf(*xi)));
+                let noise_ratio = if noise_bounds.is_some() {
+                    F::cast(base.powf(x[n_theta]))
+                } else {
+                    noise0
+                };
+
+                // check params as optimizer may return nan values
+                if noise_ratio.is_nan() || theta.iter().any(|v| v.is_nan()) {
+                    // shortcut return worst value wrt to rlf minimization
+                    return f64::INFINITY;
+                }
+                let rxx =
+                    self.corr()
+                        .rval_from_prepared_distances(&prepared_distances, &theta, &w_star);
+                match reduced_likelihood(
+                    &fx,
+                    rxx,
+                    &x_distances,
+                    &ytrain,
+                    self.nugget(),
+                    noise_ratio,
+                ) {
+                    Ok(r) => unsafe { -(*(&r.0 as *const F as *const f64)) },
+                    Err(_) => f64::INFINITY,
+                }
+            };
+
+            // Optimization parameters: [theta_active..., [noise_ratio]] (log10 scale)
+            let mut params0 = theta_base.select(Axis(0), &active).to_vec();
+            let mut bounds = theta_bounds;
+            if let Some(noise_bounds) = noise_bounds {
+                params0.push(noise0);
+                bounds.push(noise_bounds);
+            }
+            // Multistart: user params0 + LHS samples within bounds
+            let (params_inits, bounds) =
+                prepare_multistart(self.n_start(), &Array1::from_vec(params0), &bounds);
+            debug!("Optimize with multistart params = {params_inits:?} and bounds = {bounds:?}");
+            let now = Instant::now();
+            let opt_params = (0..params_inits.nrows())
+                .into_par_iter()
+                .map(|i| {
+                    optimize_params(
+                        objfn,
+                        &params_inits.row(i).to_owned(),
+                        &bounds,
+                        CobylaParams {
+                            maxeval: (10 * params_inits.ncols())
+                                .clamp(GP_COBYLA_MIN_EVAL, self.max_eval()),
+                            ..CobylaParams::default()
+                        },
+                    )
+                })
+                .reduce(
+                    || (f64::INFINITY, Array::ones((params_inits.ncols(),))),
+                    |a, b| if b.0 < a.0 { b } else { a },
+                );
+            debug!("elapsed optim = {:?}", now.elapsed().as_millis());
+            let opt_params = opt_params.1.mapv(|v| F::cast(base.powf(v)));
+            let opt_noise = if noise_bounds.is_some() {
+                opt_params[n_theta]
+            } else {
+                noise0
+            };
+            (opt_params.slice(s![..n_theta]).to_owned(), opt_noise)
+        };
+
+        // Set optimized theta components
+        let opt_theta = match self.theta_tuning() {
+            ThetaTuning::Fixed(init) => init.to_owned(),
+            ThetaTuning::Full { init: _, bounds: _ } => opt_active,
             ThetaTuning::Partial {
                 init,
                 bounds: _,
                 active,
             } => {
+                // In case of partial optimization we set only active components
                 let mut opt_theta = init.to_owned();
-                std::iter::zip(active.clone(), opt_params)
+                std::iter::zip(active.clone(), opt_active)
                     .for_each(|(i, xi)| opt_theta[i] = F::cast(xi));
                 opt_theta
             }
@@ -1213,11 +1263,12 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>, D: Data<Elem
 
         let rxx =
             self.corr()
-                .rval_from_prepared_distances(&prepared_distances, &opt_params, &w_star);
+                .rval_from_prepared_distances(&prepared_distances, &opt_theta, &w_star);
         let (lkh, inner_params) =
-            reduced_likelihood(&fx, rxx, &x_distances, &ytrain, self.nugget())?;
+            reduced_likelihood(&fx, rxx, &x_distances, &ytrain, self.nugget(), opt_noise)?;
         Ok(GaussianProcess {
-            theta: opt_params,
+            theta: opt_theta,
+            noise_ratio: opt_noise,
             likelihood: lkh,
             inner_params,
             w_star,
@@ -1234,7 +1285,8 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>, D: Data<Elem
 /// rxx: correlation factors at x samples,
 /// x_distances: pairwise distances between x samples
 /// ytrain: normalized output training values
-/// nugget: factor to improve numerical stability  
+/// nugget: factor to improve numerical stability
+/// noise_ratio: noise-to-signal ratio tau^2 / sigma^2 added to the diagonal of R
 #[cfg(not(feature = "blas"))]
 fn reduced_likelihood<F: Float>(
     fx: &ArrayBase<impl Data<Elem = F>, Ix2>,
@@ -1242,9 +1294,11 @@ fn reduced_likelihood<F: Float>(
     x_distances: &DiffMatrix<F>,
     ytrain: &NormalizedData<F>,
     nugget: F,
+    noise_ratio: F,
 ) -> Result<(F, GpInnerParams<F>)> {
     // Set up R
-    let mut r_mx: Array2<F> = Array2::<F>::eye(x_distances.n_obs).mapv(|v| v + v * nugget);
+    let diag = nugget + noise_ratio;
+    let mut r_mx: Array2<F> = Array2::<F>::eye(x_distances.n_obs).mapv(|v| v + v * diag);
     for (i, ij) in x_distances.d_indices.outer_iter().enumerate() {
         r_mx[[ij[0], ij[1]]] = rxx[[i, 0]];
         r_mx[[ij[1], ij[0]]] = rxx[[i, 0]];
@@ -1314,9 +1368,11 @@ fn reduced_likelihood<F: Float>(
     x_distances: &DiffMatrix<F>,
     ytrain: &NormalizedData<F>,
     nugget: F,
+    noise_ratio: F,
 ) -> Result<(F, GpInnerParams<F>)> {
     // Set up R
-    let mut r_mx: Array2<F> = Array2::<F>::eye(x_distances.n_obs).mapv(|v| v + v * nugget);
+    let diag = nugget + noise_ratio;
+    let mut r_mx: Array2<F> = Array2::<F>::eye(x_distances.n_obs).mapv(|v| v + v * diag);
     for (i, ij) in x_distances.d_indices.outer_iter().enumerate() {
         r_mx[[ij[0], ij[1]]] = rxx[[i, 0]];
         r_mx[[ij[1], ij[0]]] = rxx[[i, 0]];
@@ -2312,5 +2368,223 @@ mod tests {
 
         assert_abs_diff_eq!(y_deriv[[0, 0]], diff_g, epsilon = 1e-5);
         assert_abs_diff_eq!(y_deriv[[0, 1]], diff_d, epsilon = 1e-5);
+    }
+
+    /// Noisy observations of sin(x) on [0, 10] with a gaussian noise of std `noise_std`
+    fn noisy_sin(nt: usize, noise_std: f64, seed: u64) -> (Array2<f64>, Array1<f64>) {
+        let mut rng = Xoshiro256Plus::seed_from_u64(seed);
+        let xt = Lhs::new(&array![[0., 10.]])
+            .with_rng(rng.clone())
+            .sample(nt);
+        let noise = Array1::random_using(nt, Normal::new(0., noise_std).unwrap(), &mut rng);
+        let yt = xt.column(0).mapv(f64::sin) + noise;
+        (xt, yt)
+    }
+
+    #[test]
+    fn test_noise_ratio_estimation() {
+        let noise_std = 0.1;
+        let (xt, yt) = noisy_sin(40, noise_std, 42);
+        let xtest = Array::linspace(0., 10., 200).insert_axis(Axis(1));
+        let ytest = xtest.column(0).mapv(f64::sin);
+
+        let gp_interp = Kriging::params()
+            .fit(&Dataset::new(xt.clone(), yt.clone()))
+            .expect("GP fitting");
+        assert_eq!(gp_interp.noise_ratio(), 0.);
+        assert_eq!(gp_interp.noise_variance(), 0.);
+
+        let gp_noisy = Kriging::params()
+            .noise_ratio(ParamTuning::Optimized {
+                init: 1e-2,
+                bounds: (1e-8, 10.),
+            })
+            .fit(&Dataset::new(xt.clone(), yt))
+            .expect("GP fitting");
+        println!("{gp_noisy}");
+
+        // Estimated noise variance close to the actual one
+        let noise_var = noise_std * noise_std;
+        assert!(
+            gp_noisy.noise_variance() > noise_var / 4.
+                && gp_noisy.noise_variance() < 4. * noise_var,
+            "noise variance {} should be close to {noise_var}",
+            gp_noisy.noise_variance()
+        );
+        assert_abs_diff_eq!(
+            gp_noisy.noise_variance(),
+            gp_noisy.noise_ratio() * gp_noisy.variance()
+        );
+
+        // Smoothing noisy observations gives a better approximation of the underlying function
+        let rmse = |gp: &GaussianProcess<f64, ConstantMean, SquaredExponentialCorr>| {
+            let ypred = gp.predict(&xtest).unwrap();
+            (ypred.sq_l2_dist(&ytest).unwrap() / ytest.len() as f64).sqrt()
+        };
+        println!(
+            "rmse interp = {}, rmse noisy = {}",
+            rmse(&gp_interp),
+            rmse(&gp_noisy)
+        );
+        assert!(rmse(&gp_noisy) < rmse(&gp_interp));
+        assert!(rmse(&gp_noisy) < noise_std);
+
+        // Latent variance does not vanish at training points anymore
+        let var_train = gp_noisy.predict_var(&xt).unwrap();
+        assert!(var_train.iter().all(|&v| v > 1e-4 * noise_var));
+    }
+
+    #[test]
+    fn test_noise_ratio_with_fixed_theta() {
+        let (xt, yt) = noisy_sin(30, 0.1, 0);
+        let theta = array![1.];
+        let gp = Kriging::params()
+            .theta_tuning(ThetaTuning::Fixed(theta.clone()))
+            .noise_ratio(ParamTuning::Optimized {
+                init: 1e-2,
+                bounds: (1e-8, 10.),
+            })
+            .fit(&Dataset::new(xt, yt))
+            .expect("GP fitting");
+        assert_abs_diff_eq!(*gp.theta(), theta);
+        assert!(gp.noise_ratio() > 1e-8 && gp.noise_ratio() < 10.);
+        assert_abs_diff_ne!(gp.noise_ratio(), 1e-2);
+    }
+
+    #[test]
+    fn test_fixed_noise_ratio() {
+        let (xt, yt) = noisy_sin(20, 0.1, 0);
+        let gp = Kriging::params()
+            .noise_ratio(ParamTuning::Fixed(0.1))
+            .fit(&Dataset::new(xt, yt))
+            .expect("GP fitting");
+        assert_eq!(gp.noise_ratio(), 0.1);
+        assert_abs_diff_eq!(gp.noise_variance(), 0.1 * gp.variance());
+    }
+
+    #[test]
+    fn test_noise_ratio_validation() {
+        use linfa::ParamGuard;
+
+        let invalid = [
+            ParamTuning::Fixed(-1.),
+            ParamTuning::Optimized {
+                init: 1e-2,
+                bounds: (0., 1.),
+            },
+            ParamTuning::Optimized {
+                init: 1e-2,
+                bounds: (1., 1e-1),
+            },
+            ParamTuning::Optimized {
+                init: 2.,
+                bounds: (1e-3, 1.),
+            },
+        ];
+        for noise_ratio in invalid {
+            let params = Kriging::<f64>::params().noise_ratio(noise_ratio.clone());
+            assert!(
+                params.check_ref().is_err(),
+                "{noise_ratio:?} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn test_update_vs_refit_with_noise_ratio() {
+        let (xt, yt) = noisy_sin(40, 0.1, 42);
+        let params = Kriging::params()
+            .theta_tuning(ThetaTuning::Fixed(array![1.]))
+            .noise_ratio(ParamTuning::Fixed(1e-2));
+
+        let n0 = 30;
+        let mut gp_update = params
+            .clone()
+            .fit(&Dataset::new(
+                xt.slice(s![..n0, ..]).to_owned(),
+                yt.slice(s![..n0]).to_owned(),
+            ))
+            .expect("GP fitting");
+        for i in (n0..xt.nrows()).step_by(5) {
+            gp_update = gp_update
+                .update(&xt.slice(s![i..i + 5, ..]), &yt.slice(s![i..i + 5]))
+                .expect("GP update");
+        }
+        assert_eq!(gp_update.noise_ratio(), 1e-2);
+
+        let gp_refit = params
+            .fit(&Dataset::new(xt.clone(), yt.clone()))
+            .expect("GP fitting");
+
+        let xtest = Array::linspace(0., 10., 50).insert_axis(Axis(1));
+        let (val_update, var_update) = gp_update.predict_valvar(&xtest).unwrap();
+        let (val_refit, var_refit) = gp_refit.predict_valvar(&xtest).unwrap();
+        // Input normalization is frozen at the initial fit by update while the refit
+        // renormalizes (hence a different length scale for the same fixed theta)
+        assert_abs_diff_eq!(val_update, val_refit, epsilon = 5e-2);
+        assert_abs_diff_eq!(var_update, var_refit, epsilon = 5e-2 * gp_refit.variance());
+
+        // Added noisy observations are smoothed, not interpolated
+        let xnew = xt.slice(s![n0.., ..]);
+        let ynew = yt.slice(s![n0..]);
+        let max_residual = |gp: &GaussianProcess<f64, ConstantMean, SquaredExponentialCorr>| {
+            *(gp.predict(&xnew).unwrap() - ynew)
+                .mapv(f64::abs)
+                .max()
+                .unwrap()
+        };
+        assert!(max_residual(&gp_update) > 0.5 * max_residual(&gp_refit));
+    }
+
+    #[test]
+    fn test_valvar_gradients_with_noise_ratio() {
+        let xlimits = array![[-3., 3.], [-3., 3.], [-3., 3.]];
+        let mut rng = Xoshiro256Plus::seed_from_u64(42);
+        let xt = Lhs::new(&xlimits).with_rng(rng.clone()).sample(30);
+        let yt = sin_mix(&xt);
+        let gp = Kriging::params()
+            .noise_ratio(ParamTuning::Fixed(1e-2))
+            .fit(&Dataset::new(xt, yt))
+            .expect("GP fitting");
+
+        let x = Array::random_using((5, 3), Uniform::new(-3., 3.), &mut rng);
+        let (vals, _vars, dvals, dvars) = gp.predict_valvar_with_gradients(&x).unwrap();
+        let val_scale = 1. + vals.mapv(f64::abs).sum();
+        assert_fdiff_close(|x| gp.predict(x).unwrap(), &x, &dvals, val_scale);
+        assert_fdiff_close(|x| gp.predict_var(x).unwrap(), &x, &dvars, gp.variance());
+    }
+
+    #[cfg(feature = "serializable")]
+    #[test]
+    fn test_noise_ratio_serialization() {
+        let (xt, yt) = noisy_sin(20, 0.1, 0);
+        let gp = Kriging::params()
+            .noise_ratio(ParamTuning::Optimized {
+                init: 1e-2,
+                bounds: (1e-8, 10.),
+            })
+            .fit(&Dataset::new(xt.clone(), yt.clone()))
+            .expect("GP fitting");
+        let json = serde_json::to_string(&gp).unwrap();
+        let loaded: GaussianProcess<f64, ConstantMean, SquaredExponentialCorr> =
+            serde_json::from_str(&json).unwrap();
+        assert_eq!(loaded.noise_ratio(), gp.noise_ratio());
+        assert_eq!(loaded.params.noise_ratio(), gp.params.noise_ratio());
+
+        // Models saved before noise ratio introduction load as noise-free models
+        let gp = Kriging::params()
+            .fit(&Dataset::new(xt.clone(), yt))
+            .expect("GP fitting");
+        let mut value = serde_json::to_value(&gp).unwrap();
+        value.as_object_mut().unwrap().remove("noise_ratio");
+        value["params"]
+            .as_object_mut()
+            .unwrap()
+            .remove("noise_ratio");
+        let loaded: GaussianProcess<f64, ConstantMean, SquaredExponentialCorr> =
+            serde_json::from_value(value).unwrap();
+        assert_eq!(loaded.noise_ratio(), 0.);
+        assert_eq!(*loaded.params.noise_ratio(), ParamTuning::Fixed(0.));
+        assert_abs_diff_eq!(loaded.predict(&xt).unwrap(), gp.predict(&xt).unwrap());
     }
 }
