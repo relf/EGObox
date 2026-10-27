@@ -3,7 +3,7 @@ import unittest
 import numpy as np
 
 import egobox as egx
-from egobox.egmdo import Discipline, Mdegor, EnrichmentStrategy
+from egobox.egmdo import Discipline, EnrichmentStrategy, Mdegor
 
 # Classic constrained Sellar problem (C-EGMDO paper): optimum z* = (1.9776, 0, 0), f* = 3.1834
 SELLAR_DESIGN = {"z1": [-10.0, 10.0], "z2": [0.0, 10.0], "z3": [0.0, 10.0]}

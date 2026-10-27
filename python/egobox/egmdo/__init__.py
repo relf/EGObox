@@ -17,19 +17,19 @@ Struct. Multidisc. Optim. 67:23, 2024.
 from ..egobox import (
     CorrelationSpec,
     Discipline,
+    EnrichmentStrategy,
+    InfillStrategy,
     Mdegor,
     MdegorRequest,
     MdegorResult,
-    EnrichmentStrategy,
-    InfillStrategy,
 )
 
 __all__ = [
     "CorrelationSpec",
     "Discipline",
+    "EnrichmentStrategy",
+    "InfillStrategy",
     "Mdegor",
     "MdegorRequest",
     "MdegorResult",
-    "EnrichmentStrategy",
-    "InfillStrategy",
 ]
