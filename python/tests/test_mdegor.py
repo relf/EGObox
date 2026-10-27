@@ -3,7 +3,7 @@ import unittest
 import numpy as np
 
 import egobox as egx
-from egobox.egmdo import Discipline, Emdegor, EnrichmentStrategy
+from egobox.egmdo import Discipline, EnrichmentStrategy, Mdegor
 
 # Classic constrained Sellar problem (C-EGMDO paper): optimum z* = (1.9776, 0, 0), f* = 3.1834
 SELLAR_DESIGN = {"z1": [-10.0, 10.0], "z2": [0.0, 10.0], "z3": [0.0, 10.0]}
@@ -45,8 +45,8 @@ def sellar_disciplines(with_funs: bool = True) -> list:
     ]
 
 
-def sellar_emdegor(disciplines=None, qoi=sellar_qoi, **kwargs) -> Emdegor:
-    return Emdegor(
+def sellar_mdegor(disciplines=None, qoi=sellar_qoi, **kwargs) -> Mdegor:
+    return Mdegor(
         SELLAR_DESIGN,
         SELLAR_COUPLINGS,
         sellar_disciplines() if disciplines is None else disciplines,
@@ -71,7 +71,7 @@ def toy_qoi(z: np.ndarray, y: np.ndarray) -> np.ndarray:
     return (np.cos((y[:, 0] + np.exp(-y[:, 1])) / np.pi) + z[:, 0] / 20.0)[:, None]
 
 
-def toy_emdegor(**kwargs) -> Emdegor:
+def toy_mdegor(**kwargs) -> Mdegor:
     disciplines = [
         Discipline("d1", toy_y1, inputs=["z", "y2"], outputs=["y1"]),
         Discipline("d2", toy_y2, inputs=["z", "y1"], outputs=["y2"]),
@@ -83,7 +83,7 @@ def toy_emdegor(**kwargs) -> Emdegor:
         "seed": 0,
     }
     options.update(kwargs)
-    return Emdegor(
+    return Mdegor(
         {"z": [-5.0, 5.0]},
         {"y1": [0.0, 25.0], "y2": [0.0, 25.0]},
         disciplines,
@@ -92,12 +92,12 @@ def toy_emdegor(**kwargs) -> Emdegor:
     )
 
 
-class TestEmdegor(unittest.TestCase):
+class TestMdegor(unittest.TestCase):
     def test_constrained_sellar(self):
-        emdegor = sellar_emdegor(n_doe=[5, 5], n_mc=200, seed=0)
-        self.assertEqual(emdegor.design_names, ["z1", "z2", "z3"])
-        self.assertEqual(emdegor.coupling_names, ["y1", "y2"])
-        res = emdegor.minimize(max_iters=10)
+        mdegor = sellar_mdegor(n_doe=[5, 5], n_mc=200, seed=0)
+        self.assertEqual(mdegor.design_names, ["z1", "z2", "z3"])
+        self.assertEqual(mdegor.coupling_names, ["y1", "y2"])
+        res = mdegor.minimize(max_iters=10)
         # The best point is the constrained optimum
         np.testing.assert_allclose(res.z_best, SELLAR_Z_REF, atol=1e-2)
         self.assertAlmostEqual(res.f_best, SELLAR_F_REF, delta=0.01 * SELLAR_F_REF)
@@ -130,7 +130,7 @@ class TestEmdegor(unittest.TestCase):
         ):
             self.assertEqual(x.shape, (n, len(d.inputs)))
             np.testing.assert_allclose(y, fun(x))
-        self.assertIn("EmdegorResult(", repr(res))
+        self.assertIn("MdegorResult(", repr(res))
 
     def test_inputs_in_any_order(self):
         # d1 receives its inputs as [y2, z3, z1, z2]: same problem, same run
@@ -141,8 +141,8 @@ class TestEmdegor(unittest.TestCase):
         disciplines[0] = Discipline(
             "d1", y1_reordered, inputs=["y2", "z3", "z1", "z2"], outputs=["y1"]
         )
-        expected = sellar_emdegor(n_doe=[5, 5], max_iters=3, n_sim=20, seed=1)
-        res = sellar_emdegor(
+        expected = sellar_mdegor(n_doe=[5, 5], max_iters=3, n_sim=20, seed=1)
+        res = sellar_mdegor(
             disciplines, n_doe=[5, 5], max_iters=3, n_sim=20, seed=1
         ).minimize()
         expected = expected.minimize()
@@ -156,34 +156,34 @@ class TestEmdegor(unittest.TestCase):
 
     def test_linearized_mda(self):
         # Random MDAs linearized at the mean MDA solution: same optimum
-        emdegor = sellar_emdegor(n_doe=[5, 5], n_mc=200, linearized_mda=True, seed=0)
-        res = emdegor.minimize(max_iters=10)
+        mdegor = sellar_mdegor(n_doe=[5, 5], n_mc=200, linearized_mda=True, seed=0)
+        res = mdegor.minimize(max_iters=10)
         self.assertAlmostEqual(res.f_best, SELLAR_F_REF, delta=0.01 * SELLAR_F_REF)
         self.assertLessEqual(sum(res.n_evaluations), 40)
 
     def test_gp_correlation(self):
         # GP posterior correlation across the uncertainty quantification points
         for linearized in [False, True]:
-            emdegor = sellar_emdegor(
+            mdegor = sellar_mdegor(
                 n_doe=[5, 5],
                 n_mc=200,
                 linearized_mda=linearized,
                 gp_correlation=True,
                 seed=0,
             )
-            res = emdegor.minimize(max_iters=10)
+            res = mdegor.minimize(max_iters=10)
             self.assertAlmostEqual(res.f_best, SELLAR_F_REF, delta=0.01 * SELLAR_F_REF)
             self.assertLessEqual(sum(res.n_evaluations), 40)
 
     def test_toy_problem_with_egmdo_paper_settings(self):
-        emdegor = toy_emdegor(
+        mdegor = toy_mdegor(
             acquisition=egx.InfillStrategy.EI,
             enrichment=EnrichmentStrategy.ALL,
             p_threshold=None,
             n_mc=100,
             gp_kernel=egx.CorrelationSpec.SQUARED_EXPONENTIAL,
         )
-        res = emdegor.minimize()
+        res = mdegor.minimize()
         self.assertEqual(len(res.history), 5)
         self.assertTrue(all(h["wb2_scale"] is None for h in res.history))
         # All disciplines are enriched together
@@ -197,37 +197,37 @@ class TestEmdegor(unittest.TestCase):
             egx.InfillStrategy.LOG_EI,
             4,  # integer value of LOG_EI
         ]:
-            res = toy_emdegor(acquisition=acquisition, max_iters=2, n_sim=10).minimize()
+            res = toy_mdegor(acquisition=acquisition, max_iters=2, n_sim=10).minimize()
             self.assertEqual(len(res.history), 2)
 
     def test_ask_tell_reproduces_minimize(self):
         funs = [toy_y1, toy_y2]
-        emdegor = toy_emdegor()
-        expected = emdegor.minimize()
+        mdegor = toy_mdegor()
+        expected = mdegor.minimize()
         with self.assertRaises(ValueError):
-            emdegor.tell([])  # no request yet
+            mdegor.tell([])  # no request yet
         n_requests = 0
-        while (requests := emdegor.ask()) is not None:
+        while (requests := mdegor.ask()) is not None:
             n_requests += 1
             for r in requests:
-                self.assertIsInstance(r, egx.EmdegorRequest)
+                self.assertIsInstance(r, egx.MdegorRequest)
                 self.assertIn(r.discipline, (0, 1))
-            emdegor.tell([funs[r.discipline](r.x) for r in requests])
-        self.assertIsNone(emdegor.ask())
-        res = emdegor.result()
+            mdegor.tell([funs[r.discipline](r.x) for r in requests])
+        self.assertIsNone(mdegor.ask())
+        res = mdegor.result()
         self.assertGreater(n_requests, 0)
         np.testing.assert_array_equal(res.z_star, expected.z_star)
         self.assertEqual(res.n_evaluations, expected.n_evaluations)
         # Restart
-        emdegor.reset()
+        mdegor.reset()
         with self.assertRaises(ValueError):
-            emdegor.result()
+            mdegor.result()
 
     def test_ask_tell_without_functions(self):
-        emdegor = sellar_emdegor(sellar_disciplines(with_funs=False))
+        mdegor = sellar_mdegor(sellar_disciplines(with_funs=False))
         with self.assertRaises(ValueError):
-            emdegor.minimize()
-        requests = emdegor.ask()
+            mdegor.minimize()
+        requests = mdegor.ask()
         self.assertEqual([r.discipline for r in requests], [0, 1])
         # Request columns follow the discipline inputs: z1, z2, z3, y2 and z1, z2, y1
         self.assertEqual([r.x.shape[1] for r in requests], [4, 3])
@@ -245,21 +245,21 @@ class TestEmdegor(unittest.TestCase):
             ),
             np.array([[1.0, 2.0, 5.0], [3.0, 1.0, 9.0], [0.0, 0.5, 2.0]]),
         ]
-        emdegor = sellar_emdegor(sellar_disciplines(with_funs=False), doe=doe)
-        requests = emdegor.ask()
+        mdegor = sellar_mdegor(sellar_disciplines(with_funs=False), doe=doe)
+        requests = mdegor.ask()
         for r, x in zip(requests, doe):
             np.testing.assert_array_equal(r.x, x)
         with self.assertRaisesRegex(
             ValueError, "doe of discipline 'd2' should have 3 columns"
         ):
-            sellar_emdegor(doe=[doe[0], doe[0]])
+            sellar_mdegor(doe=[doe[0], doe[0]])
 
     def test_deterministic_constraint(self):
         # Constraint on the design variables only: z1 <= 1, which moves the optimum
         def qoi(z, y):
             return np.column_stack([sellar_qoi(z, y), z[:, 0] - 1.0])
 
-        emdegor = Emdegor(
+        mdegor = Mdegor(
             SELLAR_DESIGN,
             SELLAR_COUPLINGS,
             sellar_disciplines(),
@@ -272,7 +272,7 @@ class TestEmdegor(unittest.TestCase):
             n_sim=20,
             seed=0,
         )
-        res = emdegor.minimize()
+        res = mdegor.minimize()
         self.assertLessEqual(res.z_best[0], 1.0 + 1e-4)
 
     def test_callback_errors(self):
@@ -280,13 +280,13 @@ class TestEmdegor(unittest.TestCase):
             raise RuntimeError("qoi failure")
 
         with self.assertRaisesRegex(RuntimeError, "qoi failure"):
-            sellar_emdegor(qoi=failing_qoi, seed=0).minimize(max_iters=1)
+            sellar_mdegor(qoi=failing_qoi, seed=0).minimize(max_iters=1)
 
         def bad_shape_qoi(z, y):
             return np.zeros((z.shape[0], 1))
 
         with self.assertRaisesRegex(ValueError, "qoi should return an array of shape"):
-            sellar_emdegor(qoi=bad_shape_qoi, seed=0).minimize(max_iters=1)
+            sellar_mdegor(qoi=bad_shape_qoi, seed=0).minimize(max_iters=1)
 
         def failing_discipline(x):
             raise ValueError("discipline failure")
@@ -296,54 +296,54 @@ class TestEmdegor(unittest.TestCase):
             "d2", failing_discipline, inputs=["z1", "z2", "y1"], outputs=["y2"]
         )
         with self.assertRaisesRegex(ValueError, "discipline failure"):
-            sellar_emdegor(disciplines, seed=0).minimize(max_iters=1)
+            sellar_mdegor(disciplines, seed=0).minimize(max_iters=1)
 
     def test_invalid_variables(self):
         d = sellar_disciplines()
         with self.assertRaisesRegex(ValueError, "'z1' is declared twice"):
-            Emdegor(SELLAR_DESIGN, {"z1": [0, 1], "y1": [0, 25]}, d, sellar_qoi)
+            Mdegor(SELLAR_DESIGN, {"z1": [0, 1], "y1": [0, 25]}, d, sellar_qoi)
         with self.assertRaisesRegex(ValueError, "design variable 'z1': bounds"):
-            Emdegor({"z1": [1.0, 0.0]}, SELLAR_COUPLINGS, d, sellar_qoi)
+            Mdegor({"z1": [1.0, 0.0]}, SELLAR_COUPLINGS, d, sellar_qoi)
         with self.assertRaisesRegex(TypeError, "coupling variable 'y1': bounds"):
-            Emdegor(SELLAR_DESIGN, {"y1": "range"}, d, sellar_qoi)
+            Mdegor(SELLAR_DESIGN, {"y1": "range"}, d, sellar_qoi)
         with self.assertRaisesRegex(ValueError, "at least one variable"):
-            Emdegor({}, SELLAR_COUPLINGS, d, sellar_qoi)
+            Mdegor({}, SELLAR_COUPLINGS, d, sellar_qoi)
 
     def test_invalid_wiring(self):
-        def emdegor(*disciplines):
-            return Emdegor(
+        def mdegor(*disciplines):
+            return Mdegor(
                 SELLAR_DESIGN, SELLAR_COUPLINGS, list(disciplines), sellar_qoi, n_ineq=2
             )
 
         d1, d2 = sellar_disciplines()
         with self.assertRaisesRegex(ValueError, "discipline 'd3': unknown input 'y3'"):
-            emdegor(d1, d2, Discipline("d3", inputs=["y3"], outputs=["y1"]))
+            mdegor(d1, d2, Discipline("d3", inputs=["y3"], outputs=["y1"]))
         with self.assertRaisesRegex(ValueError, "'y2' is computed by no discipline"):
-            emdegor(d1)
+            mdegor(d1)
         with self.assertRaisesRegex(
             ValueError, "'y1' is computed by both 'd1' and 'd3'"
         ):
-            emdegor(d1, d2, Discipline("d3", inputs=["z1"], outputs=["y1"]))
+            mdegor(d1, d2, Discipline("d3", inputs=["z1"], outputs=["y1"]))
         with self.assertRaisesRegex(ValueError, "output 'z1' is a design variable"):
-            emdegor(d1, Discipline("d2", inputs=["y1"], outputs=["z1"]))
+            mdegor(d1, Discipline("d2", inputs=["y1"], outputs=["z1"]))
         with self.assertRaisesRegex(ValueError, "'y1' is both an input and an output"):
-            emdegor(Discipline("d1", inputs=["z1", "y1"], outputs=["y1"]), d2)
+            mdegor(Discipline("d1", inputs=["z1", "y1"], outputs=["y1"]), d2)
         with self.assertRaisesRegex(ValueError, "input 'z1' is given twice"):
-            emdegor(Discipline("d1", inputs=["z1", "z1"], outputs=["y1"]), d2)
+            mdegor(Discipline("d1", inputs=["z1", "z1"], outputs=["y1"]), d2)
         with self.assertRaisesRegex(ValueError, "discipline 'd1': no input"):
-            emdegor(Discipline("d1", outputs=["y1"]), d2)
+            mdegor(Discipline("d1", outputs=["y1"]), d2)
         with self.assertRaisesRegex(ValueError, "discipline 'd1': no output"):
-            emdegor(Discipline("d1", inputs=["z1"]), d2)
+            mdegor(Discipline("d1", inputs=["z1"]), d2)
         with self.assertRaisesRegex(ValueError, "names must be unique"):
-            emdegor(Discipline("d2", inputs=["z1", "y2"], outputs=["y1"]), d2)
+            mdegor(Discipline("d2", inputs=["z1", "y2"], outputs=["y1"]), d2)
 
     def test_invalid_options(self):
         with self.assertRaisesRegex(ValueError, "gp_kernel"):
-            sellar_emdegor(gp_kernel=egx.CorrelationSpec.MATERN32)
+            sellar_mdegor(gp_kernel=egx.CorrelationSpec.MATERN32)
         with self.assertRaisesRegex(ValueError, "constraint tolerances"):
-            sellar_emdegor(cstr_tol=[1e-4])
+            sellar_mdegor(cstr_tol=[1e-4])
         with self.assertRaises(ValueError):
-            sellar_emdegor(enrichment=3)
+            sellar_mdegor(enrichment=3)
 
     def test_discipline(self):
         d = Discipline("d1", sellar_y1, inputs=["z1", "z2", "z3", "y2"], outputs=["y1"])
