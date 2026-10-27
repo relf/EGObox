@@ -12,7 +12,7 @@ use crate::{
 };
 use crate::{GpType, SurrogateBuilder};
 use egobox_doe::{FullFactorial, Lhs, LhsKind, Random};
-use egobox_gp::ThetaTuning;
+use egobox_gp::{ParamTuning, ThetaTuning};
 use linfa::traits::{Fit, PredictInplace};
 use linfa::{DatasetBase, Float, ParamGuard};
 use ndarray::{
@@ -524,6 +524,12 @@ impl MixintGpMixtureParams {
         self
     }
 
+    /// Sets the noise-to-signal ratio tuning of full GP experts
+    pub fn noise_ratio(mut self, noise_ratio: ParamTuning<f64>) -> Self {
+        self.0.gpmix_params = self.0.gpmix_params.noise_ratio(noise_ratio);
+        self
+    }
+
     /// Sets the random seed for the surrogate model training
     pub fn with_rng(mut self, rng: Xoshiro256Plus) -> Self {
         self.0.gpmix_params = self.0.gpmix_params.with_rng(rng);
@@ -661,6 +667,15 @@ impl SurrogateBuilder for MixintGpMixtureParams {
             .max_eval(max_eval);
         self.0 = MixintGpMixtureValidParams {
             gpmix_params: builder,
+            xtypes: self.0.xtypes.clone(),
+            work_in_folded_space: self.0.work_in_folded_space,
+        }
+    }
+
+    /// Sets the noise-to-signal ratio tuning of full GP experts
+    fn set_noise_ratio(&mut self, noise_ratio: ParamTuning<f64>) {
+        self.0 = MixintGpMixtureValidParams {
+            gpmix_params: self.0.gpmix_params.clone().noise_ratio(noise_ratio),
             xtypes: self.0.xtypes.clone(),
             work_in_folded_space: self.0.work_in_folded_space,
         }
@@ -1507,5 +1522,26 @@ mod tests {
         let xtest = array![[1.5]];
         let ytest = model.predict(&xtest.view()).expect("Prediction failed");
         assert!((ytest[0] - 1.5).abs() < 0.5);
+    }
+
+    #[test]
+    fn test_mixint_builder_noise_ratio() {
+        use ndarray_rand::{RandomExt, rand_distr::Normal};
+
+        let mut rng = Xoshiro256Plus::seed_from_u64(42);
+        let xt = Lhs::new(&array![[0., 10.]])
+            .with_rng(rng.clone())
+            .sample(30);
+        let noise = Array1::random_using(30, Normal::new(0., 0.1).unwrap(), &mut rng);
+        let yt = xt.column(0).mapv(f64::sin) + noise;
+
+        let mut builder = MixintGpMixtureParams::new_with_xtypes(&[XType::Float(0., 10.)]);
+        builder.set_n_clusters(NbClusters::fixed(1));
+        builder.set_noise_ratio(ParamTuning::Optimized {
+            init: 1e-2,
+            bounds: (1e-8, 10.),
+        });
+        let model = builder.train(xt.view(), yt.view()).expect("Training");
+        assert!(model.experts()[0].noise_variance() > 0.);
     }
 }

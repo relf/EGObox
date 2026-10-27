@@ -8,7 +8,8 @@ use ndarray::{Array1, Array2, array};
 #[cfg(feature = "serializable")]
 use serde::{Deserialize, Serialize};
 
-/// Variance estimation method
+/// Tuning of a scalar hyperparameter: either fixed or optimized within bounds
+/// (e.g. the noise variance of a sparse GP or the noise ratio of a GP)
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serializable", derive(Serialize, Deserialize))]
 pub enum ParamTuning<F: Float> {

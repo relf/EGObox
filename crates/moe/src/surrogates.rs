@@ -1,8 +1,8 @@
 use crate::errors::Result;
 use crate::types::GpFileFormat;
 use egobox_gp::{
-    GaussianProcess, GpParams, SgpParams, SparseGaussianProcess, SparseMethod, ThetaTuning,
-    correlation_models::*, mean_models::*,
+    GaussianProcess, GpParams, ParamTuning, SgpParams, SparseGaussianProcess, SparseMethod,
+    ThetaTuning, correlation_models::*, mean_models::*,
 };
 use linfa::prelude::{Dataset, Fit};
 use ndarray::{Array1, Array2, ArrayView2, Axis};
@@ -25,6 +25,10 @@ pub trait GpSurrogateParams {
     fn max_eval(&mut self, max_eval: usize);
     /// Set the nugget parameter to improve numerical stability
     fn nugget(&mut self, nugget: f64);
+    /// Set the tuning of the noise-to-signal ratio of a gaussian noise on training outputs
+    /// (see [GpParams::noise_ratio](egobox_gp::GpParams::noise_ratio)).
+    /// Default is a no-op, used by sparse GPs which handle their own noise variance.
+    fn noise_ratio(&mut self, _noise_ratio: ParamTuning<f64>) {}
     /// Train the surrogate
     fn train(&self, x: &ArrayView2<f64>, y: &ArrayView2<f64>) -> Result<Box<dyn FullGpSurrogate>>;
 }
@@ -95,7 +99,7 @@ pub trait GpParameterized {
     fn theta(&self) -> &Array1<f64>;
     /// Get process variance
     fn variance(&self) -> f64;
-    /// Get noise variance (0 for full GP)
+    /// Get noise variance (0 for full GP without noise ratio)
     fn noise_variance(&self) -> f64;
     /// Get log-likelihood
     fn likelihood(&self) -> f64;
@@ -160,6 +164,10 @@ macro_rules! declare_surrogate {
 
                 fn nugget(&mut self, nugget: f64) {
                     self.0 = self.0.clone().nugget(nugget);
+                }
+
+                fn noise_ratio(&mut self, noise_ratio: ParamTuning<f64>) {
+                    self.0 = self.0.clone().noise_ratio(noise_ratio);
                 }
 
                 fn train(
@@ -244,7 +252,7 @@ macro_rules! declare_surrogate {
                 }
 
                 fn noise_variance(&self) -> f64 {
-                    0.0
+                    self.0.noise_variance()
                 }
 
                 fn likelihood(&self) -> f64 {

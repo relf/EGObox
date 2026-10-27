@@ -17,7 +17,7 @@ use rand_xoshiro::Xoshiro256Plus;
 
 use serde::{Deserialize, Serialize};
 
-pub use egobox_gp::{Inducings, SparseMethod, ThetaTuning};
+pub use egobox_gp::{Inducings, ParamTuning, SparseMethod, ThetaTuning};
 
 /// Number of clusters specification
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -127,6 +127,9 @@ pub struct GpMixtureValidParams<F: Float> {
     n_start: usize,
     /// Max number of likelihood evaluations during GP hyperparameters optimization
     max_eval: usize,
+    /// Noise-to-signal ratio tuning of full GP experts (no noise by default)
+    #[serde(default = "no_noise_ratio")]
+    noise_ratio: ParamTuning<F>,
     /// Gaussian Mixture model used to cluster
     gmm: Option<GaussianMixtureModel<F>>,
     /// GaussianMixture preset
@@ -147,11 +150,17 @@ impl<F: Float> Default for GpMixtureValidParams<F> {
             kpls_dim: None,
             n_start: 10,
             max_eval: GP_COBYLA_MAX_EVAL,
+            noise_ratio: no_noise_ratio(),
             gmm: None,
             gmx: None,
             rng: Xoshiro256Plus::from_entropy(),
         }
     }
+}
+
+/// Default noise ratio tuning: no noise, full GP experts interpolate training outputs
+fn no_noise_ratio<F: Float>() -> ParamTuning<F> {
+    ParamTuning::Fixed(F::zero())
 }
 
 impl<F: Float> GpMixtureValidParams<F> {
@@ -198,6 +207,11 @@ impl<F: Float> GpMixtureValidParams<F> {
     /// The max number of likelihood optimization during hyperparameters optimization
     pub fn max_eval(&self) -> usize {
         self.max_eval
+    }
+
+    /// The noise-to-signal ratio tuning of full GP experts
+    pub fn noise_ratio(&self) -> &ParamTuning<F> {
+        &self.noise_ratio
     }
 
     /// An optional gaussian mixture to be fitted to generate multivariate normal
@@ -304,6 +318,14 @@ impl<F: Float> GpMixtureParams<F> {
     /// Sets The max number of likelihood optimization during hyperparameters optimization
     pub fn max_eval(mut self, max_eval: usize) -> Self {
         self.0.max_eval = max_eval;
+        self
+    }
+
+    /// Sets the noise-to-signal ratio tuning of full GP experts
+    /// (see [GpParams::noise_ratio](egobox_gp::GpParams::noise_ratio)).
+    /// Not used by sparse GP experts which handle their own noise variance.
+    pub fn noise_ratio(mut self, noise_ratio: ParamTuning<F>) -> Self {
+        self.0.noise_ratio = noise_ratio;
         self
     }
 
