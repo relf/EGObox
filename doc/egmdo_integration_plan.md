@@ -244,6 +244,7 @@ After correctness is established:
 - add parallel discipline evaluations;
 - try other kernels and other criteria (e.g. upper trust bound constraint relaxation), which the papers suggest. C-EGMDO tested constraint relaxation by quantiles of the constraint PCEs, which was less robust than the mean, so it is not in the first release;
 - add a stopping criterion based on the maximum EI value;
+- a hybrid random MDA, solved while the disciplinary uncertainty is large and linearized afterwards (issue #493). On the aerostructures problem, the linearized random MDA already does better than the solved one with large uncertainty, so no problem calls for it yet;
 - improve the final estimation of `Ẑ*` and `Ŷ_min` (model (19)) away from the enriched regions, e.g. by restricting it to the basin of the best `DoE_UQ` point or by enriching where its samples disagree;
 - benchmark against `Egor` on the IDF formulation;
 - support costly constraints that do not depend on the couplings, with their own surrogate;
@@ -350,9 +351,11 @@ The initial implementation is ready for a first release when:
 
 Stage E items get their own PRs once the first release is merged into `master`, except the alternatives to the rank-one disciplinary GP of issue #493, studied with its author on `egmdo`:
 
-1. the linearized random MDA (PR 10);
-2. the correlation across design points from the GP posterior covariance, in place of the shared `Ξ`, with the solved or the linearized random MDA (PR 11);
-3. a local KL expansion of the disciplinary GPs around the mean MDA solution (prototyped in the aerostructures reference example, PR 13);
-4. a hybrid that solves the random MDAs while the uncertainty is large and linearizes them afterwards.
+1. the linearized random MDA (PR 10): an option of the solver (D37);
+2. the correlation across design points from the GP posterior covariance, in place of the shared `Ξ`, with the solved or the linearized random MDA (PR 11): an option of the solver (D38);
+3. a local KL expansion of the disciplinary GPs around the mean MDA solution (PR 13): it stays a prototype in the aerostructures reference example and is not integrated into the solver. It converges to the exact distribution of the couplings, but improves on the rank-one model only with 3 to 4 points per discipline, at the cost of `m` random variables per scalar coupling (a degree-3 PCE of 165 terms instead of 10 on the aerostructures problem);
+4. a hybrid that solves the random MDAs while the uncertainty is large and linearizes them afterwards: not done, moved to the Stage E list (section 6).
 
 The papers' problems amplify the disciplinary uncertainty by at most about 2. The aerostructures problem of the REMAL paper (PR 12) amplifies it up to 43 times, and its one-dimensional disciplinary GPs allow an exact sample-path reference to compare these models against.
+
+Conclusion of issue #493 (closed): on every problem, including the aerostructures one, the whole runs are not sensitive to the rank-one model. The solved random MDA with the perfect correlation across design points, as in the papers, stays the default; the linearized random MDA and the GP posterior correlation remain options.
