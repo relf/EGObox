@@ -18,7 +18,7 @@ The crate is under development on the `egmdo` branch. It currently provides:
 * the polynomial chaos expansions with Sobol indices, and the Karhunen–Loève decomposition and KL-GP random field,
 * the test problems of the EGMDO and C-EGMDO papers, with benchmarks in `examples/egmdo_benchmarks.rs`.
 
-Variables are identified by index in this crate. The Python binding, `Emdegor` in the `egobox` package (also in `egobox.egmdo`), declares the design and coupling variables by name and wires the disciplines to them by name.
+Variables are identified by index in this crate. The Python binding, `Mdegor` in the `egobox` package (also in `egobox.egmdo`), declares the design and coupling variables by name and wires the disciplines to them by name.
 
 See `doc/egmdo_integration_plan.md`, `doc/egmdo_spec.md` and `doc/egmdo_benchmarks.md` in the repository for the plan, the specification and the benchmark results.
 

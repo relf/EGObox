@@ -117,10 +117,10 @@ The objective `f_obj(z, y)` is a **cheap, explicit function** of the design and 
 
 Constraints follow the same model: inequality constraints `g_m(z, y) ≤ 0` and equality constraints `h_r(z, y) = 0` are cheap, explicit functions of the design and coupling variables. A constraint that depends only on `z` is a special case: it is deterministic, so its feasibility is the same for every random sample. The sign convention is the `Egor` one (`g ≤ 0`); C-EGMDO's equations use `g ≥ 0` and are translated in the specification. Equality constraints are satisfied within a tolerance. Costly constraints that do not depend on the couplings need their own surrogate; they are an extension.
 
-The Python facade is `Emdegor` ("Efficient MultiDisciplinary Egor"), named after `Egor` and `Belfegor`; the Rust crate keeps the algorithm's name. The Python API (`egobox.egmdo`, also exported by `egobox`) declares the design and coupling variables once, by name, with their bounds; the disciplines are wired to them by name. The Rust core identifies variables by index, and the Python layer resolves the names into indices:
+The Python facade is `Mdegor` ("MultiDisciplinary Egor"), named after `Egor` and `Belfegor`; the Rust crate keeps the algorithm's name. The Python API (`egobox.egmdo`, also exported by `egobox`) declares the design and coupling variables once, by name, with their bounds; the disciplines are wired to them by name. The Rust core identifies variables by index, and the Python layer resolves the names into indices:
 
 ```python
-from egobox.egmdo import Discipline, Emdegor
+from egobox.egmdo import Discipline, Mdegor
 
 # Classic constrained Sellar problem, as in C-EGMDO
 design = {"z1": [-10.0, 10.0], "z2": [0.0, 10.0], "z3": [0.0, 10.0]}  # bounds, order = z columns
@@ -131,7 +131,7 @@ d1 = Discipline("d1", compute_y1, inputs=["z1", "z2", "z3", "y2"], outputs=["y1"
 d2 = Discipline("d2", compute_y2, inputs=["z1", "z2", "y1"], outputs=["y2"])
 
 # qoi(z, y) returns [f, g1, g2] for a batch of points, g <= 0
-optimizer = Emdegor(design, couplings, [d1, d2], qoi, n_ineq=2, seed=42)
+optimizer = Mdegor(design, couplings, [d1, d2], qoi, n_ineq=2, seed=42)
 
 # Convenience loop, calling Discipline.fun
 result = optimizer.minimize(max_iters=10)
@@ -142,7 +142,7 @@ while (requests := optimizer.ask()) is not None:
 result = optimizer.result()
 ```
 
-Every coupling variable is computed by exactly one discipline and has a single initial range. The names are checked when `Emdegor` is built (unknown, duplicated or uncomputed variables, a discipline receiving its own output).
+Every coupling variable is computed by exactly one discipline and has a single initial range. The names are checked when `Mdegor` is built (unknown, duplicated or uncomputed variables, a discipline receiving its own output).
 
 ### Three distinct evaluation modes
 

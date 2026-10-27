@@ -5,7 +5,7 @@
 egobox\.egobox\.(ConstraintStrategy|EimAggregation|EnrichmentStrategy|ExitStatus|FailsafeStrategy|FeasibleInfillStrategy|InfillOptimizer|InfillStrategy|MooStrategy|QEiStrategy|Recombination|Sampling|SparseMethod|Verbose|XType)\.[A-Z_0-9]+
 
 # pyo3 runtime text signatures render non-literal defaults as `...` while stubs give the actual value
-egobox\.egobox\.(Belfegor|Discipline|Egor|Emdegor|GpConfig|GpMix|MooConfig|QEiConfig|RunInfo|SparseGpMix|TregoConfig|XSpec)\.__new__
+egobox\.egobox\.(Belfegor|Discipline|Egor|Mdegor|GpConfig|GpMix|MooConfig|QEiConfig|RunInfo|SparseGpMix|TregoConfig|XSpec)\.__new__
 egobox\.egobox\.(Gpx|SparseGpx)\.builder
 
 # private hook used by the `gpx` CLI entry point, intentionally not part of the stub

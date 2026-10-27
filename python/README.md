@@ -3,7 +3,7 @@
 ![pytests](https://github.com/relf/egobox/actions/workflows/pytest.yml/badge.svg)
 [![DOI](https://joss.theoj.org/papers/10.21105/joss.04737/status.svg)](https://doi.org/10.21105/joss.04737)
 
-`egobox` package is the Python binding of the optimizer named `Egor` (with its multi-objective counterpart `Belfegor` and its multidisciplinary counterpart `Emdegor`) and the surrogate model `Gpx`, mixture of Gaussian processes, from the [EGObox libraries](https://github.com/relf/egobox?tab=readme-ov-file#egobox---efficient-global-optimization-toolbox) written in Rust.
+`egobox` package is the Python binding of the optimizer named `Egor` (with its multi-objective counterpart `Belfegor` and its multidisciplinary counterpart `Mdegor`) and the surrogate model `Gpx`, mixture of Gaussian processes, from the [EGObox libraries](https://github.com/relf/egobox?tab=readme-ov-file#egobox---efficient-global-optimization-toolbox) written in Rust.
 
 ## Installation
 
@@ -64,9 +64,9 @@ print(f"Pareto front of {len(res.y_pareto)} points")  # res.x_pareto, res.y_pare
 print(f"Compromise point f={res.y_opt} at x={res.x_opt}")
 ```
 
-### Emdegor multidisciplinary design optimizer (experimental)
+### Mdegor multidisciplinary design optimizer (experimental)
 
-`Emdegor` minimizes an objective, subject to constraints, computed from coupling variables of
+`Mdegor` minimizes an objective, subject to constraints, computed from coupling variables of
 expensive disciplines which depend on each other (EGMDO and C-EGMDO algorithms). Each discipline is
 replaced by Gaussian process surrogates enriched only where the optimum is likely to be, which saves
 many disciplinary evaluations. The design and coupling variables are declared once by name, and the
@@ -98,8 +98,8 @@ def qoi(z: np.ndarray, y: np.ndarray) -> np.ndarray:  # z: z1, z2, z3; y: y1, y2
 
 d1 = egx.Discipline("d1", f1, inputs=["z1", "z2", "z3", "y2"], outputs=["y1"])
 d2 = egx.Discipline("d2", f2, inputs=["z1", "z2", "y1"], outputs=["y2"])
-emdegor = egx.Emdegor(design, couplings, [d1, d2], qoi, n_ineq=2, seed=0)
-res = emdegor.minimize(max_iters=10)
+mdegor = egx.Mdegor(design, couplings, [d1, d2], qoi, n_ineq=2, seed=0)
+res = mdegor.minimize(max_iters=10)
 print(
     f"Best point {dict(zip(res.design_names, res.z_best))}, f={res.f_best}, "
     f"with {res.n_evaluations} disciplinary evaluations"
