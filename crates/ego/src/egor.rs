@@ -694,34 +694,76 @@ mod tests {
     #[test]
     #[serial]
     fn test_xsinx_with_noise_ratio() {
+        use ndarray_stats::QuantileExt;
+
         // xsinx with a deterministic pseudo-noise of amplitude 0.5
         let noisy_xsinx =
             |x: &ArrayView2<f64>| -> Array2<f64> { xsinx(x) + x.mapv(|v| 0.5 * (1000. * v).sin()) };
         let initial_doe = Lhs::new(&array![[0.0, 25.0]])
             .with_rng(Xoshiro256Plus::seed_from_u64(42))
             .sample(8);
-        let res = EgorBuilder::optimize(noisy_xsinx)
-            .configure(|cfg| {
-                cfg.configure_gp(|gp| {
-                    gp.noise_ratio(crate::ParamTuning::Optimized {
-                        init: 1e-2,
-                        bounds: (1e-10, 10.),
+        for trego in [false, true] {
+            let res = EgorBuilder::optimize(noisy_xsinx)
+                .configure(|cfg| {
+                    cfg.configure_gp(|gp| {
+                        gp.noise_ratio(crate::ParamTuning::Optimized {
+                            init: 1e-2,
+                            bounds: (1e-10, 10.),
+                        })
                     })
+                    .trego(trego)
+                    .max_iters(15)
+                    .doe(&initial_doe)
+                    .seed(42)
                 })
-                .max_iters(15)
-                .doe(&initial_doe)
-                .seed(42)
-            })
+                .min_within(&array![[0.0, 25.0]])
+                .expect("Egor should be configured")
+                .run()
+                .expect("Egor should minimize noisy xsinx");
+            println!("trego={trego}: x_opt={} y_opt={}", res.x_opt, res.y_opt);
+            assert_abs_diff_eq!(array![18.9], res.x_opt, epsilon = 0.5);
+
+            let obj_model = &res.state.surrogate.models[0];
+            let noise_variance = obj_model.experts()[0].noise_variance();
+            println!("Estimated noise variance = {noise_variance}");
+            assert!(noise_variance > 0.);
+
+            // Best point is the evaluated point with the lowest estimated value
+            let y_est = obj_model.predict(&res.x_doe.view()).unwrap();
+            let best = y_est.argmin().unwrap();
+            assert_eq!(res.state.surrogate.best_index, Some(best));
+            assert_abs_diff_eq!(
+                res.state.surrogate.y_estimate.as_ref().unwrap().column(0),
+                y_est.view(),
+                epsilon = 1e-12
+            );
+            // Reported values are the evaluated ones at that point
+            assert_eq!(res.x_opt, res.x_doe.row(best));
+            assert_eq!(res.y_opt, res.y_doe.row(best));
+            if trego {
+                assert!(res.state.trego.sigma > 1e-3);
+            }
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_xsinx_without_noise_ratio_has_no_estimates() {
+        let res = EgorBuilder::optimize(xsinx)
+            .configure(|cfg| cfg.max_iters(2).seed(42))
             .min_within(&array![[0.0, 25.0]])
             .expect("Egor should be configured")
             .run()
-            .expect("Egor should minimize noisy xsinx");
-        assert_abs_diff_eq!(array![18.9], res.x_opt, epsilon = 0.5);
+            .expect("Egor should minimize xsinx");
+        assert!(res.state.surrogate.y_estimate.is_none());
+    }
 
-        let obj_model = &res.state.surrogate.models[0];
-        let noise_variance = obj_model.experts()[0].noise_variance();
-        println!("Estimated noise variance = {noise_variance}");
-        assert!(noise_variance > 0.);
+    #[test]
+    fn test_invalid_trego_config() {
+        let res = EgorBuilder::optimize(xsinx)
+            .configure(|cfg| cfg.configure_trego(|trego| trego.beta_uncertain(0.5)))
+            .min_within(&array![[0.0, 25.0]]);
+        assert!(matches!(res, Err(crate::EgoError::InvalidConfigError(_))));
     }
 
     #[test]

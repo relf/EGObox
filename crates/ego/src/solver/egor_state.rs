@@ -79,6 +79,7 @@ impl<F: Float> Default for DoeState<F> {
 ///
 /// Tracks clusterings, hyperparameters, and training data for GP mixture surrogates.
 #[derive(Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct SurrogateState<F: Float> {
     /// Current clusterings for objective and constraints GP mixture surrogate models
     pub clusterings: Option<Vec<Option<Clustering>>>,
@@ -100,6 +101,12 @@ pub struct SurrogateState<F: Float> {
     /// Trained surrogate models for objective and constraints (persisted across EGO iterations)
     #[serde(default)]
     pub models: Vec<Box<dyn MixtureGpSurrogate>>,
+    /// Estimated (noise-free) objective and constraints values at data points,
+    /// i.e. posterior means of the surrogate models (n, ny), only computed when the
+    /// GP models a noise on function values. Rows which are not candidates for the
+    /// best (failed points with imputed values, non finite values) are NaN.
+    #[serde(default)]
+    pub y_estimate: Option<Array2<F>>,
 }
 
 impl<F: Float> Default for SurrogateState<F> {
@@ -114,6 +121,7 @@ impl<F: Float> Default for SurrogateState<F> {
             infill_data: Default::default(),
             infill_value: F::infinity(),
             models: Vec::new(),
+            y_estimate: None,
         }
     }
 }
@@ -130,6 +138,7 @@ impl<F: Float> Clone for SurrogateState<F> {
             infill_data: self.infill_data.clone(),
             infill_value: self.infill_value,
             models: self.models.to_vec(),
+            y_estimate: self.y_estimate.clone(),
         }
     }
 }
@@ -146,6 +155,7 @@ impl<F: Float> std::fmt::Debug for SurrogateState<F> {
         s.field("infill_data", &self.infill_data);
         s.field("infill_value", &self.infill_value);
         s.field("models", &"...");
+        s.field("y_estimate", &self.y_estimate);
         s.finish()
     }
 }
@@ -155,6 +165,7 @@ impl<F: Float> std::fmt::Debug for SurrogateState<F> {
 /// TREGO (Trust Region EGO) alternates between global and local search phases.
 /// See Diouane et al. (2023) for algorithm details.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct TregoState<F: Float> {
     /// Trust region size parameter
     pub sigma: F,
@@ -164,6 +175,14 @@ pub struct TregoState<F: Float> {
     pub local_trego_iter: usize,
     /// Cumulative decrease of best value over a trego global or local phase
     pub best_decrease: f64,
+    /// Index of the best point at the start of the current phase
+    /// (used when values are estimated, see [`SurrogateState::y_estimate`])
+    #[serde(default)]
+    pub phase_start_best: Option<usize>,
+    /// Number of data points at the start of the current phase
+    /// (used when values are estimated, see [`SurrogateState::y_estimate`])
+    #[serde(default)]
+    pub phase_start_rows: usize,
 }
 
 impl<F: Float> Default for TregoState<F> {
@@ -173,6 +192,8 @@ impl<F: Float> Default for TregoState<F> {
             global_trego_iter: 0,
             local_trego_iter: 0,
             best_decrease: 0.0,
+            phase_start_best: None,
+            phase_start_rows: 0,
         }
     }
 }
