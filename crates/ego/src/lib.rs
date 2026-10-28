@@ -253,6 +253,13 @@
 //!     });
 //! ```
 //!
+//!   When noise is modeled (mono-objective optimization), the best point is the evaluated point
+//!   with the lowest posterior mean of the objective model (taking constraint models posterior means
+//!   into account) instead of the lowest observed value, which is likely a lucky noisy draw. Infill criteria
+//!   then compare candidates against this estimated best value, and the TREGO algorithm below tests
+//!   the sufficient decrease on estimated values with a milder trust region contraction when a failure
+//!   may be due to noise.
+//!
 //! * the TREGO algorithm described in \[[Diouane2023](#Diouane2023)\] activated with
 //!   the default gl1-4 configuration from the reference paper
 //!

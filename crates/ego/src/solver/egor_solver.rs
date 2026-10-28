@@ -392,6 +392,8 @@ where
                 min_acceptance_distance,
             } => self.local_iteration(problem, state, max_dist, min_acceptance_distance)?,
         };
+        // With noisy values, the best point is selected from estimated values
+        self.refresh_estimates(&mut new_state);
         let (x_data, y_data, _c_data) = new_state.surrogate.data.clone().unwrap();
 
         // Post-iteration hook

@@ -838,6 +838,10 @@ impl EgorConfig {
     pub fn check(self) -> Result<ValidEgorConfig> {
         let mut config = self.0;
 
+        config.iteration_strategy.check().map_err(|msg| {
+            crate::EgoError::InvalidConfigError(format!("EgorConfig invalid: {msg}"))
+        })?;
+
         log::info!(
             "n_cstr: {}, cstr_specs: {:?}",
             config.n_cstr,

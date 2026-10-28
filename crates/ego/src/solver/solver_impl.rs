@@ -21,7 +21,7 @@ use egobox_moe::as_continuous_limits;
 use basin::{CostFunction, Problem};
 
 use egobox_doe::{Lhs, LhsKind, SamplingMethod};
-use egobox_gp::ThetaTuning;
+use egobox_gp::{ParamTuning, ThetaTuning};
 use env_logger::{Builder, Env};
 
 use egobox_moe::AffinedSurrogate;
@@ -467,6 +467,83 @@ where
         gp
     }
 
+    /// Whether GP models a noise on function values, in which case values are estimated
+    /// by surrogate models posterior means (mono-objective optimization only)
+    pub(crate) fn has_noisy_values(&self) -> bool {
+        self.config.n_obj() == 1 && self.config.gp.noise_ratio != ParamTuning::Fixed(0.)
+    }
+
+    /// Value of the incumbent (best point) used by infill criteria: the observed objective value
+    /// or its estimate by the objective model posterior mean when values are noisy
+    pub(crate) fn incumbent_value(
+        &self,
+        obj_model: &dyn MixtureGpSurrogate,
+        x_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+        y_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+        best_index: usize,
+    ) -> f64 {
+        let observed = y_data[[best_index, 0]];
+        if self.has_noisy_values() {
+            obj_model
+                .predict(&x_data.slice(s![best_index..best_index + 1, ..]))
+                .map_or(observed, |mu| mu[0])
+        } else {
+            observed
+        }
+    }
+
+    /// When values are noisy, estimate objective and constraints values at data points
+    /// with the surrogate models posterior means, and select the best point from these
+    /// estimates (see [`crate::SurrogateState::y_estimate`]).
+    /// Expects persisted models to be trained on the whole data, otherwise estimates are dropped.
+    pub(crate) fn refresh_estimates(&self, state: &mut EgorState<f64>) {
+        state.surrogate.y_estimate = None;
+        if !self.has_noisy_values() {
+            return;
+        }
+        let Some((x_data, y_data, c_data)) = state.surrogate.data.as_ref() else {
+            return;
+        };
+        let models = &state.surrogate.models;
+        if models.len() != y_data.ncols()
+            || models
+                .iter()
+                .any(|m| m.training_data().0.nrows() != x_data.nrows())
+        {
+            return;
+        }
+
+        let mut y_est = Array2::zeros(y_data.dim());
+        for (mut col, model) in y_est.columns_mut().into_iter().zip(models) {
+            match model.predict(&x_data.view()) {
+                Ok(mu) => col.assign(&mu),
+                Err(err) => {
+                    log::warn!("Cannot estimate function values: {err:?}");
+                    return;
+                }
+            }
+        }
+        // Failed points with imputed values and points with non finite values
+        // are never candidates for the best
+        let excluded = self
+            .config
+            .imputed_rows(x_data, state.surrogate.x_fail.as_ref());
+        for (i, (mut row, y)) in y_est.rows_mut().into_iter().zip(y_data.rows()).enumerate() {
+            if excluded.contains(&i) || y.iter().any(|v| !v.is_finite()) {
+                row.fill(f64::NAN);
+            }
+        }
+
+        let best_index = find_best_result_index(&y_est, c_data, &state.doe.cstr_tol);
+        debug!(
+            "Estimated best fun(x[{best_index}])={} (observed {})",
+            y_est.row(best_index),
+            y_data.row(best_index)
+        );
+        state.surrogate.best_index = Some(best_index);
+        state.surrogate.y_estimate = Some(y_est);
+    }
+
     /// Refresh infill data used to optimize infill criterion
     pub fn refresh_infill_data<
         O: CostFunction<Param = Array2<f64>, Output = Array2<f64>, Error = crate::EgoError>
@@ -481,7 +558,12 @@ where
         let x_data = state.surrogate.data.as_ref().unwrap().0.clone();
         let (obj_model, cstr_models) = models.split_first().unwrap();
 
-        let fmin = y_data[[state.surrogate.best_index.unwrap(), 0]];
+        let fmin = self.incumbent_value(
+            obj_model.as_ref(),
+            &x_data,
+            &y_data,
+            state.surrogate.best_index.unwrap(),
+        );
         let xbest = x_data.row(state.surrogate.best_index.unwrap()).to_vec();
 
         let pb = problem.inner();
@@ -1139,7 +1221,7 @@ where
                 let obj_model = &obj_models[0];
                 debug!("... surrogates trained");
 
-                let fmin = y_data[[best_index, 0]];
+                let fmin = self.incumbent_value(obj_model.as_ref(), x_data, y_data, best_index);
                 let ybest = y_data.row(best_index).to_owned();
                 let xbest = x_data.row(best_index).to_owned();
                 let cbest = c_data.row(best_index).to_owned();
