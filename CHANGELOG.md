@@ -5,7 +5,7 @@
 * **Breaking changes** (Rust only):
   * `egobox-ego` 0.43.0: `SurrogateState`, `TregoState` and `TregoStrategy` gain fields and are now
     `#[non_exhaustive]` (no struct literal outside the crate, use `Default` and builders)
-  * `egobox-moe`: `SurrogateBuilder::set_noise_ratio()` is a new required method for implementations
+  * `egobox-moe` 0.37.0: `SurrogateBuilder::set_noise_ratio()` is a new required method for implementations
     outside the crate
   * GP models and `Egor` hot-start checkpoints saved in binary format by previous versions no longer load
     (JSON models and configurations still load)

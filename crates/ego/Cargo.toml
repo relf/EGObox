@@ -27,8 +27,8 @@ ctrlc = { workspace = true }
 egobox-doe = { version = "0.35.2", path = "../doe", features = [
     "serializable",
 ] }
-egobox-gp = { version = "0.37.1", path = "../gp", features = ["serializable"] }
-egobox-moe = { version = "0.36.2", path = "../moe" }
+egobox-gp = { version = "0.37.2", path = "../gp", features = ["serializable"] }
+egobox-moe = { version = "0.37.0", path = "../moe" }
 
 linfa.workspace = true
 linfa-linalg.workspace = true

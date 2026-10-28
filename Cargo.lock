@@ -619,7 +619,7 @@ dependencies = [
 
 [[package]]
 name = "egobox-gp"
-version = "0.37.1"
+version = "0.37.2"
 dependencies = [
  "anyhow",
  "approx",
@@ -667,7 +667,7 @@ dependencies = [
 
 [[package]]
 name = "egobox-moe"
-version = "0.36.2"
+version = "0.37.0"
 dependencies = [
  "approx",
  "argmin_testfunctions",
