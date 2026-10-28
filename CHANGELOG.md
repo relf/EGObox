@@ -21,6 +21,9 @@
     by @relf in <https://github.com/relf/EGObox/pull/504>
   * Ask-and-tell interface: `suggest()` follows the same rule and new `EgorServiceApi::best_index()` gives
     the best evaluated point by @relf in <https://github.com/relf/EGObox/pull/505>
+* TREGO local steps can follow the STREGO local phase (opt-in): objective GP trained only on the points
+  around the best point (`TregoStrategy::local_gp()`, `local_gp_min_points()`) and/or minimization of
+  the objective posterior mean instead of the infill criterion (`TregoStrategy::local_mean()`)
 * GP performance, following GpFlash (Marchildon 2026):
   * Fused posterior value, variance and gradients predictions (`predict_valvar_with_gradients()`):
     infill criteria gradients 1.6–1.8× faster by @relf in <https://github.com/relf/EGObox/pull/491>

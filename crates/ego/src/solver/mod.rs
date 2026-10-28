@@ -97,6 +97,6 @@ pub use egor_service::*;
 pub use egor_solver::*;
 pub use egor_state::*;
 pub use iteration_strategy::{
-    IterationMode, IterationStrategy, StandardEgoStrategy, TregoStrategy,
+    IterationMode, IterationStrategy, LocalStepConfig, StandardEgoStrategy, TregoStrategy,
 };
 pub use termination::*;

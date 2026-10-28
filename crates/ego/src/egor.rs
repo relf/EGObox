@@ -873,6 +873,80 @@ mod tests {
 
     #[test]
     #[serial]
+    fn test_xsinx_trego_local_phase() {
+        // Local GP, posterior mean minimization and both (STREGO local phase)
+        for (local_gp, local_mean) in [(true, false), (false, true), (true, true)] {
+            let res = EgorBuilder::optimize(xsinx)
+                .configure(|config| {
+                    config
+                        .max_iters(20)
+                        .configure_trego(|trego| {
+                            trego
+                                .local_gp(local_gp)
+                                .local_gp_min_points(4)
+                                .local_mean(local_mean)
+                        })
+                        .seed(1)
+                })
+                .min_within(&array![[0.0, 25.0]])
+                .expect("Egor should be configured")
+                .run()
+                .expect("Egor should minimize");
+            println!(
+                "local_gp={local_gp} local_mean={local_mean}: x_opt={} y_opt={}",
+                res.x_opt, res.y_opt
+            );
+            assert_abs_diff_eq!(array![18.9], res.x_opt, epsilon = 5e-1);
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_noisy_xsinx_trego_local_phase() {
+        let noisy_xsinx =
+            |x: &ArrayView2<f64>| -> Array2<f64> { xsinx(x) + x.mapv(|v| 0.5 * (1000. * v).sin()) };
+        let res = EgorBuilder::optimize(noisy_xsinx)
+            .configure(|config| {
+                config
+                    .configure_gp(|gp| {
+                        gp.noise_ratio(crate::ParamTuning::Optimized {
+                            init: 1e-2,
+                            bounds: (1e-10, 10.),
+                        })
+                    })
+                    .configure_trego(|trego| trego.local_gp(true).local_mean(true))
+                    .max_iters(20)
+                    .seed(42)
+            })
+            .min_within(&array![[0.0, 25.0]])
+            .expect("Egor should be configured")
+            .run()
+            .expect("Egor should minimize noisy xsinx");
+        println!("x_opt={} y_opt={}", res.x_opt, res.y_opt);
+        assert_abs_diff_eq!(array![18.9], res.x_opt, epsilon = 5e-1);
+    }
+
+    #[test]
+    #[serial]
+    fn test_sphere_5d_trego_local_phase() {
+        let xlimits = Array2::from_shape_fn((5, 2), |(_, j)| if j == 0 { -2. } else { 2. });
+        let res = EgorBuilder::optimize(sphere)
+            .configure(|config| {
+                config
+                    .configure_trego(|trego| trego.local_gp(true).local_mean(true))
+                    .max_iters(40)
+                    .seed(42)
+            })
+            .min_within(&xlimits)
+            .expect("Egor should be configured")
+            .run()
+            .expect("Egor should minimize sphere");
+        println!("x_opt={} y_opt={}", res.x_opt, res.y_opt);
+        assert!(res.y_opt[0] < 1e-2, "sphere 5d min = {}", res.y_opt[0]);
+    }
+
+    #[test]
+    #[serial]
     fn test_xsinx_optmod_egor() {
         let res = EgorBuilder::optimize(xsinx)
             .configure(|config| config.max_iters(20).configure_qei(|cfg| cfg.optmod(3)))

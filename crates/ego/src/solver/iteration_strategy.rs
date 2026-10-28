@@ -110,6 +110,26 @@ pub trait IterationStrategy: Clone + Sync + Debug {
     fn check(&self) -> std::result::Result<(), String> {
         Ok(())
     }
+
+    /// How local steps (see [`IterationMode::Local`]) select candidate points.
+    ///
+    /// Default implementation uses the global surrogate models and the configured infill criterion.
+    fn local_step_config(&self) -> LocalStepConfig {
+        LocalStepConfig::default()
+    }
+}
+
+/// How local steps select candidate points within the trust region
+/// (see [`IterationStrategy::local_step_config`])
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct LocalStepConfig {
+    /// When set, the objective is modeled by a GP trained only on data points around the
+    /// best point (at least this number of points), instead of the global surrogate model
+    pub local_gp_min_points: Option<usize>,
+    /// Whether to minimize the posterior mean of the objective surrogate model instead of
+    /// optimizing the configured infill criterion
+    pub local_mean: bool,
 }
 
 // =============================================================================
@@ -156,6 +176,13 @@ impl IterationStrategy for StandardEgoStrategy {
 /// - uncertain otherwise: milder contraction by `beta_uncertain`,
 /// - empty, when no point was added during the phase: contraction by `beta_empty`.
 ///
+/// Local steps can also follow the STREGO local phase, with two independent switches:
+/// - `local_gp`: the objective is modeled by a GP trained only on the data points around
+///   the best point, within the trust region enlarged until it holds at least
+///   `local_gp_min_points` points, so that its hyperparameters fit the trust region,
+/// - `local_mean`: the posterior mean of the objective model is minimized (pure
+///   exploitation) instead of optimizing the configured infill criterion.
+///
 /// # Parameters
 ///
 /// - `n_gl_steps`: Number of global and local steps per phase `(n_global, n_local)`
@@ -167,6 +194,9 @@ impl IterationStrategy for StandardEgoStrategy {
 ///   in `[beta, 1)`, default `sqrt(beta)`
 /// - `beta_empty`: Contraction factor after an empty local phase (noisy case only),
 ///   in `[beta_uncertain, 1)`, default `sqrt(beta)`
+/// - `local_gp`: Train a local objective GP in local steps (default `false`)
+/// - `local_gp_min_points`: Minimal number of training points of the local GP (default 10)
+/// - `local_mean`: Minimize the objective posterior mean in local steps (default `false`)
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct TregoStrategy {
@@ -186,6 +216,20 @@ pub struct TregoStrategy {
     /// Trust region contraction factor after an empty local phase (default `sqrt(beta)`).
     #[serde(default)]
     pub beta_empty: Option<f64>,
+    /// Whether local steps model the objective with a GP trained around the best point.
+    #[serde(default)]
+    pub local_gp: bool,
+    /// Minimal number of training points of the local GP.
+    #[serde(default = "default_local_gp_min_points")]
+    pub local_gp_min_points: usize,
+    /// Whether local steps minimize the objective posterior mean.
+    #[serde(default)]
+    pub local_mean: bool,
+}
+
+/// Default minimal number of training points of the local GP
+fn default_local_gp_min_points() -> usize {
+    10
 }
 
 impl Default for TregoStrategy {
@@ -198,6 +242,9 @@ impl Default for TregoStrategy {
             sigma0: 1e-1,
             beta_uncertain: None,
             beta_empty: None,
+            local_gp: false,
+            local_gp_min_points: default_local_gp_min_points(),
+            local_mean: false,
         }
     }
 }
@@ -246,6 +293,27 @@ impl TregoStrategy {
     /// Should be in `[beta_uncertain, 1)` (default `sqrt(beta)`).
     pub fn beta_empty(mut self, beta_empty: f64) -> Self {
         self.beta_empty = Some(beta_empty);
+        self
+    }
+
+    /// Whether local steps model the objective with a GP trained only on the data points
+    /// around the best point (within the trust region enlarged until it holds at least
+    /// `local_gp_min_points` points) instead of the global surrogate model.
+    pub fn local_gp(mut self, local_gp: bool) -> Self {
+        self.local_gp = local_gp;
+        self
+    }
+
+    /// Sets the minimal number of training points of the local GP (default 10, at least 2).
+    pub fn local_gp_min_points(mut self, local_gp_min_points: usize) -> Self {
+        self.local_gp_min_points = local_gp_min_points;
+        self
+    }
+
+    /// Whether local steps minimize the posterior mean of the objective surrogate model
+    /// (pure exploitation) instead of optimizing the configured infill criterion.
+    pub fn local_mean(mut self, local_mean: bool) -> Self {
+        self.local_mean = local_mean;
         self
     }
 
@@ -396,13 +464,26 @@ impl IterationStrategy for TregoStrategy {
     fn check(&self) -> std::result::Result<(), String> {
         let (beta, beta_uncertain, beta_empty) =
             (self.beta, self.uncertain_factor(), self.empty_factor());
-        if 0. < beta && beta <= beta_uncertain && beta_uncertain <= beta_empty && beta_empty < 1. {
-            Ok(())
-        } else {
-            Err(format!(
+        if !(0. < beta && beta <= beta_uncertain && beta_uncertain <= beta_empty && beta_empty < 1.)
+        {
+            return Err(format!(
                 "TREGO contraction factors should verify 0 < beta <= beta_uncertain <= beta_empty < 1, \
                  got beta={beta}, beta_uncertain={beta_uncertain}, beta_empty={beta_empty}"
-            ))
+            ));
+        }
+        if self.local_gp_min_points < 2 {
+            return Err(format!(
+                "TREGO local GP minimal number of points should be at least 2, got {}",
+                self.local_gp_min_points
+            ));
+        }
+        Ok(())
+    }
+
+    fn local_step_config(&self) -> LocalStepConfig {
+        LocalStepConfig {
+            local_gp_min_points: self.local_gp.then_some(self.local_gp_min_points),
+            local_mean: self.local_mean,
         }
     }
 }
@@ -608,10 +689,51 @@ mod tests {
     fn test_trego_strategy_without_new_fields_deserialization() {
         let mut value = serde_json::to_value(TregoStrategy::default()).unwrap();
         let fields = value.as_object_mut().unwrap();
-        fields.remove("beta_uncertain");
-        fields.remove("beta_empty");
+        for field in [
+            "beta_uncertain",
+            "beta_empty",
+            "local_gp",
+            "local_gp_min_points",
+            "local_mean",
+        ] {
+            fields.remove(field);
+        }
         let strategy: TregoStrategy = serde_json::from_value(value).unwrap();
         assert_eq!(strategy.beta_uncertain, None);
         assert_eq!(strategy.beta_empty, None);
+        assert!(!strategy.local_gp);
+        assert_eq!(strategy.local_gp_min_points, 10);
+        assert!(!strategy.local_mean);
+    }
+
+    #[test]
+    fn test_local_step_config() {
+        assert_eq!(
+            TregoStrategy::default().local_step_config(),
+            LocalStepConfig::default()
+        );
+        assert_eq!(
+            StandardEgoStrategy.local_step_config(),
+            LocalStepConfig::default()
+        );
+        let config = TregoStrategy::default()
+            .local_gp(true)
+            .local_gp_min_points(5)
+            .local_mean(true)
+            .local_step_config();
+        assert_eq!(config.local_gp_min_points, Some(5));
+        assert!(config.local_mean);
+        // min points without local GP has no effect
+        let config = TregoStrategy::default()
+            .local_gp_min_points(5)
+            .local_step_config();
+        assert_eq!(config.local_gp_min_points, None);
+
+        assert!(
+            TregoStrategy::default()
+                .local_gp_min_points(1)
+                .check()
+                .is_err()
+        );
     }
 }
