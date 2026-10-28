@@ -62,32 +62,11 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
         x_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
         y_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
     ) -> Array2<f64> {
-        // Apply constraint transformation if cstr_specs are set
-        let y_data_owned;
-        let y_data: &ArrayBase<_, Ix2> = if let Some(ref specs) = self.config.cstr_specs {
-            y_data_owned = crate::types::transform_constraints_at(
-                &y_data.to_owned(),
-                self.config.n_obj(),
-                specs,
-            );
-            &y_data_owned
-        } else {
-            y_data_owned = y_data.to_owned();
-            &y_data_owned
-        };
-        let mut rng = if let Some(seed) = self.config.seed {
-            Xoshiro256Plus::seed_from_u64(seed)
-        } else {
-            Xoshiro256Plus::from_entropy()
-        };
-        let n_int_cstr = self.config.n_internal_cstr();
+        let (y_data_owned, cstr_tol) = self.service_data(y_data);
+        let y_data = &y_data_owned;
+        let mut rng = self.service_rng();
         let mut clusterings = vec![None; self.config.n_surrogates()];
         let mut theta_tunings = vec![None; self.config.n_surrogates()];
-        let cstr_tol = self
-            .config
-            .cstr_tol
-            .clone()
-            .unwrap_or(Array1::from_elem(n_int_cstr, DEFAULT_CSTR_TOL));
 
         // TODO: Manage fonction constraints
         let fcstrs = Vec::<Cstr>::new();
@@ -113,26 +92,45 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
             y_data
         };
 
-        let best_index = if self.config.is_per_objective() {
-            compromise_index(y_data, &c_data, n_obj, &cstr_tol, &[]).unwrap_or(0)
-        } else {
-            find_best_result_index(y_data, &c_data, &cstr_tol)
-        };
-        let n_train_obj = if self.config.is_per_objective() {
-            n_obj
-        } else {
-            1
-        };
-        let feasibility = is_feasible_at(
-            &y_data.row(best_index),
-            &c_data.row(best_index),
-            n_train_obj,
-            &cstr_tol,
-        );
-
         let mut models: Vec<Box<dyn MixtureGpSurrogate>> = Vec::new();
+        // With noisy values, models are trained first to select the best point from their
+        // estimates, then reused as is to select next points
+        let estimated_best = if self.has_noisy_values() {
+            self.train_and_estimate_best(
+                &mut clusterings,
+                &mut theta_tunings,
+                &mut models,
+                &activity,
+                &x_data.to_owned(),
+                y_data,
+                &c_data,
+                &cstr_tol,
+            )
+        } else {
+            None
+        };
+        let (best_index, feasibility) = estimated_best.unwrap_or_else(|| {
+            let best_index = if self.config.is_per_objective() {
+                compromise_index(y_data, &c_data, n_obj, &cstr_tol, &[]).unwrap_or(0)
+            } else {
+                find_best_result_index(y_data, &c_data, &cstr_tol)
+            };
+            let n_train_obj = if self.config.is_per_objective() {
+                n_obj
+            } else {
+                1
+            };
+            let feasibility = is_feasible_at(
+                &y_data.row(best_index),
+                &c_data.row(best_index),
+                n_train_obj,
+                &cstr_tol,
+            );
+            (best_index, feasibility)
+        });
+
         let (x_dat, _, _, _, _) = self.select_next_points(
-            true,
+            estimated_best.is_none(), // models already trained otherwise
             0,
             false, // done anyway
             &mut clusterings,
@@ -151,6 +149,69 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
             &mut rng,
         );
         x_dat
+    }
+
+    /// Given an evaluated doe (x, y) data, return the index of the best evaluated point,
+    /// as reported by the optimizer: the minimum wrt constraints, or the compromise point of
+    /// the Pareto front with several objectives.
+    /// When GP models a noise on function values (mono-objective), the best point is selected
+    /// from the surrogate models posterior means, which requires training the models.
+    pub fn best_index(
+        &self,
+        x_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+        y_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+    ) -> usize {
+        let (y_data, cstr_tol) = self.service_data(y_data);
+        let c_data = Array2::zeros((x_data.nrows(), 0));
+        let n_obj = self.config.n_obj();
+        if n_obj > 1 {
+            return compromise_index(&y_data, &c_data, n_obj, &cstr_tol, &[]).unwrap_or(0);
+        }
+        if self.has_noisy_values() {
+            let mut rng = self.service_rng();
+            let activity = FullActivity.generate_activity(x_data.ncols(), &mut rng);
+            let mut models = Vec::new();
+            if let Some((best_index, _)) = self.train_and_estimate_best(
+                &mut vec![None; self.config.n_surrogates()],
+                &mut vec![None; self.config.n_surrogates()],
+                &mut models,
+                &activity,
+                &x_data.to_owned(),
+                &y_data,
+                &c_data,
+                &cstr_tol,
+            ) {
+                return best_index;
+            }
+        }
+        find_best_result_index(&y_data, &c_data, &cstr_tol)
+    }
+
+    /// Data given to the ask-and-tell interface: output values with constraints transformed
+    /// with `cstr_specs` if set, and internal constraints tolerances
+    fn service_data(
+        &self,
+        y_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+    ) -> (Array2<f64>, Array1<f64>) {
+        let y_data = if let Some(ref specs) = self.config.cstr_specs {
+            crate::types::transform_constraints_at(&y_data.to_owned(), self.config.n_obj(), specs)
+        } else {
+            y_data.to_owned()
+        };
+        let cstr_tol = self.config.cstr_tol.clone().unwrap_or(Array1::from_elem(
+            self.config.n_internal_cstr(),
+            DEFAULT_CSTR_TOL,
+        ));
+        (y_data, cstr_tol)
+    }
+
+    /// Random generator of the ask-and-tell interface
+    fn service_rng(&self) -> Xoshiro256Plus {
+        if let Some(seed) = self.config.seed {
+            Xoshiro256Plus::seed_from_u64(seed)
+        } else {
+            Xoshiro256Plus::from_entropy()
+        }
     }
 }
 
@@ -504,35 +565,14 @@ where
         let Some((x_data, y_data, c_data)) = state.surrogate.data.as_ref() else {
             return;
         };
-        let models = &state.surrogate.models;
-        if models.len() != y_data.ncols()
-            || models
-                .iter()
-                .any(|m| m.training_data().0.nrows() != x_data.nrows())
-        {
-            return;
-        }
-
-        let mut y_est = Array2::zeros(y_data.dim());
-        for (mut col, model) in y_est.columns_mut().into_iter().zip(models) {
-            match model.predict(&x_data.view()) {
-                Ok(mu) => col.assign(&mu),
-                Err(err) => {
-                    log::warn!("Cannot estimate function values: {err:?}");
-                    return;
-                }
-            }
-        }
-        // Failed points with imputed values and points with non finite values
-        // are never candidates for the best
+        // Failed points with imputed values are never candidates for the best
         let excluded = self
             .config
             .imputed_rows(x_data, state.surrogate.x_fail.as_ref());
-        for (i, (mut row, y)) in y_est.rows_mut().into_iter().zip(y_data.rows()).enumerate() {
-            if excluded.contains(&i) || y.iter().any(|v| !v.is_finite()) {
-                row.fill(f64::NAN);
-            }
-        }
+        let Some(y_est) = Self::estimate_values(&state.surrogate.models, x_data, y_data, &excluded)
+        else {
+            return;
+        };
 
         let best_index = find_best_result_index(&y_est, c_data, &state.doe.cstr_tol);
         debug!(
@@ -542,6 +582,79 @@ where
         );
         state.surrogate.best_index = Some(best_index);
         state.surrogate.y_estimate = Some(y_est);
+    }
+
+    /// Estimate objective and constraints values at data points with the posterior means
+    /// of the surrogate `models`. Rows which are not candidates for the best (`excluded` rows,
+    /// rows with non finite values) are NaN.
+    /// Returns `None` when models are not trained on the whole data or a prediction fails.
+    fn estimate_values(
+        models: &[Box<dyn MixtureGpSurrogate>],
+        x_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+        y_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+        excluded: &[usize],
+    ) -> Option<Array2<f64>> {
+        if models.len() != y_data.ncols()
+            || models
+                .iter()
+                .any(|m| m.training_data().0.nrows() != x_data.nrows())
+        {
+            return None;
+        }
+
+        let mut y_est = Array2::zeros(y_data.dim());
+        for (mut col, model) in y_est.columns_mut().into_iter().zip(models) {
+            match model.predict(&x_data.view()) {
+                Ok(mu) => col.assign(&mu),
+                Err(err) => {
+                    log::warn!("Cannot estimate function values: {err:?}");
+                    return None;
+                }
+            }
+        }
+        for (i, (mut row, y)) in y_est.rows_mut().into_iter().zip(y_data.rows()).enumerate() {
+            if excluded.contains(&i) || y.iter().any(|v| !v.is_finite()) {
+                row.fill(f64::NAN);
+            }
+        }
+        Some(y_est)
+    }
+
+    /// Train surrogate `models` on the whole data as done for a first iteration, then return
+    /// the index of the best point and its feasibility from the models estimated values.
+    /// Returns `None` when values cannot be estimated.
+    #[allow(clippy::too_many_arguments)]
+    fn train_and_estimate_best(
+        &self,
+        clusterings: &mut [Option<Clustering>],
+        theta_inits: &mut [Option<Array2<f64>>],
+        models: &mut Vec<Box<dyn MixtureGpSurrogate>>,
+        activity: &Array2<usize>,
+        x_data: &Array2<f64>,
+        y_data: &Array2<f64>,
+        c_data: &Array2<f64>,
+        cstr_tol: &Array1<f64>,
+    ) -> Option<(usize, bool)> {
+        self.refresh_models(
+            clusterings,
+            theta_inits,
+            models,
+            x_data,
+            y_data,
+            activity,
+            DataClustering::Regenerate,
+            0,
+        );
+        let y_est = Self::estimate_values(models, x_data, y_data, &[])?;
+        let best_index = find_best_result_index(&y_est, c_data, cstr_tol);
+        let feasibility =
+            is_feasible_at(&y_est.row(best_index), &c_data.row(best_index), 1, cstr_tol);
+        debug!(
+            "Estimated best fun(x[{best_index}])={} (observed {})",
+            y_est.row(best_index),
+            y_data.row(best_index)
+        );
+        Some((best_index, feasibility))
     }
 
     /// Refresh infill data used to optimize infill criterion

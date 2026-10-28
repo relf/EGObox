@@ -258,7 +258,8 @@
 //!   into account) instead of the lowest observed value, which is likely a lucky noisy draw. Infill criteria
 //!   then compare candidates against this estimated best value, and the TREGO algorithm below tests
 //!   the sufficient decrease on estimated values with a milder trust region contraction when a failure
-//!   may be due to noise.
+//!   may be due to noise. The ask-and-tell interface (see [`EgorServiceBuilder`]) follows the same rule
+//!   in `suggest()` and `best_index()`.
 //!
 //! * the TREGO algorithm described in \[[Diouane2023](#Diouane2023)\] activated with
 //!   the default gl1-4 configuration from the reference paper
