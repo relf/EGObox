@@ -93,6 +93,7 @@
 //!
 use crate::solver::iteration_strategy::IterationMode;
 use crate::solver::solver_impl::DataClustering;
+use crate::solver::trego::{LocalSearch, local_training_rows};
 use crate::utils::{
     EGOR_USE_GP_VAR_PORTFOLIO, EGOR_USE_STATE_RECORDING, filter_nans, find_best_result_index,
 };
@@ -494,15 +495,50 @@ where
         let mut local_state = local_state
             .clusterings(clusterings)
             .theta_inits(theta_inits);
-        let infill_data = self.refresh_infill_data(problem, &mut local_state, &models);
+
+        // Optional local objective model trained around the best point
+        let local_step = self.config.iteration_strategy.local_step_config();
+        let local_obj_model = local_step.local_gp_min_points.and_then(|n_min| {
+            let (x_data, y_data, _) = local_state.surrogate.data.as_ref()?;
+            let xbest = x_data.row(local_state.surrogate.best_index?);
+            let rows = local_training_rows(x_data, &xbest, max_dist, n_min);
+            info!("Local GP training with {} points...", rows.len());
+            self.train_local_obj_model(
+                &x_data.select(Axis(0), &rows),
+                &y_data.column(0).select(Axis(0), &rows),
+            )
+        });
+        // Optional posterior mean minimization instead of the infill criterion
+        let mean_solver = local_step.local_mean.then(|| self.with_mean_criterion());
+
+        let search_models_with_local;
+        let search_models = match &local_obj_model {
+            Some(local_model) => {
+                search_models_with_local = std::iter::once(local_model.clone())
+                    .chain(models[1..].iter().cloned())
+                    .collect::<Vec<_>>();
+                &search_models_with_local
+            }
+            None => &models,
+        };
+        let infill_data = mean_solver.as_ref().unwrap_or(self).refresh_infill_data(
+            problem,
+            &mut local_state,
+            search_models,
+        );
         let fallback_state = local_state.clone();
-        match self.trego_step(
+        let search = LocalSearch {
+            obj_model: local_obj_model.as_deref(),
+            solver: mean_solver.as_ref(),
+        };
+        match self.trego_step_with(
             problem,
             local_state,
             models,
             &infill_data,
             max_dist,
             min_acceptance_distance,
+            search,
         ) {
             Ok(state) => Ok(state),
             Err(EgoError::ObjectiveFunctionError(_)) => Ok(fallback_state.terminate_with(

@@ -286,6 +286,16 @@
 //!    egor_config.iteration_strategy(Box::new(TregoStrategy::default().n_gl_steps((4, 1)).beta(0.8)));
 //! ```
 //!
+//!   Local steps can follow the STREGO local phase \[[Diouane2026](#Diouane2026)\]: the objective
+//!   is modeled by a GP trained only on the points around the best point (`local_gp`) and/or its
+//!   posterior mean is minimized instead of the infill criterion (`local_mean`)
+//!
+//! ```no_run
+//! # use egobox_ego::EgorConfig;
+//! # let egor_config = EgorConfig::default();
+//!    egor_config.configure_trego(|trego| trego.local_gp(true).local_mean(true));
+//! ```
+//!
 //! * Intermediate results can be logged at each iteration when `outdir` directory is specified.
 //!   The following files :
 //!   * egor_config.json: Egor configuration,

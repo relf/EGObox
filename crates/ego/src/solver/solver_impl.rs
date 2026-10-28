@@ -290,6 +290,57 @@ where
             && (added != 0 && added.is_multiple_of(10) && added - prev_added > 0)
     }
 
+    /// Train a single-cluster objective surrogate on the given (local) training data
+    /// with the configured GP settings and hyperparameters optimization.
+    /// Returns `None` when the training fails.
+    pub(crate) fn train_local_obj_model(
+        &self,
+        xt: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+        yt: &ArrayBase<impl Data<Elem = f64>, Ix1>,
+    ) -> Option<Box<dyn MixtureGpSurrogate>> {
+        let mut builder = self.surrogate_builder.clone();
+        builder.set_kpls_dim(self.config.gp.kpls_dim);
+        builder.set_regression_spec(self.config.gp.regression_spec);
+        builder.set_correlation_spec(self.config.gp.correlation_spec);
+        builder.set_n_clusters(NbClusters::Fixed { nb: 1 });
+        builder.set_recombination(egobox_moe::Recombination::Hard);
+        builder.set_optim_params(self.config.gp.n_start, self.config.gp.max_eval);
+        builder.set_noise_ratio(self.config.gp.noise_ratio.clone());
+        let dim = self.config.gp.kpls_dim.unwrap_or(xt.ncols());
+        let theta_tuning = if self.config.gp.theta_tuning.is_fixed() {
+            self.config.gp.theta_tuning.clone()
+        } else {
+            ThetaTuning::Full {
+                init: self.config.gp.theta_tuning.init().to_owned(),
+                bounds: crate::utils::theta_bounds(
+                    &self.config.gp.theta_tuning,
+                    dim,
+                    self.config.gp.correlation_spec,
+                ),
+            }
+        };
+        builder.set_theta_tunings(&[theta_tuning]);
+        match builder.train(xt.view(), yt.view()) {
+            Ok(model) => Some(model),
+            Err(err) => {
+                log::warn!("Local GP training failure, global model used instead: {err:?}");
+                None
+            }
+        }
+    }
+
+    /// Copy of this solver optimizing the objective posterior mean instead of the
+    /// configured infill criterion. Probability of feasibility and feasibility enhanced
+    /// infill criteria are not used with a mean: surrogated constraints are handled as
+    /// optimizer constraints.
+    pub(crate) fn with_mean_criterion(&self) -> Self {
+        let mut solver = self.clone();
+        solver.config.infill_criterion = Box::new(crate::criteria::PosteriorMean);
+        solver.config.cstr_infill = false;
+        solver.config.feasibility_infill = FeasibleInfillStrategy::None;
+        solver
+    }
+
     /// Build surrogate given training data and surrogate builder
     /// Reclustering is triggered when make_clustering boolean is true otherwise
     /// previous clustering is used. theta_init allows to reuse

@@ -15,7 +15,7 @@ use egobox_doe::SamplingMethod;
 use egobox_moe::MixtureGpSurrogate;
 
 use log::{debug, info};
-use ndarray::{Array1, Array2, Axis, Zip, aview1};
+use ndarray::{Array1, Array2, ArrayBase, Axis, Data, Ix1, Ix2, Zip, aview1};
 use ndarray_stats::DeviationExt;
 
 use ndarray_rand::rand::{Rng, SeedableRng};
@@ -76,6 +76,57 @@ impl<R: Rng + Clone> MultiStarter for LocalLhsMultiStarter<R> {
     }
 }
 
+/// Overrides used to select the candidate point of a local step: the objective model
+/// (e.g. a local GP) and the solver, hence the infill criterion (e.g. posterior mean)
+pub(crate) struct LocalSearch<'a, SB: SurrogateBuilder, C: CstrFn> {
+    /// Objective model used instead of the global one
+    pub obj_model: Option<&'a dyn MixtureGpSurrogate>,
+    /// Solver used to optimize the infill criterion instead of the current one
+    pub solver: Option<&'a EgorSolver<SB, C>>,
+}
+
+impl<SB: SurrogateBuilder, C: CstrFn> LocalSearch<'_, SB, C> {
+    /// No override: global objective model and configured infill criterion
+    pub fn none() -> Self {
+        LocalSearch {
+            obj_model: None,
+            solver: None,
+        }
+    }
+}
+
+/// Indices of the data points used to train a local GP around `xbest`: the points within
+/// the trust region of radius `max_dist` (infinity norm) enlarged by the smallest factor
+/// `rho >= 1` such that at least `n_min` points are selected (all points when there are fewer)
+pub(crate) fn local_training_rows(
+    x_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+    xbest: &ArrayBase<impl Data<Elem = f64>, Ix1>,
+    max_dist: f64,
+    n_min: usize,
+) -> Vec<usize> {
+    let ratios = x_data
+        .rows()
+        .into_iter()
+        .map(|x| {
+            Zip::from(&x)
+                .and(xbest)
+                .fold(0., |m: f64, a, b| m.max((a - b).abs()))
+                / max_dist
+        })
+        .collect::<Vec<_>>();
+    let mut sorted = ratios.clone();
+    sorted.sort_by(|a, b| a.total_cmp(b));
+    let rho = sorted
+        .get(n_min.saturating_sub(1))
+        .map_or(f64::INFINITY, |r| r.max(1.));
+    ratios
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| **r <= rho)
+        .map(|(i, _)| i)
+        .collect()
+}
+
 impl<SB, C> EgorSolver<SB, C>
 where
     SB: SurrogateBuilder + Serialize + DeserializeOwned,
@@ -91,10 +142,37 @@ where
         &mut self,
         problem: &mut Problem<O>,
         state: EgorState<f64>,
+        models: Vec<Box<dyn MixtureGpSurrogate>>,
+        infill_data: &InfillObjData<f64>,
+        max_dist: f64,
+        min_acceptance_distance: f64,
+    ) -> crate::errors::Result<EgorState<f64>> {
+        self.trego_step_with(
+            problem,
+            state,
+            models,
+            infill_data,
+            max_dist,
+            min_acceptance_distance,
+            LocalSearch::none(),
+        )
+    }
+
+    /// Same as [`trego_step`](Self::trego_step) where `search` gives the objective model
+    /// and the solver used to select the candidate point when they differ from the global ones.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn trego_step_with<
+        O: CostFunction<Param = Array2<f64>, Output = Array2<f64>, Error = crate::EgoError>
+            + Constraints<C>,
+    >(
+        &mut self,
+        problem: &mut Problem<O>,
+        state: EgorState<f64>,
         mut models: Vec<Box<dyn MixtureGpSurrogate>>,
         infill_data: &InfillObjData<f64>,
         max_dist: f64,
         min_acceptance_distance: f64,
+        search: LocalSearch<'_, SB, C>,
     ) -> crate::errors::Result<EgorState<f64>> {
         let mut new_state = state.clone();
         let (mut x_data, mut y_data, mut c_data) = new_state.take_data().expect("DOE data");
@@ -102,7 +180,7 @@ where
         let best_index = new_state.surrogate.best_index.unwrap();
         let y_old = y_data[[best_index, 0]];
         let (obj_models, cstr_models) = models.split_at(self.config.n_obj_models());
-        let obj_model = &obj_models[0];
+        let obj_model = search.obj_model.unwrap_or(obj_models[0].as_ref());
         let cstr_tols = new_state.doe.cstr_tol.clone();
 
         let ybest = y_data.row(best_index).to_owned();
@@ -157,19 +235,20 @@ where
             None
         };
 
+        let search_solver: &Self = search.solver.unwrap_or(self);
         let infill_optpb = InfillOptProblem::new(
-            obj_model.as_ref(),
+            obj_model,
             cstr_models,
             &transformed_fcstrs,
             &cstr_tols,
             viability_model,
-            self.config.feasibility_infill.alpha(),
+            search_solver.config.feasibility_infill.alpha(),
             infill_data,
             &state.coego.activity,
             None,
         );
 
-        let (infill_obj, x_opt) = self.optimize_infill_criterion(
+        let (infill_obj, x_opt) = search_solver.optimize_infill_criterion(
             infill_optpb,
             multistarter,
             (xbest.to_owned(), ybest, cbest),
@@ -178,12 +257,12 @@ where
         let mut new_state = new_state.infill_value(-infill_obj);
         info!(
             "{} criterion {} max found = {}",
-            if self.config.cstr_infill {
+            if search_solver.config.cstr_infill {
                 "Constrained infill"
             } else {
                 "Infill"
             },
-            self.config.infill_criterion.name(),
+            search_solver.config.infill_criterion.name(),
             state.get_infill_value()
         );
 
@@ -385,5 +464,36 @@ mod tests {
     #[test]
     fn test_it9_no_decrease() {
         assert_eq!(next_phase(false, 2, 0, N_G, N_L), (Phase::Local, 0, 1));
+    }
+
+    #[test]
+    fn test_local_training_rows() {
+        use ndarray::array;
+        // infinity norm distances to xbest = [0, 0]: 0, 1, 2, 3, 4, 1.5
+        let x_data = array![
+            [0., 0.],
+            [1., 0.5],
+            [-2., 1.],
+            [0., 3.],
+            [4., -4.],
+            [1.5, 1.5]
+        ];
+        let xbest = array![0., 0.];
+
+        // Trust region already holds enough points (distances <= 2)
+        assert_eq!(
+            local_training_rows(&x_data, &xbest, 2., 3),
+            vec![0, 1, 2, 5]
+        );
+        // Trust region enlarged until it holds n_min points (distances <= 3)
+        assert_eq!(
+            local_training_rows(&x_data, &xbest, 1., 5),
+            vec![0, 1, 2, 3, 5]
+        );
+        // Fewer data points than n_min: all points
+        assert_eq!(
+            local_training_rows(&x_data, &xbest, 1., 10),
+            vec![0, 1, 2, 3, 4, 5]
+        );
     }
 }
