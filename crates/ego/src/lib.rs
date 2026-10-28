@@ -258,7 +258,7 @@
 //!   into account) instead of the lowest observed value, which is likely a lucky noisy draw. Infill criteria
 //!   then compare candidates against this estimated best value, and the TREGO algorithm below tests
 //!   the sufficient decrease on estimated values with a milder trust region contraction when a failure
-//!   may be due to noise. The ask-and-tell interface (see [`EgorServiceBuilder`]) follows the same rule
+//!   may be due to noise \[[Diouane2026](#Diouane2026)\]. The ask-and-tell interface (see [`EgorServiceBuilder`]) follows the same rule
 //!   in `suggest()` and `best_index()`.
 //!
 //! * the TREGO algorithm described in \[[Diouane2023](#Diouane2023)\] activated with
@@ -377,6 +377,10 @@
 //! \[<a id="Diouane2023">Diouane(2023)</a>\]: Diouane, Youssef, et al.
 //! [TREGO: a trust-region framework for efficient global optimization](https://arxiv.org/pdf/2101.06808)
 //! Journal of Global Optimization 86.1 (2023): 1-23.
+//!
+//! \[<a id="Diouane2026">Diouane(2026)</a>\]: Diouane, Youssef, et al.
+//! [STREGO: A Scalable Implementation of a Trust-Region Framework for Noisy Bayesian Optimization](https://doi.org/10.48550/arXiv.2610.14338)
+//! arXiv:2610.14338 (2026).
 //!
 //! \[<a id="Priem2019">Priem2019</a>\]: Priem, Rémy, Nathalie Bartoli, and Youssef Diouane.
 //! [On the use of upper trust bounds in constrained Bayesian optimization infill criteria](https://hal.science/hal-02182492v1/file/Priem_24049.pdf).

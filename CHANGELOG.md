@@ -1,5 +1,37 @@
 # Changes
 
+## Unreleased
+
+* **Breaking changes** (Rust only):
+  * `egobox-ego` 0.43.0: `SurrogateState`, `TregoState` and `TregoStrategy` gain fields and are now
+    `#[non_exhaustive]` (no struct literal outside the crate, use `Default` and builders)
+  * `egobox-moe`: `SurrogateBuilder::set_noise_ratio()` is a new required method for implementations
+    outside the crate
+  * GP models and `Egor` hot-start checkpoints saved in binary format by previous versions no longer load
+    (JSON models and configurations still load)
+* Noisy functions:
+  * Full GP can estimate a homoscedastic noise as the noise-to-signal ratio `tau^2 / sigma^2`, fixed or
+    optimized with theta (`GpParams::noise_ratio()`, `GpMixtureParams::noise_ratio()`,
+    `GpConfig::noise_ratio()`), fitted value given by `GaussianProcess::noise_ratio()` and `noise_variance()`.
+    No noise by default by @relf in <https://github.com/relf/EGObox/pull/500>
+  * With noise modeled (mono-objective), `Egor` selects the best point from the surrogate posterior means
+    instead of the observed values, uses the estimated best value in infill criteria, and TREGO tests the
+    sufficient decrease on estimated values with milder trust region contractions after uncertain or empty
+    local phases (`TregoStrategy::beta_uncertain()`, `beta_empty()`), following STREGO (Diouane et al. 2026)
+    by @relf in <https://github.com/relf/EGObox/pull/504>
+  * Ask-and-tell interface: `suggest()` follows the same rule and new `EgorServiceApi::best_index()` gives
+    the best evaluated point by @relf in <https://github.com/relf/EGObox/pull/505>
+* GP performance, following GpFlash (Marchildon 2026):
+  * Fused posterior value, variance and gradients predictions (`predict_valvar_with_gradients()`):
+    infill criteria gradients 1.6–1.8× faster by @relf in <https://github.com/relf/EGObox/pull/491>
+  * Matérn 3/2 and 5/2 correlations in O(d) instead of O(d²) without KPLS: Matérn fits 1.4–5.5× faster
+    by @relf in <https://github.com/relf/EGObox/pull/492>
+  * Pairwise distances transformed once per GP fit: squared and absolute exponential fits 1.3–2.6× faster
+    by @relf in <https://github.com/relf/EGObox/pull/494>
+* Fix variance gradients of smooth recombination mixtures (panic or wrong cluster indices with several
+  clusters) and the gradient of the upper trust bound constraint strategy
+  by @relf in <https://github.com/relf/EGObox/pull/491>
+
 ## Version 1.0.0 - 12/10/2026
 
 This release stabilizes the Python API: the names deprecated in 0.38.0 are removed. It also brings

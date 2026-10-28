@@ -252,6 +252,10 @@ Diouane, Youssef, et al. (2023).
 [TREGO: a trust-region framework for efficient global optimization](https://arxiv.org/pdf/2101.06808).
 Journal of Global Optimization 86.1 (2023): 1-23.
 
+Diouane, Y., El Hallaoui, I., Kadri, M., & Lamghari, A. (2026).
+[STREGO: A Scalable Implementation of a Trust-Region Framework for Noisy Bayesian Optimization](https://doi.org/10.48550/arXiv.2610.14338).
+arXiv:2610.14338.
+
 Priem, Rémy, Nathalie Bartoli, and Youssef Diouane. (2019)
 [On the use of upper trust bounds in constrained Bayesian optimization infill criteria](https://hal.science/hal-02182492v1/file/Priem_24049.pdf).
 AIAA aviation 2019 forum. 2019.
