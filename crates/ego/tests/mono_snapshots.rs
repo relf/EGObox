@@ -1,57 +1,19 @@
-//! Mono-objective non-regression snapshots.
-//!
-//! Each scenario runs a seeded optimization and compares the resulting `[x_doe, y_doe]`
-//! against a `.npy` fixture stored in `tests/snapshots/<os>-<backend>/`.
-//! Floating point results differ across OS and optimizer/linear algebra backends,
-//! hence fixtures are recorded per platform: a scenario without fixture for the current
-//! platform is skipped, unless `EGOBOX_REQUIRE_SNAPSHOTS=1` is set (reference CI job).
-//! Even on a given platform, math library code paths depend on the CPU, so values are
-//! compared with a tight tolerance scaled by the magnitude of each column
-//! (`SNAPSHOT_ABS_TOL + SNAPSHOT_REL_TOL * max |column|`), as values close to zero
-//! (e.g. active constraints) amplify tiny differences of the evaluated points:
-//! an actual behavior change moves the evaluated points far beyond it.
-//!
-//! Record (or update) fixtures with `EGOBOX_UPDATE_SNAPSHOTS=1 cargo test --release --test mono_snapshots`.
-//! A fixture update has to be committed separately and explicitly reviewed.
+//! Mono-objective non-regression snapshots (see `common` for the fixture mechanism).
 
+mod common;
+
+use common::{SNAPSHOT_REL_TOL, check_snapshot_data};
 use egobox_doe::{Lhs, SamplingMethod};
 use egobox_ego::{
-    CoegoStatus, Cstr, CstrSpec, EgorBuilder, FailsafeStrategy, HotStartMode, InfillOptimizer,
-    InfillStrategy, OptimResult, QEiStrategy, XType,
+    CoegoStatus, CorrelationSpec, Cstr, CstrSpec, EgorBuilder, EgorServiceBuilder,
+    FailsafeStrategy, FeasibleInfillStrategy, HotStartMode, InfillOptimizer, InfillStrategy,
+    OptimResult, ParamTuning, QEiStrategy, RegressionSpec, XType,
 };
+use egobox_moe::NbClusters;
 use ndarray::{Array2, ArrayView1, ArrayView2, Axis, Zip, array, concatenate};
-use ndarray_npy::{read_npy, write_npy};
 use ndarray_rand::rand::SeedableRng;
 use rand_xoshiro::Xoshiro256Plus;
 use serial_test::serial;
-use std::path::PathBuf;
-
-const UPDATE_ENV: &str = "EGOBOX_UPDATE_SNAPSHOTS";
-const REQUIRE_ENV: &str = "EGOBOX_REQUIRE_SNAPSHOTS";
-const SNAPSHOT_ABS_TOL: f64 = 1e-8;
-const SNAPSHOT_REL_TOL: f64 = 1e-6;
-
-fn snapshot_dir() -> PathBuf {
-    let mut backend = vec![];
-    if cfg!(feature = "c-cobyla") {
-        backend.push("c-cobyla");
-    }
-    if cfg!(feature = "c-slsqp") {
-        backend.push("c-slsqp");
-    }
-    if cfg!(feature = "blas") {
-        backend.push("blas");
-    }
-    let backend = if backend.is_empty() {
-        "default".to_string()
-    } else {
-        backend.join("+")
-    };
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("snapshots")
-        .join(format!("{}-{}", std::env::consts::OS, backend))
-}
 
 fn check_snapshot(name: &str, res: &OptimResult<f64>) {
     check_snapshot_with_tol(name, res, SNAPSHOT_REL_TOL)
@@ -60,46 +22,7 @@ fn check_snapshot(name: &str, res: &OptimResult<f64>) {
 /// Same as [check_snapshot] with a given relative tolerance, for scenarios whose
 /// evaluated points are more sensitive to CPU dependent math library code paths
 fn check_snapshot_with_tol(name: &str, res: &OptimResult<f64>, rel_tol: f64) {
-    let data = concatenate![Axis(1), res.x_doe, res.y_doe];
-    let filepath = snapshot_dir().join(format!("{name}.npy"));
-    if std::env::var(UPDATE_ENV).is_ok() {
-        std::fs::create_dir_all(snapshot_dir()).expect("snapshot dir creation");
-        write_npy(&filepath, &data).expect("snapshot write");
-        return;
-    }
-    if !filepath.exists() {
-        assert!(
-            std::env::var(REQUIRE_ENV).as_deref() != Ok("1"),
-            "Missing snapshot {filepath:?} while {REQUIRE_ENV}=1"
-        );
-        eprintln!("No snapshot {filepath:?} for this platform: skipped");
-        return;
-    }
-    let expected: Array2<f64> = read_npy(&filepath).expect("snapshot read");
-    assert_eq!(
-        expected.dim(),
-        data.dim(),
-        "{name}: [x_doe, y_doe] shape differs from snapshot"
-    );
-    let scales: Vec<f64> = expected
-        .columns()
-        .into_iter()
-        .map(|col| {
-            col.iter()
-                .filter(|v| v.is_finite())
-                .fold(0., |m: f64, v| m.max(v.abs()))
-        })
-        .collect();
-    for ((i, j), v) in data.indexed_iter() {
-        let e = expected[[i, j]];
-        let same = (v.is_nan() && e.is_nan())
-            || v == &e
-            || (v - e).abs() <= SNAPSHOT_ABS_TOL + rel_tol * scales[j];
-        assert!(
-            same,
-            "{name}: [x_doe, y_doe][[{i}, {j}]] = {v} differs from snapshot {e}"
-        );
-    }
+    check_snapshot_data(name, &res.x_doe, &res.y_doe, rel_tol)
 }
 
 fn xsinx(x: &ArrayView2<f64>) -> Array2<f64> {
@@ -442,4 +365,211 @@ fn snapshot_xsinx_hot_start() {
     let _ = std::fs::remove_dir_all(outdir);
     assert_eq!(res.state.iter, 6);
     check_snapshot("xsinx_hot_start", &res);
+}
+
+/// xsinx with a deterministic pseudo-noise of amplitude 0.5
+fn noisy_xsinx(x: &ArrayView2<f64>) -> Array2<f64> {
+    xsinx(x) + x.mapv(|v| 0.5 * (1000. * v).sin())
+}
+
+fn noise_ratio_tuning() -> ParamTuning<f64> {
+    ParamTuning::Optimized {
+        init: 1e-2,
+        bounds: (1e-10, 10.),
+    }
+}
+
+/// Explicit 1D DOE, independent of the platform (unlike an optimized LHS of a few points)
+fn xsinx_doe5() -> Array2<f64> {
+    array![[0.], [6.], [12.], [18.], [25.]]
+}
+
+fn xsinx_doe(n: usize) -> Array2<f64> {
+    Lhs::new(&array![[0., 25.]])
+        .with_rng(Xoshiro256Plus::seed_from_u64(42))
+        .sample(n)
+}
+
+#[test]
+#[serial]
+fn snapshot_noisy_xsinx_noise_ratio() {
+    let res = EgorBuilder::optimize(noisy_xsinx)
+        .configure(|cfg| {
+            cfg.configure_gp(|gp| gp.noise_ratio(noise_ratio_tuning()))
+                .doe(&xsinx_doe(8))
+                .max_iters(6)
+                .seed(42)
+        })
+        .min_within(&array![[0., 25.]])
+        .unwrap()
+        .run()
+        .unwrap();
+    check_snapshot("noisy_xsinx_noise_ratio", &res);
+}
+
+#[test]
+#[serial]
+fn snapshot_xsinx_trego_local_phase() {
+    let res = EgorBuilder::optimize(xsinx)
+        .configure(|cfg| {
+            cfg.configure_trego(|trego| {
+                trego.local_gp(true).local_gp_min_points(4).local_mean(true)
+            })
+            .max_iters(5)
+            .seed(1)
+        })
+        .min_within(&array![[0., 25.]])
+        .unwrap()
+        .run()
+        .unwrap();
+    check_snapshot("xsinx_trego_local_phase", &res);
+}
+
+#[test]
+#[serial]
+fn snapshot_noisy_xsinx_trego_local_phase() {
+    let res = EgorBuilder::optimize(noisy_xsinx)
+        .configure(|cfg| {
+            cfg.configure_gp(|gp| gp.noise_ratio(noise_ratio_tuning()))
+                .configure_trego(|trego| trego.local_gp(true).local_mean(true))
+                .doe(&xsinx_doe(8))
+                .max_iters(4)
+                .seed(42)
+        })
+        .min_within(&array![[0., 25.]])
+        .unwrap()
+        .run()
+        .unwrap();
+    check_snapshot("noisy_xsinx_trego_local_phase", &res);
+}
+
+#[test]
+#[serial]
+fn snapshot_sphere_kpls() {
+    let dim = 5;
+    let xlimits = Array2::from_shape_vec((dim, 2), [-2.0, 2.0].repeat(dim)).unwrap();
+    let doe = Lhs::new(&xlimits)
+        .with_rng(Xoshiro256Plus::seed_from_u64(0))
+        .sample(10);
+    let res = EgorBuilder::optimize(sphere)
+        .configure(|cfg| {
+            cfg.configure_gp(|gp| gp.kpls(2))
+                .doe(&doe)
+                .max_iters(5)
+                .seed(42)
+        })
+        .min_within(&xlimits)
+        .unwrap()
+        .run()
+        .unwrap();
+    check_snapshot("sphere_kpls", &res);
+}
+
+/// Automatic clustering bounded to one cluster: surrogates are reclustered every
+/// 10 added points while the single-cluster mixture remains deterministic.
+/// With 9 initial points, reclustering happens at the second iteration.
+#[test]
+#[serial]
+fn snapshot_xsinx_auto_clustering() {
+    let doe = array![[0.], [3.], [6.], [9.], [12.], [15.], [18.], [21.], [25.]];
+    let res = EgorBuilder::optimize(xsinx)
+        .configure(|cfg| {
+            cfg.configure_gp(|gp| gp.n_clusters(NbClusters::automax(1)))
+                .doe(&doe)
+                .max_iters(3)
+                .seed(42)
+        })
+        .min_within(&array![[0., 25.]])
+        .unwrap()
+        .run()
+        .unwrap();
+    check_snapshot("xsinx_auto_clustering", &res);
+}
+
+/// All regression and correlation models: experts are selected by cross-validation
+#[test]
+#[serial]
+fn snapshot_xsinx_all_specs() {
+    let res = EgorBuilder::optimize(xsinx)
+        .configure(|cfg| {
+            cfg.configure_gp(|gp| {
+                gp.regression_spec(RegressionSpec::ALL)
+                    .correlation_spec(CorrelationSpec::ALL)
+            })
+            .doe(&xsinx_doe5())
+            .max_iters(4)
+            .seed(42)
+        })
+        .min_within(&array![[0., 25.]])
+        .unwrap()
+        .run()
+        .unwrap();
+    check_snapshot("xsinx_all_specs", &res);
+}
+
+#[test]
+#[serial]
+fn snapshot_branin_efi_fe() {
+    let xlimits = array![[0., 1.], [0., 1.]];
+    let doe = Lhs::new(&xlimits)
+        .with_rng(Xoshiro256Plus::seed_from_u64(42))
+        .sample(10);
+    let res = EgorBuilder::optimize(branin_with_nans)
+        .configure(|cfg| {
+            cfg.doe(&doe)
+                .infill_strategy(InfillStrategy::EI)
+                .feasible_infill_strategy(FeasibleInfillStrategy::EfiFe(0.3))
+                .max_iters(6)
+                .seed(42)
+        })
+        .min_within(&xlimits)
+        .unwrap()
+        .run()
+        .unwrap();
+    check_snapshot("branin_efi_fe", &res);
+}
+
+/// Ask-and-tell: `suggest` on the growing data, the suggested points being evaluated afterwards
+#[test]
+#[serial]
+fn snapshot_g24_suggest() {
+    let egor = EgorServiceBuilder::optimize()
+        .configure(|cfg| cfg.n_cstr(2).seed(42))
+        .min_within(&array![[0., 3.], [0., 4.]])
+        .unwrap();
+    let mut x_doe = g24_doe(6);
+    let mut y_doe = f_g24(&x_doe.view());
+    for _ in 0..4 {
+        let x_new = egor.suggest(&x_doe, &y_doe);
+        let y_new = f_g24(&x_new.view());
+        x_doe = concatenate![Axis(0), x_doe, x_new];
+        y_doe = concatenate![Axis(0), y_doe, y_new];
+    }
+    check_snapshot_data("g24_suggest", &x_doe, &y_doe, SNAPSHOT_REL_TOL);
+}
+
+/// Ask-and-tell with noisy values: the best point (appended last) is selected from
+/// the surrogate estimates
+#[test]
+#[serial]
+fn snapshot_noisy_xsinx_suggest() {
+    let egor = EgorServiceBuilder::optimize()
+        .configure(|cfg| {
+            cfg.configure_gp(|gp| gp.noise_ratio(noise_ratio_tuning()))
+                .seed(42)
+        })
+        .min_within(&array![[0., 25.]])
+        .unwrap();
+    let mut x_doe = xsinx_doe(8);
+    let mut y_doe = noisy_xsinx(&x_doe.view());
+    for _ in 0..4 {
+        let x_new = egor.suggest(&x_doe, &y_doe);
+        let y_new = noisy_xsinx(&x_new.view());
+        x_doe = concatenate![Axis(0), x_doe, x_new];
+        y_doe = concatenate![Axis(0), y_doe, y_new];
+    }
+    let best = egor.best_index(&x_doe, &y_doe);
+    let x_data = concatenate![Axis(0), x_doe, x_doe.select(Axis(0), &[best])];
+    let y_data = concatenate![Axis(0), y_doe, y_doe.select(Axis(0), &[best])];
+    check_snapshot_data("noisy_xsinx_suggest", &x_data, &y_data, SNAPSHOT_REL_TOL);
 }
