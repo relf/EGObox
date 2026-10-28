@@ -777,7 +777,10 @@ where
             1., // FIXME: TREGO does not use sigma weighting portfolio
         );
 
-        let all_scale_cstr = concatenate![Axis(0), scale_cstr, scale_fcstr];
+        // Same layout as in global steps: surrogate constraints, function constraints
+        // then probability of viability constraint (normalized)
+        let scale_pov_cstr = Array1::ones((1,));
+        let all_scale_cstr = concatenate![Axis(0), scale_cstr, scale_fcstr, scale_pov_cstr];
 
         InfillObjData {
             fmin,

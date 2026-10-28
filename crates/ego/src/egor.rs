@@ -873,6 +873,28 @@ mod tests {
 
     #[test]
     #[serial]
+    fn test_xsinx_trego_viability_egor_builder() {
+        // The viability constraint enters the infill optimization of local steps too
+        let res = EgorBuilder::optimize(xsinx)
+            .configure(|config| {
+                config
+                    .max_iters(5)
+                    .trego(true)
+                    .failsafe_strategy(FailsafeStrategy::Viability)
+                    .seed(42)
+            })
+            .min_within(&array![[0.0, 25.0]])
+            .expect("Egor should be configured")
+            .run()
+            .expect("Egor should minimize");
+        assert_eq!(
+            res.state.termination_status,
+            TerminationStatus::Terminated(TerminationReason::MaxItersReached)
+        );
+    }
+
+    #[test]
+    #[serial]
     fn test_xsinx_trego_local_phase() {
         // Local GP, posterior mean minimization and both (STREGO local phase)
         for (local_gp, local_mean) in [(true, false), (false, true), (true, true)] {
