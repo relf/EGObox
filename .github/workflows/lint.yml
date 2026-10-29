@@ -49,9 +49,9 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Check egobox-ego API against the base branch
+      - name: Check published crates API against the base branch
         uses: obi1kenobi/cargo-semver-checks-action@v2
         with:
-          package: egobox-ego
+          package: egobox-doe,egobox-gp,egobox-moe,egobox-ego,egobox-gpx
           baseline-rev: ${{ github.event.pull_request.base.sha }}
           feature-group: default-features

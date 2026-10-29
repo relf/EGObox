@@ -1,0 +1,1 @@
+egobox_ego::solver::egor_solver::EgorSolver<egobox_moe::mixint::MixintGpMixtureParams, fn(&'_ [f64], core::option::Option<&'_ mut [f64]>, &'_ mut egobox_ego::types::InfillObjData<f64>) -> f64>
