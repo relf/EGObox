@@ -34,10 +34,14 @@ pub fn cluster_as_indices(xdat: &ArrayBase<impl Data<Elem = f64>, Ix2>) -> Vec<u
         }
     }
 
-    // Pick the first element of each cluster as representative
-    dict.values()
+    // Pick the first element of each cluster as representative, in increasing index
+    // order (hash map iteration order is random)
+    let mut representatives: Vec<usize> = dict
+        .values()
         .map(|members| *members.first().unwrap())
-        .collect()
+        .collect();
+    representatives.sort_unstable();
+    representatives
 }
 
 /// This function clusters portfolio information wrt x values then pick one member of each cluster
@@ -88,6 +92,25 @@ pub fn select_from_portfolio(
 mod tests {
     use super::*;
     use ndarray::array;
+
+    #[test]
+    fn test_cluster_as_indices_is_deterministic() {
+        // three groups of points far apart
+        let xdat = array![
+            [0.],
+            [10.],
+            [20.],
+            [0.1],
+            [10.1],
+            [20.1],
+            [0.2],
+            [10.2],
+            [20.2]
+        ];
+        for _ in 0..20 {
+            assert_eq!(cluster_as_indices(&xdat), vec![0, 1, 2]);
+        }
+    }
 
     #[test]
     fn test_logspace_endpoints() {

@@ -72,6 +72,17 @@ pub fn find_best_number_of_clusters<R: Rng + Clone>(
     };
     let dataset: DatasetView<f64, f64, Ix1> = DatasetView::new(x.view(), y.view());
 
+    // Cross-validation folds, at most as many as data points,
+    // each fold training mixtures on at least 2 points
+    let n_folds = x.nrows().min(5);
+    if x.nrows() < 3 {
+        debug!(
+            "Not enough points ({}) to select the number of clusters. Default to 1 cluster with Smooth(None) recombination",
+            x.nrows()
+        );
+        return (1, Recombination::Smooth(None));
+    }
+
     // Stock
     let mut mean_err_h: Vec<f64> = Vec::new();
     let mut mean_err_s: Vec<f64> = Vec::new();
@@ -138,7 +149,7 @@ pub fn find_best_number_of_clusters<R: Rng + Clone>(
                 // )
                 // .expect("clustering saved");
 
-                for (train, valid) in dataset.fold(5).into_iter() {
+                for (train, valid) in dataset.fold(n_folds).into_iter() {
                     debug!("X: {}", Array1::from_iter(valid.records().iter().cloned()));
                     match GpMixtureParams::default()
                         .n_clusters(NbClusters::fixed(n_clusters))
@@ -399,6 +410,25 @@ mod tests {
     //use ndarray_npy::write_npy;
     use ndarray_rand::rand::SeedableRng;
     use rand_xoshiro::Xoshiro256Plus;
+
+    #[test]
+    fn test_find_best_number_of_clusters_with_few_points() {
+        // Less points than the usual 5 cross-validation folds
+        for n in [1, 2, 3, 4] {
+            let xt = Array1::linspace(0., 1., n).insert_axis(Axis(1));
+            let yt = function_test_1d(&xt);
+            let (n_clusters, _) = find_best_number_of_clusters(
+                &xt,
+                &yt,
+                3,
+                None,
+                RegressionSpec::CONSTANT,
+                CorrelationSpec::SQUAREDEXPONENTIAL,
+                Xoshiro256Plus::seed_from_u64(42),
+            );
+            assert_eq!(n_clusters, 1, "{n} points");
+        }
+    }
 
     fn l1norm(x: &Array2<f64>) -> Array1<f64> {
         x.map_axis(Axis(1), |x| x.norm_l1())

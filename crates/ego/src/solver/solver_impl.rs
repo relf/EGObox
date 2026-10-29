@@ -45,10 +45,15 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
         let builder = builder.target(env_logger::Target::Stdout);
         builder.try_init().ok();
         let xtypes = config.xtypes.clone();
+        let mut surrogate_builder = SB::new_with_xtypes(&xtypes);
+        // Surrogate training randomness (e.g. clustering) follows the optimizer seed
+        if let Some(seed) = config.seed {
+            surrogate_builder.set_rng(Xoshiro256Plus::seed_from_u64(seed));
+        }
         EgorSolver {
             config,
             xlimits: as_continuous_limits(&xtypes),
-            surrogate_builder: SB::new_with_xtypes(&xtypes),
+            surrogate_builder,
             phantom: PhantomData,
         }
     }
@@ -777,7 +782,10 @@ where
             1., // FIXME: TREGO does not use sigma weighting portfolio
         );
 
-        let all_scale_cstr = concatenate![Axis(0), scale_cstr, scale_fcstr];
+        // Same layout as in global steps: surrogate constraints, function constraints
+        // then probability of viability constraint (normalized)
+        let scale_pov_cstr = Array1::ones((1,));
+        let all_scale_cstr = concatenate![Axis(0), scale_cstr, scale_fcstr, scale_pov_cstr];
 
         InfillObjData {
             fmin,
@@ -1500,35 +1508,7 @@ where
                     sigma_weight: *sigma_weight,
                 };
 
-                let cstr_funcs = transformed_fcstrs
-                    .iter()
-                    .enumerate()
-                    .map(|(i, cstr)| {
-                        let scale_fc = scale_fcstr[i];
-                        move |x: &[f64],
-                              gradient: Option<&mut [f64]>,
-                              params: &mut InfillObjData<f64>|
-                              -> f64 {
-                            // EgorSolver works internally in the continuous space while
-                            // the constraint function expects discrete variables in folded space
-                            let xuser = self.fcstr_input(x);
-                            if let Some(g) = gradient {
-                                let v = if self.config.discrete() {
-                                    let mut gfold = vec![0.; xuser.len()];
-                                    let v = cstr(&xuser, Some(&mut gfold), params);
-                                    self.unfold_fcstr_gradient(&gfold, g);
-                                    v
-                                } else {
-                                    cstr(&xuser, Some(g), params)
-                                };
-                                g.iter_mut().for_each(|gi| *gi /= scale_fc);
-                                v / scale_fc
-                            } else {
-                                cstr(&xuser, None, params) / scale_fc
-                            }
-                        }
-                    })
-                    .collect::<Vec<_>>();
+                let cstr_funcs = self.infill_fcstrs(&transformed_fcstrs, &scale_fcstr);
 
                 // Make viability surrogate
                 let viability_model = if (self.config.failsafe_strategy
