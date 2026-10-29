@@ -681,6 +681,41 @@ where
         }
     }
 
+    /// Function constraints as given to the infill criterion optimizer working in the
+    /// internal continuous space: functions are evaluated in the space they expect
+    /// (discrete variables in folded space), their gradients are mapped back to the
+    /// continuous space, and values are scaled by `scale_fcstr`
+    pub(crate) fn infill_fcstrs<'a>(
+        &'a self,
+        fcstrs: &'a [impl CstrFn],
+        scale_fcstr: &'a Array1<f64>,
+    ) -> Vec<impl CstrFn + 'a> {
+        debug_assert_eq!(fcstrs.len(), scale_fcstr.len());
+        fcstrs
+            .iter()
+            .zip(scale_fcstr.iter())
+            .map(|(cstr, &scale_fc)| {
+                move |x: &[f64], gradient: Option<&mut [f64]>, params: &mut InfillObjData<f64>| {
+                    let xuser = self.fcstr_input(x);
+                    if let Some(g) = gradient {
+                        let v = if self.config.discrete() {
+                            let mut gfold = vec![0.; xuser.len()];
+                            let v = cstr(&xuser, Some(&mut gfold), params);
+                            self.unfold_fcstr_gradient(&gfold, g);
+                            v
+                        } else {
+                            cstr(&xuser, Some(g), params)
+                        };
+                        g.iter_mut().for_each(|gi| *gi /= scale_fc);
+                        v / scale_fc
+                    } else {
+                        cstr(&xuser, None, params) / scale_fc
+                    }
+                }
+            })
+            .collect()
+    }
+
     /// Map a function constraint gradient computed in folded space `gfold`
     /// to the internal continuous (unfolded) space `g`.
     /// Gradient components are passed through for Float, Int and Ord variables
