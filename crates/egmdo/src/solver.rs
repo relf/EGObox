@@ -210,6 +210,9 @@ pub struct EgmdoResult {
     pub z_best: Array1<f64>,
     /// The objective PCE mean at `z_best`
     pub f_best: f64,
+    /// Whether the constraint PCE means are feasible at `z_best`; false when no `DoE_UQ` point
+    /// is feasible and `z_best` has the lowest mean violation (D29)
+    pub best_feasible: bool,
     /// Samples of the minimum position `Ẑ*` (21), one per row
     pub z_star: Array2<f64>,
     /// Samples of the minimum value `Ŷ_min` (20)
@@ -250,6 +253,35 @@ impl EgmdoResult {
     pub fn y_min_std(&self) -> f64 {
         self.y_min.std(0.)
     }
+
+    /// The PCE means of the quantities of interest `[f_obj, g..., h...]` at the `DoE_UQ`
+    /// points, one point per row
+    pub fn qoi_mean(&self) -> Array2<f64> {
+        stack_rows(self.uq.iter().map(|u| u.pce.mean()))
+    }
+
+    /// The PCE standard deviations of the quantities of interest `[f_obj, g..., h...]` at the
+    /// `DoE_UQ` points, one point per row
+    pub fn qoi_std(&self) -> Array2<f64> {
+        stack_rows(self.uq.iter().map(|u| u.pce.variance().mapv(f64::sqrt)))
+    }
+
+    /// The coupling variables of the mean MDA at the `DoE_UQ` points (the mean of the converged
+    /// random MDAs where the mean MDA does not converge), one point per row
+    pub fn coupling_mean(&self) -> Array2<f64> {
+        stack_rows(self.uq.iter().map(|u| u.y_mean.clone()))
+    }
+}
+
+/// The rows `rows` (all of the same length) as a matrix
+fn stack_rows(rows: impl Iterator<Item = Array1<f64>>) -> Array2<f64> {
+    let rows: Vec<Array1<f64>> = rows.collect();
+    let ncols = rows.first().map_or(0, |r| r.len());
+    let mut m = Array2::zeros((rows.len(), ncols));
+    for (mut row, r) in m.rows_mut().into_iter().zip(rows) {
+        row.assign(&r);
+    }
+    m
 }
 
 #[derive(Clone, Debug)]
@@ -829,6 +861,7 @@ impl EgmdoSolver {
         let feasible: Vec<usize> = (0..means.len())
             .filter(|&i| self.feasibility.is_feasible(&means[i].slice(s![1..])))
             .collect();
+        let best_feasible = !feasible.is_empty();
         let best = if feasible.is_empty() {
             (0..means.len()).min_by(|&i, &j| {
                 self.feasibility
@@ -844,6 +877,7 @@ impl EgmdoSolver {
         self.result = Some(EgmdoResult {
             z_best: self.doe_uq.row(best).to_owned(),
             f_best: means[best][0],
+            best_feasible,
             z_star,
             y_min,
             n_evaluations: self.n_evaluations(),
@@ -1237,6 +1271,39 @@ mod tests {
             9 + n_enrichments,
             "one evaluation per enrichment"
         );
+    }
+
+    #[test]
+    fn test_result_qoi_at_doe_uq() {
+        let tp = problems::toy_constrained();
+        let result = minimize(&tp.problem, &tp.disciplines, toy_constrained_config(0)).unwrap();
+        let (mean, std) = (result.qoi_mean(), result.qoi_std());
+        let n_uq = result.doe_uq.nrows();
+        assert_eq!(mean.dim(), (n_uq, tp.problem.n_qoi()));
+        assert_eq!(std.dim(), mean.dim());
+        assert_eq!(
+            result.coupling_mean().dim(),
+            (n_uq, tp.problem.n_couplings())
+        );
+        assert!(std.iter().all(|s| s.is_finite() && *s >= 0.));
+        let best = result
+            .doe_uq
+            .rows()
+            .into_iter()
+            .position(|z| z == result.z_best)
+            .expect("z_best is a DoE_UQ point");
+        assert_eq!(mean[[best, 0]], result.f_best);
+        // The constraint g <= 0 of the toy problem, with the default tolerance 1e-4
+        let feasible = |i: usize| mean[[i, 1]] <= 1e-4;
+        assert_eq!(result.best_feasible, (0..n_uq).any(feasible));
+        if result.best_feasible {
+            assert!(feasible(best));
+            assert!(
+                (0..n_uq)
+                    .filter(|&i| feasible(i))
+                    .all(|i| mean[[i, 0]] >= result.f_best)
+            );
+        }
     }
 
     /// Whether the estimated minimum value is within `rel` of the reference
