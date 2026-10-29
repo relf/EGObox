@@ -1265,6 +1265,30 @@ mod tests {
 
     #[test]
     #[serial]
+    fn test_sphere_coego_function_constraint_egor_builder() {
+        // Function constraints get full points while only active components are optimized
+        let dim = 4;
+        let xlimits = Array2::from_shape_vec((dim, 2), [-10.0, 10.0].repeat(dim)).unwrap();
+        let fcstr: Cstr = |x, g, _u| {
+            assert_eq!(x.len(), 4, "full point expected, got {x:?}");
+            if let Some(g) = g {
+                g.fill(0.);
+                g[0] = -1.;
+            }
+            1. - x[0]
+        };
+        let res = EgorBuilder::optimize(sphere)
+            .subject_to(vec![fcstr])
+            .configure(|config| config.coego(CoegoStatus::Enabled(2)).max_iters(5).seed(42))
+            .min_within(&xlimits)
+            .expect("Egor configured")
+            .run()
+            .expect("Minimize failure");
+        assert!(res.x_opt[0] >= 1. - 1e-3, "x_opt = {}", res.x_opt);
+    }
+
+    #[test]
+    #[serial]
     fn test_sphere_coego_kpls_egor_builder() {
         let outdir = "target/test_coego_kpls";
         let dim = 8;

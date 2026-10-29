@@ -259,9 +259,34 @@ where
                 })
                 .collect();
 
+            // Function constraints get full points: active components set to the
+            // optimized variables, the other ones to the current point values
+            let fcstrs: Vec<_> = cstr_funcs
+                .iter()
+                .map(|cstr| {
+                    let active = active.clone();
+                    move |x: &[f64],
+                          gradient: Option<&mut [f64]>,
+                          params: &mut InfillObjData<f64>|
+                          -> f64 {
+                        let mut xcoop = params.xbest.clone();
+                        coego::set_active_x(&mut xcoop, &active, x);
+                        match gradient {
+                            Some(grad) => {
+                                let mut gcoop = vec![0.; xcoop.len()];
+                                let value = cstr(&xcoop, Some(&mut gcoop), params);
+                                grad.copy_from_slice(&coego::get_active_grad(&gcoop, &active));
+                                value
+                            }
+                            None => cstr(&xcoop, None, params),
+                        }
+                    }
+                })
+                .collect();
+
             // Constraints always handled by the optimizer: function constraints
             // and viability constraint (if viability strategy)
-            let mut other_cstr_refs: Vec<_> = cstr_funcs
+            let mut other_cstr_refs: Vec<_> = fcstrs
                 .iter()
                 .map(|cstr| cstr as &(dyn OptFn<InfillObjData<f64>> + Sync))
                 .collect::<Vec<_>>();
