@@ -346,8 +346,8 @@ impl<O: ObjFn, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> E
         if let Some(outdir) = self.solver.config.outdir.as_ref() {
             std::fs::create_dir_all(outdir)?;
             let filepath = std::path::Path::new(outdir).join(CONFIG_FILE);
-            let json = serde_json::to_string(&self.solver.config).unwrap();
-            std::fs::write(filepath, json).expect("Unable to write file");
+            let json = serde_json::to_string(&self.solver.config)?;
+            std::fs::write(filepath, json)?;
         }
 
         let state = crate::executor::run(self.fobj.clone(), self.solver.clone())?;
@@ -509,7 +509,7 @@ impl OptimizationObserver {
 
             let filepath = self.dir.join(crate::DOE_FILE);
             info!(">>> Save doe shape {:?} in {:?}", doe.shape(), filepath);
-            write_npy(filepath, &doe).expect("Write current doe");
+            write_npy(filepath, &doe)?;
 
             if let Some(failed_points) = state.surrogate.x_fail.as_ref() {
                 let filepath = self.dir.join(crate::FAILED_POINTS_FILE);
@@ -518,7 +518,7 @@ impl OptimizationObserver {
                     failed_points.shape(),
                     filepath
                 );
-                write_npy(filepath, failed_points).expect("Write failed points");
+                write_npy(filepath, failed_points)?;
             }
 
             if self.best_params.is_none() {
@@ -546,7 +546,7 @@ impl OptimizationObserver {
 
             let filepath = std::path::Path::new(&self.dir).join(HISTORY_FILE);
             info!(">>> Save history {:?} in {:?}", hist.shape(), filepath);
-            ndarray_npy::write_npy(filepath, &hist).expect("Write current history");
+            ndarray_npy::write_npy(filepath, &hist)?;
 
             // Save EgorState if EGOR_USE_STATE_RECORDING equals "WITH_ITER_STATE"
             if self.state_recording {
@@ -748,6 +748,25 @@ mod tests {
 
     #[test]
     #[serial]
+    fn test_outdir_write_failures_are_errors() {
+        // A directory in place of an output file makes its write fail:
+        // the optimization returns an error instead of panicking
+        for file in [DOE_INITIAL_FILE, DOE_FILE, HISTORY_FILE] {
+            let outdir = format!("target/test_outdir_write_failure_{file}");
+            let _ = std::fs::remove_dir_all(&outdir);
+            std::fs::create_dir_all(format!("{outdir}/{file}")).unwrap();
+            let res = EgorBuilder::optimize(xsinx)
+                .configure(|cfg| cfg.max_iters(2).outdir(&outdir).seed(42))
+                .min_within(&array![[0.0, 25.0]])
+                .expect("Egor should be configured")
+                .run();
+            let _ = std::fs::remove_dir_all(&outdir);
+            assert!(res.is_err(), "{file}: write error expected");
+        }
+    }
+
+    #[test]
+    #[serial]
     fn test_xsinx_without_noise_ratio_has_no_estimates() {
         let res = EgorBuilder::optimize(xsinx)
             .configure(|cfg| cfg.max_iters(2).seed(42))
@@ -869,6 +888,57 @@ mod tests {
             .expect("Egor should minimize");
         let expected = array![18.9];
         assert_abs_diff_eq!(expected, res.x_opt, epsilon = 1e-1);
+    }
+
+    #[test]
+    #[serial]
+    fn test_xsinx_trego_viability_egor_builder() {
+        // The viability constraint enters the infill optimization of local steps too
+        let res = EgorBuilder::optimize(xsinx)
+            .configure(|config| {
+                config
+                    .max_iters(5)
+                    .trego(true)
+                    .failsafe_strategy(FailsafeStrategy::Viability)
+                    .seed(42)
+            })
+            .min_within(&array![[0.0, 25.0]])
+            .expect("Egor should be configured")
+            .run()
+            .expect("Egor should minimize");
+        assert_eq!(
+            res.state.termination_status,
+            TerminationStatus::Terminated(TerminationReason::MaxItersReached)
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn test_mixint_trego_function_constraint_egor_builder() {
+        // Function constraints get discrete variables values (folded space)
+        // in local steps as in global steps
+        let mixed_xsinx = |x: &ArrayView2<f64>| -> Array2<f64> {
+            x.map_axis(Axis(1), |xi| {
+                (xi[0] - 3.5) * ((xi[0] - 3.5) / std::f64::consts::PI).sin() + 0.1 * xi[1]
+            })
+            .insert_axis(Axis(1))
+        };
+        let fcstr: Cstr = |x, g, _u| {
+            assert_eq!(x[1], x[1].round(), "integer variable expected, got {x:?}");
+            if let Some(g) = g {
+                g[0] = 0.;
+                g[1] = 1.;
+            }
+            x[1] - 3.
+        };
+        let res = EgorBuilder::optimize(mixed_xsinx)
+            .subject_to(vec![fcstr])
+            .configure(|config| config.trego(true).n_doe(5).max_iters(6).seed(42))
+            .min_within_mixint_space(&[XType::Float(0., 25.), XType::Int(0, 5)])
+            .expect("Egor should be configured")
+            .run()
+            .expect("Egor should minimize");
+        assert!(res.x_opt[1] <= 3., "x_opt = {}", res.x_opt);
     }
 
     #[test]
@@ -1261,6 +1331,30 @@ mod tests {
         println!("Sphere optim result = {res:?}");
         let expected = Array1::<f64>::zeros(dim);
         assert_abs_diff_eq!(expected, res.x_opt, epsilon = 6e-1);
+    }
+
+    #[test]
+    #[serial]
+    fn test_sphere_coego_function_constraint_egor_builder() {
+        // Function constraints get full points while only active components are optimized
+        let dim = 4;
+        let xlimits = Array2::from_shape_vec((dim, 2), [-10.0, 10.0].repeat(dim)).unwrap();
+        let fcstr: Cstr = |x, g, _u| {
+            assert_eq!(x.len(), 4, "full point expected, got {x:?}");
+            if let Some(g) = g {
+                g.fill(0.);
+                g[0] = -1.;
+            }
+            1. - x[0]
+        };
+        let res = EgorBuilder::optimize(sphere)
+            .subject_to(vec![fcstr])
+            .configure(|config| config.coego(CoegoStatus::Enabled(2)).max_iters(5).seed(42))
+            .min_within(&xlimits)
+            .expect("Egor configured")
+            .run()
+            .expect("Minimize failure");
+        assert!(res.x_opt[0] >= 1. - 1e-3, "x_opt = {}", res.x_opt);
     }
 
     #[test]

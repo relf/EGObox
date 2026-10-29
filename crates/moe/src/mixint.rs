@@ -581,12 +581,11 @@ impl MixintGpMixtureValidParams {
         let cow_xt = CowArray::from(xt);
         let xcast = self.cast_to_model_space(&cow_xt);
         let mixmoe = MixintGpMixture {
-            moe: self
-                .gpmix_params
-                .clone()
-                .check_ref()?
-                .train_on_clusters(&xcast, &yt.to_owned(), clustering)
-                .unwrap(),
+            moe: self.gpmix_params.clone().check_ref()?.train_on_clusters(
+                &xcast,
+                &yt.to_owned(),
+                clustering,
+            )?,
             xtypes: self.xtypes.clone(),
             work_in_folded_space: self.work_in_folded_space,
             training_data: (xt.to_owned(), yt.to_owned()),
