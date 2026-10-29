@@ -346,8 +346,8 @@ impl<O: ObjFn, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> E
         if let Some(outdir) = self.solver.config.outdir.as_ref() {
             std::fs::create_dir_all(outdir)?;
             let filepath = std::path::Path::new(outdir).join(CONFIG_FILE);
-            let json = serde_json::to_string(&self.solver.config).unwrap();
-            std::fs::write(filepath, json).expect("Unable to write file");
+            let json = serde_json::to_string(&self.solver.config)?;
+            std::fs::write(filepath, json)?;
         }
 
         let state = crate::executor::run(self.fobj.clone(), self.solver.clone())?;
@@ -509,7 +509,7 @@ impl OptimizationObserver {
 
             let filepath = self.dir.join(crate::DOE_FILE);
             info!(">>> Save doe shape {:?} in {:?}", doe.shape(), filepath);
-            write_npy(filepath, &doe).expect("Write current doe");
+            write_npy(filepath, &doe)?;
 
             if let Some(failed_points) = state.surrogate.x_fail.as_ref() {
                 let filepath = self.dir.join(crate::FAILED_POINTS_FILE);
@@ -518,7 +518,7 @@ impl OptimizationObserver {
                     failed_points.shape(),
                     filepath
                 );
-                write_npy(filepath, failed_points).expect("Write failed points");
+                write_npy(filepath, failed_points)?;
             }
 
             if self.best_params.is_none() {
@@ -546,7 +546,7 @@ impl OptimizationObserver {
 
             let filepath = std::path::Path::new(&self.dir).join(HISTORY_FILE);
             info!(">>> Save history {:?} in {:?}", hist.shape(), filepath);
-            ndarray_npy::write_npy(filepath, &hist).expect("Write current history");
+            ndarray_npy::write_npy(filepath, &hist)?;
 
             // Save EgorState if EGOR_USE_STATE_RECORDING equals "WITH_ITER_STATE"
             if self.state_recording {
@@ -743,6 +743,25 @@ mod tests {
             if trego {
                 assert!(res.state.trego.sigma > 1e-3);
             }
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_outdir_write_failures_are_errors() {
+        // A directory in place of an output file makes its write fail:
+        // the optimization returns an error instead of panicking
+        for file in [DOE_INITIAL_FILE, DOE_FILE, HISTORY_FILE] {
+            let outdir = format!("target/test_outdir_write_failure_{file}");
+            let _ = std::fs::remove_dir_all(&outdir);
+            std::fs::create_dir_all(format!("{outdir}/{file}")).unwrap();
+            let res = EgorBuilder::optimize(xsinx)
+                .configure(|cfg| cfg.max_iters(2).outdir(&outdir).seed(42))
+                .min_within(&array![[0.0, 25.0]])
+                .expect("Egor should be configured")
+                .run();
+            let _ = std::fs::remove_dir_all(&outdir);
+            assert!(res.is_err(), "{file}: write error expected");
         }
     }
 
