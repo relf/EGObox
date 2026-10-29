@@ -22,6 +22,7 @@
 **/*.bin
 *.npy
 !crates/ego/tests/snapshots/**/*.npy
+!crates/*/tests/compat/*
 input.txt
 output.txt
 mopta08.exe

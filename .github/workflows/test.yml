@@ -60,6 +60,21 @@ jobs:
           command: test
           args: --all --release ${{ matrix.backend == 'c-optim' && '--features c-cobyla,c-slsqp' || '' }}
 
+      # When the reference job fails, record the snapshot fixtures as computed by CI
+      # (to be reviewed, then committed for the new or intentionally changed scenarios)
+      - name: Record snapshot fixtures
+        if: failure() && matrix.os == 'ubuntu-latest' && matrix.backend == 'default' && matrix.toolchain == 'stable'
+        env:
+          EGOBOX_UPDATE_SNAPSHOTS: '1'
+        run: cargo test --release -p egobox-ego --test mono_snapshots --test moo_snapshots
+
+      - name: Upload recorded snapshot fixtures
+        if: failure() && matrix.os == 'ubuntu-latest' && matrix.backend == 'default' && matrix.toolchain == 'stable'
+        uses: actions/upload-artifact@v6
+        with:
+          name: snapshots-linux-default
+          path: crates/ego/tests/snapshots/linux-default
+
   test-features:
     name: testing-features-${{ matrix.toolchain }}-${{ matrix.os }}-${{ matrix.features }}
     runs-on: ${{ matrix.os }}
