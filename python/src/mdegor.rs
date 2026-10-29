@@ -237,8 +237,9 @@ pub(crate) struct MdegorResult {
     #[pyo3(get)]
     disciplinary_doe: Vec<TrainingData>,
     /// Per-iteration records: dicts with keys `z_new` (point added to the uncertainty
-    /// quantification DoE, or None), `max_criterion`, `wb2_scale`, `n_modes`, `n_enrichments`,
-    /// `n_failed_mdas` and `n_dropped_points`
+    /// quantification DoE, or None), `criterion` (the criterion maximized: "ei", "wb2", "log_ei"
+    /// or "feasibility"), `max_criterion` (of the logarithm for "feasibility"), `wb2_scale`,
+    /// `n_modes`, `n_enrichments`, `n_failed_mdas` and `n_dropped_points`
     #[pyo3(get)]
     history: Vec<Py<PyDict>>,
 }
@@ -251,6 +252,15 @@ impl MdegorResult {
             .map(|h| {
                 let d = PyDict::new(py);
                 d.set_item("z_new", h.z_new.as_ref().map(|z| z.to_pyarray(py)))?;
+                d.set_item(
+                    "criterion",
+                    match h.criterion {
+                        egmdo::AcquisitionCriterion::Ei => "ei",
+                        egmdo::AcquisitionCriterion::Wb2 => "wb2",
+                        egmdo::AcquisitionCriterion::LogEi => "log_ei",
+                        egmdo::AcquisitionCriterion::Feasibility => "feasibility",
+                    },
+                )?;
                 d.set_item("max_criterion", h.max_criterion)?;
                 d.set_item("wb2_scale", h.wb2_scale)?;
                 d.set_item("n_modes", h.n_modes)?;
@@ -407,6 +417,10 @@ impl MdegorResult {
 ///     Correlate the disciplinary GP uncertainty across the design points of the uncertainty
 ///     quantification as the GP posteriors, instead of perfectly (one random sample shared by
 ///     every point, as in the EGMDO papers).
+/// feasibility_first : bool
+///     While no point of the uncertainty quantification DoE is feasible by its constraint
+///     means, maximize the probability of feasibility of the constraint models instead of the
+///     acquisition criterion.
 /// seed : int >= 0, optional
 ///     Random generator seed, for reproducible runs.
 ///
@@ -458,6 +472,7 @@ impl Mdegor {
         mda_relaxation = 1.,
         linearized_mda = false,
         gp_correlation = false,
+        feasibility_first = false,
         seed = None,
     ))]
     #[allow(clippy::too_many_arguments)]
@@ -496,6 +511,7 @@ impl Mdegor {
         mda_relaxation: f64,
         linearized_mda: bool,
         gp_correlation: bool,
+        feasibility_first: bool,
         seed: Option<u64>,
     ) -> PyResult<Self> {
         let (design_names, xlimits) = parse_variables(&design, "design variable")?;
@@ -592,6 +608,7 @@ impl Mdegor {
         };
         let config = egmdo::EgmdoConfig {
             acquisition,
+            feasibility_first,
             enrichment,
             constraint_tolerances: cstr_tol,
             n_doe_disciplines: n_doe,

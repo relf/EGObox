@@ -583,6 +583,7 @@ dependencies = [
  "egobox-doe",
  "egobox-ego",
  "egobox-gp",
+ "libm",
  "linfa",
  "linfa-linalg",
  "log",
