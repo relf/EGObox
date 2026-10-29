@@ -594,13 +594,15 @@ fn snapshot_xsinx_gp_var_portfolio() {
 }
 
 /// Mixture of two GP experts, whose clustering is seeded by the optimizer seed
+/// (explicit DOE: an optimized LHS of 10 points differs between platforms)
 #[test]
 #[serial]
 fn snapshot_xsinx_two_clusters() {
+    let doe = Array2::from_shape_fn((10, 1), |(i, _)| 2.5 * i as f64 + 1.);
     let res = EgorBuilder::optimize(xsinx)
         .configure(|cfg| {
             cfg.configure_gp(|gp| gp.n_clusters(NbClusters::fixed(2)))
-                .doe(&xsinx_doe(10))
+                .doe(&doe)
                 .max_iters(4)
                 .seed(42)
         })
