@@ -15,7 +15,7 @@ use egobox_doe::SamplingMethod;
 use egobox_moe::MixtureGpSurrogate;
 
 use log::{debug, info};
-use ndarray::{Array1, Array2, ArrayBase, Axis, Data, Ix1, Ix2, Zip, aview1};
+use ndarray::{Array1, Array2, ArrayBase, Axis, Data, Ix1, Ix2, Zip, aview1, s};
 use ndarray_stats::DeviationExt;
 
 use ndarray_rand::rand::{Rng, SeedableRng};
@@ -212,6 +212,16 @@ where
                 }
             })
             .collect::<Vec<_>>();
+        // Function constraints as given to the infill optimizer in global steps,
+        // scalings being laid out as [surrogated constraints, function constraints, ...]
+        let (n_cstr, n_fcstr) = (cstr_models.len(), transformed_fcstrs.len());
+        let scale_fcstr = infill_data
+            .scale_cstr
+            .as_ref()
+            .filter(|scales| scales.len() >= n_cstr + n_fcstr)
+            .map(|scales| scales.slice(s![n_cstr..n_cstr + n_fcstr]).to_owned())
+            .unwrap_or_else(|| Array1::ones(n_fcstr));
+        let infill_fcstrs = self.infill_fcstrs(&transformed_fcstrs, &scale_fcstr);
         // Optimize infill criterion
         let mut rng = new_state.take_rng().unwrap();
         let sub_rng = Xoshiro256Plus::seed_from_u64(rng.r#gen());
@@ -239,7 +249,7 @@ where
         let infill_optpb = InfillOptProblem::new(
             obj_model,
             cstr_models,
-            &transformed_fcstrs,
+            &infill_fcstrs,
             &cstr_tols,
             viability_model,
             search_solver.config.feasibility_infill.alpha(),

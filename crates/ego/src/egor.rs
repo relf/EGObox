@@ -895,6 +895,35 @@ mod tests {
 
     #[test]
     #[serial]
+    fn test_mixint_trego_function_constraint_egor_builder() {
+        // Function constraints get discrete variables values (folded space)
+        // in local steps as in global steps
+        let mixed_xsinx = |x: &ArrayView2<f64>| -> Array2<f64> {
+            x.map_axis(Axis(1), |xi| {
+                (xi[0] - 3.5) * ((xi[0] - 3.5) / std::f64::consts::PI).sin() + 0.1 * xi[1]
+            })
+            .insert_axis(Axis(1))
+        };
+        let fcstr: Cstr = |x, g, _u| {
+            assert_eq!(x[1], x[1].round(), "integer variable expected, got {x:?}");
+            if let Some(g) = g {
+                g[0] = 0.;
+                g[1] = 1.;
+            }
+            x[1] - 3.
+        };
+        let res = EgorBuilder::optimize(mixed_xsinx)
+            .subject_to(vec![fcstr])
+            .configure(|config| config.trego(true).n_doe(5).max_iters(6).seed(42))
+            .min_within_mixint_space(&[XType::Float(0., 25.), XType::Int(0, 5)])
+            .expect("Egor should be configured")
+            .run()
+            .expect("Egor should minimize");
+        assert!(res.x_opt[1] <= 3., "x_opt = {}", res.x_opt);
+    }
+
+    #[test]
+    #[serial]
     fn test_xsinx_trego_local_phase() {
         // Local GP, posterior mean minimization and both (STREGO local phase)
         for (local_gp, local_mean) in [(true, false), (false, true), (true, true)] {
