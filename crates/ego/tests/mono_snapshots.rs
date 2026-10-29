@@ -573,3 +573,40 @@ fn snapshot_noisy_xsinx_suggest() {
     let y_data = concatenate![Axis(0), y_doe, y_doe.select(Axis(0), &[best])];
     check_snapshot_data("noisy_xsinx_suggest", &x_data, &y_data, SNAPSHOT_REL_TOL);
 }
+
+/// GP variance portfolio: infill criterion optimized with several weights of the
+/// variance, one point per cluster of the found points being added
+#[test]
+#[serial]
+fn snapshot_xsinx_gp_var_portfolio() {
+    let res = EgorBuilder::optimize(xsinx)
+        .configure(|cfg| {
+            cfg.configure_runtime_flags(|flags| flags.use_gp_var_portfolio(true))
+                .doe(&xsinx_doe5())
+                .max_iters(4)
+                .seed(42)
+        })
+        .min_within(&array![[0., 25.]])
+        .unwrap()
+        .run()
+        .unwrap();
+    check_snapshot("xsinx_gp_var_portfolio", &res);
+}
+
+/// Mixture of two GP experts, whose clustering is seeded by the optimizer seed
+#[test]
+#[serial]
+fn snapshot_xsinx_two_clusters() {
+    let res = EgorBuilder::optimize(xsinx)
+        .configure(|cfg| {
+            cfg.configure_gp(|gp| gp.n_clusters(NbClusters::fixed(2)))
+                .doe(&xsinx_doe(10))
+                .max_iters(4)
+                .seed(42)
+        })
+        .min_within(&array![[0., 25.]])
+        .unwrap()
+        .run()
+        .unwrap();
+    check_snapshot("xsinx_two_clusters", &res);
+}
