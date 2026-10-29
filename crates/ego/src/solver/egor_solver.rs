@@ -249,7 +249,7 @@ where
             std::fs::create_dir_all(path)?;
             let filepath = std::path::Path::new(path).join(DOE_INITIAL_FILE);
             info!("Save initial doe shape {:?} in {:?}", doe.shape(), filepath);
-            write_npy(filepath, &doe).expect("Write initial doe");
+            write_npy(filepath, &doe)?;
         }
 
         let n_int_cstr = self.config.n_internal_cstr();
