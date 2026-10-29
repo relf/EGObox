@@ -8,17 +8,24 @@
 //! `EGOBOX_UPDATE_COMPAT_FIXTURES=1 cargo test --release -p egobox-ego --test compat`.
 //! A fixture update means saved checkpoints or models of users can no longer be loaded:
 //! it has to be committed separately and explicitly reviewed.
+//!
+//! Checkpoints are only loaded by a solver whose type name (`std::any::type_name`, including
+//! module paths) is the one recorded in the checkpoint. As the type name format of a given type
+//! may differ from one compiler version to another, the checkpoint resumption is skipped when
+//! the recorded type name only differs in its formatting.
 
 use egobox_doe::{Lhs, SamplingMethod};
 use egobox_ego::{
-    CHECKPOINT_FILE, CstrSpec, EGOR_INITIAL_GP_FILENAME, EgorBuilder, HotStartMode, OptimResult,
-    TerminationReason, TerminationStatus, XType, load_gp_models,
+    CHECKPOINT_FILE, Cstr, CstrSpec, EGOR_INITIAL_GP_FILENAME, EgorBuilder, EgorSolver,
+    HotStartMode, OptimResult, TerminationReason, TerminationStatus, XType, load_gp_models,
 };
+use egobox_moe::{GpMixtureParams, MixintGpMixtureParams};
 use ndarray::{Array2, ArrayView1, ArrayView2, Axis, Zip, array, stack};
 use ndarray_npy::{read_npy, write_npy};
 use ndarray_rand::rand::SeedableRng;
 use rand_xoshiro::Xoshiro256Plus;
 use serial_test::serial;
+use std::any::type_name;
 use std::path::PathBuf;
 
 const UPDATE_ENV: &str = "EGOBOX_UPDATE_COMPAT_FIXTURES";
@@ -122,16 +129,25 @@ fn predictions(path: &PathBuf, n_models: usize, xtest: &Array2<f64>) -> Array2<f
     stack(Axis(1), &views).expect("predictions")
 }
 
+/// Type name without elided lifetimes, formatted differently by compiler versions
+/// (e.g. `fn(&'_ [f64])` or `fn(&[f64])`)
+fn type_name_format_free(name: &str) -> String {
+    name.replace("'_ ", "")
+}
+
 /// Record (when updating) then check the GP models file (initial models, always saved:
 /// TREGO local steps do not save models) and the checkpoint of the `name` run
+/// done by a solver of type `solver_type`
 fn check_persisted_run(
     name: &str,
     run: impl Fn(&str, HotStartMode) -> OptimResult<f64>,
+    solver_type: &str,
     n_models: usize,
     xtest: &Array2<f64>,
 ) {
     let outdir = format!("target/compat_{name}");
     let checkpoint = fixture(&format!("{name}_checkpoint.bin"));
+    let checkpoint_solver_type = fixture(&format!("{name}_checkpoint_solver_type.txt"));
     let gp_models = fixture(&format!("{name}_gp_models.bin"));
     let reference = fixture(&format!("{name}_gp_predictions.npy"));
     let _ = std::fs::remove_dir_all(&outdir);
@@ -139,6 +155,7 @@ fn check_persisted_run(
         run(&outdir, HotStartMode::Enabled);
         let saved = PathBuf::from(&outdir);
         std::fs::copy(saved.join(CHECKPOINT_FILE), &checkpoint).expect("checkpoint copy");
+        std::fs::write(&checkpoint_solver_type, solver_type).expect("solver type save");
         std::fs::copy(saved.join(EGOR_INITIAL_GP_FILENAME), &gp_models).expect("GP models copy");
         write_npy(&reference, &predictions(&gp_models, n_models, xtest)).expect("predictions save");
         std::fs::remove_dir_all(&outdir).expect("output dir cleanup");
@@ -157,6 +174,19 @@ fn check_persisted_run(
     }
 
     // Optimization resumed from the saved checkpoint
+    let recorded_type = std::fs::read_to_string(&checkpoint_solver_type).expect("solver type");
+    if recorded_type != solver_type {
+        assert_eq!(
+            type_name_format_free(&recorded_type),
+            type_name_format_free(solver_type),
+            "{name}: solver type changed, previous checkpoints can no longer be loaded"
+        );
+        eprintln!(
+            "{name}: checkpoint resumption skipped, solver type name formatted differently \
+             by this compiler ({solver_type}) than by the recording one ({recorded_type})"
+        );
+        return;
+    }
     std::fs::create_dir_all(&outdir).expect("output dir creation");
     std::fs::copy(&checkpoint, PathBuf::from(&outdir).join(CHECKPOINT_FILE))
         .expect("checkpoint restore");
@@ -178,12 +208,14 @@ fn check_persisted_run(
 fn compat_g24_cstr_specs_checkpoint() {
     // objective, Leq constraint, Btw constraint and its derived (affine) counterpart
     let xtest = array![[0.5, 1.], [1.5, 2.5], [2.5, 3.5]];
-    check_persisted_run("g24_cstr_specs", run_g24, 4, &xtest);
+    let solver_type = type_name::<EgorSolver<GpMixtureParams<f64>, Cstr>>();
+    check_persisted_run("g24_cstr_specs", run_g24, solver_type, 4, &xtest);
 }
 
 #[test]
 #[serial]
 fn compat_mixint_checkpoint() {
     let xtest = array![[2., 1.], [12., 3.], [19., 4.]];
-    check_persisted_run("mixint", run_mixint, 1, &xtest);
+    let solver_type = type_name::<EgorSolver<MixintGpMixtureParams, Cstr>>();
+    check_persisted_run("mixint", run_mixint, solver_type, 1, &xtest);
 }
