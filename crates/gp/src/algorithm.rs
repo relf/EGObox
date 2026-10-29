@@ -1,6 +1,6 @@
 use crate::errors::{GpError, Result};
 use crate::mean_models::*;
-use crate::optimization::{CobylaParams, optimize_params, prepare_multistart};
+use crate::optimization::{CobylaParams, into_f64, optimize_params, prepare_multistart};
 use crate::parameters::{GpParams, GpValidParams};
 use crate::utils::{DiffMatrix, NormalizedData, pairwise_differences};
 use crate::{ParamTuning, ThetaTuning, correlation_models::*};
@@ -1199,7 +1199,7 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>, D: Data<Elem
                     self.nugget(),
                     noise_ratio,
                 ) {
-                    Ok(r) => unsafe { -(*(&r.0 as *const F as *const f64)) },
+                    Ok(r) => -into_f64(&r.0),
                     Err(_) => f64::INFINITY,
                 }
             };
@@ -1521,6 +1521,37 @@ mod tests {
     use paste::paste;
     use rand_xoshiro::Xoshiro256Plus;
 
+    #[test]
+    fn test_f32_and_f64_fits_agree() {
+        // Same training data in single and double precision: the hyperparameters
+        // optimization must give close models (likelihoods converted to f64 safely)
+        let xt = arr2(&[[0.0], [5.0], [10.0], [15.0], [18.0], [20.0], [25.0]]);
+        let yt = (&xt - 3.5) * ((&xt - 3.5) / std::f64::consts::PI).mapv(|v| v.sin());
+        let yt = yt.remove_axis(Axis(1));
+        let gp64 = GaussianProcess::<f64, ConstantMean, SquaredExponentialCorr>::params(
+            ConstantMean::default(),
+            SquaredExponentialCorr::default(),
+        )
+        .fit(&Dataset::new(xt.clone(), yt.clone()))
+        .expect("f64 GP fitted");
+        let gp32 = GaussianProcess::<f32, ConstantMean, SquaredExponentialCorr>::params(
+            ConstantMean::default(),
+            SquaredExponentialCorr::default(),
+        )
+        .fit(&Dataset::new(xt.mapv(|v| v as f32), yt.mapv(|v| v as f32)))
+        .expect("f32 GP fitted");
+        let (theta64, theta32) = (gp64.theta()[0], gp32.theta()[0] as f64);
+        assert!(
+            (theta64 - theta32).abs() <= 1e-2 * theta64.abs(),
+            "theta f64 = {theta64}, theta f32 = {theta32}"
+        );
+        assert!(
+            (gp64.likelihood() - gp32.likelihood() as f64).abs() <= 1e-2 * gp64.likelihood().abs(),
+            "likelihood f64 = {}, likelihood f32 = {}",
+            gp64.likelihood(),
+            gp32.likelihood()
+        );
+    }
     #[test]
     fn test_constant_function() {
         let dim = 3;

@@ -125,9 +125,10 @@ where
     }
 }
 
+/// Conversion of a float value to f64, used by the f64 optimizers
 #[inline(always)]
-fn into_f64<F: Float>(v: &F) -> f64 {
-    unsafe { *(v as *const F as *const f64) }
+pub(crate) fn into_f64<F: Float>(v: &F) -> f64 {
+    num_traits::ToPrimitive::to_f64(v).expect("float convertible to f64")
 }
 
 /// Optimize log10 GP hyperparameters using Basin's bounded COBYLA adapter.
