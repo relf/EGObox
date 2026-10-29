@@ -162,13 +162,8 @@ where
                             obj *= pof;
                         }
                         if let Some(grad) = gradient {
-                            let g_obj = g_obj
-                                .iter()
-                                .enumerate()
-                                .filter(|(i, _)| active.contains(i))
-                                .map(|(_, &g)| g)
-                                .collect::<Vec<_>>();
-                            grad[..].copy_from_slice(&g_obj);
+                            let g_obj = g_obj.to_vec();
+                            grad[..].copy_from_slice(&coego::get_active_grad(&g_obj, &active));
                         }
                         return obj;
                     }
@@ -200,13 +195,7 @@ where
                                 *scale_wb2,
                             )
                         };
-                        let g_infill_obj = g_infill_obj
-                            .iter()
-                            .enumerate()
-                            .filter(|(i, _)| active.contains(i))
-                            .map(|(_, &g)| g)
-                            .collect::<Vec<_>>();
-                        grad[..].copy_from_slice(&g_infill_obj);
+                        grad[..].copy_from_slice(&coego::get_active_grad(&g_infill_obj, &active));
                     }
                     if cstr_infill {
                         // Use constrained infill criterion

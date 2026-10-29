@@ -228,13 +228,7 @@ where
                 .row(0)
                 .mapv(|v| v / scale_cstr)
                 .to_vec();
-            let grd_coop = grd
-                .iter()
-                .enumerate()
-                .filter(|(i, _)| active.contains(i))
-                .map(|(_, &g)| g)
-                .collect::<Vec<_>>();
-            grad[..].copy_from_slice(&grd_coop);
+            grad[..].copy_from_slice(&coego::get_active_grad(&grd, active));
         }
         cstr_model.predict(&x.view()).unwrap()[0] / scale_cstr
     }
@@ -261,13 +255,7 @@ where
                 var_grad.row(0).mapv(|v| v / (2. * sigma))
             };
             let grd = ((&pred_grad.row(0) + &(sigma_prime * CSTR_DOUBT)) / scale_cstr).to_vec();
-            let grd_coop = grd
-                .iter()
-                .enumerate()
-                .filter(|(i, _)| active.contains(i))
-                .map(|(_, &g)| g)
-                .collect::<Vec<_>>();
-            grad[..].copy_from_slice(&grd_coop);
+            grad[..].copy_from_slice(&coego::get_active_grad(&grd, active));
             (pred[0], sigma)
         } else {
             let (pred, var) = cstr_model.predict_valvar(&x.view()).unwrap();
@@ -752,8 +740,8 @@ mod tests {
         EgorSolver::new(config)
     }
 
-    #[test]
-    fn test_upper_trust_bound_cstr_gradient() {
+    /// Constraint model in 3D with distinct partial derivatives
+    fn cstr_model() -> egobox_moe::GpMixture {
         use egobox_moe::GpMixture;
         use linfa::prelude::{Dataset, Fit};
         use ndarray_rand::rand::SeedableRng;
@@ -764,9 +752,14 @@ mod tests {
         let yt = xt.map_axis(Axis(1), |x: ndarray::ArrayView1<f64>| {
             x[0] * x[1] + x[2].sin() + x[0] * x[0]
         });
-        let model = GpMixture::params()
+        GpMixture::params()
             .fit(&Dataset::new(xt, yt))
-            .expect("GP fitted");
+            .expect("GP fitted")
+    }
+
+    #[test]
+    fn test_upper_trust_bound_cstr_gradient() {
+        let model = cstr_model();
         let utb = |x: &[f64], grad: Option<&mut [f64]>| {
             EgorSolver::<GpMixtureParams<f64>, Cstr>::upper_trust_bound_cstr(
                 &model,
@@ -792,6 +785,39 @@ mod tests {
             xm[k] -= e;
             let fdiff = (utb(&xp, None) - utb(&xm, None)) / (2. * e);
             approx::assert_abs_diff_eq!(grad[k], fdiff, epsilon = 1e-2 * fdiff.abs() + 1e-6);
+        }
+    }
+
+    type CstrEval = fn(&dyn MixtureGpSurrogate, &[f64], Option<&mut [f64]>, f64, &[usize]) -> f64;
+
+    #[test]
+    fn test_cstr_gradients_follow_activity_order() {
+        // CoEGO: the optimized variables are the active components in the order of the
+        // activity, x being the full point with these components set
+        let model = cstr_model();
+        let cstrs: [(&str, CstrEval); 2] = [
+            ("mean", EgorSolver::<GpMixtureParams<f64>, Cstr>::mean_cstr),
+            (
+                "upper trust bound",
+                EgorSolver::<GpMixtureParams<f64>, Cstr>::upper_trust_bound_cstr,
+            ),
+        ];
+        let active = [2, 0];
+        let x = [0.3, -1.1, 0.7];
+        for (name, cstr) in cstrs {
+            let mut grad = [0.; 2];
+            cstr(&model, &x, Some(&mut grad), 2., &active);
+            let e = 1e-5;
+            for (k, &i) in active.iter().enumerate() {
+                let (mut xp, mut xm) = (x, x);
+                xp[i] += e;
+                xm[i] -= e;
+                let fdiff = (cstr(&model, &xp, None, 2., &active)
+                    - cstr(&model, &xm, None, 2., &active))
+                    / (2. * e);
+                approx::assert_abs_diff_eq!(grad[k], fdiff, epsilon = 1e-2 * fdiff.abs() + 1e-6);
+            }
+            println!("{name} constraint gradient {grad:?} ok");
         }
     }
 
