@@ -192,6 +192,10 @@ pub(crate) struct MdegorResult {
     /// Objective mean at `z_best`
     #[pyo3(get)]
     f_best: f64,
+    /// Whether the constraint means are feasible at `z_best`; False when no point of the
+    /// uncertainty quantification DoE is feasible and `z_best` has the lowest mean violation
+    #[pyo3(get)]
+    best_feasible: bool,
     /// Samples of the minimum position, one per row
     #[pyo3(get)]
     z_star: Py<PyArray2<f64>>,
@@ -216,6 +220,18 @@ pub(crate) struct MdegorResult {
     /// Final design of experiments of the uncertainty quantification
     #[pyo3(get)]
     doe_uq: Py<PyArray2<f64>>,
+    /// Means of the quantities of interest (objective, then constraints) at the points of
+    /// `doe_uq`, one point per row
+    #[pyo3(get)]
+    qoi_mean: Py<PyArray2<f64>>,
+    /// Standard deviations of the quantities of interest (objective, then constraints) at the
+    /// points of `doe_uq`, one point per row
+    #[pyo3(get)]
+    qoi_std: Py<PyArray2<f64>>,
+    /// Coupling variables of the multidisciplinary analysis with the surrogate means at the
+    /// points of `doe_uq`, one point per row, columns in the order of `coupling_names`
+    #[pyo3(get)]
+    coupling_mean: Py<PyArray2<f64>>,
     /// Training data (x, y) of each discipline, i.e. all its true evaluations, columns in the
     /// order of its `inputs` and `outputs`
     #[pyo3(get)]
@@ -249,6 +265,7 @@ impl MdegorResult {
             coupling_names: mdegor.coupling_names.clone(),
             z_best: result.z_best.to_pyarray(py).unbind(),
             f_best: result.f_best,
+            best_feasible: result.best_feasible,
             z_star_mean: result.z_star_mean().into_pyarray(py).unbind(),
             z_star_std: result.z_star_std().into_pyarray(py).unbind(),
             y_min_mean: result.y_min_mean(),
@@ -257,6 +274,9 @@ impl MdegorResult {
             y_min: result.y_min.to_pyarray(py).unbind(),
             n_evaluations: result.n_evaluations.clone(),
             doe_uq: result.doe_uq.to_pyarray(py).unbind(),
+            qoi_mean: result.qoi_mean().into_pyarray(py).unbind(),
+            qoi_std: result.qoi_std().into_pyarray(py).unbind(),
+            coupling_mean: result.coupling_mean().into_pyarray(py).unbind(),
             disciplinary_doe: mdegor
                 .perms
                 .iter()

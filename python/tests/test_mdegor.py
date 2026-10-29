@@ -131,6 +131,22 @@ class TestMdegor(unittest.TestCase):
             self.assertEqual(x.shape, (n, len(d.inputs)))
             np.testing.assert_allclose(y, fun(x))
         self.assertIn("MdegorResult(", repr(res))
+        # Quantities of interest and couplings at the uncertainty quantification DoE
+        n_uq = res.doe_uq.shape[0]
+        self.assertEqual(res.qoi_mean.shape, (n_uq, 3))
+        self.assertEqual(res.qoi_std.shape, (n_uq, 3))
+        self.assertEqual(res.coupling_mean.shape, (n_uq, 2))
+        self.assertTrue(np.all(res.qoi_std >= 0.0))
+        best = np.flatnonzero(np.all(res.doe_uq == res.z_best, axis=1))
+        self.assertEqual(len(best), 1)
+        self.assertEqual(res.qoi_mean[best[0], 0], res.f_best)
+        self.assertTrue(res.best_feasible)
+        self.assertTrue(np.all(res.qoi_mean[best[0], 1:] <= 1e-4))
+        # The mean couplings solve the true MDA closely at the best point
+        z, y = res.z_best, res.coupling_mean[best[0]]
+        np.testing.assert_allclose(
+            y[0], sellar_y1(np.array([[*z, y[1]]]))[0, 0], rtol=1e-2
+        )
 
     def test_inputs_in_any_order(self):
         # d1 receives its inputs as [y2, z3, z1, z2]: same problem, same run
