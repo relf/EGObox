@@ -680,6 +680,11 @@ impl SurrogateBuilder for MixintGpMixtureParams {
         }
     }
 
+    /// Sets the random generator used during training (e.g. clustering)
+    fn set_rng(&mut self, rng: Xoshiro256Plus) {
+        self.0.gpmix_params.set_rng(rng);
+    }
+
     fn train(
         &self,
         xt: ArrayView2<f64>,

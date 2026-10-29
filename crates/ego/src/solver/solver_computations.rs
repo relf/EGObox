@@ -857,6 +857,22 @@ mod tests {
     }
 
     #[test]
+    fn test_seed_reaches_surrogate_builder() {
+        // The surrogate builder random generator (e.g. used by clustering)
+        // is seeded with the optimizer seed
+        let builder = || {
+            let config = EgorConfig::default()
+                .xtypes(&to_xtypes(&array![[0., 1.]]))
+                .seed(42)
+                .check()
+                .unwrap();
+            let solver: EgorSolver<GpMixtureParams<f64>, Cstr> = EgorSolver::new(config);
+            serde_json::to_string(&solver.surrogate_builder).unwrap()
+        };
+        assert_eq!(builder(), builder());
+    }
+
+    #[test]
     fn test_default_moo_strategy() {
         let strategy = |n_obj: usize| {
             EgorConfig::default()
