@@ -1421,6 +1421,12 @@ class MdegorResult:
         Objective mean at `z_best`
         """
     @property
+    def best_feasible(self) -> builtins.bool:
+        r"""
+        Whether the constraint means are feasible at `z_best`; False when no point of the
+        uncertainty quantification DoE is feasible and `z_best` has the lowest mean violation
+        """
+    @property
     def z_star(self) -> numpy.typing.NDArray[numpy.float64]:
         r"""
         Samples of the minimum position, one per row
@@ -1459,6 +1465,24 @@ class MdegorResult:
     def doe_uq(self) -> numpy.typing.NDArray[numpy.float64]:
         r"""
         Final design of experiments of the uncertainty quantification
+        """
+    @property
+    def qoi_mean(self) -> numpy.typing.NDArray[numpy.float64]:
+        r"""
+        Means of the quantities of interest (objective, then constraints) at the points of
+        `doe_uq`, one point per row
+        """
+    @property
+    def qoi_std(self) -> numpy.typing.NDArray[numpy.float64]:
+        r"""
+        Standard deviations of the quantities of interest (objective, then constraints) at the
+        points of `doe_uq`, one point per row
+        """
+    @property
+    def coupling_mean(self) -> numpy.typing.NDArray[numpy.float64]:
+        r"""
+        Coupling variables of the multidisciplinary analysis with the surrogate means at the
+        points of `doe_uq`, one point per row, columns in the order of `coupling_names`
         """
     @property
     def disciplinary_doe(self) -> builtins.list[tuple[numpy.typing.NDArray[numpy.float64], numpy.typing.NDArray[numpy.float64]]]:
