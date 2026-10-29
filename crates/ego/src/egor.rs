@@ -767,6 +767,28 @@ mod tests {
 
     #[test]
     #[serial]
+    fn test_xsinx_gp_var_portfolio_is_reproducible() {
+        // GP variance portfolio and several clusters: runs with the same seed are identical
+        let run = || {
+            EgorBuilder::optimize(xsinx)
+                .configure(|cfg| {
+                    cfg.configure_runtime_flags(|flags| flags.use_gp_var_portfolio(true))
+                        .configure_gp(|gp| gp.n_clusters(egobox_moe::NbClusters::fixed(2)))
+                        .n_doe(10)
+                        .max_iters(4)
+                        .seed(42)
+                })
+                .min_within(&array![[0.0, 25.0]])
+                .expect("Egor should be configured")
+                .run()
+                .expect("Egor should minimize xsinx")
+        };
+        let (res1, res2) = (run(), run());
+        assert_eq!(res1.x_doe, res2.x_doe);
+    }
+
+    #[test]
+    #[serial]
     fn test_xsinx_without_noise_ratio_has_no_estimates() {
         let res = EgorBuilder::optimize(xsinx)
             .configure(|cfg| cfg.max_iters(2).seed(42))

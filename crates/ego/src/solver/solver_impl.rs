@@ -45,10 +45,15 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
         let builder = builder.target(env_logger::Target::Stdout);
         builder.try_init().ok();
         let xtypes = config.xtypes.clone();
+        let mut surrogate_builder = SB::new_with_xtypes(&xtypes);
+        // Surrogate training randomness (e.g. clustering) follows the optimizer seed
+        if let Some(seed) = config.seed {
+            surrogate_builder.set_rng(Xoshiro256Plus::seed_from_u64(seed));
+        }
         EgorSolver {
             config,
             xlimits: as_continuous_limits(&xtypes),
-            surrogate_builder: SB::new_with_xtypes(&xtypes),
+            surrogate_builder,
             phantom: PhantomData,
         }
     }
