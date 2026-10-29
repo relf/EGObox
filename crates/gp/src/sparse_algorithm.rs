@@ -1,6 +1,6 @@
 use crate::ThetaTuning;
 use crate::errors::{GpError, Result};
-use crate::optimization::{CobylaParams, optimize_params, prepare_multistart};
+use crate::optimization::{CobylaParams, into_f64, optimize_params, prepare_multistart};
 use crate::sparse_parameters::{Inducings, ParamTuning, SgpParams, SgpValidParams, SparseMethod};
 use crate::{GpSamplingMethod, correlation_models::*, sample, utils::pairwise_differences};
 use finitediff::ndarr;
@@ -303,12 +303,12 @@ impl<F: Float, Corr: CorrelationModel<F>> SparseGaussianProcess<F, Corr> {
         let f = |x: &Array1<f64>| -> std::result::Result<f64, anyhow::Error> {
             let x = x.to_owned().insert_axis(Axis(0)).mapv(|v| F::cast(v));
             let v = self.predict(&x).unwrap()[0];
-            Ok(unsafe { *(&v as *const F as *const f64) })
+            Ok(into_f64(&v))
         };
         Zip::from(drv.rows_mut())
             .and(x.rows())
             .for_each(|mut row, xi| {
-                let xi = xi.mapv(|v| unsafe { *(&v as *const F as *const f64) });
+                let xi = xi.mapv(|v| into_f64(&v));
                 let g_central = ndarr::central_diff(&f);
                 let grad = g_central(&xi).unwrap().mapv(|v| F::cast(v));
                 row.assign(&grad);
@@ -323,12 +323,12 @@ impl<F: Float, Corr: CorrelationModel<F>> SparseGaussianProcess<F, Corr> {
         let f = |x: &Array1<f64>| -> std::result::Result<f64, anyhow::Error> {
             let x = x.to_owned().insert_axis(Axis(0)).mapv(|v| F::cast(v));
             let v = self.predict_var(&x).unwrap()[0];
-            Ok(unsafe { *(&v as *const F as *const f64) })
+            Ok(into_f64(&v))
         };
         Zip::from(drv.rows_mut())
             .and(x.rows())
             .for_each(|mut row, xi| {
-                let xi = xi.mapv(|v| unsafe { *(&v as *const F as *const f64) });
+                let xi = xi.mapv(|v| into_f64(&v));
                 let grad = ndarr::central_diff(&f)(&xi).unwrap().mapv(|v| F::cast(v));
                 row.assign(&grad);
             });
@@ -551,7 +551,7 @@ impl<F: Float, Corr: CorrelationModel<F>, D: Data<Elem = F> + Sync>
                 &z,
                 self.nugget(),
             ) {
-                Ok(r) => unsafe { -(*(&r.0 as *const F as *const f64)) },
+                Ok(r) => -into_f64(&r.0),
                 Err(_) => f64::INFINITY,
             }
         };
