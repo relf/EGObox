@@ -783,25 +783,38 @@ impl EgmdoSolver {
     }
 
     /// The evaluations enriching the selected disciplines at `DoE_UQ` point `index`
-    /// (sections 8 and 20), or `None` if the mean MDA does not converge there
+    /// (sections 8 and 20), or `None` if the mean MDA does not converge there or if all the
+    /// enrichment points duplicate training points (D14), which are not requested
     fn enrichment_requests(&self, index: usize) -> Result<Option<Vec<EvaluationRequest>>> {
         let z = self.doe_uq.row(index);
-        let mean = SurrogateCouplings::mean(&self.problem, self.models.as_ref().expect("models"));
+        let models = self.models.as_ref().expect("models");
+        let mean = SurrogateCouplings::mean(&self.problem, models);
         let (y, status) = solve_one(&mean, &z, &self.config.mda)?;
         if !status.is_converged() {
             log::warn!("Mean MDA not converged at z = {z} ({status:?}): no enrichment there");
             return Ok(None);
         }
         let y = y.insert_axis(Axis(0));
-        Ok(Some(
-            self.disciplines_to_enrich(index)
-                .into_iter()
-                .map(|i| EvaluationRequest {
-                    discipline: i,
-                    x: self.problem.disciplines()[i].inputs(&z, &y.view()),
-                })
-                .collect(),
-        ))
+        let requests: Vec<EvaluationRequest> = self
+            .disciplines_to_enrich(index)
+            .into_iter()
+            .map(|i| EvaluationRequest {
+                discipline: i,
+                x: self.problem.disciplines()[i].inputs(&z, &y.view()),
+            })
+            .filter(|r| {
+                let duplicate = models.is_duplicate(r.discipline, &r.x.row(0));
+                if duplicate {
+                    log::debug!(
+                        "Discipline '{}': enrichment point {} already evaluated, not requested",
+                        self.problem.disciplines()[r.discipline].name(),
+                        r.x.row(0)
+                    );
+                }
+                !duplicate
+            })
+            .collect();
+        Ok((!requests.is_empty()).then_some(requests))
     }
 
     /// Final model (19) and estimation of the minimum under the constraint models
@@ -1241,6 +1254,51 @@ mod tests {
         // The LogEI stays finite, so a new point is proposed at every iteration
         assert!(result.history.iter().all(|h| h.max_criterion.is_finite()));
         assert!(result.history.iter().all(|h| h.z_new.is_some()));
+    }
+
+    /// Runs the solver by ask/tell and returns the number of requested evaluations of each
+    /// discipline, with the result
+    fn requested_evaluations(
+        tp: &problems::TestProblem,
+        config: EgmdoConfig,
+    ) -> (Vec<usize>, EgmdoResult) {
+        let mut solver = EgmdoSolver::new(tp.problem.clone(), config).unwrap();
+        let mut requested = vec![0; tp.problem.disciplines().len()];
+        while let Some(reqs) = solver.ask().unwrap() {
+            for r in reqs.iter() {
+                requested[r.discipline] += r.x.nrows();
+            }
+            let outputs = reqs
+                .iter()
+                .map(|r| tp.eval_discipline(r.discipline, &r.x))
+                .collect();
+            solver.tell(outputs).unwrap();
+        }
+        (requested, solver.result().unwrap())
+    }
+
+    #[test]
+    fn test_no_duplicate_enrichment_requests() {
+        // Algorithm 2 may enrich the same DoE_UQ point again, where the mean MDA gives the
+        // same disciplinary inputs: such duplicates (D14) must not be requested, so that every
+        // requested evaluation is counted
+        let tp = problems::sellar_constrained();
+        for seed in 0..4 {
+            let config = EgmdoConfig {
+                n_doe_disciplines: Some(vec![5, 5]),
+                n_doe_uq: 10,
+                max_iters: 6,
+                seed: Some(seed),
+                ..EgmdoConfig::default()
+            };
+            let (requested, result) = requested_evaluations(&tp, config);
+            assert_eq!(requested, result.n_evaluations, "seed {seed}");
+        }
+        let tp = problems::toy_constrained();
+        for seed in 0..4 {
+            let (requested, result) = requested_evaluations(&tp, toy_constrained_config(seed));
+            assert_eq!(requested, result.n_evaluations, "seed {seed}");
+        }
     }
 
     #[test]

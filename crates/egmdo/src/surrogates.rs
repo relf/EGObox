@@ -12,7 +12,7 @@ use egobox_gp::correlation_models::{CorrelationModel, Matern52Corr, SquaredExpon
 use egobox_gp::mean_models::ConstantMean;
 use egobox_gp::{GaussianProcess, ThetaTuning};
 use linfa::prelude::{Dataset, Fit};
-use ndarray::{Array1, Array2, ArrayBase, Axis, Data, Ix2, array, concatenate};
+use ndarray::{Array1, Array2, ArrayBase, ArrayView1, Axis, Data, Ix2, array, concatenate};
 use ndarray_rand::rand::SeedableRng;
 use rand_xoshiro::Xoshiro256Plus;
 
@@ -217,11 +217,19 @@ impl DisciplinaryModels {
             .collect()
     }
 
+    /// Whether input `x` of discipline `i` is closer than [DUPLICATE_TOLERANCE] to one of its
+    /// training points, in inputs normalized by the discipline input bounds (decision D14)
+    pub fn is_duplicate(&self, i: usize, x: &ArrayView1<f64>) -> bool {
+        self.data[i].0.rows().into_iter().any(|xr| {
+            ((&xr - x) / &self.scales[i]).mapv(|v| v * v).sum().sqrt() < DUPLICATE_TOLERANCE
+        })
+    }
+
     /// Adds training points `(x, y)` to discipline `i` and retrains its GPs.
     ///
-    /// Points closer than [DUPLICATE_TOLERANCE] to an existing training point (in inputs
-    /// normalized by the discipline input bounds) are skipped. Returns the number of
-    /// points actually added; the GPs are retrained only if it is not zero.
+    /// Points that duplicate a training point ([DisciplinaryModels::is_duplicate]) are
+    /// skipped. Returns the number of points actually added; the GPs are retrained only if
+    /// it is not zero.
     pub fn add_points(
         &mut self,
         problem: &MdoProblem,
@@ -232,17 +240,14 @@ impl DisciplinaryModels {
         check_data(problem, i, x, y)?;
         let mut added = 0;
         for (xk, yk) in x.rows().into_iter().zip(y.rows()) {
-            let (xt, yt) = &self.data[i];
-            let duplicate = xt.rows().into_iter().any(|xr| {
-                ((&xr - &xk) / &self.scales[i]).mapv(|v| v * v).sum().sqrt() < DUPLICATE_TOLERANCE
-            });
-            if duplicate {
+            if self.is_duplicate(i, &xk) {
                 log::warn!(
                     "Discipline '{}': training point {xk} already exists, skipped",
                     problem.disciplines()[i].name()
                 );
                 continue;
             }
+            let (xt, yt) = &self.data[i];
             let xt = concatenate![Axis(0), *xt, xk.insert_axis(Axis(0))];
             let yt = concatenate![Axis(0), *yt, yk.insert_axis(Axis(0))];
             self.data[i] = (xt, yt);
