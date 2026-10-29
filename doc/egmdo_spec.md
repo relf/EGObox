@@ -249,7 +249,7 @@ It stops when every candidate (`P_min ≥ 1/n_UQ`) has `cv ≤ ε_cv`, i.e. when
 The paper has no safeguard on the number of enrichments.
 
 - **Decision D13:** an optional budget of disciplinary evaluations (per run) stops Algorithm 1 and Algorithm 2 when reached.
-- **Decision D14:** if an enrichment point duplicates an existing training point of a discipline (within `1e-10` in normalized inputs), it is not added. The design point is then skipped for the rest of this Algorithm 1 call, so that the loop cannot repeat forever.
+- **Decision D14:** if an enrichment point duplicates an existing training point of a discipline (within `1e-10` in normalized inputs), it is not requested. This happens when Algorithm 1 selects the same design point again: the mean MDA then gives the same disciplinary inputs. If all the enrichment points of a design point are duplicates, the design point is skipped for the rest of this Algorithm 1 call, so that the loop cannot repeat forever. Duplicates are detected before the evaluation, which would be wasted otherwise.
 
 ## 8. Enrichment of the disciplinary GPs
 
@@ -420,7 +420,7 @@ Sources: the REMAL paper is used first, and Ghoreishi and Imani only for what it
 | D11 | Coefficient of variation | Absolute value of the mean |
 | D12 | Zero mean | `\|E\| < 1e-12` |
 | D13 | Budget | Optional budget of disciplinary evaluations |
-| D14 | Duplicate enrichment | Not added; point skipped for the current Algorithm 1 call |
+| D14 | Duplicate enrichment | Not requested; point skipped for the current Algorithm 1 call |
 | D15 | Stopping | `n_max` or budget; maximum EI recorded |
 | D16 | Final minimizations | Multistart COBYLA, 5 best `DoE_UQ` points + 5 random |
 | D17 | Convergence metric | Euclidean relative error of `E[Ẑ*]`, threshold 5% |
