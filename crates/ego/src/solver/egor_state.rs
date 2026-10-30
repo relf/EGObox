@@ -16,8 +16,8 @@
 //!
 //! ## Serialization
 //!
-//! All state structs support serialization via serde. Sub-states use `#[serde(flatten)]`
-//! for backward-compatible JSON format where all fields appear at the top level.
+//! All state structs support serialization via serde. Sub-states are serialized as
+//! nested objects (`doe`, `surrogate`, `trego`, `coego` fields of the state).
 
 use crate::{
     InfillObjData,

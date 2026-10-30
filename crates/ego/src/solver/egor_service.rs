@@ -1,4 +1,4 @@
-//! Egor optimizer service implements [`Egor`] optimizer with an ask-and-tell interface.
+//! Egor optimizer service implements [`crate::Egor`] optimizer with an ask-and-tell interface.
 //! It allows to keep the control on the iteration loop by asking for optimum location
 //! suggestions and telling objective function values at these points.
 //!
@@ -89,10 +89,7 @@ impl<C: CstrFn> EgorServiceFactory<C> {
         self,
         xlimits: &ArrayBase<impl Data<Elem = f64>, Ix2>,
     ) -> Result<EgorServiceApi<GpMixtureParams<f64>, C>> {
-        let config = self.config.xtypes(&to_xtypes(xlimits));
-        Ok(EgorServiceApi {
-            solver: EgorSolver::new(config.check()?),
-        })
+        self.build(&to_xtypes(xlimits))
     }
 
     /// Build an Egor optimizer to minimize the function R^n -> R^p taking
@@ -102,6 +99,15 @@ impl<C: CstrFn> EgorServiceFactory<C> {
         self,
         xtypes: &[XType],
     ) -> Result<EgorServiceApi<MixintGpMixtureParams, C>> {
+        self.build(xtypes)
+    }
+
+    /// Build the optimizer service within the design space given by `xtypes`
+    /// with the surrogate builder `SB`
+    fn build<SB: SurrogateBuilder + Serialize + DeserializeOwned>(
+        self,
+        xtypes: &[XType],
+    ) -> Result<EgorServiceApi<SB, C>> {
         let config = self.config.xtypes(xtypes);
         Ok(EgorServiceApi {
             solver: EgorSolver::new(config.check()?),

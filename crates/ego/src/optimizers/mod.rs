@@ -4,11 +4,9 @@
 //!
 //! ## Architecture
 //!
-//! The module follows SOLID principles:
-//!
-//! - **Single Responsibility**: Each backend handles one optimization algorithm
-//! - **Open/Closed**: New optimizers can be added by implementing [`InfillOptimizerTrait`]
-//! - **Dependency Inversion**: Code depends on the trait abstraction
+//! The `Optimizer` facade runs the algorithm selected by the `Algorithm` enum
+//! (mapped from the `InfillOptimizer` configuration) with the backend selected
+//! by the feature flags below.
 //!
 //! ## Available Optimizers
 //!

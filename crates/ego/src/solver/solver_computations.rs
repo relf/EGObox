@@ -36,33 +36,6 @@ fn neutral_infill(composition: InfillComposition, dim: usize) -> (f64, Array1<f6
     (neutral_infill_val(composition), neutral_infill_grad(dim))
 }
 
-/// LocalMultiStarter is a multistart strategy that samples points in the xlimits.
-#[allow(dead_code)]
-pub(crate) struct LhsMultiStarter<'a, R: Rng + Clone> {
-    xlimits: &'a Array2<f64>,
-    rng: R,
-}
-
-impl<R: Rng + Clone> super::solver_infill_optim::MultiStarter for LhsMultiStarter<'_, R> {
-    fn multistart(&mut self, n_start: usize, active: &[usize]) -> Array2<f64> {
-        let sampling = Lhs::new(&self.xbounds(active))
-            .kind(LhsKind::Maximin)
-            .with_rng(&mut self.rng);
-        sampling.sample(n_start)
-    }
-
-    fn xbounds(&self, active: &[usize]) -> Array2<f64> {
-        coego::get_active_x(Axis(0), self.xlimits, active)
-    }
-}
-
-impl<'a, R: Rng + Clone> LhsMultiStarter<'a, R> {
-    #[allow(dead_code)]
-    pub fn new(xlimits: &'a Array2<f64>, rng: R) -> Self {
-        LhsMultiStarter { xlimits, rng }
-    }
-}
-
 /// MiddlePickerMultiStarter is a multistart strategy where starting points
 /// are picked in the area in between the training data points where
 /// infill criterion is expected to be high

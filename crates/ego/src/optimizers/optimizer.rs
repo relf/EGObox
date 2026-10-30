@@ -4,11 +4,9 @@
 //!
 //! ## Design
 //!
-//! The optimizer follows the Strategy pattern with the [`InfillOptimizerTrait`] trait
-//! defining the interface for optimization backends. This allows:
-//!
-//! - **Open/Closed Principle**: New optimizers can be added by implementing the trait
-//! - **Dependency Inversion**: Code depends on the trait abstraction, not concrete types
+//! [`Optimizer`] is a facade: it is configured once (objective, constraints, bounds,
+//! tolerances) and dispatches the minimization to the [`Algorithm`] implementation
+//! of the backend selected by the feature flags.
 //!
 //! ## Available Backends
 //!

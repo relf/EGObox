@@ -1,8 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-/// Solver-aware checkpoint file used by the basin executor for hot start.
-pub const CHECKPOINT_FILE: &str = "egor_checkpoint.bin";
-
 /// An enum to specify hot start mode
 #[derive(Clone, Eq, PartialEq, Debug, Hash, Default, Serialize, Deserialize)]
 pub enum HotStartMode {
