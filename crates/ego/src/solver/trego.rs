@@ -23,8 +23,8 @@ use rand_xoshiro::Xoshiro256Plus;
 use serde::{Serialize, de::DeserializeOwned};
 
 use super::coego;
-use super::solver_impl::DataClustering;
 use super::solver_infill_optim::MultiStarter;
+use super::surrogate_set::{DataClustering, SurrogateSet};
 
 /// LocalMultiStarter is a multistart strategy that samples points in the local area
 /// defined by the trust region and the xlimits.
@@ -168,7 +168,7 @@ where
         &mut self,
         problem: &mut Problem<O>,
         state: EgorState<f64>,
-        mut models: Vec<Box<dyn MixtureGpSurrogate>>,
+        models: Vec<Box<dyn MixtureGpSurrogate>>,
         infill_data: &InfillObjData<f64>,
         max_dist: f64,
         min_acceptance_distance: f64,
@@ -314,30 +314,21 @@ where
                 &new_state.doe.cstr_tol,
             );
 
-        {
+        new_state.surrogate.models = models;
+        if add_count > 0 {
             // Incorporate the evaluated point into the persisted models
             // (fast incremental update unless full retraining is required)
-            if add_count > 0 {
-                let mut clusterings = new_state.take_clusterings().ok_or_else(|| {
-                    crate::EgoError::InternalError("EgorSolver: No clustering!".to_string())
-                })?;
-                let mut theta_inits = new_state.take_theta_inits().ok_or_else(|| {
-                    crate::EgoError::InternalError("EgorSolver: No theta inits!".to_string())
-                })?;
-                let point_index = state.get_iter() as usize * self.config.qei_config.batch;
-                self.refresh_models(
-                    &mut clusterings,
-                    &mut theta_inits,
-                    &mut models,
-                    &x_data,
-                    &y_data,
-                    &state.coego.activity,
-                    DataClustering::Fixed,
-                    point_index,
-                );
-                new_state = new_state.clusterings(clusterings).theta_inits(theta_inits);
-            }
-            new_state.surrogate.models = models;
+            let mut surrogates = SurrogateSet::take(&mut new_state)?;
+            let point_index = state.get_iter() as usize * self.config.qei_config.batch;
+            self.refresh_models(
+                &mut surrogates,
+                &x_data,
+                &y_data,
+                &state.coego.activity,
+                DataClustering::Fixed,
+                point_index,
+            );
+            new_state = surrogates.put(new_state);
         }
 
         new_state = new_state.data((x_data, y_data, c_data)).rng(rng);
