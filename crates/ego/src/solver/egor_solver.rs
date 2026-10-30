@@ -93,7 +93,7 @@
 //!
 use crate::outputs::{DOE_FILE, DOE_INITIAL_FILE};
 use crate::solver::iteration_strategy::IterationMode;
-use crate::solver::solver_impl::DataClustering;
+use crate::solver::surrogate_set::{DataClustering, SurrogateSet};
 use crate::solver::trego::{LocalSearch, local_training_rows};
 use crate::utils::{
     EGOR_USE_GP_VAR_PORTFOLIO, EGOR_USE_STATE_RECORDING, filter_nans, find_best_result_index,
@@ -442,15 +442,9 @@ where
     ) -> Result<EgorState<f64>> {
         // Local step
         let mut local_state = state;
-        let mut clusterings = local_state
-            .take_clusterings()
-            .ok_or_else(|| EgoError::InternalError("EgorSolver: No clustering!".to_string()))?;
-        let mut theta_inits = local_state
-            .take_theta_inits()
-            .ok_or_else(|| EgoError::InternalError("EgorSolver: No theta inits!".to_string()))?;
         // Persisted models are usually up to date (or lag by the point added
         // by a previous local step), hence reused as-is or incrementally updated.
-        let mut models = std::mem::take(&mut local_state.surrogate.models);
+        let mut surrogates = SurrogateSet::take(&mut local_state)?;
         {
             let (x_data, y_data, _) = local_state
                 .surrogate
@@ -459,9 +453,7 @@ where
                 .ok_or_else(|| EgoError::InternalError("EgorSolver: No data!".to_string()))?;
             let point_index = local_state.get_iter() as usize * self.config.qei_config.batch;
             self.refresh_models(
-                &mut clusterings,
-                &mut theta_inits,
-                &mut models,
+                &mut surrogates,
                 x_data,
                 y_data,
                 &local_state.coego.activity,
@@ -469,9 +461,9 @@ where
                 point_index,
             );
         }
-        let mut local_state = local_state
-            .clusterings(clusterings)
-            .theta_inits(theta_inits);
+        // Models are moved along the local step, kept out of the state meanwhile
+        let models = std::mem::take(&mut surrogates.models);
+        let mut local_state = surrogates.put(local_state);
 
         // Optional local objective model trained around the best point
         let local_step = self.config.iteration_strategy.local_step_config();

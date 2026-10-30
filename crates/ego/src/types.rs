@@ -426,6 +426,20 @@ pub(crate) fn affine_fcstrs<C: CstrFn>(
         .collect()
 }
 
+/// Points selected by an EGO iteration, one row per point, before their evaluation
+pub(crate) struct Candidates {
+    /// Locations
+    pub(crate) x: Array2<f64>,
+    /// Virtual (predicted) output values
+    pub(crate) y: Array2<f64>,
+    /// Function constraints values
+    pub(crate) c: Array2<f64>,
+    /// Penalized output values used in case of evaluation failure
+    pub(crate) y_penalized: Array2<f64>,
+    /// Infill criterion value
+    pub(crate) infill_value: f64,
+}
+
 /// A trait for types that can be returned by an objective function.
 ///
 /// This allows objective functions to return either `Array2<f64>` directly
