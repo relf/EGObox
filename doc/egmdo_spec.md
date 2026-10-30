@@ -434,6 +434,7 @@ Sources: the REMAL paper is used first, and Ghoreishi and Imani only for what it
 | D36 | LogEI | Smoothed Monte Carlo log (C)EI (qLogEI), temperature `10⁻⁶ σ` of the objective over `DoE_UQ` |
 | D37 | Linearized random MDA | Optional `y_0 + (I − J)⁻¹ diag(σ) Ξ` at the mean MDA solution; fallback to the solved random MDAs; solved by default |
 | D38 | Correlation across design points | Optional GP posterior correlation of the variables of each point, at the mean MDA solutions; Mehler covariance for the KL; perfect by default |
+| D39 | Feasibility first | Optional: maximize the probability of feasibility of the constraint models while no `DoE_UQ` point is feasible; off by default |
 
 ## 13. Default settings
 
@@ -544,6 +545,14 @@ WB2(z) = CEI(z) − m_0(z)                                                      
 **Decision D35 (WB2S).** `Acquisition::Wb2s` adapts the scale at each iteration, as `Egor`'s WB2S (Bartoli et al. 2019): `scale = 100 |m_0(z_EI)| / EI_max`, where `EI_max` is the maximum of the EI under the constraint models, reached at `z_EI`. The scale is 1 when `EI_max` is negligible (below `100 ε`). `Egor` computes `EI_max` over the starting points of the infill optimization. Here the EI is zero almost everywhere once the disciplinary GPs are enriched, so the EI is maximized first; `z_EI` is then added to the starting points of the WB2 optimization. This costs one more multistart optimization per iteration.
 
 **Decision D36 (LogEI).** `Acquisition::LogEi` maximizes the logarithm of a smoothed (C)EI, as the Monte Carlo qLogEI of Ament et al. (2023): `LogEI(z) = log((1/N) Σ_s τ softplus(Δ_s(z)/τ))` with `Δ_s(z) = f'_min(Ξ_s) − Ỹ_obj(z, Ξ_s, η_s)`, computed with a log-sum-exp over the same fixed samples as the EI (D9). Where some samples improve, it is close to `log EI`. Where none does, the EI estimate is exactly 0, and its flat zones stall the optimizer (C-EGMDO, section 4.1.1); the LogEI stays finite there, about `max_s Δ_s/τ`, and ranks the points by how close they come to improving. The analytic LogEI assumes a Gaussian prediction and does not apply to the non-Gaussian field (14). The temperature is `τ = 10⁻⁶ × σ`, where `σ` is the standard deviation of the objective PCE means over `DoE_UQ` (or their mean absolute value if it is 0), since the objective is not standardized.
+
+**Decision D39 (feasibility first).** As an option (`EgmdoConfig::feasibility_first`, issue #503), while no `DoE_UQ` point is feasible by its constraint PCE means, the acquisition maximizes the logarithm of the probability of feasibility of the constraint models instead of the criterion:
+
+```text
+log PoF(z) = Σ_m log Φ((τ_m − μ_gm(z)) / σ_gm(z)) + Σ_r log[Φ((τ_r − μ_hr(z)) / σ_hr(z)) − Φ((−τ_r − μ_hr(z)) / σ_hr(z))]
+```
+
+where `μ` and `σ` are the mean and standard deviation of the GP of each constraint PCE mean (section 17). Deterministic constraints (D22) are not in the sum and stay constraints of the optimization; the modelled ones are not, since `PoF` accounts for them. `log Φ` is computed without underflow in the left tail, and `σ` is floored, so that a certain constraint ranks the points by their violation. On the aero-structural problem of #503, no point of the initial `DoE_UQ` is feasible and the WB2 maximization under the constraint models rarely reaches the feasible region. Once a `DoE_UQ` point is feasible, the configured criterion is used again. The criterion of each iteration is recorded.
 
 **Optimization.**
 
@@ -710,6 +719,7 @@ The library defaults follow C-EGMDO, the more recent and more robust variant, wi
 | Option | Values | Default | EGMDO (2020) | C-EGMDO (2024) |
 |---|---|---|---|---|
 | Acquisition | `Ei`, `Wb2 { scale }`, `Wb2s` (D35), `LogEi` (D36) | `Wb2 { scale: 1 }` | `Ei` | `Wb2` |
+| Feasibility first (D39) | `false`, `true` | `false` | — | `false` |
 | Enrichment | `All`, `Sobol` | `Sobol` | `All` | `Sobol` |
 | `ε_P` | > 0 | `10⁻³` | `1/n_UQ` | `10⁻³` |
 | `ε_CV` | > 0 | 0.01 | 0.01 | 0.01 |
@@ -726,7 +736,7 @@ Mapping to the implementation, in addition to section 14:
 | Section | Module | Tests |
 |---|---|---|
 | 16, 17 | `problem`, `pce`, `kl` | constraint PCEs share the MDA samples; GP of constraint means interpolates `DoE_UQ` values; deterministic constraints bypass PCE |
-| 18 | `criteria` | `f'_min` with and without feasible points; CEI equals EI without constraints; WB2 = CEI − `m_0`; duplicate rejection |
+| 18 | `criteria` | `f'_min` with and without feasible points; CEI equals EI without constraints; WB2 = CEI − `m_0`; duplicate rejection; `log PoF` and `log Φ` against closed forms (D39) |
 | 19 | `solver` | `P_sol` sums to the fraction of samples with a feasible point; fallback to least violation; constraint CV floor |
 | 20 | `pce`, `solver` | Sobol indices of known polynomials (e.g. `ξ_1 + 2ξ_2` gives 0.2 and 0.8); group index; only the selected discipline is requested in ask/tell |
 | 22 | `problems` | constrained toy and Sellar end to end, references of 22.1 and 22.2 |

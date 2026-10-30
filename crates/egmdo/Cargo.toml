@@ -26,6 +26,7 @@ c-cobyla = ["egobox-gp/c-cobyla"]
 egobox-doe = { version = "0.35.2", path = "../doe" }
 egobox-gp = { version = "0.37.1", path = "../gp" }
 
+libm = "0.2.6"
 linfa.workspace = true
 linfa-linalg.workspace = true
 ndarray.workspace = true

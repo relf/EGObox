@@ -7,7 +7,8 @@
 //!   uncertainty sources, estimated by Monte Carlo with fixed samples (D9), and the WB2
 //!   criterion (C-24),
 //! * [Feasibility]: feasibility, constraint violation and coefficient of variation of the
-//!   quantities of interest (D11, D12, D21, D27),
+//!   quantities of interest (D11, D12, D21, D27), and the probability of feasibility of
+//!   Gaussian constraint models (D39),
 //! * [multistart_minimize], [multistart_minimize_constrained]: multistart COBYLA over the
 //!   design space.
 //!
@@ -18,6 +19,7 @@ use crate::kl::KlGpField;
 use crate::pce::Pce;
 use crate::uq::{JointSamples, PointUq};
 use egobox_gp::basin_optimizer::{Algorithm, Settings, minimize};
+use libm::erfc;
 use ndarray::{Array1, Array2, ArrayView1, ArrayView2, Axis};
 use rayon::prelude::*;
 
@@ -91,6 +93,31 @@ impl Feasibility {
                 v.abs() <= self.tolerances[k]
             }
         })
+    }
+
+    /// The logarithm of the probability that Gaussian constraints of means `mean` and
+    /// standard deviations `std` `[g..., h...]` are feasible, i.e. `g <= τ` and `|h| <= τ`
+    /// (D39). Constraint `k` is skipped where `skip(k)`. Standard deviations are floored, so
+    /// that a certain constraint gives a large negative value, decreasing with its violation,
+    /// rather than `-∞`.
+    pub fn log_probability_of_feasibility(
+        &self,
+        mean: &ArrayView1<f64>,
+        std: &ArrayView1<f64>,
+        skip: impl Fn(usize) -> bool,
+    ) -> f64 {
+        (0..mean.len())
+            .filter(|&k| !skip(k))
+            .map(|k| {
+                let (m, tau) = (mean[k], self.tolerances[k]);
+                let s = std[k].max(1e-12 * (1. + m.abs() + tau));
+                if k < self.n_ineq {
+                    log_norm_cdf((tau - m) / s)
+                } else {
+                    log_norm_interval((-tau - m) / s, (tau - m) / s)
+                }
+            })
+            .sum()
     }
 
     /// The constraint violation `Σ max(g, 0) + Σ |h|` (C-22)
@@ -335,6 +362,34 @@ fn log_softplus(x: f64) -> f64 {
     }
 }
 
+/// `log Φ(x)`, the logarithm of the standard normal cumulative distribution function,
+/// without underflow in the left tail
+pub fn log_norm_cdf(x: f64) -> f64 {
+    if x > -20. {
+        (0.5 * erfc(-x / std::f64::consts::SQRT_2)).ln()
+    } else {
+        // Asymptotic expansion Φ(x) = φ(x) / |x| (1 - 1/x² + 3/x⁴ - ...)
+        let x2 = x * x;
+        -0.5 * x2 - (-x).ln() - 0.5 * (2. * std::f64::consts::PI).ln()
+            + (1. - 1. / x2 + 3. / (x2 * x2)).ln()
+    }
+}
+
+/// `log(Φ(hi) - Φ(lo))` for `lo < hi`, without underflow in the tails
+fn log_norm_interval(lo: f64, hi: f64) -> f64 {
+    if lo > 0. {
+        // Symmetry: Φ(hi) - Φ(lo) = Φ(-lo) - Φ(-hi)
+        log_norm_interval(-hi, -lo)
+    } else if hi <= 0. {
+        // Both in the left tail: Φ(hi) (1 - Φ(lo) / Φ(hi))
+        let (log_hi, log_lo) = (log_norm_cdf(hi), log_norm_cdf(lo));
+        log_hi + (-(log_lo - log_hi).exp()).ln_1p()
+    } else {
+        (0.5 * erfc(-hi / std::f64::consts::SQRT_2) - 0.5 * erfc(-lo / std::f64::consts::SQRT_2))
+            .ln()
+    }
+}
+
 /// The result of a local optimization
 #[derive(Clone, Debug)]
 pub struct LocalOptimum {
@@ -441,6 +496,61 @@ mod tests {
         // No overflow nor underflow far in the tails
         assert_eq!(log_softplus(-1e4), -1e4);
         assert_abs_diff_eq!(log_softplus(1e4), 1e4f64.ln(), epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_log_norm_cdf() {
+        // Φ(0) = 1/2, Φ(-1.959964) = 0.025
+        assert_abs_diff_eq!(log_norm_cdf(0.), 0.5f64.ln(), epsilon = 1e-14);
+        assert_abs_diff_eq!(
+            log_norm_cdf(-1.959_963_984_540_054),
+            0.025f64.ln(),
+            epsilon = 1e-12
+        );
+        // Both branches agree at the switch, and the left tail does not underflow
+        let below = {
+            let x: f64 = -20.;
+            let x2 = x * x;
+            -0.5 * x2 - (-x).ln() - 0.5 * (2. * std::f64::consts::PI).ln()
+                + (1. - 1. / x2 + 3. / (x2 * x2)).ln()
+        };
+        assert_abs_diff_eq!(log_norm_cdf(-20. + 1e-9), below, epsilon = 1e-6);
+        assert!(log_norm_cdf(-1e3).is_finite());
+        assert!(log_norm_cdf(-1e3) < log_norm_cdf(-1e2));
+        // Intervals: Φ(1) - Φ(-1) = 0.682689, and symmetric tails
+        assert_abs_diff_eq!(
+            log_norm_interval(-1., 1.),
+            0.682_689_492_137_085_9f64.ln(),
+            epsilon = 1e-12
+        );
+        assert_abs_diff_eq!(
+            log_norm_interval(5., 6.),
+            log_norm_interval(-6., -5.),
+            epsilon = 1e-12
+        );
+        assert!(log_norm_interval(-61., -60.).is_finite());
+    }
+
+    #[test]
+    fn test_log_probability_of_feasibility() {
+        // g <= 0.1 with g ~ N(0, 1), |h| <= 1 with h ~ N(0, 1), and an objective-free check
+        let feasibility = Feasibility::new(1, array![0.1, 1.], 0.01);
+        let (mean, std) = (array![0., 0.], array![1., 1.]);
+        let expected =
+            (0.5 * erfc(-0.1 / std::f64::consts::SQRT_2)).ln() + 0.682_689_492_137_085_9f64.ln();
+        let log_pof =
+            feasibility.log_probability_of_feasibility(&mean.view(), &std.view(), |_| false);
+        assert_abs_diff_eq!(log_pof, expected, epsilon = 1e-12);
+        // Skipped constraints do not count
+        let only_g =
+            feasibility.log_probability_of_feasibility(&mean.view(), &std.view(), |k| k == 1);
+        assert_abs_diff_eq!(only_g, log_norm_cdf(0.1), epsilon = 1e-12);
+        // A certain constraint: finite, and smaller when more violated
+        let (zero, one, two) = (array![0.], array![1.], array![2.]);
+        let g = Feasibility::new(1, array![0.], 0.01);
+        let p1 = g.log_probability_of_feasibility(&one.view(), &zero.view(), |_| false);
+        let p2 = g.log_probability_of_feasibility(&two.view(), &zero.view(), |_| false);
+        assert!(p1.is_finite() && p2 < p1);
     }
 
     #[test]

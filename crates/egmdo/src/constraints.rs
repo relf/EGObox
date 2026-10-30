@@ -75,6 +75,55 @@ impl ConstraintModels {
         Ok(values)
     }
 
+    /// The modelled constraints `[g..., h...]` at design point `z` with the standard deviations
+    /// of their GPs (0 for the deterministic constraints)
+    pub fn predict_with_std(&self, z: &Array1<f64>) -> Result<(Array1<f64>, Array1<f64>)> {
+        let z = z.view().insert_axis(ndarray::Axis(0)).to_owned();
+        let mean = self.predict(&z)?.row(0).to_owned();
+        let mut std = Array1::zeros(self.gps.len());
+        for (k, gp) in self.gps.iter().enumerate() {
+            if let Some(gp) = gp {
+                std[k] = gp.predict_var(&z)?[0].max(0.).sqrt();
+            }
+        }
+        Ok((mean, std))
+    }
+
+    /// The logarithm of the probability of feasibility of the modelled constraints at design
+    /// point `z` (D39), the deterministic ones excluded
+    pub fn log_probability_of_feasibility(
+        &self,
+        feasibility: &Feasibility,
+        z: &Array1<f64>,
+    ) -> Result<f64> {
+        let (mean, std) = self.predict_with_std(z)?;
+        Ok(feasibility
+            .log_probability_of_feasibility(&mean.view(), &std.view(), |k| self.gps[k].is_none()))
+    }
+
+    /// The constraints `c_k(z) <= 0` of the deterministic constraints only, as
+    /// [ConstraintModels::as_inequalities]
+    pub fn deterministic_inequalities<'a>(
+        &'a self,
+        feasibility: &'a Feasibility,
+    ) -> (usize, impl Fn(usize, &Array1<f64>) -> f64 + Sync + 'a) {
+        let (_, all) = self.as_inequalities(feasibility);
+        let n_ineq = feasibility.n_ineq();
+        // The indices, among the inequalities of as_inequalities, of the deterministic ones
+        let mut indices = vec![];
+        let mut k = 0;
+        for (j, gp) in self.gps.iter().enumerate() {
+            let n = if j < n_ineq { 1 } else { 2 };
+            if gp.is_none() {
+                indices.extend(k..k + n);
+            }
+            k += n;
+        }
+        (indices.len(), move |i: usize, z: &Array1<f64>| {
+            all(indices[i], z)
+        })
+    }
+
     /// The constraints of the acquisition optimization `c_k(z) <= 0` (C-23): `g - τ` for each
     /// inequality constraint, and `h - τ`, `-h - τ` for each equality constraint.
     /// Returns their number and a function `(k, z) -> c_k(z)`.

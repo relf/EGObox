@@ -71,7 +71,7 @@ def toy_qoi(z: np.ndarray, y: np.ndarray) -> np.ndarray:
     return (np.cos((y[:, 0] + np.exp(-y[:, 1])) / np.pi) + z[:, 0] / 20.0)[:, None]
 
 
-def toy_mdegor(**kwargs) -> Mdegor:
+def toy_mdegor(qoi=toy_qoi, **kwargs) -> Mdegor:
     disciplines = [
         Discipline("d1", toy_y1, inputs=["z", "y2"], outputs=["y1"]),
         Discipline("d2", toy_y2, inputs=["z", "y1"], outputs=["y2"]),
@@ -87,7 +87,7 @@ def toy_mdegor(**kwargs) -> Mdegor:
         {"z": [-5.0, 5.0]},
         {"y1": [0.0, 25.0], "y2": [0.0, 25.0]},
         disciplines,
-        toy_qoi,
+        qoi,
         **options,
     )
 
@@ -113,6 +113,7 @@ class TestMdegor(unittest.TestCase):
             set(res.history[0]),
             {
                 "z_new",
+                "criterion",
                 "max_criterion",
                 "wb2_scale",
                 "n_modes",
@@ -215,6 +216,23 @@ class TestMdegor(unittest.TestCase):
         ]:
             res = toy_mdegor(acquisition=acquisition, max_iters=2, n_sim=10).minimize()
             self.assertEqual(len(res.history), 2)
+
+    def test_feasibility_first(self):
+        # Constrained toy problem, y1 <= 6, violated at every initial DoE_UQ point
+        def qoi(z, y):
+            return np.column_stack([toy_qoi(z, y), 0.15 * y[:, 0] - 0.9])
+
+        mdegor = toy_mdegor(
+            qoi=qoi,
+            n_ineq=1,
+            doe_uq=np.array([[-5.0], [-4.2], [3.4], [4.6]]),
+            feasibility_first=True,
+        )
+        res = mdegor.minimize()
+        self.assertEqual(res.history[0]["criterion"], "feasibility")
+        self.assertLessEqual(res.history[0]["max_criterion"], 0.0)
+        self.assertTrue(res.best_feasible)
+        self.assertIn("wb2", [h["criterion"] for h in res.history])
 
     def test_ask_tell_reproduces_minimize(self):
         funs = [toy_y1, toy_y2]

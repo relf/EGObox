@@ -64,6 +64,29 @@ enum Criterion {
     LogEi(f64),
 }
 
+/// The criterion maximized at an iteration, recorded in its [IterationRecord]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AcquisitionCriterion {
+    /// The (constrained) expected improvement
+    Ei,
+    /// The WB2 criterion, with a fixed or adaptive scale
+    Wb2,
+    /// The logarithm of a smoothed expected improvement
+    LogEi,
+    /// The probability of feasibility, when no `DoE_UQ` point is feasible (D39)
+    Feasibility,
+}
+
+impl From<Criterion> for AcquisitionCriterion {
+    fn from(criterion: Criterion) -> Self {
+        match criterion {
+            Criterion::Ei => AcquisitionCriterion::Ei,
+            Criterion::Wb2(_) => AcquisitionCriterion::Wb2,
+            Criterion::LogEi(_) => AcquisitionCriterion::LogEi,
+        }
+    }
+}
+
 impl Default for Acquisition {
     fn default() -> Self {
         Acquisition::Wb2 { scale: 1. }
@@ -89,6 +112,10 @@ pub enum Enrichment {
 pub struct EgmdoConfig {
     /// The acquisition criterion
     pub acquisition: Acquisition,
+    /// While no `DoE_UQ` point is feasible by the constraint PCE means, maximize the
+    /// probability of feasibility of the constraint models instead of the acquisition
+    /// criterion (D39); `false` in the C-EGMDO paper
+    pub feasibility_first: bool,
     /// The disciplines enriched at an enrichment point
     pub enrichment: Enrichment,
     /// The tolerance of each constraint `[g..., h...]` (D21); `None` gives `1e-4`
@@ -152,6 +179,7 @@ impl Default for EgmdoConfig {
     fn default() -> Self {
         EgmdoConfig {
             acquisition: Acquisition::default(),
+            feasibility_first: false,
             enrichment: Enrichment::default(),
             constraint_tolerances: None,
             n_doe_disciplines: None,
@@ -188,7 +216,9 @@ pub struct EvaluationRequest {
 pub struct IterationRecord {
     /// The point added to `DoE_UQ`, if any (D25)
     pub z_new: Option<Array1<f64>>,
-    /// The maximum value of the acquisition criterion
+    /// The criterion maximized at this iteration
+    pub criterion: AcquisitionCriterion,
+    /// The maximum value of the criterion (of its logarithm for the probability of feasibility)
     pub max_criterion: f64,
     /// The scale of the EI in the WB2 criterion, if used
     pub wb2_scale: Option<f64>,
@@ -638,6 +668,12 @@ impl EgmdoSolver {
         let ei = ExpectedImprovement::with_zeta(&field, f_min, zeta, eta);
         let mut starts = self.uniform_points(self.config.n_starts);
         let (n_constraints, constraint) = constraints.as_inequalities(&self.feasibility);
+        // No DoE_UQ point is feasible by the constraint PCE means (D39)
+        let none_feasible = self.feasibility.n_constraints() > 0
+            && !self
+                .uq
+                .iter()
+                .any(|u| self.feasibility.is_feasible(&u.pce.mean().slice(s![1..])));
         let maximize = |criterion: Criterion, starts: &Array2<f64>| {
             let objective = |z: &Array1<f64>| {
                 let z = z.view().insert_axis(Axis(0)).to_owned();
@@ -656,38 +692,59 @@ impl EgmdoSolver {
                 starts,
             )
         };
-        let criterion = match self.config.acquisition {
-            Acquisition::Ei => Criterion::Ei,
-            Acquisition::Wb2 { scale } => Criterion::Wb2(scale),
-            Acquisition::Wb2s => {
-                // Scale computed at the maximum of the EI (D35)
-                let ei_optima = maximize(Criterion::Ei, &starts);
-                let scale = match ei_optima.first() {
-                    Some(best) => {
-                        starts = concatenate![Axis(0), starts, best.x.view().insert_axis(Axis(0))];
-                        wb2s_scale(-best.value, &field, &best.x)?
-                    }
-                    None => 1.,
-                };
-                Criterion::Wb2(scale)
-            }
-            Acquisition::LogEi => {
-                // Temperature relative to the spread of the objective over DoE_UQ (D36)
-                let means: Array1<f64> = self.uq.iter().map(|u| u.pce.mean()[0]).collect();
-                let spread = means.std(0.);
-                let scale = if spread > 0. {
-                    spread
-                } else {
-                    means.mapv(f64::abs).mean().unwrap_or(1.).max(1.)
-                };
-                Criterion::LogEi(LOG_EI_RELATIVE_TEMPERATURE * scale)
-            }
+        let (optima, criterion, wb2_scale) = if self.config.feasibility_first && none_feasible {
+            // Probability of feasibility of the modelled constraints, the deterministic ones
+            // staying constraints of the optimization (D39)
+            let (n_deterministic, deterministic) =
+                constraints.deterministic_inequalities(&self.feasibility);
+            let objective = |z: &Array1<f64>| {
+                constraints
+                    .log_probability_of_feasibility(&self.feasibility, z)
+                    .map_or(f64::INFINITY, |v| -v)
+            };
+            let optima = multistart_minimize_constrained(
+                &objective,
+                &deterministic,
+                n_deterministic,
+                self.problem.xlimits(),
+                &starts,
+            );
+            (optima, AcquisitionCriterion::Feasibility, None)
+        } else {
+            let criterion = match self.config.acquisition {
+                Acquisition::Ei => Criterion::Ei,
+                Acquisition::Wb2 { scale } => Criterion::Wb2(scale),
+                Acquisition::Wb2s => {
+                    // Scale computed at the maximum of the EI (D35)
+                    let ei_optima = maximize(Criterion::Ei, &starts);
+                    let scale = match ei_optima.first() {
+                        Some(best) => {
+                            starts =
+                                concatenate![Axis(0), starts, best.x.view().insert_axis(Axis(0))];
+                            wb2s_scale(-best.value, &field, &best.x)?
+                        }
+                        None => 1.,
+                    };
+                    Criterion::Wb2(scale)
+                }
+                Acquisition::LogEi => {
+                    // Temperature relative to the spread of the objective over DoE_UQ (D36)
+                    let means: Array1<f64> = self.uq.iter().map(|u| u.pce.mean()[0]).collect();
+                    let spread = means.std(0.);
+                    let scale = if spread > 0. {
+                        spread
+                    } else {
+                        means.mapv(f64::abs).mean().unwrap_or(1.).max(1.)
+                    };
+                    Criterion::LogEi(LOG_EI_RELATIVE_TEMPERATURE * scale)
+                }
+            };
+            let wb2_scale = match criterion {
+                Criterion::Wb2(scale) => Some(scale),
+                _ => None,
+            };
+            (maximize(criterion, &starts), criterion.into(), wb2_scale)
         };
-        let wb2_scale = match criterion {
-            Criterion::Wb2(scale) => Some(scale),
-            _ => None,
-        };
-        let optima = maximize(criterion, &starts);
         let max_criterion = optima.first().map_or(0., |o| -o.value);
 
         // The best proposed point which is not already in DoE_UQ (D25)
@@ -723,11 +780,12 @@ impl EgmdoSolver {
             }
         };
         log::info!(
-            "Iteration {}: max criterion = {max_criterion:e}, M = {n_modes}, z_new = {z_new:?}",
+            "Iteration {}: max {criterion:?} = {max_criterion:e}, M = {n_modes}, z_new = {z_new:?}",
             self.iter
         );
         self.history.push(IterationRecord {
             z_new,
+            criterion,
             max_criterion,
             wb2_scale,
             n_modes,
@@ -1299,6 +1357,40 @@ mod tests {
             let (requested, result) = requested_evaluations(&tp, toy_constrained_config(seed));
             assert_eq!(requested, result.n_evaluations, "seed {seed}");
         }
+    }
+
+    #[test]
+    fn test_feasibility_first() {
+        // y1 = z² - cos(y2 / 2) <= 6 is violated at every initial DoE_UQ point
+        let tp = problems::toy_constrained();
+        let infeasible = array![[-5.], [-4.2], [3.4], [4.6]];
+        let config = |feasibility_first| EgmdoConfig {
+            feasibility_first,
+            doe_uq: Some(infeasible.clone()),
+            ..toy_constrained_config(0)
+        };
+        let result = minimize(&tp.problem, &tp.disciplines, config(true)).unwrap();
+        let first = &result.history[0];
+        assert_eq!(first.criterion, AcquisitionCriterion::Feasibility);
+        assert!(first.max_criterion <= 0., "log of a probability");
+        // The probability of feasibility leads to the feasible region, then WB2 takes over
+        assert!(result.best_feasible);
+        assert!(
+            result
+                .history
+                .iter()
+                .any(|h| h.criterion == AcquisitionCriterion::Wb2)
+        );
+        // Feasible region |z| < 2.5 (both basins, the optimum being at -2.40)
+        assert!(result.z_best[0].abs() < 2.5, "z_best = {}", result.z_best);
+        // Without the option, WB2 is used whatever the feasibility
+        let result = minimize(&tp.problem, &tp.disciplines, config(false)).unwrap();
+        assert!(
+            result
+                .history
+                .iter()
+                .all(|h| h.criterion == AcquisitionCriterion::Wb2)
+        );
     }
 
     #[test]
