@@ -63,6 +63,8 @@ use egobox_moe::Recombination;
 use egobox_moe::{CorrelationSpec, RegressionSpec};
 use ndarray::Array1;
 use ndarray::Array2;
+use ndarray_rand::rand::SeedableRng;
+use rand_xoshiro::Xoshiro256Plus;
 
 use serde::{Deserialize, Serialize};
 
@@ -509,6 +511,33 @@ impl ValidEgorConfig {
     /// Number of columns of the internal output data: objectives then internal constraints
     pub(crate) fn ny_internal(&self) -> usize {
         self.n_obj + self.n_internal_cstr()
+    }
+
+    /// Tolerances of the constraints: the configured ones (if any) padded with
+    /// [`crate::DEFAULT_CSTR_TOL`] up to `n` constraints
+    pub(crate) fn cstr_tol_padded(&self, n: usize) -> Array1<f64> {
+        let mut tol = self.cstr_tol.as_ref().map_or(vec![], |tol| tol.to_vec());
+        if tol.len() < n {
+            tol.resize(n, crate::DEFAULT_CSTR_TOL);
+        }
+        Array1::from_vec(tol)
+    }
+
+    /// Random generator seeded with the configured seed if any, from entropy otherwise
+    pub(crate) fn rng(&self) -> Xoshiro256Plus {
+        match self.seed {
+            Some(seed) => Xoshiro256Plus::seed_from_u64(seed),
+            None => Xoshiro256Plus::from_entropy(),
+        }
+    }
+
+    /// Output values in the internal layout: objectives then internal `<= 0` constraints,
+    /// i.e. raw constraint values transformed with `cstr_specs` (if any)
+    pub(crate) fn to_internal_outputs(&self, y: Array2<f64>) -> Array2<f64> {
+        match self.cstr_specs.as_ref() {
+            Some(specs) => crate::types::transform_constraints_at(&y, self.n_obj, specs),
+            None => y,
+        }
     }
 }
 

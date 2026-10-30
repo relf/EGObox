@@ -104,14 +104,12 @@ use crate::types::*;
 use egobox_doe::{Lhs, SamplingMethod};
 use egobox_moe::MixintSampling;
 use log::{debug, info};
-use ndarray::{Array1, Array2, ArrayBase, Axis, Data, Ix2, Zip, concatenate, s};
+use ndarray::{Array2, ArrayBase, Axis, Data, Ix2, Zip, concatenate, s};
 use ndarray_npy::{read_npy, write_npy};
 
 use crate::{TerminationReason, errors::Result};
 use basin::{CostFunction, Problem};
 
-use ndarray_rand::rand::SeedableRng;
-use rand_xoshiro::Xoshiro256Plus;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::marker::PhantomData;
 use std::time::Instant;
@@ -164,11 +162,7 @@ where
         problem: &mut Problem<O>,
         state: EgorState<f64>,
     ) -> Result<EgorState<f64>> {
-        let mut rng = if let Some(seed) = self.config.seed {
-            Xoshiro256Plus::seed_from_u64(seed)
-        } else {
-            Xoshiro256Plus::from_entropy()
-        };
+        let mut rng = self.config.rng();
 
         let warm_start_doe: Option<Array2<f64>> = if self.config.warm_start
             && let Some(path) = self.config.outdir.as_ref()
@@ -237,10 +231,8 @@ where
         };
         // Warm-start DOE constraint columns are already in canonical form.
         // otherwise transform constraints to canonical form (ie. cstr < 0)
-        let y_data = if warm_start_doe.is_none()
-            && let Some(ref specs) = self.config.cstr_specs
-        {
-            crate::types::transform_constraints_at(&y_data, self.config.n_obj(), specs)
+        let y_data = if warm_start_doe.is_none() {
+            self.config.to_internal_outputs(y_data)
         } else {
             y_data
         };
@@ -294,27 +286,16 @@ where
         initial_state.max_iters = self.config.max_iters as u64;
         initial_state.doe.no_point_added_retries = self.config.max_point_addition_retries();
         let n_total_cstr = n_int_cstr + c_data.ncols();
-        initial_state.doe.cstr_tol = if let Some(cstr_tol) = self.config.cstr_tol.clone() {
-            if cstr_tol.len() > n_total_cstr {
-                return Err(EgoError::InvalidConfigError(format!(
-                    "cstr_tol length ({}) is larger than total internal constraint count ({})",
-                    cstr_tol.len(),
-                    n_total_cstr
-                )));
-            }
-            if cstr_tol.len() < n_total_cstr {
-                let mut tol = cstr_tol.to_vec();
-                tol.extend(std::iter::repeat_n(
-                    DEFAULT_CSTR_TOL,
-                    n_total_cstr - cstr_tol.len(),
-                ));
-                Array1::from_vec(tol)
-            } else {
-                cstr_tol
-            }
-        } else {
-            Array1::from_elem(n_total_cstr, DEFAULT_CSTR_TOL)
-        };
+        if let Some(cstr_tol) = self.config.cstr_tol.as_ref()
+            && cstr_tol.len() > n_total_cstr
+        {
+            return Err(EgoError::InvalidConfigError(format!(
+                "cstr_tol length ({}) is larger than total internal constraint count ({})",
+                cstr_tol.len(),
+                n_total_cstr
+            )));
+        }
+        initial_state.doe.cstr_tol = self.config.cstr_tol_padded(n_total_cstr);
         initial_state.target_cost = self.config.target;
 
         let best_index = if self.config.n_obj() > 1 {

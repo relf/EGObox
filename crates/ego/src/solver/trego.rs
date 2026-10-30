@@ -190,28 +190,7 @@ where
         let pb = problem.inner();
         let fcstrs = pb.constraints();
         let fcstr_specs = pb.constraint_specs();
-        let fcstr_mapping = crate::types::function_cstr_affine_mapping(fcstrs.len(), fcstr_specs)
-            .expect("validated function-constraint specs");
-        let transformed_fcstrs = fcstr_mapping
-            .iter()
-            .map(|(raw_idx, affine_scale, affine_offset)| {
-                let cstr = fcstrs[*raw_idx].clone();
-                let affine_scale = *affine_scale;
-                let affine_offset = *affine_offset;
-                move |x: &[f64],
-                      gradient: Option<&mut [f64]>,
-                      params: &mut InfillObjData<f64>|
-                      -> f64 {
-                    if let Some(g) = gradient {
-                        let raw = cstr(x, Some(g), params);
-                        g.iter_mut().for_each(|v| *v *= affine_scale);
-                        affine_scale * raw + affine_offset
-                    } else {
-                        affine_scale * cstr(x, None, params) + affine_offset
-                    }
-                }
-            })
-            .collect::<Vec<_>>();
+        let transformed_fcstrs = crate::types::affine_fcstrs(fcstrs, fcstr_specs);
         // Function constraints as given to the infill optimizer in global steps,
         // scalings being laid out as [surrogated constraints, function constraints, ...]
         let (n_cstr, n_fcstr) = (cstr_models.len(), transformed_fcstrs.len());
@@ -228,22 +207,7 @@ where
         let multistarter =
             LocalLhsMultiStarter::new(self.xlimits.clone(), xbest.to_owned(), max_dist, sub_rng);
 
-        // Make viability surrogate
-        let x_fail_points = state.surrogate.x_fail.as_ref();
-        let viability_model = if (self.config.failsafe_strategy == FailsafeStrategy::Viability
-            || self.config.feasibility_infill.is_enabled())
-            && let Some(points) = x_fail_points
-            && points.nrows() > 0
-        {
-            info!(
-                "Build viability surrogate with {} safe and {} failed points...",
-                x_data.nrows(),
-                points.nrows()
-            );
-            x_fail_points.map(|xfail_points| self.make_viability_surrogate(&x_data, xfail_points))
-        } else {
-            None
-        };
+        let viability_model = self.viability_model(&x_data, state.surrogate.x_fail.as_ref());
 
         let search_solver: &Self = search.solver.unwrap_or(self);
         let infill_optpb = InfillOptProblem::new(
@@ -284,12 +248,7 @@ where
             && is_update_ok(&x_data, &x_new.row(0))
         {
             let y_new = self.eval_obj(problem, &x_new)?;
-            // Apply constraint transformation if cstr_specs are set
-            let y_new = if let Some(ref specs) = self.config.cstr_specs {
-                crate::types::transform_constraints_at(&y_new, self.config.n_obj(), specs)
-            } else {
-                y_new
-            };
+            let y_new = self.config.to_internal_outputs(y_new);
 
             debug!("y_old-y_new={}", y_old - y_new[[0, 0]],);
             let c_new = self.eval_problem_fcstrs(problem, &x_new);

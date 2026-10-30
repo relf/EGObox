@@ -402,6 +402,30 @@ pub fn function_cstr_affine_mapping(
     }
 }
 
+/// Function constraints expanded with their specifications (see [`function_cstr_affine_mapping`]):
+/// the k-th internal function constraint is `scale_k * fcstrs[raw_k] + offset_k`
+pub(crate) fn affine_fcstrs<C: CstrFn>(
+    fcstrs: &[C],
+    specs: Option<&[CstrSpec]>,
+) -> Vec<impl CstrFn + use<C>> {
+    function_cstr_affine_mapping(fcstrs.len(), specs)
+        .expect("validated function-constraint specs")
+        .into_iter()
+        .map(|(raw_idx, scale, offset)| {
+            let cstr = fcstrs[raw_idx].clone();
+            move |x: &[f64], gradient: Option<&mut [f64]>, params: &mut InfillObjData<f64>| -> f64 {
+                if let Some(g) = gradient {
+                    let raw = cstr(x, Some(g), params);
+                    g.iter_mut().for_each(|v| *v *= scale);
+                    scale * raw + offset
+                } else {
+                    scale * cstr(x, None, params) + offset
+                }
+            }
+        })
+        .collect()
+}
+
 /// A trait for types that can be returned by an objective function.
 ///
 /// This allows objective functions to return either `Array2<f64>` directly
