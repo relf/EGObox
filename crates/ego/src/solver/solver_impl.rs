@@ -14,7 +14,7 @@ use crate::utils::{
     usable_data,
 };
 use crate::{ActivityStrategy, FullActivity, find_best_result_index};
-use crate::{DEFAULT_CSTR_TOL, EgorSolver, ValidEgorConfig};
+use crate::{EgorSolver, ValidEgorConfig};
 use crate::{EgorState, types::*};
 use egobox_moe::as_continuous_limits;
 
@@ -69,7 +69,7 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
     ) -> Array2<f64> {
         let (y_data_owned, cstr_tol) = self.service_data(y_data);
         let y_data = &y_data_owned;
-        let mut rng = self.service_rng();
+        let mut rng = self.config.rng();
         let mut clusterings = vec![None; self.config.n_surrogates()];
         let mut theta_tunings = vec![None; self.config.n_surrogates()];
 
@@ -173,7 +173,7 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
             return compromise_index(&y_data, &c_data, n_obj, &cstr_tol, &[]).unwrap_or(0);
         }
         if self.has_noisy_values() {
-            let mut rng = self.service_rng();
+            let mut rng = self.config.rng();
             let activity = FullActivity.generate_activity(x_data.ncols(), &mut rng);
             let mut models = Vec::new();
             if let Some((best_index, _)) = self.train_and_estimate_best(
@@ -198,25 +198,9 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
         &self,
         y_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
     ) -> (Array2<f64>, Array1<f64>) {
-        let y_data = if let Some(ref specs) = self.config.cstr_specs {
-            crate::types::transform_constraints_at(&y_data.to_owned(), self.config.n_obj(), specs)
-        } else {
-            y_data.to_owned()
-        };
-        let cstr_tol = self.config.cstr_tol.clone().unwrap_or(Array1::from_elem(
-            self.config.n_internal_cstr(),
-            DEFAULT_CSTR_TOL,
-        ));
+        let y_data = self.config.to_internal_outputs(y_data.to_owned());
+        let cstr_tol = self.config.cstr_tol_padded(self.config.n_internal_cstr());
         (y_data, cstr_tol)
-    }
-
-    /// Random generator of the ask-and-tell interface
-    fn service_rng(&self) -> Xoshiro256Plus {
-        if let Some(seed) = self.config.seed {
-            Xoshiro256Plus::seed_from_u64(seed)
-        } else {
-            Xoshiro256Plus::from_entropy()
-        }
     }
 }
 
@@ -295,6 +279,24 @@ where
             && (added != 0 && added.is_multiple_of(10) && added - prev_added > 0)
     }
 
+    /// Copy of the surrogate builder configured with the GP settings,
+    /// the given number of clusters and recombination
+    fn configured_builder(
+        &self,
+        n_clusters: NbClusters,
+        recombination: egobox_moe::Recombination<f64>,
+    ) -> SB {
+        let mut builder = self.surrogate_builder.clone();
+        builder.set_kpls_dim(self.config.gp.kpls_dim);
+        builder.set_regression_spec(self.config.gp.regression_spec);
+        builder.set_correlation_spec(self.config.gp.correlation_spec);
+        builder.set_n_clusters(n_clusters);
+        builder.set_recombination(recombination);
+        builder.set_optim_params(self.config.gp.n_start, self.config.gp.max_eval);
+        builder.set_noise_ratio(self.config.gp.noise_ratio.clone());
+        builder
+    }
+
     /// Train a single-cluster objective surrogate on the given (local) training data
     /// with the configured GP settings and hyperparameters optimization.
     /// Returns `None` when the training fails.
@@ -303,14 +305,8 @@ where
         xt: &ArrayBase<impl Data<Elem = f64>, Ix2>,
         yt: &ArrayBase<impl Data<Elem = f64>, Ix1>,
     ) -> Option<Box<dyn MixtureGpSurrogate>> {
-        let mut builder = self.surrogate_builder.clone();
-        builder.set_kpls_dim(self.config.gp.kpls_dim);
-        builder.set_regression_spec(self.config.gp.regression_spec);
-        builder.set_correlation_spec(self.config.gp.correlation_spec);
-        builder.set_n_clusters(NbClusters::Fixed { nb: 1 });
-        builder.set_recombination(egobox_moe::Recombination::Hard);
-        builder.set_optim_params(self.config.gp.n_start, self.config.gp.max_eval);
-        builder.set_noise_ratio(self.config.gp.noise_ratio.clone());
+        let mut builder =
+            self.configured_builder(NbClusters::Fixed { nb: 1 }, egobox_moe::Recombination::Hard);
         let dim = self.config.gp.kpls_dim.unwrap_or(xt.ncols());
         let theta_tuning = if self.config.gp.theta_tuning.is_fixed() {
             self.config.gp.theta_tuning.clone()
@@ -363,14 +359,10 @@ where
         theta_inits: Option<&Array2<f64>>,
         actives: &Array2<usize>,
     ) -> (Box<dyn MixtureGpSurrogate>, Array2<f64>) {
-        let mut builder = self.surrogate_builder.clone();
-        builder.set_kpls_dim(self.config.gp.kpls_dim);
-        builder.set_regression_spec(self.config.gp.regression_spec);
-        builder.set_correlation_spec(self.config.gp.correlation_spec);
-        builder.set_n_clusters(self.config.gp.n_clusters.clone());
-        builder.set_recombination(self.config.gp.recombination);
-        builder.set_optim_params(self.config.gp.n_start, self.config.gp.max_eval);
-        builder.set_noise_ratio(self.config.gp.noise_ratio.clone());
+        let mut builder = self.configured_builder(
+            self.config.gp.n_clusters.clone(),
+            self.config.gp.recombination,
+        );
         let mut model = None;
 
         let dim = self.config.gp.kpls_dim.unwrap_or(xt.ncols());
@@ -545,6 +537,29 @@ where
             model = Some(gp)
         }
         (model.expect("Surrogate model is trained"), best_theta_inits)
+    }
+
+    /// Viability surrogate trained on `x_train` (safe points) and `x_fail` (failed points),
+    /// when the failsafe strategy or the feasibility infill strategy requires it
+    /// and there are failed points
+    pub(crate) fn viability_model(
+        &self,
+        x_train: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+        x_fail: Option<&Array2<f64>>,
+    ) -> Option<Box<dyn MixtureGpSurrogate>> {
+        let required = self.config.failsafe_strategy == FailsafeStrategy::Viability
+            || self.config.feasibility_infill.is_enabled();
+        match x_fail {
+            Some(x_fail) if required && x_fail.nrows() > 0 => {
+                info!(
+                    "Build viability surrogate with {} safe and {} failed points...",
+                    x_train.nrows(),
+                    x_fail.nrows()
+                );
+                Some(self.make_viability_surrogate(x_train, x_fail))
+            }
+            _ => None,
+        }
     }
 
     /// Train GP model for viability surrogate (binary classification)
@@ -739,28 +754,7 @@ where
         let fcstrs = pb.constraints();
         let fcstr_specs = pb.constraint_specs();
 
-        let fcstr_mapping = crate::types::function_cstr_affine_mapping(fcstrs.len(), fcstr_specs)
-            .expect("validated function-constraint specs");
-        let transformed_fcstrs = fcstr_mapping
-            .iter()
-            .map(|(raw_idx, affine_scale, affine_offset)| {
-                let cstr = fcstrs[*raw_idx].clone();
-                let affine_scale = *affine_scale;
-                let affine_offset = *affine_offset;
-                move |x: &[f64],
-                      gradient: Option<&mut [f64]>,
-                      params: &mut InfillObjData<f64>|
-                      -> f64 {
-                    if let Some(g) = gradient {
-                        let raw = cstr(x, Some(g), params);
-                        g.iter_mut().for_each(|v| *v *= affine_scale);
-                        affine_scale * raw + affine_offset
-                    } else {
-                        affine_scale * cstr(x, None, params) + affine_offset
-                    }
-                }
-            })
-            .collect::<Vec<_>>();
+        let transformed_fcstrs = crate::types::affine_fcstrs(fcstrs, fcstr_specs);
 
         let mut rng = state.take_rng().unwrap();
         let sub_rng = Xoshiro256Plus::seed_from_u64(rng.r#gen());
@@ -768,10 +762,7 @@ where
         let sampling = Lhs::new(&self.xlimits)
             .with_rng(sub_rng)
             .kind(LhsKind::Maximin);
-        let cstr_tol = self.config.cstr_tol.clone().unwrap_or(Array1::from_elem(
-            self.config.n_internal_cstr(),
-            DEFAULT_CSTR_TOL,
-        ));
+        let cstr_tol = self.config.cstr_tol_padded(self.config.n_internal_cstr());
         let (scale_infill_obj, scale_cstr, scale_fcstr, scale_wb2) = self.compute_scaling(
             &sampling,
             obj_model.as_ref(),
@@ -1071,12 +1062,7 @@ where
         };
 
         let y_actual = self.eval_obj(problem, &x_dat)?;
-        // Apply constraint transformation if cstr_specs are set
-        let y_actual = if let Some(ref specs) = self.config.cstr_specs {
-            crate::types::transform_constraints_at(&y_actual, self.config.n_obj(), specs)
-        } else {
-            y_actual
-        };
+        let y_actual = self.config.to_internal_outputs(y_actual);
         // Current param and cost are those of the first evaluated point (internal layout)
         new_state = new_state
             .param(x_dat.row(0).to_owned())
@@ -1403,30 +1389,7 @@ where
                     .kind(LhsKind::Maximin)
                     .with_rng(sub_rng);
 
-                let fcstr_mapping =
-                    crate::types::function_cstr_affine_mapping(cstr_funcs.len(), fcstr_specs)
-                        .expect("validated function-constraint specs");
-
-                let transformed_fcstrs = fcstr_mapping
-                    .iter()
-                    .map(|(raw_idx, affine_scale, affine_offset)| {
-                        let cstr = cstr_funcs[*raw_idx].clone();
-                        let affine_scale = *affine_scale;
-                        let affine_offset = *affine_offset;
-                        move |x: &[f64],
-                              gradient: Option<&mut [f64]>,
-                              params: &mut InfillObjData<f64>|
-                              -> f64 {
-                            if let Some(g) = gradient {
-                                let raw = cstr(x, Some(g), params);
-                                g.iter_mut().for_each(|v| *v *= affine_scale);
-                                affine_scale * raw + affine_offset
-                            } else {
-                                affine_scale * cstr(x, None, params) + affine_offset
-                            }
-                        }
-                    })
-                    .collect::<Vec<_>>();
+                let transformed_fcstrs = crate::types::affine_fcstrs(cstr_funcs, fcstr_specs);
 
                 let (scale_infill_obj, scale_cstr, scale_fcstr, scale_wb2) = self.compute_scaling(
                     &sampling,
@@ -1510,23 +1473,7 @@ where
 
                 let cstr_funcs = self.infill_fcstrs(&transformed_fcstrs, &scale_fcstr);
 
-                // Make viability surrogate
-                let viability_model = if (self.config.failsafe_strategy
-                    == FailsafeStrategy::Viability
-                    || self.config.feasibility_infill.is_enabled())
-                    && let Some(points) = x_fail_points
-                    && points.nrows() > 0
-                {
-                    info!(
-                        "Build viability surrogate with {} safe and {} failed points...",
-                        x_data.nrows(),
-                        points.nrows()
-                    );
-                    x_fail_points
-                        .map(|xfail_points| self.make_viability_surrogate(&xt, xfail_points))
-                } else {
-                    None
-                };
+                let viability_model = self.viability_model(&xt, x_fail_points);
 
                 let sub_rng = Xoshiro256Plus::seed_from_u64(rng.r#gen());
                 // let multistarter = GlobalMultiStarter::new(&self.xlimits, sub_rng);
