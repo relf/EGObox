@@ -21,6 +21,13 @@ pub(crate) fn get_active_grad(grad: &[f64], active: &[usize]) -> Vec<f64> {
         .collect()
 }
 
+/// Remove out of range indices from an activity row: the last row of the activity
+/// matrix may be incomplete as n_coop might not divide nx, in which case it is padded
+/// with nx, an index meaning to discard the information while keeping rows of the same length.
+pub(crate) fn strip(active: &[usize], dim: usize) -> Vec<usize> {
+    active.iter().filter(|&&i| i < dim).cloned().collect()
+}
+
 /// Get active components from given ndarray following given axis
 /// active may contain out of range indices meaning it should be ignore
 pub(crate) fn get_active_x<A, D>(axis: Axis, xcoop: &Array<A, D>, active: &[usize]) -> Array<A, D>
@@ -49,7 +56,7 @@ where
     /// meaning to discard the indice information while keeping
     /// rows of the same length.
     pub fn strip(active: &[usize], dim: usize) -> Vec<usize> {
-        active.iter().filter(|&&i| i < dim).cloned().collect()
+        strip(active, dim)
     }
 }
 

@@ -7,11 +7,11 @@ use crate::moo::eim::EimCriterion;
 use crate::moo::pareto::pareto_front_indices;
 use crate::moo::qehvi::{QEhviCriterion, fd_steps};
 use crate::moo::scalarization::compromise_index;
+use crate::solver::coego;
 use crate::solver::solver_computations::MiddlePickerMultiStarter;
 use crate::solver::solver_infill_optim::InfillOptProblem;
 use crate::utils::{
-    EGOBOX_LOG, find_best_result_index_from, is_feasible_at, select_from_portfolio, update_data,
-    usable_data,
+    find_best_result_index_from, is_feasible_at, select_from_portfolio, update_data, usable_data,
 };
 use crate::{ActivityStrategy, FullActivity, find_best_result_index};
 use crate::{EgorSolver, ValidEgorConfig};
@@ -22,7 +22,6 @@ use basin::{CostFunction, Problem};
 
 use egobox_doe::{Lhs, LhsKind, SamplingMethod};
 use egobox_gp::{ParamTuning, ThetaTuning};
-use env_logger::{Builder, Env};
 
 use egobox_moe::AffinedSurrogate;
 use egobox_moe::{Clustering, CorrelationSpec, MixtureGpSurrogate, NbClusters, RegressionSpec};
@@ -40,10 +39,7 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
     /// The function `f` should return an objective but also constraint values if any.
     /// Design space is specified by a list of types for input variables `x` of `f` (see [`XType`]).
     pub fn new(config: ValidEgorConfig) -> Self {
-        let env = Env::new().filter_or(EGOBOX_LOG, "error");
-        let mut builder = Builder::from_env(env);
-        let builder = builder.target(env_logger::Target::Stdout);
-        builder.try_init().ok();
+        crate::utils::logging::init_logger(None);
         let xtypes = config.xtypes.clone();
         let mut surrogate_builder = SB::new_with_xtypes(&xtypes);
         // Surrogate training randomness (e.g. clustering) follows the optimizer seed
@@ -203,6 +199,25 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
         (y_data, cstr_tol)
     }
 }
+
+/// Weights of the GP standard deviation used by the GP variance portfolio: the GP variance
+/// is not believed and weighted to generate possibly several clusters hence several points
+/// to add (logspace(0.1, 100., 13) with 1. moved in front)
+const GP_VAR_PORTFOLIO_SIGMA_WEIGHTS: [f64; 13] = [
+    1.,
+    0.1,
+    0.1778279410038923,
+    0.31622776601683794,
+    0.5623413251903491,
+    1.7782794100389228,
+    3.1622776601683795,
+    5.623413251903491,
+    10.,
+    17.78279410038923,
+    31.622776601683793,
+    56.23413251903491,
+    100.,
+];
 
 /// Minimum number of training points required before considering
 /// the surrogate data-starved wrt to the dimension of the problem.
@@ -423,7 +438,7 @@ where
                                             .map(|init| ThetaTuning::Partial {
                                                 init: init.to_owned(),
                                                 bounds: theta_bounds.to_owned(),
-                                                active: Self::strip(&active.to_vec(), init.len()),
+                                                active: coego::strip(&active.to_vec(), init.len()),
                                             })
                                             .collect::<Vec<_>>()
                                     }
@@ -517,23 +532,13 @@ where
             )
             .expect("Theta initialization failure");
 
-            // Cooperative activity: update theta in mono cluster setting
-            if self.config.activity_strategy.is_cooperative() {
-                if self.config.gp.n_clusters.is_mono() {
-                    best_theta_inits = Array2::from_shape_vec(
-                        (gp.experts().len(), gp.experts()[0].theta().len()),
-                        gp.experts()
-                            .iter()
-                            .flat_map(|expert| expert.theta().to_vec())
-                            .collect(),
-                    )
-                    .expect("Theta initialization failure");
-                } else {
-                    log::warn!(
-                        "Cooperative activity theta update wrt likelihood not implemented in multi-cluster setting"
-                    );
-                }
-            };
+            if self.config.activity_strategy.is_cooperative()
+                && !self.config.gp.n_clusters.is_mono()
+            {
+                log::warn!(
+                    "Cooperative activity theta update wrt likelihood not implemented in multi-cluster setting"
+                );
+            }
             model = Some(gp)
         }
         (model.expect("Surrogate model is trained"), best_theta_inits)
@@ -1223,30 +1228,13 @@ where
     ) -> (Array2<f64>, Array2<f64>, Array2<f64>, Array2<f64>, f64) {
         let mut portfolio = vec![];
 
-        let sigma_weights = if self.config.runtime_flags.use_gp_var_portfolio
+        let sigma_weights: &[f64] = if self.config.runtime_flags.use_gp_var_portfolio
             && self.config.qei_config.batch == 1
         {
-            // Do not believe GP variance, weight it to generate possibly several clusters
-            // hence several points to add
-            // logspace(0.1, 100., 13) with 1. moved in front
-            vec![
-                1.,
-                0.1,
-                0.1778279410038923,
-                0.31622776601683794,
-                0.5623413251903491,
-                1.7782794100389228,
-                3.1622776601683795,
-                5.623413251903491,
-                10.,
-                17.78279410038923,
-                31.622776601683793,
-                56.23413251903491,
-                100.,
-            ]
+            &GP_VAR_PORTFOLIO_SIGMA_WEIGHTS
         } else {
             // Fallback to default GP usage
-            vec![1.]
+            &[1.]
         };
 
         for (j, sigma_weight) in sigma_weights.iter().enumerate() {
@@ -1357,7 +1345,7 @@ where
                 };
 
                 if self.config.outdir.is_some() && i == 0 && j == 0 {
-                    use crate::utils::{EGOR_GP_FILENAME, EGOR_INITIAL_GP_FILENAME, gp_recorder};
+                    use crate::{EGOR_GP_FILENAME, EGOR_INITIAL_GP_FILENAME, utils::gp_recorder};
 
                     let default_dir = String::from("./");
                     let outdir = self.config.outdir.as_ref().unwrap_or(&default_dir);

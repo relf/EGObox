@@ -13,7 +13,7 @@
 //! - [`EgorState`] - Optimizer state (iterations, best point, surrogate data, ...)
 //! - [`TerminationStatus`] / [`TerminationReason`] - Optimization termination status
 //! - [`EgorConfig`] / [`ValidEgorConfig`] - Configuration builders and validated config
-//! - [`EgorService`] - Ask-and-tell interface for external control
+//! - [`EgorServiceBuilder`] / [`EgorServiceApi`] - Ask-and-tell interface for external control
 //!
 //! ### State Organization ([`egor_state`])
 //!

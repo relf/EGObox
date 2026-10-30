@@ -27,11 +27,5 @@ pub const EGOBOX_LOG: &str = "EGOBOX_LOG";
 /// Env variable to enable the portfolio method used for global infill criterion optimization
 pub const EGOR_USE_GP_VAR_PORTFOLIO: &str = "EGOR_USE_GP_VAR_PORTFOLIO";
 
-/// Gaussian process filename to save initial GPs built from initial_doe
-pub const EGOR_INITIAL_GP_FILENAME: &str = "egor_initial_gp.bin";
-
-/// Gaussian process filename to save GPs built at the last iteration
-pub const EGOR_GP_FILENAME: &str = "egor_gp.bin";
-
 /// Env variable to trigger run recording
 pub const EGOR_USE_STATE_RECORDING: &str = "EGOR_USE_STATE_RECORDING";

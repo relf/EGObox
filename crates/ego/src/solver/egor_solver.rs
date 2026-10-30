@@ -91,6 +91,7 @@
 //! Alternatively, [`crate::EgorServiceBuilder`] provides an ask-and-tell interface
 //! when the optimization loop has to be controlled externally.
 //!
+use crate::outputs::{DOE_FILE, DOE_INITIAL_FILE};
 use crate::solver::iteration_strategy::IterationMode;
 use crate::solver::solver_impl::DataClustering;
 use crate::solver::trego::{LocalSearch, local_training_rows};
@@ -113,11 +114,6 @@ use basin::{CostFunction, Problem};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::marker::PhantomData;
 use std::time::Instant;
-
-/// Numpy filename for initial DOE dump
-pub const DOE_INITIAL_FILE: &str = "egor_initial_doe.npy";
-/// Numpy filename for current DOE dump
-pub const DOE_FILE: &str = "egor_doe.npy";
 
 /// Default tolerance value for constraints to be satisfied (ie cstr < tol)
 pub const DEFAULT_CSTR_TOL: f64 = 1e-4;

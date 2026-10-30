@@ -152,14 +152,6 @@ impl CooperativeActivity {
         self.n_coop = n_coop;
         self
     }
-
-    /// Remove out-of-range indices from the activity row.
-    ///
-    /// When `n_coop` does not evenly divide `nx`, the last row of the activity
-    /// matrix may contain `nx` as a sentinel value. This function filters those out.
-    fn strip(active: &[usize], dim: usize) -> Vec<usize> {
-        active.iter().filter(|&&i| i < dim).cloned().collect()
-    }
 }
 
 #[typetag::serde]
@@ -199,12 +191,12 @@ impl ActivityStrategy for CooperativeActivity {
                 ThetaTuning::Fixed(init) => ThetaTuning::Partial {
                     init: init.clone(),
                     bounds: Array1::from_vec(vec![ThetaTuning::<f64>::DEFAULT_BOUNDS; init.len()]),
-                    active: Self::strip(active, init.len()),
+                    active: super::coego::strip(active, init.len()),
                 },
                 ThetaTuning::Full { init, bounds } => ThetaTuning::Partial {
                     init: init.clone(),
                     bounds: bounds.clone(),
-                    active: Self::strip(active, init.len()),
+                    active: super::coego::strip(active, init.len()),
                 },
                 ThetaTuning::Partial {
                     init,
@@ -213,7 +205,7 @@ impl ActivityStrategy for CooperativeActivity {
                 } => ThetaTuning::Partial {
                     init: init.clone(),
                     bounds: bounds.clone(),
-                    active: Self::strip(active, init.len()),
+                    active: super::coego::strip(active, init.len()),
                 },
             };
         });

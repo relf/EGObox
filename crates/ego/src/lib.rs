@@ -462,15 +462,16 @@ mod types;
 pub use crate::egor::*;
 pub use crate::errors::*;
 pub use crate::moo::{EimAggregation, MooConfig, MooStrategy, ParetoResult};
+pub use crate::outputs::*;
 pub use crate::solver::*;
 pub use crate::types::*;
 pub use crate::utils::{
-    CHECKPOINT_FILE, EGOBOX_LOG, EGOR_GP_FILENAME, EGOR_INITIAL_GP_FILENAME,
-    EGOR_USE_GP_VAR_PORTFOLIO, HotStartMode, find_best_result_index, find_compromise_index,
-    find_pareto_front_indices, load_gp_models,
+    EGOBOX_LOG, EGOR_USE_GP_VAR_PORTFOLIO, HotStartMode, find_best_result_index,
+    find_compromise_index, find_pareto_front_indices, load_gp_models,
 };
 pub use egobox_moe::{CorrelationSpec, ParamTuning, RegressionSpec};
 
 mod moo;
 mod optimizers;
+mod outputs;
 mod utils;

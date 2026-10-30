@@ -347,93 +347,9 @@ where
     }
 }
 
-#[derive(PartialEq, Debug, Default)]
-pub enum Phase {
-    #[default]
-    Global,
-    Local,
-}
-
-#[allow(unused_variables)]
-pub fn next_phase(
-    sufficient_decrease: bool,
-    global_iter: usize,
-    local_iter: usize,
-    n_global: usize,
-    n_local: usize,
-) -> (Phase, usize, usize) {
-    if global_iter > 0 && global_iter < n_global {
-        // Normal global step
-        (Phase::Global, global_iter + 1, local_iter)
-    } else if global_iter == n_global {
-        // End of global phase unless sufficient decrease
-        if sufficient_decrease {
-            (Phase::Global, 1, 0)
-        } else {
-            (Phase::Local, 0, 1)
-        }
-    } else if local_iter > 0 && local_iter < n_local {
-        // Normal local step
-        (Phase::Local, 0, local_iter + 1)
-    } else if local_iter == n_local {
-        // End of local phase
-        (Phase::Global, 1, 0)
-    } else {
-        // First iteration
-        (Phase::Global, global_iter + 1, 0)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    const N_G: usize = 2;
-    const N_L: usize = 2;
-
-    #[test]
-    fn test_it1() {
-        assert_eq!(next_phase(false, 0, 0, N_G, N_L), (Phase::Global, 1, 0));
-    }
-
-    #[test]
-    fn test_it2() {
-        assert_eq!(next_phase(false, 1, 0, N_G, N_L), (Phase::Global, 2, 0));
-    }
-
-    #[test]
-    fn test_it3_no_decrease() {
-        assert_eq!(next_phase(false, 2, 0, N_G, N_L), (Phase::Local, 0, 1));
-    }
-
-    #[test]
-    fn test_it4_no_decrease() {
-        assert_eq!(next_phase(false, 0, 1, N_G, N_L), (Phase::Local, 0, 2));
-    }
-
-    #[test]
-    fn test_it5_no_decrease() {
-        assert_eq!(next_phase(false, 0, 2, N_G, N_L), (Phase::Global, 1, 0));
-    }
-    #[test]
-    fn test_it6_no_decrease() {
-        assert_eq!(next_phase(false, 1, 0, N_G, N_L), (Phase::Global, 2, 0));
-    }
-
-    #[test]
-    fn test_it7_decrease() {
-        assert_eq!(next_phase(true, 2, 0, N_G, N_L), (Phase::Global, 1, 0));
-    }
-
-    #[test]
-    fn test_it8_no_decrease() {
-        assert_eq!(next_phase(false, 1, 0, N_G, N_L), (Phase::Global, 2, 0));
-    }
-
-    #[test]
-    fn test_it9_no_decrease() {
-        assert_eq!(next_phase(false, 2, 0, N_G, N_L), (Phase::Local, 0, 1));
-    }
 
     #[test]
     fn test_local_training_rows() {
