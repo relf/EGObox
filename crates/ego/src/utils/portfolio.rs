@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use linfa::traits::Transformer;
 
 use linfa_clustering::Dbscan;
+
+use crate::types::Candidates;
 use ndarray::{Array1, Array2, ArrayBase, Data, Ix2};
 
 /// Generate `num` points spaced evenly on a log scale between `start` and `end`.
@@ -45,16 +47,13 @@ pub fn cluster_as_indices(xdat: &ArrayBase<impl Data<Elem = f64>, Ix2>) -> Vec<u
 }
 
 /// This function clusters portfolio information wrt x values then pick one member of each cluster
-#[allow(clippy::type_complexity)]
-pub fn select_from_portfolio(
-    portfolio: Vec<(Array2<f64>, Array2<f64>, Array2<f64>, Array2<f64>, f64)>,
-) -> (Array2<f64>, Array2<f64>, Array2<f64>, Array2<f64>, f64) {
+pub(crate) fn select_from_portfolio(portfolio: Vec<Candidates>) -> Candidates {
     let n = portfolio.len();
-    let mut xdat = Array2::zeros((n, portfolio[0].0.ncols()));
+    let mut xdat = Array2::zeros((n, portfolio[0].x.ncols()));
 
     for (i, info) in portfolio.iter().enumerate() {
         // Pick the first x (row(0)) as representative of q points batch
-        xdat.row_mut(i).assign(&info.0.row(0).to_owned());
+        xdat.row_mut(i).assign(&info.x.row(0).to_owned());
     }
 
     // Indices of representative of a cluster
@@ -65,27 +64,34 @@ pub fn select_from_portfolio(
     // Pick information from portfolio of given indices and concatenate
     let nclusters = indices.len();
 
-    let mut xdat = Array2::zeros((nclusters.max(1), portfolio[0].0.ncols()));
-    let mut ydat = Array2::zeros((nclusters.max(1), portfolio[0].1.ncols()));
-    let mut cdat = Array2::zeros((nclusters.max(1), portfolio[0].2.ncols()));
-    let mut ypen = Array2::zeros((nclusters.max(1), portfolio[0].3.ncols()));
+    let mut xdat = Array2::zeros((nclusters.max(1), portfolio[0].x.ncols()));
+    let mut ydat = Array2::zeros((nclusters.max(1), portfolio[0].y.ncols()));
+    let mut cdat = Array2::zeros((nclusters.max(1), portfolio[0].c.ncols()));
+    let mut ypen = Array2::zeros((nclusters.max(1), portfolio[0].y_penalized.ncols()));
 
     if nclusters > 1 {
         for (i, index) in indices.iter().enumerate() {
-            xdat.row_mut(i).assign(&portfolio[*index].0.row(0));
-            ydat.row_mut(i).assign(&portfolio[*index].1.row(0));
-            cdat.row_mut(i).assign(&portfolio[*index].2.row(0));
-            ypen.row_mut(i).assign(&portfolio[*index].3.row(0));
+            xdat.row_mut(i).assign(&portfolio[*index].x.row(0));
+            ydat.row_mut(i).assign(&portfolio[*index].y.row(0));
+            cdat.row_mut(i).assign(&portfolio[*index].c.row(0));
+            ypen.row_mut(i)
+                .assign(&portfolio[*index].y_penalized.row(0));
         }
     } else {
-        xdat.row_mut(0).assign(&portfolio[0].0.row(0));
-        ydat.row_mut(0).assign(&portfolio[0].1.row(0));
-        cdat.row_mut(0).assign(&portfolio[0].2.row(0));
-        ypen.row_mut(0).assign(&portfolio[0].3.row(0));
+        xdat.row_mut(0).assign(&portfolio[0].x.row(0));
+        ydat.row_mut(0).assign(&portfolio[0].y.row(0));
+        cdat.row_mut(0).assign(&portfolio[0].c.row(0));
+        ypen.row_mut(0).assign(&portfolio[0].y_penalized.row(0));
     }
     // FIXME: Have to check if fmin and infill_data values are relevant
     // At the moment just pick the first values of portfolio
-    (xdat, ydat, cdat, ypen, portfolio[0].4)
+    Candidates {
+        x: xdat,
+        y: ydat,
+        c: cdat,
+        y_penalized: ypen,
+        infill_value: portfolio[0].infill_value,
+    }
 }
 
 #[cfg(test)]

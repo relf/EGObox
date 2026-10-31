@@ -88,6 +88,7 @@ pub mod iteration_strategy;
 mod solver_computations;
 mod solver_impl;
 mod solver_infill_optim;
+mod surrogate_set;
 mod termination;
 mod trego;
 
