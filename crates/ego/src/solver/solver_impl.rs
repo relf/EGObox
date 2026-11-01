@@ -664,6 +664,54 @@ where
         Some((best_index, feasibility))
     }
 
+    /// Data of the infill criterion optimization shared by global and local steps:
+    /// incumbent value and best point, scalings of the infill criterion and of the constraints
+    /// laid out as surrogate constraints, function constraints then probability of viability.
+    /// Scalings are computed on a LHS sample seeded from `rng`, also returned to scale other
+    /// criteria.
+    pub(crate) fn infill_obj_data(
+        &self,
+        inputs: &SelectionInputs<impl CstrFn>,
+        obj_model: &dyn MixtureGpSurrogate,
+        cstr_models: &[Box<dyn MixtureGpSurrogate>],
+        sigma_weight: f64,
+        rng: &mut Xoshiro256Plus,
+    ) -> (InfillObjData<f64>, Lhs<f64, Xoshiro256Plus>) {
+        let (x_data, y_data) = (&inputs.x_data, &inputs.y_data);
+        let fmin = self.incumbent_value(obj_model, x_data, y_data, inputs.best_index);
+        let xbest = x_data.row(inputs.best_index).to_vec();
+
+        let sub_rng = Xoshiro256Plus::seed_from_u64(rng.r#gen());
+        let sampling = Lhs::new(&self.xlimits)
+            .kind(LhsKind::Maximin)
+            .with_rng(sub_rng);
+        let n_fcstr = function_cstr_affine_mapping(inputs.fcstrs.len(), inputs.fcstr_specs)
+            .expect("validated function-constraint specs")
+            .len();
+        let (scale_infill_obj, scale_cstr, scale_fcstr, scale_wb2) = self.compute_scaling(
+            &sampling,
+            obj_model,
+            cstr_models,
+            inputs.cstr_tol,
+            n_fcstr,
+            fmin,
+            sigma_weight,
+        );
+        let scale_pov_cstr = Array1::ones((1,)); // PoV cstr is normalized
+        let all_scale_cstr = concatenate![Axis(0), scale_cstr, scale_fcstr, scale_pov_cstr];
+
+        let infill_data = InfillObjData {
+            fmin,
+            xbest,
+            scale_infill_obj,
+            scale_cstr: Some(all_scale_cstr),
+            scale_wb2,
+            feasibility: inputs.feasibility,
+            sigma_weight,
+        };
+        (infill_data, sampling)
+    }
+
     /// Refresh infill data used to optimize infill criterion
     pub fn refresh_infill_data<
         O: CostFunction<Param = Array2<f64>, Output = Array2<f64>, Error = crate::EgoError>
@@ -674,55 +722,30 @@ where
         state: &mut EgorState<f64>,
         models: &[Box<dyn egobox_moe::MixtureGpSurrogate>],
     ) -> InfillObjData<f64> {
-        let y_data = state.surrogate.data.as_ref().unwrap().1.clone();
-        let x_data = state.surrogate.data.as_ref().unwrap().0.clone();
         let (obj_model, cstr_models) = models.split_first().unwrap();
-
-        let fmin = self.incumbent_value(
-            obj_model.as_ref(),
-            &x_data,
-            &y_data,
-            state.surrogate.best_index.unwrap(),
-        );
-        let xbest = x_data.row(state.surrogate.best_index.unwrap()).to_vec();
-
         let pb = problem.inner();
-        let fcstrs = pb.constraints();
-        let fcstr_specs = pb.constraint_specs();
-
-        let transformed_fcstrs = crate::types::affine_fcstrs(fcstrs, fcstr_specs);
-
         let mut rng = state.take_rng().unwrap();
-        let sub_rng = Xoshiro256Plus::seed_from_u64(rng.r#gen());
-        *state = state.clone().rng(rng.clone());
-        let sampling = Lhs::new(&self.xlimits)
-            .with_rng(sub_rng)
-            .kind(LhsKind::Maximin);
-        let cstr_tol = self.config.cstr_tol_padded(self.config.n_internal_cstr());
-        let (scale_infill_obj, scale_cstr, scale_fcstr, scale_wb2) = self.compute_scaling(
-            &sampling,
-            obj_model.as_ref(),
-            cstr_models,
-            &cstr_tol,
-            transformed_fcstrs.len(),
-            fmin,
-            1., // FIXME: TREGO does not use sigma weighting portfolio
-        );
-
-        // Same layout as in global steps: surrogate constraints, function constraints
-        // then probability of viability constraint (normalized)
-        let scale_pov_cstr = Array1::ones((1,));
-        let all_scale_cstr = concatenate![Axis(0), scale_cstr, scale_fcstr, scale_pov_cstr];
-
-        InfillObjData {
-            fmin,
-            xbest,
-            scale_infill_obj,
-            scale_cstr: Some(all_scale_cstr.to_owned()),
-            scale_wb2,
+        let (x_data, y_data, c_data) = state.surrogate.data.as_ref().unwrap();
+        let inputs = SelectionInputs {
+            init: false,
+            iter: state.get_iter(),
+            recluster: false,
+            activity: &state.coego.activity,
+            x_data: x_data.view(),
+            y_data: y_data.view(),
+            c_data: c_data.view(),
+            x_fail: state.surrogate.x_fail.as_ref(),
+            cstr_tol: &state.doe.cstr_tol,
+            best_index: state.surrogate.best_index.unwrap(),
             feasibility: state.feasibility,
-            sigma_weight: 1., // FIXME: TREGO does not use sigma weighting portfolio
-        }
+            fcstrs: pb.constraints(),
+            fcstr_specs: pb.constraint_specs(),
+        };
+        // FIXME: TREGO does not use sigma weighting portfolio
+        let (infill_data, _) =
+            self.infill_obj_data(&inputs, obj_model.as_ref(), cstr_models, 1., &mut rng);
+        *state = state.clone().rng(rng);
+        infill_data
     }
 
     /// Train all constraint columns in parallel (no deduplication).

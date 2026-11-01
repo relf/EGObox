@@ -12,7 +12,7 @@ use crate::solver::surrogate_set::{DataClustering, SurrogateSet, TrainSpec};
 use crate::utils::select_from_portfolio;
 use crate::{EgorSolver, types::*};
 
-use egobox_doe::{Lhs, LhsKind, SamplingMethod};
+use egobox_doe::SamplingMethod;
 use egobox_moe::{Clustering, MixtureGpSurrogate};
 use log::{debug, info};
 use ndarray::{Array1, Array2, ArrayBase, ArrayView2, Axis, Data, Ix2, Zip, concatenate, s};
@@ -332,33 +332,26 @@ where
         let obj_model = &obj_models[0];
         debug!("... surrogates trained");
 
-        let fmin = self.incumbent_value(obj_model.as_ref(), x_data, y_data, best_index);
         let ybest = y_data.row(best_index).to_owned();
         let xbest = x_data.row(best_index).to_owned();
         let cbest = c_data.row(best_index).to_owned();
 
-        let sub_rng = Xoshiro256Plus::seed_from_u64(rng.r#gen());
-        let sampling = Lhs::new(&self.xlimits)
-            .kind(LhsKind::Maximin)
-            .with_rng(sub_rng);
-
-        let transformed_fcstrs = crate::types::affine_fcstrs(inputs.fcstrs, inputs.fcstr_specs);
-
-        let (scale_infill_obj, scale_cstr, scale_fcstr, scale_wb2) = self.compute_scaling(
-            &sampling,
+        // fmin and xbest are kept the same for all q points
+        // Would it be best to update them with regard to predicted virtual points?
+        // Keep it simple: For the moment we keep them fixed to the current best observed point
+        let (mut infill_data, sampling) = self.infill_obj_data(
+            inputs,
             obj_model.as_ref(),
             cstr_models,
-            cstr_tol,
-            transformed_fcstrs.len(),
-            fmin,
             batch.sigma_weight,
+            rng,
         );
         let moo_criterion = if self.config.is_per_objective() {
             Some(self.moo_criterion(inputs, obj_models, batch, yt, rng)?)
         } else {
             None
         };
-        let scale_infill_obj = if let Some(criterion) = moo_criterion.as_ref() {
+        if let Some(criterion) = moo_criterion.as_ref() {
             let npts = (100 * self.xlimits.nrows()).min(1000);
             let scale = criterion.scaling(&sampling.sample(npts));
             info!(
@@ -366,26 +359,10 @@ where
                 criterion.name(),
                 criterion.front_size()
             );
-            scale
-        } else {
-            scale_infill_obj
-        };
-        let scale_pov_cstr = Array1::ones((1,)); // PoV cstr is normalized
-        let all_scale_cstr = concatenate![Axis(0), scale_cstr, scale_fcstr, scale_pov_cstr];
+            infill_data.scale_infill_obj = scale;
+        }
 
-        // fmin and xbest are kept the same for all q points
-        // Would it be best to update them with regard to predicted virtual points?
-        // Keep it simple: For the moment we keep them fixed to the current best observed point
-        let infill_data = InfillObjData {
-            fmin,
-            xbest: xbest.to_vec(),
-            scale_infill_obj,
-            scale_cstr: Some(all_scale_cstr.to_owned()),
-            scale_wb2,
-            feasibility: inputs.feasibility,
-            sigma_weight: batch.sigma_weight,
-        };
-
+        let transformed_fcstrs = crate::types::affine_fcstrs(inputs.fcstrs, inputs.fcstr_specs);
         let cstr_funcs = self.infill_fcstrs(&transformed_fcstrs);
 
         let viability_model = self.viability_model(xt, inputs.x_fail);
