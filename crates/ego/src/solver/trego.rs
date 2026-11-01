@@ -10,71 +10,18 @@ use crate::utils::{find_best_result_index_from, is_feasible, is_update_ok, updat
 
 use basin::{CostFunction, Problem};
 
-use egobox_doe::Lhs;
-use egobox_doe::SamplingMethod;
 use egobox_moe::MixtureGpSurrogate;
 
 use log::{debug, info};
-use ndarray::{Array1, Array2, ArrayBase, Axis, Data, Ix1, Ix2, Zip, aview1, s};
+use ndarray::{Array1, Array2, ArrayBase, Axis, Data, Ix1, Ix2, Zip, s};
 use ndarray_stats::DeviationExt;
 
 use ndarray_rand::rand::{Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256Plus;
 use serde::{Serialize, de::DeserializeOwned};
 
-use super::coego;
-use super::solver_infill_optim::MultiStarter;
+use super::multistart::LocalLhsMultiStarter;
 use super::surrogate_set::{DataClustering, SurrogateSet};
-
-/// LocalMultiStarter is a multistart strategy that samples points in the local area
-/// defined by the trust region and the xlimits.
-struct LocalLhsMultiStarter<R: Rng + Clone> {
-    xlimits: Array2<f64>,
-    origin: Array1<f64>,
-    max_dist: f64,
-    rng: R,
-}
-
-impl<R: Rng + Clone> LocalLhsMultiStarter<R> {
-    fn new(xlimits: Array2<f64>, origin: Array1<f64>, max_dist: f64, rng: R) -> Self {
-        Self {
-            xlimits,
-            origin,
-            max_dist,
-            rng,
-        }
-    }
-}
-
-impl<R: Rng + Clone> MultiStarter for LocalLhsMultiStarter<R> {
-    fn multistart(&mut self, n_start: usize, active: &[usize]) -> Array2<f64> {
-        // Draw n_start initial points (multistart optim) in the local_area
-        // xbounds = intersection(trust_region, xlimits)
-        let xbounds = self.xbounds(active);
-        let lhs = Lhs::new(&xbounds)
-            .kind(egobox_doe::LhsKind::Maximin)
-            .with_rng(&mut self.rng);
-        lhs.sample(n_start)
-    }
-
-    fn xbounds(&self, active: &[usize]) -> Array2<f64> {
-        // local_area = intersection(trust_region, xlimits[active])
-        let xlimits = coego::get_active_x(Axis(0), &self.xlimits, active);
-        let origin = coego::get_active_x(Axis(0), &self.origin, active);
-        let mut local_area = Array2::zeros(xlimits.dim());
-        Zip::from(local_area.rows_mut())
-            .and(&origin)
-            .and(xlimits.rows())
-            .for_each(|mut row, xb, xlims| {
-                let (lo, up) = (
-                    xlims[0].max(xb - self.max_dist),
-                    xlims[1].min(xb + self.max_dist),
-                );
-                row.assign(&aview1(&[lo, up]))
-            });
-        local_area
-    }
-}
 
 /// Overrides used to select the candidate point of a local step: the objective model
 /// (e.g. a local GP) and the solver, hence the infill criterion (e.g. posterior mean)

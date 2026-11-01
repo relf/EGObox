@@ -440,6 +440,29 @@ pub(crate) struct Candidates {
     pub(crate) infill_value: f64,
 }
 
+impl Candidates {
+    /// No point yet, given dimensions of x, y and function constraints
+    pub(crate) fn empty(nx: usize, ny: usize, nc: usize) -> Self {
+        Candidates {
+            x: Array2::zeros((0, nx)),
+            y: Array2::zeros((0, ny)),
+            c: Array2::zeros((0, nc)),
+            y_penalized: Array2::zeros((0, ny)),
+            infill_value: f64::INFINITY,
+        }
+    }
+
+    /// Append `other` points, the infill criterion value becomes the `other` one
+    pub(crate) fn append(&mut self, other: Candidates) {
+        self.x = ndarray::concatenate![ndarray::Axis(0), self.x, other.x];
+        self.y = ndarray::concatenate![ndarray::Axis(0), self.y, other.y];
+        self.c = ndarray::concatenate![ndarray::Axis(0), self.c, other.c];
+        self.y_penalized =
+            ndarray::concatenate![ndarray::Axis(0), self.y_penalized, other.y_penalized];
+        self.infill_value = other.infill_value;
+    }
+}
+
 /// A trait for types that can be returned by an objective function.
 ///
 /// This allows objective functions to return either `Array2<f64>` directly

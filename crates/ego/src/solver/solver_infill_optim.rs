@@ -13,23 +13,11 @@ use rayon::prelude::*;
 use serde::{Serialize, de::DeserializeOwned};
 
 use super::coego;
+use super::multistart::MultiStarter;
 
 /// Minimal probability of viability required for an infill point
 /// when viability failsafe strategy is used
 const MIN_PROBA_OF_VIABILITY: f64 = 0.25;
-
-/// A trait for multi start initial points computation
-pub(crate) trait MultiStarter {
-    /// Return initial points for optimization multistart
-    /// taking into account active components given as a set of indices
-    fn multistart(&mut self, n_start: usize, active: &[usize]) -> Array2<f64>;
-
-    /// Return the bounds of the design space
-    /// Compared to xlimits which are given by the user for all x components,
-    /// xbounds are the actual bounds used during optimization taking into account
-    /// active components and possibly trust region restrictions
-    fn xbounds(&self, active: &[usize]) -> Array2<f64>;
-}
 
 pub(crate) struct InfillOptProblem<'a, CstrFn> {
     pub obj_model: &'a dyn MixtureGpSurrogate,
