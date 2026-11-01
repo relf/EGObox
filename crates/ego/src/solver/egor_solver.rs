@@ -95,9 +95,7 @@ use crate::outputs::{DOE_FILE, DOE_INITIAL_FILE};
 use crate::solver::iteration_strategy::IterationMode;
 use crate::solver::surrogate_set::{DataClustering, SurrogateSet};
 use crate::solver::trego::{LocalSearch, local_training_rows};
-use crate::utils::{
-    EGOR_USE_GP_VAR_PORTFOLIO, EGOR_USE_STATE_RECORDING, filter_nans, find_best_result_index,
-};
+use crate::utils::{EGOR_USE_GP_VAR_PORTFOLIO, EGOR_USE_STATE_RECORDING, filter_nans};
 use crate::{EgoError, EgorState, ValidEgorConfig};
 
 use crate::types::*;
@@ -105,8 +103,9 @@ use crate::types::*;
 use egobox_doe::{Lhs, SamplingMethod};
 use egobox_moe::MixintSampling;
 use log::{debug, info};
-use ndarray::{Array2, ArrayBase, Axis, Data, Ix2, Zip, concatenate, s};
+use ndarray::{Array1, Array2, ArrayBase, Axis, Data, Ix2, Zip, concatenate, s};
 use ndarray_npy::{read_npy, write_npy};
+use rand_xoshiro::Xoshiro256Plus;
 
 use crate::{TerminationReason, errors::Result};
 use basin::{CostFunction, Problem};
@@ -145,6 +144,48 @@ pub fn to_xtypes(xlimits: &ArrayBase<impl Data<Elem = f64>, Ix2>) -> Vec<XType> 
     xtypes
 }
 
+/// Terminate with the `fallback` state when the objective function failed
+fn exit_on_objective_error(
+    result: Result<EgorState<f64>>,
+    fallback: EgorState<f64>,
+) -> Result<EgorState<f64>> {
+    match result {
+        Err(EgoError::ObjectiveFunctionError(_)) => Ok(fallback.terminate_with(
+            TerminationReason::SolverExit(OBJECTIVE_FUNCTION_ERROR.to_string()),
+        )),
+        result => result,
+    }
+}
+
+/// Split evaluated points `(x, y, c)` into valid points and failed points (NaN values).
+/// Fails when all points failed.
+#[allow(clippy::type_complexity)]
+fn split_failed_points(
+    x_data: Array2<f64>,
+    y_data: Array2<f64>,
+    c_data: Array2<f64>,
+) -> Result<(Array2<f64>, Array2<f64>, Array2<f64>, Array2<f64>)> {
+    let (valid_idx, invalid_idx) = filter_nans(&y_data);
+    if valid_idx.is_empty() {
+        return Err(EgoError::ObjectiveFunctionError(format!(
+            "Objective evaluation failed (NaN) at all {} initial DOE points",
+            invalid_idx.len()
+        )));
+    }
+    let x_fail = x_data.select(Axis(0), &invalid_idx).clone();
+    let x_data = x_data.select(Axis(0), &valid_idx);
+    let y_data = y_data.select(Axis(0), &valid_idx);
+    let c_data = c_data.select(Axis(0), &valid_idx);
+    if !invalid_idx.is_empty() {
+        log::warn!(
+            "{} failed points out of {} points in initial DOE ",
+            x_fail.nrows(),
+            x_data.nrows() + x_fail.nrows()
+        );
+    }
+    Ok((x_data, y_data, c_data, x_fail))
+}
+
 impl<SB, C> EgorSolver<SB, C>
 where
     C: CstrFn,
@@ -160,25 +201,103 @@ where
     ) -> Result<EgorState<f64>> {
         let mut rng = self.config.rng();
 
-        let warm_start_doe: Option<Array2<f64>> = if self.config.warm_start
+        let warm_start_doe = self.load_warm_start_doe()?;
+        let (x_data, y_data) = self.initial_doe(problem, warm_start_doe.as_ref(), &rng)?;
+        let doe = concatenate![Axis(1), x_data, y_data];
+        self.save_initial_doe(&doe)?;
+
+        let n_int_cstr = self.config.n_internal_cstr();
+        let clusterings = vec![None; self.config.n_surrogates()];
+        let theta_inits = vec![None; self.config.n_surrogates()];
+
+        let c_data = self.eval_problem_fcstrs(problem, &x_data);
+
+        let activity = self
+            .config
+            .activity_strategy
+            .generate_activity(self.xlimits.nrows(), &mut rng);
+        debug!("Component activity = {activity:?}");
+
+        let (x_data, y_data, c_data, x_fail) = split_failed_points(x_data, y_data, c_data)?;
+        let n_valid = x_data.nrows();
+        let mut initial_state = state
+            .data((x_data.clone(), y_data.clone(), c_data.clone()))
+            .x_fail(x_fail)
+            .count_added_points(n_valid)
+            .clusterings(clusterings)
+            .theta_inits(theta_inits)
+            .rng(rng);
+
+        initial_state.doe.doe_size = doe.nrows();
+        initial_state.max_iters = self.config.max_iters as u64;
+        initial_state.doe.no_point_added_retries = self.config.max_point_addition_retries();
+        initial_state.doe.cstr_tol = self.internal_cstr_tol(n_int_cstr + c_data.ncols())?;
+        initial_state.target_cost = self.config.target;
+
+        let best_index = self.observed_best_index(&y_data, &c_data, &initial_state.doe.cstr_tol);
+        initial_state.surrogate.best_index = Some(best_index);
+        initial_state.surrogate.prev_best_index = initial_state.surrogate.best_index;
+        initial_state.last_best_iter = 0;
+
+        // Initialize iteration strategy state (e.g., TREGO sigma)
+        self.config
+            .iteration_strategy
+            .init_state(&mut initial_state, &self.xlimits);
+
+        initial_state.coego.activity = activity;
+        debug!("Initial State = {initial_state:?}");
+        info!(
+            "{} setting: {}",
+            EGOR_USE_GP_VAR_PORTFOLIO, self.config.runtime_flags.use_gp_var_portfolio
+        );
+        info!(
+            "{} setting: {}",
+            EGOR_USE_STATE_RECORDING, self.config.runtime_flags.use_state_recording
+        );
+
+        info!(
+            "********* Initialization: Best fun(x[{}])={} at x={}",
+            best_index,
+            y_data.row(best_index),
+            x_data.row(best_index)
+        );
+
+        Ok(initial_state)
+    }
+
+    /// DOE saved in the output directory by a previous run, when warm start is enabled:
+    /// the DOE of its last iteration if any, its initial DOE otherwise
+    fn load_warm_start_doe(&self) -> Result<Option<Array2<f64>>> {
+        if self.config.warm_start
             && let Some(path) = self.config.outdir.as_ref()
         {
             let filepath = std::path::Path::new(&path).join(DOE_FILE);
             if filepath.is_file() {
                 info!("Reading DOE from {filepath:?}");
-                Some(read_npy(filepath)?)
+                Ok(Some(read_npy(filepath)?))
             } else if std::path::Path::new(&path).join(DOE_INITIAL_FILE).is_file() {
                 let filepath = std::path::Path::new(&path).join(DOE_INITIAL_FILE);
                 info!("Reading DOE from {filepath:?}");
-                Some(read_npy(filepath)?)
+                Ok(Some(read_npy(filepath)?))
             } else {
-                None
+                Ok(None)
             }
         } else {
-            None
-        };
+            Ok(None)
+        }
+    }
 
-        let doe = warm_start_doe.as_ref().or(self.config.doe.as_ref());
+    /// Initial DOE `(x, y)`, with `y` in internal layout: from the warm start DOE if any,
+    /// otherwise from the configured DOE (evaluated when only x is given) or from a LHS
+    fn initial_doe<
+        O: CostFunction<Param = Array2<f64>, Output = Array2<f64>, Error = EgoError> + Constraints<C>,
+    >(
+        &self,
+        problem: &mut Problem<O>,
+        warm_start_doe: Option<&Array2<f64>>,
+        rng: &Xoshiro256Plus,
+    ) -> Result<(Array2<f64>, Array2<f64>)> {
+        let doe = warm_start_doe.or(self.config.doe.as_ref());
 
         let (y_data, x_data) = if let Some(doe) = doe {
             if doe.ncols() == self.xlimits.nrows() {
@@ -232,108 +351,33 @@ where
         } else {
             y_data
         };
-        let doe = concatenate![Axis(1), x_data, y_data];
+        Ok((x_data, y_data))
+    }
+
+    /// Save the initial `doe` `[x, y]` in the output directory, if any
+    fn save_initial_doe(&self, doe: &Array2<f64>) -> Result<()> {
         if let Some(path) = self.config.outdir.as_ref() {
             std::fs::create_dir_all(path)?;
             let filepath = std::path::Path::new(path).join(DOE_INITIAL_FILE);
             info!("Save initial doe shape {:?} in {:?}", doe.shape(), filepath);
-            write_npy(filepath, &doe)?;
+            write_npy(filepath, doe)?;
         }
+        Ok(())
+    }
 
-        let n_int_cstr = self.config.n_internal_cstr();
-        let clusterings = vec![None; self.config.n_surrogates()];
-        let theta_inits = vec![None; self.config.n_surrogates()];
-
-        let c_data = self.eval_problem_fcstrs(problem, &x_data);
-
-        let activity = self
-            .config
-            .activity_strategy
-            .generate_activity(self.xlimits.nrows(), &mut rng);
-        debug!("Component activity = {activity:?}");
-
-        let (valid_idx, invalid_idx) = filter_nans(&y_data);
-        if valid_idx.is_empty() {
-            return Err(EgoError::ObjectiveFunctionError(format!(
-                "Objective evaluation failed (NaN) at all {} initial DOE points",
-                invalid_idx.len()
-            )));
-        }
-        let x_fail = x_data.select(Axis(0), &invalid_idx).clone();
-        let x_data = x_data.select(Axis(0), &valid_idx);
-        let y_data = y_data.select(Axis(0), &valid_idx);
-        let c_data = c_data.select(Axis(0), &valid_idx);
-        if !invalid_idx.is_empty() {
-            log::warn!(
-                "{} failed points out of {} points in initial DOE ",
-                x_fail.nrows(),
-                x_data.nrows() + x_fail.nrows()
-            );
-        }
-        let mut initial_state = state
-            .data((x_data.clone(), y_data.clone(), c_data.clone()))
-            .x_fail(x_fail)
-            .count_added_points(valid_idx.len())
-            .clusterings(clusterings)
-            .theta_inits(theta_inits)
-            .rng(rng);
-
-        initial_state.doe.doe_size = doe.nrows();
-        initial_state.max_iters = self.config.max_iters as u64;
-        initial_state.doe.no_point_added_retries = self.config.max_point_addition_retries();
-        let n_total_cstr = n_int_cstr + c_data.ncols();
+    /// Tolerances of the `n_cstr` internal constraints (surrogated then function constraints):
+    /// the configured ones padded with default tolerance
+    fn internal_cstr_tol(&self, n_cstr: usize) -> Result<Array1<f64>> {
         if let Some(cstr_tol) = self.config.cstr_tol.as_ref()
-            && cstr_tol.len() > n_total_cstr
+            && cstr_tol.len() > n_cstr
         {
             return Err(EgoError::InvalidConfigError(format!(
                 "cstr_tol length ({}) is larger than total internal constraint count ({})",
                 cstr_tol.len(),
-                n_total_cstr
+                n_cstr
             )));
         }
-        initial_state.doe.cstr_tol = self.config.cstr_tol_padded(n_total_cstr);
-        initial_state.target_cost = self.config.target;
-
-        let best_index = if self.config.n_obj() > 1 {
-            crate::moo::scalarization::compromise_index(
-                &y_data,
-                &c_data,
-                self.config.n_obj(),
-                &initial_state.doe.cstr_tol,
-                &[],
-            )
-            .unwrap_or(0)
-        } else {
-            find_best_result_index(&y_data, &c_data, &initial_state.doe.cstr_tol)
-        };
-        initial_state.surrogate.best_index = Some(best_index);
-        initial_state.surrogate.prev_best_index = initial_state.surrogate.best_index;
-        initial_state.last_best_iter = 0;
-
-        // Initialize iteration strategy state (e.g., TREGO sigma)
-        self.config
-            .iteration_strategy
-            .init_state(&mut initial_state, &self.xlimits);
-
-        initial_state.coego.activity = activity;
-        debug!("Initial State = {initial_state:?}");
-        info!(
-            "{} setting: {}",
-            EGOR_USE_GP_VAR_PORTFOLIO, self.config.runtime_flags.use_gp_var_portfolio
-        );
-        info!(
-            "{} setting: {}",
-            EGOR_USE_STATE_RECORDING, self.config.runtime_flags.use_state_recording
-        );
-
-        info!(
-            "********* Initialization: Best fun(x[{}])={} at x={}",
-            best_index,
-            y_data.row(best_index),
-            x_data.row(best_index)
-        );
-
-        Ok(initial_state)
+        Ok(self.config.cstr_tol_padded(n_cstr))
     }
 
     /// Run one iteration of the EGO algorithm
@@ -415,14 +459,10 @@ where
         state: EgorState<f64>,
     ) -> Result<EgorState<f64>> {
         match self.ego_step(problem, state.clone()) {
-            Ok(new_state) => Ok(new_state),
             Err(EgoError::NoMorePointToAddError(state)) => {
                 Ok(state.terminate_with(TerminationReason::SolverConverged))
             }
-            Err(EgoError::ObjectiveFunctionError(_)) => Ok(state.terminate_with(
-                TerminationReason::SolverExit(OBJECTIVE_FUNCTION_ERROR.to_string()),
-            )),
-            Err(err) => Err(err),
+            result => exit_on_objective_error(result, state),
         }
     }
 
@@ -500,7 +540,7 @@ where
             obj_model: local_obj_model.as_deref(),
             solver: mean_solver.as_ref(),
         };
-        match self.trego_step_with(
+        let result = self.trego_step_with(
             problem,
             local_state,
             models,
@@ -508,12 +548,7 @@ where
             max_dist,
             min_acceptance_distance,
             search,
-        ) {
-            Ok(state) => Ok(state),
-            Err(EgoError::ObjectiveFunctionError(_)) => Ok(fallback_state.terminate_with(
-                TerminationReason::SolverExit(OBJECTIVE_FUNCTION_ERROR.to_string()),
-            )),
-            Err(err) => Err(err),
-        }
+        );
+        exit_on_objective_error(result, fallback_state)
     }
 }

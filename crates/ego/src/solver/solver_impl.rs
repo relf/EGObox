@@ -1,19 +1,11 @@
 use std::marker::PhantomData;
 
 use crate::errors::{EgoError, Result};
-use crate::moo::criterion::MooCriterion;
-use crate::moo::ehvi::EhviCriterion;
-use crate::moo::eim::EimCriterion;
-use crate::moo::pareto::pareto_front_indices;
-use crate::moo::qehvi::{QEhviCriterion, fd_steps};
 use crate::moo::scalarization::compromise_index;
 use crate::solver::coego;
-use crate::solver::solver_computations::MiddlePickerMultiStarter;
-use crate::solver::solver_infill_optim::InfillOptProblem;
+use crate::solver::point_selection::SelectionInputs;
 use crate::solver::surrogate_set::{DataClustering, SurrogateSet, ThetaOptimization, TrainSpec};
-use crate::utils::{
-    find_best_result_index_from, is_feasible_at, select_from_portfolio, update_data, usable_data,
-};
+use crate::utils::{find_best_result_index_from, is_feasible_at, update_data, usable_data};
 use crate::{ActivityStrategy, FullActivity, find_best_result_index};
 use crate::{EgorSolver, ValidEgorConfig};
 use crate::{EgorState, types::*};
@@ -21,7 +13,7 @@ use egobox_moe::as_continuous_limits;
 
 use basin::{CostFunction, Problem};
 
-use egobox_doe::{Lhs, LhsKind, SamplingMethod};
+use egobox_doe::{Lhs, LhsKind};
 use egobox_gp::{ParamTuning, ThetaTuning};
 
 use egobox_moe::AffinedSurrogate;
@@ -127,24 +119,22 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
             (best_index, feasibility)
         });
 
-        let candidates = self.select_candidates(
-            estimated_best.is_none(), // models already trained otherwise
-            0,
-            false, // done anyway
-            &mut surrogates,
-            &activity,
-            x_data,
-            y_data,
-            &c_data,
-            None,
-            &cstr_tol,
+        let inputs = SelectionInputs {
+            init: estimated_best.is_none(), // models already trained otherwise
+            iter: 0,
+            recluster: false, // done anyway
+            activity: &activity,
+            x_data: x_data.view(),
+            y_data: y_data.view(),
+            c_data: c_data.view(),
+            x_fail: None,
+            cstr_tol: &cstr_tol,
             best_index,
-            &fcstrs,
-            fcstr_specs,
             feasibility,
-            &mut rng,
-        );
-        candidates.x
+            fcstrs: &fcstrs,
+            fcstr_specs,
+        };
+        self.select_candidates(&inputs, &mut surrogates, &mut rng).x
     }
 
     /// Given an evaluated doe (x, y) data, return the index of the best evaluated point,
@@ -159,11 +149,7 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
     ) -> usize {
         let (y_data, cstr_tol) = self.service_data(y_data);
         let c_data = Array2::zeros((x_data.nrows(), 0));
-        let n_obj = self.config.n_obj();
-        if n_obj > 1 {
-            return compromise_index(&y_data, &c_data, n_obj, &cstr_tol, &[]).unwrap_or(0);
-        }
-        if self.has_noisy_values() {
+        if self.config.n_obj() == 1 && self.has_noisy_values() {
             let mut rng = self.config.rng();
             let activity = FullActivity.generate_activity(x_data.ncols(), &mut rng);
             if let Some((best_index, _)) = self.train_and_estimate_best(
@@ -177,7 +163,23 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
                 return best_index;
             }
         }
-        find_best_result_index(&y_data, &c_data, &cstr_tol)
+        self.observed_best_index(&y_data, &c_data, &cstr_tol)
+    }
+
+    /// Index of the best point from observed values: the minimum wrt constraints, or the
+    /// compromise point of the Pareto front with several objectives
+    pub(crate) fn observed_best_index(
+        &self,
+        y_data: &Array2<f64>,
+        c_data: &Array2<f64>,
+        cstr_tol: &Array1<f64>,
+    ) -> usize {
+        let n_obj = self.config.n_obj();
+        if n_obj > 1 {
+            compromise_index(y_data, c_data, n_obj, cstr_tol, &[]).unwrap_or(0)
+        } else {
+            find_best_result_index(y_data, c_data, cstr_tol)
+        }
     }
 
     /// Data given to the ask-and-tell interface: output values with constraints transformed
@@ -191,25 +193,6 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
         (y_data, cstr_tol)
     }
 }
-
-/// Weights of the GP standard deviation used by the GP variance portfolio: the GP variance
-/// is not believed and weighted to generate possibly several clusters hence several points
-/// to add (logspace(0.1, 100., 13) with 1. moved in front)
-const GP_VAR_PORTFOLIO_SIGMA_WEIGHTS: [f64; 13] = [
-    1.,
-    0.1,
-    0.1778279410038923,
-    0.31622776601683794,
-    0.5623413251903491,
-    1.7782794100389228,
-    3.1622776601683795,
-    5.623413251903491,
-    10.,
-    17.78279410038923,
-    31.622776601683793,
-    56.23413251903491,
-    100.,
-];
 
 /// Minimum number of training points required before considering
 /// the surrogate data-starved wrt to the dimension of the problem.
@@ -903,23 +886,22 @@ where
             let persisted_models =
                 (self.config.qei_config.batch > 1).then(|| surrogates.models.clone());
 
-            let candidates = self.select_candidates(
+            let inputs = SelectionInputs {
                 init,
-                state.get_iter(),
+                iter: state.get_iter(),
                 recluster,
-                &mut surrogates,
-                &state.coego.activity,
-                &x_data,
-                y_train,
-                &c_data,
-                state.surrogate.x_fail.as_ref(),
-                &state.doe.cstr_tol,
-                train_best_index,
+                activity: &state.coego.activity,
+                x_data: x_data.view(),
+                y_data: y_train.view(),
+                c_data: c_data.view(),
+                x_fail: state.surrogate.x_fail.as_ref(),
+                cstr_tol: &state.doe.cstr_tol,
+                best_index: train_best_index,
+                feasibility: state.feasibility,
                 fcstrs,
                 fcstr_specs,
-                state.feasibility,
-                &mut rng,
-            );
+            };
+            let candidates = self.select_candidates(&inputs, &mut surrogates, &mut rng);
 
             if let Some(models) = persisted_models {
                 surrogates.models = models;
@@ -953,32 +935,8 @@ where
                 new_state.get_infill_value()
             );
 
-            let rejected_count = x_dat.nrows() - usable_indices.len();
-            for i in 0..x_dat.nrows() {
-                let msg = format!(
-                    "  {} {}",
-                    if usable_indices.contains(&i) {
-                        "A"
-                    } else {
-                        "R"
-                    },
-                    x_dat.row(i)
-                );
-                if usable_indices.contains(&i) {
-                    debug!("{msg}");
-                } else {
-                    info!("{msg}")
-                }
-            }
-            if rejected_count > 0 {
-                info!(
-                    "Reject {}/{} point{} too close to previous ones",
-                    rejected_count,
-                    x_dat.nrows(),
-                    if rejected_count > 1 { "s" } else { "" }
-                );
-            }
-            if rejected_count == x_dat.nrows() {
+            Self::log_rejections(&x_dat, &usable_indices);
+            if usable_indices.is_empty() {
                 new_state.doe.no_point_added_retries -= 1;
                 if new_state.doe.no_point_added_retries == 0 {
                     info!(
@@ -1016,51 +974,26 @@ where
             y_penalized.as_ref(), // penalized values in case of crash
         );
 
-        new_state = if state.get_iter() == 0
-            && self.config.failsafe_strategy == FailsafeStrategy::Imputation
-            && let Some(ref xfail) = x_fail_points
-            && let Some(ref xfail_doe) = new_state.surrogate.x_fail
-        {
-            // In first iteration, we had doe failed points stored
-            // Store only new failed points (not in doe)
-            info!("Initial DOE had {} failed point(s)", xfail_doe.nrows());
-            info!("Total failed points after eval: {}", xfail.nrows());
-            info!("{} new failed point(s)", xfail.nrows() - xfail_doe.nrows());
-            let new_fails = xfail.slice(s![xfail_doe.nrows().., ..]).to_owned();
-            new_state.store_failed_points(Some(new_fails))
-        } else {
-            new_state.store_failed_points(x_fail_points)
-        }
-        .count_added_points(add_count);
-
-        // new_state = new_state
-        //     .store_failed_points(x_fail_points)
-        //     .count_added_points(add_count);
+        let new_fails = self.new_failed_points(
+            state.get_iter(),
+            x_fail_points,
+            new_state.surrogate.x_fail.as_ref(),
+        );
+        new_state = new_state
+            .store_failed_points(new_fails)
+            .count_added_points(add_count);
         info!(
             "+{} point(s), total: {} points",
             add_count, new_state.doe.added
         );
         new_state.doe.no_point_added_retries = self.config.max_point_addition_retries();
 
-        let best_index = if n_obj > 1 {
-            // Compromise point of the Pareto front (recomputed as normalization changes)
-            // failed points with imputed values are never the compromise point
-            let excluded = self
-                .config
-                .imputed_rows(&x_data, new_state.surrogate.x_fail.as_ref());
-            compromise_index(&y_data, &c_data, n_obj, &new_state.doe.cstr_tol, &excluded)
-                .unwrap_or(state.surrogate.best_index.unwrap())
-        } else {
-            // Only actually evaluated points (appended last) are candidates for the best,
-            // failed points with imputed values are not.
-            find_best_result_index_from(
-                state.surrogate.best_index.unwrap(),
-                y_data.nrows() - valid_count,
-                &y_data,
-                &c_data,
-                &new_state.doe.cstr_tol,
-            )
-        };
+        let best_index = self.updated_best_index(
+            &new_state,
+            state.surrogate.best_index.unwrap(),
+            (&x_data, &y_data, &c_data),
+            valid_count,
+        );
         new_state =
             new_state
                 .best_index(best_index)
@@ -1072,33 +1005,8 @@ where
                 n_obj,
                 &new_state.doe.cstr_tol,
             );
-        // Multi-objective optional stop on hypervolume progress over the last iterations
-        if n_obj > 1
-            && let Some((tol, n_iters)) = self.config.moo.hv_stop
-            && state.get_iter() as usize + 1 >= n_iters
-        {
-            // Each iteration adds at most `batch` points: when points are rejected or fail,
-            // this window covers more iterations, which only delays the stop
-            // (iteration boundaries are not kept in the state)
-            let n_prev_rows = y_data
-                .nrows()
-                .saturating_sub(n_iters * self.config.qei_config.batch)
-                .max(1);
-            let (hv_prev, hv_now) = crate::moo::hypervolume::hypervolume_progress(
-                &y_data,
-                &c_data,
-                n_obj,
-                &new_state.doe.cstr_tol,
-                n_prev_rows,
-                &self
-                    .config
-                    .imputed_rows(&x_data, new_state.surrogate.x_fail.as_ref()),
-            );
-            info!("Hypervolume over the last {n_iters} iteration(s): {hv_prev} -> {hv_now}");
-            if hv_now > 0. && hv_now - hv_prev <= tol * hv_now {
-                info!("Hypervolume improvement below {tol}: consider solver has converged");
-                new_state = new_state.terminate_with(crate::TerminationReason::SolverConverged);
-            }
+        if self.hypervolume_converged(state.get_iter(), &new_state, (&x_data, &y_data, &c_data)) {
+            new_state = new_state.terminate_with(crate::TerminationReason::SolverConverged);
         }
         // With ParEGO, surrogates are retrained on the next scalarized view at next iteration
         if !self.config.is_scalarized() {
@@ -1120,398 +1028,124 @@ where
         Ok(surrogates.put(new_state))
     }
 
-    /// Returns next promising x points together with virtual (predicted) y values
-    /// from surrogate models (taking into account qei strategy if q_parallel)
-    /// infill criterion value is also returned
-    #[allow(clippy::too_many_arguments)]
-    #[allow(clippy::type_complexity)]
-    pub fn select_next_points(
-        &self,
-        init: bool,
-        iter: u64,
-        recluster: bool,
-        clusterings: &mut [Option<Clustering>],
-        theta_inits: &mut [Option<Array2<f64>>],
-        models: &mut Vec<Box<dyn MixtureGpSurrogate>>,
-        activity: &Array2<usize>,
-        x_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
-        y_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
-        c_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
-        x_fail_points: Option<&Array2<f64>>,
-        cstr_tol: &Array1<f64>,
-        best_index: usize,
-        cstr_funcs: &[impl CstrFn],
-        fcstr_specs: Option<&[CstrSpec]>,
-        feasibility: bool,
-        rng: &mut Xoshiro256Plus,
-    ) -> (Array2<f64>, Array2<f64>, Array2<f64>, Array2<f64>, f64) {
-        let mut surrogates = SurrogateSet {
-            clusterings: clusterings.iter_mut().map(Option::take).collect(),
-            theta_inits: theta_inits.iter_mut().map(Option::take).collect(),
-            models: std::mem::take(models),
-        };
-        let candidates = self.select_candidates(
-            init,
-            iter,
-            recluster,
-            &mut surrogates,
-            activity,
-            x_data,
-            y_data,
-            c_data,
-            x_fail_points,
-            cstr_tol,
-            best_index,
-            cstr_funcs,
-            fcstr_specs,
-            feasibility,
-            rng,
-        );
-        std::iter::zip(clusterings, surrogates.clusterings).for_each(|(dst, src)| *dst = src);
-        std::iter::zip(theta_inits, surrogates.theta_inits).for_each(|(dst, src)| *dst = src);
-        *models = surrogates.models;
-        (
-            candidates.x,
-            candidates.y,
-            candidates.c,
-            candidates.y_penalized,
-            candidates.infill_value,
-        )
+    /// Log accepted (`usable_indices`) and rejected points among selected ones `x_dat`
+    fn log_rejections(x_dat: &Array2<f64>, usable_indices: &[usize]) {
+        let rejected_count = x_dat.nrows() - usable_indices.len();
+        for i in 0..x_dat.nrows() {
+            let msg = format!(
+                "  {} {}",
+                if usable_indices.contains(&i) {
+                    "A"
+                } else {
+                    "R"
+                },
+                x_dat.row(i)
+            );
+            if usable_indices.contains(&i) {
+                debug!("{msg}");
+            } else {
+                info!("{msg}")
+            }
+        }
+        if rejected_count > 0 {
+            info!(
+                "Reject {}/{} point{} too close to previous ones",
+                rejected_count,
+                x_dat.nrows(),
+                if rejected_count > 1 { "s" } else { "" }
+            );
+        }
     }
 
-    /// Returns next promising x points together with virtual (predicted) y values
-    /// from `surrogates` (taking into account qei strategy if q_parallel)
-    /// and the infill criterion value. `surrogates` are trained beforehand if needed.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn select_candidates(
+    /// Failed points to store given failed points among evaluated ones `x_fail_points`.
+    /// In first iteration with imputation, failed points of the initial DOE `x_fail_doe`,
+    /// evaluated again with the selected points, are already stored: only new ones are kept.
+    fn new_failed_points(
         &self,
-        init: bool,
         iter: u64,
-        recluster: bool,
-        surrogates: &mut SurrogateSet,
-        activity: &Array2<usize>,
-        x_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
-        y_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
-        c_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
-        x_fail_points: Option<&Array2<f64>>,
-        cstr_tol: &Array1<f64>,
-        best_index: usize,
-        cstr_funcs: &[impl CstrFn],
-        fcstr_specs: Option<&[CstrSpec]>,
-        feasibility: bool,
-        rng: &mut Xoshiro256Plus,
-    ) -> Candidates {
-        let mut portfolio = vec![];
-
-        let sigma_weights: &[f64] = if self.config.runtime_flags.use_gp_var_portfolio
-            && self.config.qei_config.batch == 1
-        {
-            &GP_VAR_PORTFOLIO_SIGMA_WEIGHTS
-        } else {
-            // Fallback to default GP usage
-            &[1.]
-        };
-
-        for (j, sigma_weight) in sigma_weights.iter().enumerate() {
-            debug!("Make surrogate with {x_data}");
-            let mut x_dat = Array2::zeros((0, x_data.ncols()));
-            let mut y_dat = Array2::zeros((0, y_data.ncols()));
-            let mut c_dat = Array2::zeros((0, c_data.ncols()));
-            let mut y_penalized = Array2::zeros((0, y_data.ncols()));
-            let mut infill_val = f64::INFINITY;
-            // qEHVI: surrogates of the actual data only (no virtual points), the points
-            // already selected in the batch (after imputed failed points) entering the criterion
-            let qehvi = self.config.is_per_objective()
-                && self.config.moo_strategy() == crate::MooStrategy::QEhvi;
-            let mut n_imputed = 0;
-
-            for i in 0..self.config.qei_config.batch {
-                let (xt, yt) = if i == 0 || qehvi {
-                    (x_data.to_owned(), y_data.to_owned())
-                } else {
-                    (
-                        concatenate![Axis(0), x_data.to_owned(), x_dat.to_owned()],
-                        concatenate![Axis(0), y_data.to_owned(), y_dat.to_owned()],
-                    )
-                };
-
-                log::debug!("activity: {activity:?}");
-                let actives = activity;
-
-                let do_clustering: DataClustering = ((init && i == 0) || recluster).into();
-
-                // The fast (incremental) path is the default strategy; see
-                // `must_optimize_theta` for when a full retrain is triggered instead.
-                // Otherwise the fast path is attempted, itself able to escalate to a
-                // full theta-optimized retraining should the incoming point(s) turn
-                // out to be a poor surprise for the current surrogate, i.e. its
-                // z-score exceeds `ZSCORE_THETA_OPTIM_THRESHOLD` (see
-                // `update_models`'s z-score check).
-                let dim = self.config.gp.kpls_dim.unwrap_or(xt.ncols());
-                let point_index = iter as usize * self.config.qei_config.batch + i;
-                let optimize_theta: ThetaOptimization = (j == 0
-                    && self.must_optimize_theta(do_clustering, xt.nrows(), dim, point_index))
-                .into();
-
-                // Persisted models are already trained on the evaluated points at
-                // the end of the previous iteration: do not retrain them on the
-                // very same data.
-                let inits = if surrogates.is_up_to_date(do_clustering, xt.nrows()) {
-                    debug!("Surrogates already up to date with {} points", xt.nrows());
-                    vec![None; surrogates.models.len()]
-                } else {
-                    info!(
-                        "Update surrogates with {} points... clustering={:?} optimize_theta={:?}",
-                        xt.nrows(),
-                        do_clustering,
-                        optimize_theta
-                    );
-                    let spec = TrainSpec {
-                        clustering: do_clustering,
-                        theta: optimize_theta,
-                        actives,
-                    };
-                    self.update_models(surrogates, &xt, &yt, spec)
-                };
-
-                // Handle failsafe imputation on the first iteration
-                if iter == 0
-                    && i == 0
-                    && let Some(xfail_points) = x_fail_points
-                {
-                    match self.config.failsafe_strategy {
-                        FailsafeStrategy::Imputation => {
-                            // we have to predict penalization on these points
-                            // and add them to data
-
-                            info!(
-                                "Impute failed initial points ({} points)...",
-                                xfail_points.nrows()
-                            );
-                            let mut y_pen_imputed =
-                                Array2::zeros((xfail_points.nrows(), self.config.n_surrogates()));
-                            let (obj_models, cstr_models) =
-                                surrogates.models.split_at(self.config.n_obj_models());
-                            Zip::from(y_pen_imputed.rows_mut())
-                                .and(xfail_points.rows())
-                                .for_each(|mut y_row, xfail| {
-                                    let y_pred = self.compute_penalized_point(
-                                        &xfail,
-                                        obj_models,
-                                        cstr_models,
-                                        y_data,
-                                    );
-                                    y_row.assign(&y_pred);
-                                });
-                            n_imputed = xfail_points.nrows();
-                            (x_dat, y_dat, c_dat, y_penalized) = (
-                                xfail_points.to_owned(),
-                                Array2::from_elem((xfail_points.nrows(), y_data.ncols()), f64::NAN),
-                                self.eval_fcstrs(cstr_funcs, xfail_points),
-                                y_pen_imputed,
-                            );
-                        }
-                        FailsafeStrategy::Rejection | FailsafeStrategy::Viability => (),
-                    }
-                };
-
-                if self.config.outdir.is_some() && i == 0 && j == 0 {
-                    use crate::{EGOR_GP_FILENAME, EGOR_INITIAL_GP_FILENAME, utils::gp_recorder};
-
-                    let default_dir = String::from("./");
-                    let outdir = self.config.outdir.as_ref().unwrap_or(&default_dir);
-                    let filename = if iter == 0 {
-                        EGOR_INITIAL_GP_FILENAME
-                    } else {
-                        EGOR_GP_FILENAME
-                    };
-                    let filepath = std::path::Path::new(outdir).join(filename);
-                    match gp_recorder::save_gp_models(&filepath, &surrogates.models) {
-                        Ok(_) => log::info!("GP models saved to {:?}", filepath),
-                        Err(err) => log::info!("Cannot save GP models: {:?}", err),
-                    };
-                }
-
-                surrogates.sync(&inits);
-
-                let (obj_models, cstr_models) =
-                    surrogates.models.split_at(self.config.n_obj_models());
-                let obj_model = &obj_models[0];
-                debug!("... surrogates trained");
-
-                let fmin = self.incumbent_value(obj_model.as_ref(), x_data, y_data, best_index);
-                let ybest = y_data.row(best_index).to_owned();
-                let xbest = x_data.row(best_index).to_owned();
-                let cbest = c_data.row(best_index).to_owned();
-
-                let sub_rng = Xoshiro256Plus::seed_from_u64(rng.r#gen());
-                let sampling = Lhs::new(&self.xlimits)
-                    .kind(LhsKind::Maximin)
-                    .with_rng(sub_rng);
-
-                let transformed_fcstrs = crate::types::affine_fcstrs(cstr_funcs, fcstr_specs);
-
-                let (scale_infill_obj, scale_cstr, scale_fcstr, scale_wb2) = self.compute_scaling(
-                    &sampling,
-                    obj_model.as_ref(),
-                    cstr_models,
-                    cstr_tol,
-                    &transformed_fcstrs,
-                    fmin,
-                    *sigma_weight,
-                );
-                // Multi-objective criterion (EIM, EHVI, qEHVI) wrt the Pareto front of the data,
-                // including virtual points of the batch so far (actual data only with qEHVI)
-                let moo_criterion = if self.config.is_per_objective() {
-                    let n_obj = self.config.n_obj();
-                    let ct = if qehvi {
-                        c_data.to_owned()
-                    } else {
-                        concatenate![Axis(0), c_data.to_owned(), c_dat.to_owned()]
-                    };
-                    // failed points with imputed values are never part of the front
-                    let excluded = self.config.imputed_rows(x_data, x_fail_points);
-                    let front = pareto_front_indices(&yt, &ct, n_obj, cstr_tol, &excluded);
-                    let objs = yt.slice(s![.., ..n_obj]);
-                    match self.config.moo_strategy() {
-                        crate::MooStrategy::QEhvi if i > 0 => match QEhviCriterion::new(
-                            obj_models,
-                            &objs,
-                            &front,
-                            &x_dat.slice(s![n_imputed.., ..]),
-                            fd_steps(&self.config.xtypes),
-                            rng.r#gen(),
-                        ) {
-                            Ok(criterion) => Some(MooCriterion::QEhvi(criterion)),
-                            Err(err) => {
-                                log::error!(
-                                    "qEHVI criterion not available, batch stopped at {i} points: {err}"
-                                );
-                                break;
-                            }
-                        },
-                        crate::MooStrategy::Ehvi | crate::MooStrategy::QEhvi => Some(
-                            MooCriterion::Ehvi(EhviCriterion::new(obj_models, &objs, &front)),
-                        ),
-                        _ => Some(MooCriterion::Eim(EimCriterion::new(
-                            obj_models,
-                            &objs,
-                            &front,
-                            self.config.moo.eim_aggregation,
-                        ))),
-                    }
-                } else {
-                    None
-                };
-                let scale_infill_obj = if let Some(criterion) = moo_criterion.as_ref() {
-                    let npts = (100 * self.xlimits.nrows()).min(1000);
-                    let scale = criterion.scaling(&sampling.sample(npts));
-                    info!(
-                        "{} criterion ({} front points) scaling is updated to {scale}",
-                        criterion.name(),
-                        criterion.front_size()
-                    );
-                    scale
-                } else {
-                    scale_infill_obj
-                };
-                let scale_pov_cstr = Array1::ones((1,)); // PoV cstr is normalized 
-                let all_scale_cstr = concatenate![Axis(0), scale_cstr, scale_fcstr, scale_pov_cstr];
-
-                // fmin and xbest are kept the same for all q points
-                // Would it be best to update them with regard to predicted virtual points?
-                // Keep it simple: For the moment we keep them fixed to the current best observed point
-                let mut infill_data = InfillObjData {
-                    fmin,
-                    xbest: xbest.to_vec(),
-                    scale_infill_obj,
-                    scale_cstr: Some(all_scale_cstr.to_owned()),
-                    scale_wb2,
-                    feasibility,
-                    sigma_weight: *sigma_weight,
-                };
-
-                let cstr_funcs = self.infill_fcstrs(&transformed_fcstrs, &scale_fcstr);
-
-                let viability_model = self.viability_model(&xt, x_fail_points);
-
-                let sub_rng = Xoshiro256Plus::seed_from_u64(rng.r#gen());
-                // let multistarter = GlobalMultiStarter::new(&self.xlimits, sub_rng);
-                let xsamples = x_data.to_owned();
-                let multistarter = MiddlePickerMultiStarter::new(&self.xlimits, &xsamples, sub_rng);
-
-                let infill_optpb = InfillOptProblem::new(
-                    obj_model.as_ref(),
-                    cstr_models,
-                    &cstr_funcs,
-                    cstr_tol,
-                    viability_model,
-                    self.config.feasibility_infill.alpha(),
-                    &infill_data,
-                    actives,
-                    moo_criterion.as_ref(),
-                );
-
-                let (infill_obj, xk) = self.optimize_infill_criterion(
-                    infill_optpb,
-                    multistarter,
-                    (xbest, ybest, cbest),
-                );
-                debug!("+++++++  xk = {xk}");
-
-                match self.compute_virtual_point(&xk, y_data, obj_models, cstr_models) {
-                    Ok(yk) => {
-                        let yk =
-                            Array2::from_shape_vec((1, self.config.n_surrogates()), yk).unwrap();
-                        y_dat = concatenate![Axis(0), y_dat, yk];
-
-                        let yk_pen =
-                            self.compute_penalized_point(&xk, obj_models, cstr_models, y_data);
-                        let yk_pen = yk_pen.insert_axis(Axis(0));
-                        y_penalized = concatenate![Axis(0), y_penalized, yk_pen];
-
-                        let ck = cstr_funcs
-                            .iter()
-                            .map(|cstr| cstr(&xk.to_vec(), None, &mut infill_data))
-                            .collect::<Vec<_>>();
-                        c_dat = concatenate![
-                            Axis(0),
-                            c_dat,
-                            Array2::from_shape_vec((1, cstr_funcs.len()), ck).unwrap()
-                        ];
-
-                        x_dat = concatenate![Axis(0), x_dat, xk.clone().insert_axis(Axis(0))];
-
-                        // infill objective was minimized while infill criterion itself
-                        // is expected to be maximized hence the negative sign here
-                        infill_val = -infill_obj;
-                    }
-                    Err(err) => {
-                        // Error while predict at best point: ignore
-                        info!("Error while getting virtual point: {err}");
-                        break;
-                    }
-                }
+        x_fail_points: Option<Array2<f64>>,
+        x_fail_doe: Option<&Array2<f64>>,
+    ) -> Option<Array2<f64>> {
+        match (x_fail_points, x_fail_doe) {
+            (Some(xfail), Some(xfail_doe))
+                if iter == 0 && self.config.failsafe_strategy == FailsafeStrategy::Imputation =>
+            {
+                info!("Initial DOE had {} failed point(s)", xfail_doe.nrows());
+                info!("Total failed points after eval: {}", xfail.nrows());
+                info!("{} new failed point(s)", xfail.nrows() - xfail_doe.nrows());
+                Some(xfail.slice(s![xfail_doe.nrows().., ..]).to_owned())
             }
-            portfolio.push(Candidates {
-                x: x_dat,
-                y: y_dat,
-                c: c_dat,
-                y_penalized,
-                infill_value: infill_val,
-            });
+            (x_fail_points, _) => x_fail_points,
         }
-        if portfolio.len() > 1 {
-            info!(
-                "Portfolio : {:?}",
-                portfolio.iter().map(|v| v.x[[0, 0]]).collect::<Vec<_>>()
-            );
-            // Use portfolio strategy: Pick one point from portfolio
-            select_from_portfolio(portfolio)
+    }
+
+    /// Index of the best point once the last `n_valid` evaluated points are appended to the
+    /// data, `prev_best` being the index of the best point before.
+    fn updated_best_index(
+        &self,
+        new_state: &EgorState<f64>,
+        prev_best: usize,
+        (x_data, y_data, c_data): (&Array2<f64>, &Array2<f64>, &Array2<f64>),
+        n_valid: usize,
+    ) -> usize {
+        let n_obj = self.config.n_obj();
+        if n_obj > 1 {
+            // Compromise point of the Pareto front (recomputed as normalization changes)
+            // failed points with imputed values are never the compromise point
+            let excluded = self
+                .config
+                .imputed_rows(x_data, new_state.surrogate.x_fail.as_ref());
+            compromise_index(y_data, c_data, n_obj, &new_state.doe.cstr_tol, &excluded)
+                .unwrap_or(prev_best)
         } else {
-            // Fallback to default returning one or several points (in case of qEI strategy)
-            portfolio.remove(0)
+            // Only actually evaluated points (appended last) are candidates for the best,
+            // failed points with imputed values are not.
+            find_best_result_index_from(
+                prev_best,
+                y_data.nrows() - n_valid,
+                y_data,
+                c_data,
+                &new_state.doe.cstr_tol,
+            )
         }
+    }
+
+    /// Multi-objective optional stop on hypervolume progress over the last iterations
+    fn hypervolume_converged(
+        &self,
+        iter: u64,
+        new_state: &EgorState<f64>,
+        (x_data, y_data, c_data): (&Array2<f64>, &Array2<f64>, &Array2<f64>),
+    ) -> bool {
+        let n_obj = self.config.n_obj();
+        if n_obj > 1
+            && let Some((tol, n_iters)) = self.config.moo.hv_stop
+            && iter as usize + 1 >= n_iters
+        {
+            // Each iteration adds at most `batch` points: when points are rejected or fail,
+            // this window covers more iterations, which only delays the stop
+            // (iteration boundaries are not kept in the state)
+            let n_prev_rows = y_data
+                .nrows()
+                .saturating_sub(n_iters * self.config.qei_config.batch)
+                .max(1);
+            let (hv_prev, hv_now) = crate::moo::hypervolume::hypervolume_progress(
+                y_data,
+                c_data,
+                n_obj,
+                &new_state.doe.cstr_tol,
+                n_prev_rows,
+                &self
+                    .config
+                    .imputed_rows(x_data, new_state.surrogate.x_fail.as_ref()),
+            );
+            info!("Hypervolume over the last {n_iters} iteration(s): {hv_prev} -> {hv_now}");
+            if hv_now > 0. && hv_now - hv_prev <= tol * hv_now {
+                info!("Hypervolume improvement below {tol}: consider solver has converged");
+                return true;
+            }
+        }
+        false
     }
 
     /// Retrain surrogates from scratch (the "slow path"), whatever clustering/theta
@@ -1602,7 +1236,7 @@ where
     /// which the z-score check is not meaningful -- on the legacy periodic
     /// `optmod` override, kept as a fallback in that case. `point_index` is the
     /// global point index (`iter * batch [+ i]`) used for that periodic check.
-    fn must_optimize_theta(
+    pub(crate) fn must_optimize_theta(
         &self,
         do_clustering: DataClustering,
         nb_points: usize,
@@ -1623,9 +1257,6 @@ where
     /// Bring `surrogates` models in line with the whole training data `(x_data, y_data)`
     /// (see `must_optimize_theta` for the full-retrain-vs-fast-path decision)
     /// then sync their clusterings/theta inits with the resulting models.
-    ///
-    /// With a fixed clustering, models already trained on all `x_data` rows are
-    /// left untouched: retraining on the very same data is pointless.
     /// `point_index` is the global point index used by `must_optimize_theta`.
     pub(crate) fn refresh_models(
         &self,
@@ -1636,29 +1267,42 @@ where
         do_clustering: DataClustering,
         point_index: usize,
     ) {
-        if surrogates.is_up_to_date(do_clustering, x_data.nrows()) {
-            debug!(
-                "Surrogates already up to date with {} points",
-                x_data.nrows()
-            );
-            return;
-        }
         let dim = self.config.gp.kpls_dim.unwrap_or(x_data.ncols());
         let optimize_theta: ThetaOptimization = self
             .must_optimize_theta(do_clustering, x_data.nrows(), dim, point_index)
             .into();
-        info!(
-            "Update surrogates with {} points... clustering={:?} optimize_theta={:?}",
-            x_data.nrows(),
-            do_clustering,
-            optimize_theta
-        );
         let spec = TrainSpec {
             clustering: do_clustering,
             theta: optimize_theta,
             actives,
         };
-        let inits = self.update_models(surrogates, x_data, y_data, spec);
+        self.update_surrogates(surrogates, x_data, y_data, spec);
+    }
+
+    /// Train `surrogates` models on `(xt, yt)` as specified by `spec`, then sync their
+    /// clusterings/theta inits with the resulting models.
+    ///
+    /// With a fixed clustering, models already trained on all `xt` rows are
+    /// left untouched: retraining on the very same data is pointless.
+    pub(crate) fn update_surrogates(
+        &self,
+        surrogates: &mut SurrogateSet,
+        xt: &Array2<f64>,
+        yt: &Array2<f64>,
+        spec: TrainSpec,
+    ) {
+        let inits = if surrogates.is_up_to_date(spec.clustering, xt.nrows()) {
+            debug!("Surrogates already up to date with {} points", xt.nrows());
+            vec![None; surrogates.models.len()]
+        } else {
+            info!(
+                "Update surrogates with {} points... clustering={:?} optimize_theta={:?}",
+                xt.nrows(),
+                spec.clustering,
+                spec.theta
+            );
+            self.update_models(surrogates, xt, yt, spec)
+        };
         surrogates.sync(&inits);
     }
 

@@ -85,6 +85,8 @@ mod egor_service;
 mod egor_solver;
 mod egor_state;
 pub mod iteration_strategy;
+mod multistart;
+mod point_selection;
 mod solver_computations;
 mod solver_impl;
 mod solver_infill_optim;
