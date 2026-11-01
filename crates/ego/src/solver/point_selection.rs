@@ -286,7 +286,10 @@ where
         Candidates {
             x: x_fail.to_owned(),
             y: Array2::from_elem((x_fail.nrows(), inputs.y_data.ncols()), f64::NAN),
-            c: self.eval_fcstrs(inputs.fcstrs, x_fail),
+            c: self.eval_fcstrs(
+                &crate::types::affine_fcstrs(inputs.fcstrs, inputs.fcstr_specs),
+                x_fail,
+            ),
             y_penalized: y_pen_imputed,
             infill_value: f64::INFINITY,
         }
@@ -346,7 +349,7 @@ where
             obj_model.as_ref(),
             cstr_models,
             cstr_tol,
-            &transformed_fcstrs,
+            transformed_fcstrs.len(),
             fmin,
             batch.sigma_weight,
         );
@@ -373,7 +376,7 @@ where
         // fmin and xbest are kept the same for all q points
         // Would it be best to update them with regard to predicted virtual points?
         // Keep it simple: For the moment we keep them fixed to the current best observed point
-        let mut infill_data = InfillObjData {
+        let infill_data = InfillObjData {
             fmin,
             xbest: xbest.to_vec(),
             scale_infill_obj,
@@ -383,7 +386,7 @@ where
             sigma_weight: batch.sigma_weight,
         };
 
-        let cstr_funcs = self.infill_fcstrs(&transformed_fcstrs, &scale_fcstr);
+        let cstr_funcs = self.infill_fcstrs(&transformed_fcstrs);
 
         let viability_model = self.viability_model(xt, inputs.x_fail);
 
@@ -412,14 +415,13 @@ where
             Ok(yk) => {
                 let yk = Array2::from_shape_vec((1, self.config.n_surrogates()), yk).unwrap();
                 let yk_pen = self.compute_penalized_point(&xk, obj_models, cstr_models, y_data);
-                let ck = cstr_funcs
-                    .iter()
-                    .map(|cstr| cstr(&xk.to_vec(), None, &mut infill_data))
-                    .collect::<Vec<_>>();
+                let xk = xk.insert_axis(Axis(0));
+                // Function constraints values as stored in data (unscaled)
+                let ck = self.eval_fcstrs(&transformed_fcstrs, &xk);
                 Some(Candidates {
-                    x: xk.insert_axis(Axis(0)),
+                    x: xk,
                     y: yk,
-                    c: Array2::from_shape_vec((1, cstr_funcs.len()), ck).unwrap(),
+                    c: ck,
                     y_penalized: yk_pen.insert_axis(Axis(0)),
                     // infill objective was minimized while infill criterion itself
                     // is expected to be maximized hence the negative sign here

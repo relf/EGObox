@@ -1285,6 +1285,120 @@ mod tests {
         assert_abs_diff_eq!(expected, res.x_opt, epsilon = 6e-1);
     }
 
+    fn g24_fcstrs_run(specs: Option<Vec<CstrSpec>>) -> OptimResult<f64> {
+        let c1: Cstr = |x, _g, _u| g24_c1(&ArrayView1::from(x));
+        let c2: Cstr = |x, _g, _u| g24_c2(&ArrayView1::from(x));
+        let builder = EgorBuilder::optimize(f_g24_bare);
+        let builder = match specs {
+            Some(specs) => builder.subject_to_with_specs(vec![c1, c2], specs),
+            None => builder.subject_to(vec![c1, c2]),
+        };
+        builder
+            .configure(|cfg| {
+                cfg.infill_optimizer(InfillOptimizer::Cobyla)
+                    .max_iters(4)
+                    .seed(42)
+            })
+            .min_within(&array![[0., 3.], [0., 4.]])
+            .unwrap()
+            .run()
+            .expect("Egor should minimize g24")
+    }
+
+    fn g24_fcstrs_values(x_data: &Array2<f64>) -> Array2<f64> {
+        let mut c = Array2::zeros((x_data.nrows(), 2));
+        Zip::from(c.rows_mut())
+            .and(x_data.rows())
+            .for_each(|mut ci, xi| ci.assign(&array![g24_c1(&xi), g24_c2(&xi)]));
+        c
+    }
+
+    #[test]
+    #[serial]
+    fn test_function_constraints_values_stored_unscaled() {
+        // Points added by global steps store function constraints values as initial points
+        let res = g24_fcstrs_run(None);
+        let (x_data, _, c_data) = res.state.surrogate.data.as_ref().unwrap();
+        assert!(x_data.nrows() > res.state.doe.doe_size);
+        assert_abs_diff_eq!(c_data, &g24_fcstrs_values(x_data), epsilon = 1e-12);
+    }
+
+    #[test]
+    #[serial]
+    fn test_function_constraints_satisfied_at_added_points() {
+        // Infill optimization handles function constraints in user units and repairs points
+        // slightly outside: added points satisfy them within the tolerance, whatever the optimizer
+        let res = g24_fcstrs_run(None);
+        let (x_data, _, c_data) = res.state.surrogate.data.as_ref().unwrap();
+        let doe_size = res.state.doe.doe_size;
+        assert!(x_data.nrows() > doe_size);
+        let c_added = c_data.slice(s![doe_size.., ..]);
+        assert!(
+            c_added.iter().all(|&c| c <= crate::DEFAULT_CSTR_TOL),
+            "function constraints violated at added points: {c_added}"
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn test_function_constraints_values_stored_with_specs() {
+        let specs = vec![CstrSpec::Btw(-100., 0.), CstrSpec::Leq(0.)];
+        let res = g24_fcstrs_run(Some(specs.clone()));
+        let (x_data, _, c_data) = res.state.surrogate.data.as_ref().unwrap();
+        assert!(x_data.nrows() > res.state.doe.doe_size);
+        let expected = transform_function_constraints(&g24_fcstrs_values(x_data), &specs);
+        assert_abs_diff_eq!(c_data, &expected, epsilon = 1e-12);
+    }
+
+    static FCSTR_ORDER_CALLS: std::sync::Mutex<Vec<(&str, Vec<f64>)>> =
+        std::sync::Mutex::new(Vec::new());
+
+    #[test]
+    #[serial]
+    fn test_function_constraints_evaluated_after_objective() {
+        let obj = |x: &ArrayView2<f64>| -> Array2<f64> {
+            let mut calls = FCSTR_ORDER_CALLS.lock().unwrap();
+            x.rows()
+                .into_iter()
+                .for_each(|xi| calls.push(("obj", xi.to_vec())));
+            f_g24_bare(x)
+        };
+        let fcstr: Cstr = |x, _g, _u| {
+            FCSTR_ORDER_CALLS
+                .lock()
+                .unwrap()
+                .push(("fcstr", x.to_vec()));
+            g24_c1(&ArrayView1::from(x))
+        };
+        FCSTR_ORDER_CALLS.lock().unwrap().clear();
+        let res = EgorBuilder::optimize(obj)
+            .subject_to(vec![fcstr])
+            .configure(|cfg| {
+                cfg.infill_optimizer(InfillOptimizer::Cobyla)
+                    .max_iters(3)
+                    .seed(42)
+            })
+            .min_within(&array![[0., 3.], [0., 4.]])
+            .unwrap()
+            .run()
+            .expect("Egor should minimize g24");
+
+        let calls = FCSTR_ORDER_CALLS.lock().unwrap();
+        let (x_data, _, _) = res.state.surrogate.data.as_ref().unwrap();
+        for x in x_data.rows().into_iter().skip(res.state.doe.doe_size) {
+            let x = x.to_vec();
+            let obj_call = calls
+                .iter()
+                .rposition(|(name, xc)| *name == "obj" && *xc == x)
+                .expect("objective evaluated at added point");
+            assert_eq!(
+                calls.get(obj_call + 1),
+                Some(&("fcstr", x.clone())),
+                "function constraint not evaluated right after objective at {x:?}"
+            );
+        }
+    }
+
     // Objective
     fn g24(x: &ArrayBase<impl Data<Elem = f64>, Ix1>) -> f64 {
         // Function G24: 1 global optimum y_opt = -5.5080 at x_opt =(2.3295, 3.1785)

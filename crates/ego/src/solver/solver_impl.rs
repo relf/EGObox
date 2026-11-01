@@ -5,7 +5,7 @@ use crate::moo::scalarization::compromise_index;
 use crate::solver::coego;
 use crate::solver::point_selection::SelectionInputs;
 use crate::solver::surrogate_set::{DataClustering, SurrogateSet, ThetaOptimization, TrainSpec};
-use crate::utils::{find_best_result_index_from, is_feasible_at, update_data, usable_data};
+use crate::utils::{find_best_result_index_from, is_feasible_at, usable_data};
 use crate::{ActivityStrategy, FullActivity, find_best_result_index};
 use crate::{EgorSolver, ValidEgorConfig};
 use crate::{EgorState, types::*};
@@ -704,7 +704,7 @@ where
             obj_model.as_ref(),
             cstr_models,
             &cstr_tol,
-            &transformed_fcstrs,
+            transformed_fcstrs.len(),
             fmin,
             1., // FIXME: TREGO does not use sigma weighting portfolio
         );
@@ -849,7 +849,7 @@ where
         };
         let mut n_tries = 0;
 
-        let (x_dat, c_dat, y_penalized) = loop {
+        let accepted = loop {
             // Multi-objective (ParEGO): surrogates are trained on a view of the data where the
             // objectives are scalarized with the weights of the try. As their training targets
             // change, the surrogates are retrained (never incrementally updated).
@@ -906,22 +906,14 @@ where
             if let Some(models) = persisted_models {
                 surrogates.models = models;
             }
-            let Candidates {
-                x: x_dat,
-                c: c_dat,
-                y_penalized,
-                infill_value,
-                ..
-            } = candidates;
-
-            debug!("Try adding {x_dat}");
-            let usable_indices = usable_data(&x_data, &x_dat);
+            debug!("Try adding {}", candidates.x);
+            let usable_indices = usable_data(&x_data, &candidates.x);
 
             new_state = new_state
                 .clusterings(surrogates.clusterings.clone())
                 .theta_inits(surrogates.theta_inits.clone())
                 .data((x_data.clone(), y_data.clone(), c_data.clone()))
-                .infill_value(infill_value)
+                .infill_value(candidates.infill_value)
                 .rng(rng.clone());
 
             info!(
@@ -935,7 +927,7 @@ where
                 new_state.get_infill_value()
             );
 
-            Self::log_rejections(&x_dat, &usable_indices);
+            Self::log_rejections(&candidates.x, &usable_indices);
             if usable_indices.is_empty() {
                 new_state.doe.no_point_added_retries -= 1;
                 if new_state.doe.no_point_added_retries == 0 {
@@ -947,31 +939,26 @@ where
                     return Err(EgoError::NoMorePointToAddError(Box::new(new_state)));
                 }
             } else {
-                // ok point added we can go on, just output number of rejected points
-                let x_dat = x_dat.select(Axis(0), &usable_indices);
-                let c_dat = c_dat.select(Axis(0), &usable_indices);
-                break (x_dat, c_dat, y_penalized);
+                // ok point added we can go on
+                break candidates.select(&usable_indices);
             }
         };
 
-        let y_actual = self.eval_obj(problem, &x_dat)?;
-        let y_actual = self.config.to_internal_outputs(y_actual);
+        // Penalized values are used in case of failed evaluation
+        let evaluation = self.evaluate_and_append(
+            problem,
+            &accepted.x,
+            Some(&accepted.y_penalized),
+            (&mut x_data, &mut y_data, &mut c_data),
+        )?;
         // Current param and cost are those of the first evaluated point (internal layout)
         new_state = new_state
-            .param(x_dat.row(0).to_owned())
-            .cost(y_actual.row(0).to_owned());
-        let y_penalized = match self.config.failsafe_strategy {
-            FailsafeStrategy::Imputation => Some(y_penalized),
-            _ => None,
-        };
-        let (add_count, valid_count, x_fail_points) = update_data(
-            &mut x_data,
-            &mut y_data,
-            &mut c_data,
-            &x_dat,
-            &y_actual,
-            &c_dat,               // fcstr evaluation already done in select_next_points
-            y_penalized.as_ref(), // penalized values in case of crash
+            .param(accepted.x.row(0).to_owned())
+            .cost(evaluation.y.row(0).to_owned());
+        let (add_count, valid_count, x_fail_points) = (
+            evaluation.add_count,
+            evaluation.valid_count,
+            evaluation.x_fail,
         );
 
         let new_fails = self.new_failed_points(

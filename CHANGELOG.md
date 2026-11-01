@@ -35,6 +35,11 @@
 * Fix variance gradients of smooth recombination mixtures (panic or wrong cluster indices with several
   clusters) and the gradient of the upper trust bound constraint strategy
   by @relf in <https://github.com/relf/EGObox/pull/491>
+* Fix function constraints values of points added by global steps, stored divided by the infill scaling,
+  and penalized values of failed points when some selected points are rejected. Function constraints are
+  evaluated after the objective as in TREGO local steps, handled in user units by the infill optimization,
+  and an infill point slightly violating them (beyond `cstr_tol`) is moved back to the feasible side
+  by @relf in <https://github.com/relf/EGObox/pull/524>
 
 ## Version 1.0.0 - 12/10/2026
 
