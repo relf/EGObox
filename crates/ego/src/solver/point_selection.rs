@@ -349,7 +349,7 @@ where
             obj_model.as_ref(),
             cstr_models,
             cstr_tol,
-            &transformed_fcstrs,
+            transformed_fcstrs.len(),
             fmin,
             batch.sigma_weight,
         );
@@ -386,7 +386,7 @@ where
             sigma_weight: batch.sigma_weight,
         };
 
-        let cstr_funcs = self.infill_fcstrs(&transformed_fcstrs, &scale_fcstr);
+        let cstr_funcs = self.infill_fcstrs(&transformed_fcstrs);
 
         let viability_model = self.viability_model(xt, inputs.x_fail);
 

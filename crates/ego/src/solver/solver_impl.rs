@@ -704,7 +704,7 @@ where
             obj_model.as_ref(),
             cstr_models,
             &cstr_tol,
-            &transformed_fcstrs,
+            transformed_fcstrs.len(),
             fmin,
             1., // FIXME: TREGO does not use sigma weighting portfolio
         );

@@ -1325,6 +1325,22 @@ mod tests {
 
     #[test]
     #[serial]
+    fn test_function_constraints_satisfied_at_added_points() {
+        // Infill optimization handles function constraints in user units and repairs points
+        // slightly outside: added points satisfy them within the tolerance, whatever the optimizer
+        let res = g24_fcstrs_run(None);
+        let (x_data, _, c_data) = res.state.surrogate.data.as_ref().unwrap();
+        let doe_size = res.state.doe.doe_size;
+        assert!(x_data.nrows() > doe_size);
+        let c_added = c_data.slice(s![doe_size.., ..]);
+        assert!(
+            c_added.iter().all(|&c| c <= crate::DEFAULT_CSTR_TOL),
+            "function constraints violated at added points: {c_added}"
+        );
+    }
+
+    #[test]
+    #[serial]
     fn test_function_constraints_values_stored_with_specs() {
         let specs = vec![CstrSpec::Btw(-100., 0.), CstrSpec::Leq(0.)];
         let res = g24_fcstrs_run(Some(specs.clone()));

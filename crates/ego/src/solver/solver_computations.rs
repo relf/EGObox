@@ -56,7 +56,7 @@ where
         obj_model: &dyn MixtureGpSurrogate,
         cstr_models: &[Box<dyn MixtureGpSurrogate>],
         cstr_tols: &Array1<f64>,
-        fcstrs: &[impl CstrFn],
+        n_fcstr: usize,
         fmin: f64,
         sigma_weight: f64,
     ) -> (f64, Array1<f64>, Array1<f64>, f64) {
@@ -109,17 +109,9 @@ where
             scale_cstr
         };
 
-        let scale_fcstr = if fcstrs.is_empty() {
-            Array1::zeros((0,))
-        } else {
-            let fcstr_values = self.eval_fcstrs(fcstrs, &scaling_points).map(|v| v.abs());
-            let mut scale_fcstr = Array1::zeros(fcstr_values.ncols());
-            Zip::from(&mut scale_fcstr)
-                .and(fcstr_values.columns())
-                .for_each(|sc, vals| *sc = *vals.max().unwrap());
-            info!("Fonctional constraints scaling is updated to {scale_fcstr}");
-            scale_fcstr
-        };
+        // Function constraints are exact: they are handled in user units (scale 1) so that
+        // the constraint tolerances apply as given (see `optimize_infill_criterion`)
+        let scale_fcstr = Array1::ones(n_fcstr);
         (scale_infill_obj, scale_cstr, scale_fcstr, scale_ic)
     }
 
@@ -594,33 +586,22 @@ where
 
     /// Function constraints as given to the infill criterion optimizer working in the
     /// internal continuous space: functions are evaluated in the space they expect
-    /// (discrete variables in folded space), their gradients are mapped back to the
-    /// continuous space, and values are scaled by `scale_fcstr`
-    pub(crate) fn infill_fcstrs<'a>(
-        &'a self,
-        fcstrs: &'a [impl CstrFn],
-        scale_fcstr: &'a Array1<f64>,
-    ) -> Vec<impl CstrFn + 'a> {
-        debug_assert_eq!(fcstrs.len(), scale_fcstr.len());
+    /// (discrete variables in folded space) and their gradients are mapped back to the
+    /// continuous space. Values are in user units (not scaled).
+    pub(crate) fn infill_fcstrs<'a>(&'a self, fcstrs: &'a [impl CstrFn]) -> Vec<impl CstrFn + 'a> {
         fcstrs
             .iter()
-            .zip(scale_fcstr.iter())
-            .map(|(cstr, &scale_fc)| {
+            .map(|cstr| {
                 move |x: &[f64], gradient: Option<&mut [f64]>, params: &mut InfillObjData<f64>| {
                     let xuser = self.fcstr_input(x);
-                    if let Some(g) = gradient {
-                        let v = if self.config.discrete() {
+                    match gradient {
+                        Some(g) if self.config.discrete() => {
                             let mut gfold = vec![0.; xuser.len()];
                             let v = cstr(&xuser, Some(&mut gfold), params);
                             self.unfold_fcstr_gradient(&gfold, g);
                             v
-                        } else {
-                            cstr(&xuser, Some(g), params)
-                        };
-                        g.iter_mut().for_each(|gi| *gi /= scale_fc);
-                        v / scale_fc
-                    } else {
-                        cstr(&xuser, None, params) / scale_fc
+                        }
+                        gradient => cstr(&xuser, gradient, params),
                     }
                 }
             })

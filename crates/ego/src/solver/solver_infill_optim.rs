@@ -1,12 +1,12 @@
 use crate::optimizers::*;
 use crate::types::*;
 
-use crate::EgorSolver;
 use crate::moo::criterion::MooCriterion;
 use crate::utils::{pofs, pofs_grad};
+use crate::{DEFAULT_CSTR_TOL, EgorSolver};
 
 use egobox_moe::MixtureGpSurrogate;
-use log::info;
+use log::{debug, info};
 use ndarray::{Array, Array1, Array2};
 
 use rayon::prelude::*;
@@ -18,6 +18,30 @@ use super::multistart::MultiStarter;
 /// Minimal probability of viability required for an infill point
 /// when viability failsafe strategy is used
 const MIN_PROBA_OF_VIABILITY: f64 = 0.25;
+
+/// Number of bisection iterations to repair an infill point violating function constraints
+const FCSTR_REPAIR_ITERS: usize = 30;
+
+/// Bisection on the segment from `x_ref` (feasible) to `x` (infeasible): returns the feasible
+/// point found closest to `x` after `n_iter` halvings
+fn repair_on_segment(
+    x_ref: &Array1<f64>,
+    x: &Array1<f64>,
+    mut feasible: impl FnMut(&[f64]) -> bool,
+    n_iter: usize,
+) -> Array1<f64> {
+    let point = |t: f64| x_ref + &((x - x_ref) * t);
+    let (mut lo, mut hi) = (0., 1.);
+    for _ in 0..n_iter {
+        let mid = 0.5 * (lo + hi);
+        if feasible(&point(mid).to_vec()) {
+            lo = mid
+        } else {
+            hi = mid
+        }
+    }
+    point(lo)
+}
 
 pub(crate) struct InfillOptProblem<'a, CstrFn> {
     pub obj_model: &'a dyn MixtureGpSurrogate,
@@ -90,6 +114,7 @@ where
         } = infill_optpb;
         let mut infill_data = infill_data.clone();
 
+        let x_ref = current_best.0.to_owned();
         let mut best_point = (current_best.1[0], current_best.0.to_owned());
         let mut current_best_point = current_best.to_owned();
 
@@ -248,7 +273,8 @@ where
                 .collect();
 
             // Function constraints get full points: active components set to the
-            // optimized variables, the other ones to the current point values
+            // optimized variables, the other ones to the current point values.
+            // Being exact, they are handled in user units (see `repair_fcstrs_violation`)
             let fcstrs: Vec<_> = cstr_funcs
                 .iter()
                 .map(|cstr| {
@@ -397,7 +423,52 @@ where
                 current_best_point = (xopt_coop, current_best_point.1, current_best_point.2);
             }
         }
-        best_point
+        // The infill criterion value is kept as is: the repaired point is very close
+        let (value, x) = best_point;
+        let x = self.repair_fcstrs_violation(
+            x,
+            &x_ref,
+            cstr_funcs,
+            cstr_models.len(),
+            cstr_tols,
+            &mut infill_data,
+        );
+        (value, x)
+    }
+
+    /// Point satisfying the function constraints within their tolerances: `x` when it does
+    /// or when `x_ref` does not, otherwise the point found by bisection on the segment from
+    /// `x_ref` to `x`. Indeed the infill optimizer may stop slightly outside the feasible domain.
+    fn repair_fcstrs_violation(
+        &self,
+        x: Array1<f64>,
+        x_ref: &Array1<f64>,
+        cstr_funcs: &[impl CstrFn],
+        n_cstr_models: usize,
+        cstr_tols: &Array1<f64>,
+        params: &mut InfillObjData<f64>,
+    ) -> Array1<f64> {
+        let mut feasible = |x: &[f64]| {
+            cstr_funcs.iter().enumerate().all(|(k, cstr)| {
+                let tol = cstr_tols
+                    .get(n_cstr_models + k)
+                    .copied()
+                    .unwrap_or(DEFAULT_CSTR_TOL);
+                cstr(x, None, params) <= tol
+            })
+        };
+        if cstr_funcs.is_empty() || feasible(&x.to_vec()) {
+            return x;
+        }
+        if !feasible(&x_ref.to_vec()) {
+            debug!(
+                "Infill point {x} violates function constraints, no feasible point to repair it"
+            );
+            return x;
+        }
+        let repaired = repair_on_segment(x_ref, &x, feasible, FCSTR_REPAIR_ITERS);
+        info!("Infill point {x} violates function constraints, repaired to {repaired}");
+        repaired
     }
 
     /// Minimize `obj` subject to `cstrs` from several starting points,
@@ -438,5 +509,26 @@ where
             }
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use approx::assert_abs_diff_eq;
+    use ndarray::array;
+
+    #[test]
+    fn test_repair_on_segment_reaches_boundary() {
+        let feasible = |x: &[f64]| x[0] - 17. <= 1e-4;
+        let repaired = repair_on_segment(&array![3.], &array![17.0005], feasible, 30);
+        assert!(feasible(&repaired.to_vec()));
+        assert_abs_diff_eq!(repaired[0], 17.0001, epsilon = 1e-6);
+    }
+
+    #[test]
+    fn test_repair_on_segment_keeps_feasible_reference() {
+        let repaired = repair_on_segment(&array![0., 0.], &array![1., 1.], |_| false, 30);
+        assert_eq!(repaired, array![0., 0.]);
     }
 }
