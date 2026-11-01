@@ -461,6 +461,18 @@ impl Candidates {
             ndarray::concatenate![ndarray::Axis(0), self.y_penalized, other.y_penalized];
         self.infill_value = other.infill_value;
     }
+
+    /// Candidates of given row `indices`
+    pub(crate) fn select(&self, indices: &[usize]) -> Candidates {
+        let axis = ndarray::Axis(0);
+        Candidates {
+            x: self.x.select(axis, indices),
+            y: self.y.select(axis, indices),
+            c: self.c.select(axis, indices),
+            y_penalized: self.y_penalized.select(axis, indices),
+            infill_value: self.infill_value,
+        }
+    }
 }
 
 /// A trait for types that can be returned by an objective function.
@@ -663,6 +675,23 @@ mod tests {
     use super::*;
     use approx::assert_abs_diff_eq;
     use ndarray::array;
+
+    #[test]
+    fn test_candidates_select_keeps_rows_aligned() {
+        let candidates = Candidates {
+            x: array![[0.], [1.], [2.]],
+            y: array![[10.], [11.], [12.]],
+            c: array![[20.], [21.], [22.]],
+            y_penalized: array![[30.], [31.], [32.]],
+            infill_value: 1.,
+        };
+        let selected = candidates.select(&[1, 2]);
+        assert_eq!(selected.x, array![[1.], [2.]]);
+        assert_eq!(selected.y, array![[11.], [12.]]);
+        assert_eq!(selected.c, array![[21.], [22.]]);
+        assert_eq!(selected.y_penalized, array![[31.], [32.]]);
+        assert_eq!(selected.infill_value, 1.);
+    }
 
     #[test]
     fn test_untransform_constraints_round_trip() {

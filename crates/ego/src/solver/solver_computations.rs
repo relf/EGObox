@@ -3,7 +3,7 @@ use crate::errors::Result;
 use crate::types::*;
 use egobox_moe::{XType, to_discrete_space};
 
-use crate::utils::{compute_cstr_scales, logpofs, logpofs_grad, pofs, pofs_grad};
+use crate::utils::{compute_cstr_scales, logpofs, logpofs_grad, pofs, pofs_grad, update_data};
 use crate::{EgorSolver, solver::coego};
 
 use basin::{CostFunction, Problem};
@@ -30,6 +30,18 @@ fn neutral_infill_grad(dim: usize) -> Array1<f64> {
 
 fn neutral_infill(composition: InfillComposition, dim: usize) -> (f64, Array1<f64>) {
     (neutral_infill_val(composition), neutral_infill_grad(dim))
+}
+
+/// Results of the evaluation of new points appended to the data
+pub(crate) struct Evaluation {
+    /// Output values (internal layout)
+    pub(crate) y: Array2<f64>,
+    /// Number of points added to the data: valid points and failed points with imputed values
+    pub(crate) add_count: usize,
+    /// Number of valid points, appended last
+    pub(crate) valid_count: usize,
+    /// Points where the evaluation failed
+    pub(crate) x_fail: Option<Array2<f64>>,
 }
 
 impl<SB, C> EgorSolver<SB, C>
@@ -652,6 +664,36 @@ where
         } else {
             res
         }
+    }
+
+    /// Evaluate the objective then the function constraints at `x_new` points, and append
+    /// them to `data`. With the imputation failsafe strategy, failed points are appended
+    /// with their `y_penalized` values (one row per `x_new` row).
+    pub(crate) fn evaluate_and_append<
+        O: CostFunction<Param = Array2<f64>, Output = Array2<f64>, Error = crate::EgoError>
+            + Constraints<C>,
+    >(
+        &self,
+        problem: &mut Problem<O>,
+        x_new: &Array2<f64>,
+        y_penalized: Option<&Array2<f64>>,
+        (x_data, y_data, c_data): (&mut Array2<f64>, &mut Array2<f64>, &mut Array2<f64>),
+    ) -> Result<Evaluation> {
+        let y_new = self.eval_obj(problem, x_new)?;
+        let y_new = self.config.to_internal_outputs(y_new);
+        let c_new = self.eval_problem_fcstrs(problem, x_new);
+
+        let y_penalized =
+            y_penalized.filter(|_| self.config.failsafe_strategy == FailsafeStrategy::Imputation);
+        debug_assert!(y_penalized.is_none_or(|y_pen| y_pen.nrows() == x_new.nrows()));
+        let (add_count, valid_count, x_fail) =
+            update_data(x_data, y_data, c_data, x_new, &y_new, &c_new, y_penalized);
+        Ok(Evaluation {
+            y: y_new,
+            add_count,
+            valid_count,
+            x_fail,
+        })
     }
 }
 

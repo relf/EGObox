@@ -6,7 +6,7 @@ use crate::InfillObjData;
 use crate::SurrogateBuilder;
 use crate::solver::solver_infill_optim::InfillOptProblem;
 use crate::types::Constraints;
-use crate::utils::{find_best_result_index_from, is_feasible, is_update_ok, update_data};
+use crate::utils::{find_best_result_index_from, is_feasible, is_update_ok};
 
 use basin::{CostFunction, Problem};
 
@@ -194,41 +194,30 @@ where
             > min_acceptance_distance
             && is_update_ok(&x_data, &x_new.row(0))
         {
-            let y_new = self.eval_obj(problem, &x_new)?;
-            let y_new = self.config.to_internal_outputs(y_new);
-
-            debug!("y_old-y_new={}", y_old - y_new[[0, 0]],);
-            let c_new = self.eval_problem_fcstrs(problem, &x_new);
-
-            let y_penalized = match self.config.failsafe_strategy {
-                FailsafeStrategy::Imputation => {
-                    let y_pen = self.compute_penalized_point(
-                        &x_new.row(0),
-                        obj_models,
-                        cstr_models,
-                        &y_data,
-                    );
-                    let y_pen = y_pen.insert_axis(Axis(0));
-                    Some(y_pen)
-                }
-                _ => None,
-            };
+            // Penalized values are used in case of failed evaluation
+            let y_penalized =
+                (self.config.failsafe_strategy == FailsafeStrategy::Imputation).then(|| {
+                    self.compute_penalized_point(&x_new.row(0), obj_models, cstr_models, &y_data)
+                        .insert_axis(Axis(0))
+                });
 
             // Update DOE and best point
-            let (add_count, valid_count, x_fail_points) = update_data(
-                &mut x_data,
-                &mut y_data,
-                &mut c_data,
+            let evaluation = self.evaluate_and_append(
+                problem,
                 &x_new,
-                &y_new,
-                &c_new,
                 y_penalized.as_ref(),
-            );
+                (&mut x_data, &mut y_data, &mut c_data),
+            )?;
+            debug!("y_old-y_new={}", y_old - evaluation.y[[0, 0]]);
 
             new_state = new_state
                 .param(x_new.row(0).to_owned())
-                .cost(y_new.row(0).to_owned());
-            (add_count, valid_count, x_fail_points)
+                .cost(evaluation.y.row(0).to_owned());
+            (
+                evaluation.add_count,
+                evaluation.valid_count,
+                evaluation.x_fail,
+            )
         } else {
             (0, 0, None)
         };
