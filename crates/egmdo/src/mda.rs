@@ -22,6 +22,11 @@ pub struct MdaSettings {
     pub tol: f64,
     /// Floor of the denominator of the relative change (decision D3)
     pub eps_abs: f64,
+    /// Floor of the denominator of the relative change of each coupling variable, relative
+    /// to the width `w_q` of its range: the change of `y_q` is divided by
+    /// `max(|y_q|, eps_abs, range_floor w_q)` (decision D45). `0` gives the relative change of
+    /// the EGMDO paper; coupling variables close to 0 may then never converge.
+    pub range_floor: f64,
     /// Maximum number of iterations (decision D4)
     pub max_iters: usize,
     /// Relaxation factor `ω` in `]0, 1]`: `y ← (1 - ω) y + ω F(y)` (decision D31).
@@ -38,6 +43,7 @@ impl Default for MdaSettings {
         MdaSettings {
             tol: 1e-6,
             eps_abs: 1e-12,
+            range_floor: 0.,
             max_iters: 500,
             relaxation: 1.,
             retry_relaxations: vec![0.5, 0.25],
@@ -295,6 +301,9 @@ fn iterate(
     for &r in rows.iter() {
         status[r] = MdaStatus::MaxIterations;
     }
+    // Floors of the denominators of the relative changes (D3, D45)
+    let floors = (couplings.problem().coupling_widths() * settings.range_floor)
+        .mapv(|v| v.max(settings.eps_abs));
     let mut active = rows;
     for iter in 1..=settings.max_iters {
         if active.is_empty() {
@@ -310,7 +319,7 @@ fn iterate(
             y.row_mut(r).assign(&next);
             if next.iter().any(|v| !v.is_finite()) {
                 status[r] = MdaStatus::NonFinite;
-            } else if relative_change(&old, &next, settings.eps_abs) < settings.tol {
+            } else if relative_change(&old, &next, &floors) < settings.tol {
                 status[r] = MdaStatus::Converged(iter);
             } else {
                 still_active.push(r);
@@ -350,11 +359,12 @@ pub fn solve_random(
 }
 
 /// Mean relative change between two iterates (specification, section 3)
-fn relative_change(old: &ArrayView1<f64>, new: &ArrayView1<f64>, eps_abs: f64) -> f64 {
+fn relative_change(old: &ArrayView1<f64>, new: &ArrayView1<f64>, floors: &Array1<f64>) -> f64 {
     let n = old.len().max(1) as f64;
     old.iter()
         .zip(new.iter())
-        .map(|(o, v)| (v - o).abs() / o.abs().max(eps_abs))
+        .zip(floors.iter())
+        .map(|((o, v), f)| (v - o).abs() / o.abs().max(*f))
         .sum::<f64>()
         / n
 }
@@ -385,6 +395,16 @@ mod tests {
     fn normal_samples(n: usize, m: usize, seed: u64) -> Array2<f64> {
         let mut rng = Xoshiro256Plus::seed_from_u64(seed);
         Array::random_using((n, m), StandardNormal, &mut rng)
+    }
+
+    #[test]
+    fn test_range_floor() {
+        // A coupling variable close to 0 changes by 100% in relative terms, but by 4e-14 of
+        // its range width 25
+        let (old, new) = (array![1e-12, 10.], array![2e-12, 10.]);
+        let change = |floors| relative_change(&old.view(), &new.view(), &floors);
+        assert_abs_diff_eq!(change(array![1e-12, 1e-12]), 0.5);
+        assert!(change(array![25e-6, 25e-6]) < 1e-6);
     }
 
     #[test]

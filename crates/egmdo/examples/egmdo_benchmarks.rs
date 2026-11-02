@@ -11,7 +11,7 @@
 //! `sellar_constrained` (all by default). The results are printed as Markdown tables.
 
 use egobox_egmdo::egmda::{self, Dispersion, EgmdaConfig};
-use egobox_egmdo::mda::{MdaStatus, TrueCouplings, solve_one};
+use egobox_egmdo::mda::{MdaSettings, MdaStatus, TrueCouplings, solve_one};
 use egobox_egmdo::problems::{self, TestProblem};
 use egobox_egmdo::uq::UqSettings;
 use egobox_egmdo::{Acquisition, DisciplineFn, EgmdoConfig, minimize};
@@ -56,7 +56,10 @@ impl Case {
             dispersion,
             n_doe_disciplines: egmdo.n_doe_disciplines.clone(),
             max_iters: self.egor_iters,
-            mda: egmdo.mda.clone(),
+            mda: MdaSettings {
+                range_floor: egmda::EGMDA_RANGE_FLOOR,
+                ..egmdo.mda.clone()
+            },
             ..EgmdaConfig::default()
         }
     }

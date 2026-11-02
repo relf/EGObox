@@ -88,6 +88,7 @@ Convergence (paper): the mean relative change of the coupling variables between 
 ```
 
 - **Decision D3:** `ε_abs = 1e-12` guards against division by zero.
+- **Decision D45:** optionally, the denominator of coupling `q` is floored at `η w_q`, `w_q` being the width of its range `C(i)`: `max(|y_q^(k)|, ε_abs, η w_q)`. With `η = 0`, the default of EGMDO, the criterion is the paper's. Near 0, the relative change of a coupling variable stays large however small its change, so the MDA does not converge: on the aero-structural problem (#503), at an angle of attack of 0, most coupling variables vanish and the mean MDA on the GP means reached its iteration limit, while the true MDA converged. EGMDA uses `η = 10⁻⁶` (section 24).
 - **Decision D4:** the starting point is the centre of the `C(i)` boxes; the iteration limit is 500 (configurable).
 - **Decision D31:** an optional relaxation `y^(k+1) = (1 − ω) y^(k) + ω F(y^(k))`, `ω ∈ ]0, 1]`. The default `ω = 1` is the paper's plain Jacobi method. Plain Jacobi diverges on part of the compound cylinder's design space: its iteration factor reaches −1.55 at `a = 7, b = 9, c = 15`. With `ω = 0.5`, every corner of `Z` contracts, so this test problem uses `ω = 0.5`.
 - **Decision D33:** the resolutions which do not converge are retried from their starting point with stronger relaxation, `ω = 0.5` then `0.25` (only the factors smaller than the base `ω` are used). Random MDAs fail mostly near the edges of the design space: there the couplings leave the training boxes `C(i)`, the GPs extrapolate with large `σ`, and some realizations `μ + σ ξ` have iteration factors larger than 1 in magnitude, so plain Jacobi cycles. The paper's plain Jacobi is still used whenever it converges.
@@ -442,6 +443,7 @@ Sources: the REMAL paper is used first, and Ghoreishi and Imani only for what it
 | D42 | EGMDA enrichment | At `(z, y_0)`; the discipline with the largest share of `Tr Σ` (`Sobol`, default) or every discipline (`All`) |
 | D43 | EGMDA end of analysis | Converged, enrichment cap per point (20), budget, duplicates only (stalled), or failure of the mean MDA or of the linearization (numerically singular `I − J` only); all disciplines enriched at the last iterate of a non-converged mean MDA; `qoi(z, y_0)` returned unless failed |
 | D44 | `Egor` with EGMDA | Ask/tell over `Egor`'s `suggest`; failed points rejected; equality constraints as two inequalities |
+| D45 | MDA convergence near 0 | Optional floor `η w_q` of the denominator of the relative change, `w_q` the width of the coupling range; `η = 0` for EGMDO, `10⁻⁶` for EGMDA |
 
 ## 13. Default settings
 
@@ -798,10 +800,10 @@ Points with `MdaFailure` are rejected, as `Egor`'s default failsafe strategy doe
 | Problem | EGMDO defaults: best point optimal, evaluations | `Egor` MDF: optimal, evaluations to target / total | `Egor` + EGMDA, `ε_rel = 10⁻³` | `Egor` + EGMDA, `ε_rel = 10⁻⁴` (default) |
 |---|---|---|---|---|
 | Toy | 8/10, 15.6 | 10/10, 448 / 1045 | 10/10, 35 / 54 | 10/10, 43 / 69 |
-| Modified Sellar | 9/10, 20.3 | 10/10, 412 / 899 | 10/10, 49 / 89 | 10/10, 60 / 115 |
+| Modified Sellar | 9/10, 20.3 | 10/10, 412 / 899 | 10/10, 49 / 89 | 10/10, 60 / 112 |
 | Compound cylinder | 7/10, 24.2 | 10/10, 1258 / 2711 | 10/10, 63 / 94 | 10/10, 74 / 118 |
 | Constrained toy | 7/10, 22.3 | 10/10, 512 / 1354 | 10/10, 32 / 42 | 10/10, 40 / 52 |
-| Constrained Sellar | 9/10, 23.9 | 10/10, 308 / 920 | 6/10, 36 / 72 | 10/10, 46 / 100 |
+| Constrained Sellar | 9/10, 23.9 | 10/10, 308 / 920 | 6/10, 36 / 72 | 10/10, 46 / 102 |
 
 Evaluations to target are medians, totals are means over the run (`Egor` keeps iterating after reaching the target). The details are in `doc/egmdo_benchmarks.md`.
 
@@ -816,6 +818,7 @@ Evaluations to target are medians, totals are means over the run (`Egor` keeps i
 | Dispersion (D41) | `Relative(ε)`, `Absolute(ε)`, `Spectral(ε)` | `Relative(10⁻⁴)` |
 | Enrichment (D42) | `All`, `Sobol` | `Sobol` |
 | Enrichments per point (D43) | ≥ 0 | 20 |
+| MDA convergence floor `η` (D45) | ≥ 0 | `10⁻⁶` (`EGMDA_RANGE_FLOOR`) |
 | Initial DoE in `z` (D44) | size or points | `max(nx + 1, 5)` |
 | Iterations of `Egor` | ≥ 0 | 20 |
 

@@ -119,11 +119,15 @@ pub struct EgmdaConfig {
     pub max_evaluations: Option<usize>,
     /// GP settings of the disciplinary GPs
     pub gp: GpSettings,
-    /// MDA settings
+    /// MDA settings; by default with the floor [EGMDA_RANGE_FLOOR] of the convergence test
     pub mda: MdaSettings,
     /// Seed of all random draws; `None` for a non-reproducible run
     pub seed: Option<u64>,
 }
+
+/// The floor of the MDA convergence test of EGMDA, relative to the widths of the coupling
+/// ranges ([MdaSettings::range_floor], decision D45)
+pub const EGMDA_RANGE_FLOOR: f64 = 1e-6;
 
 impl Default for EgmdaConfig {
     fn default() -> Self {
@@ -139,7 +143,10 @@ impl Default for EgmdaConfig {
             max_iters: 20,
             max_evaluations: None,
             gp: GpSettings::default(),
-            mda: MdaSettings::default(),
+            mda: MdaSettings {
+                range_floor: EGMDA_RANGE_FLOOR,
+                ..MdaSettings::default()
+            },
             seed: None,
         }
     }
