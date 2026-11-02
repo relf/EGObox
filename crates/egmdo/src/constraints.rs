@@ -1,15 +1,41 @@
 //! Continuous models of the constraints (specification, section 17).
 //!
 //! The mean of the PCE of each constraint at the `DoE_UQ` points is interpolated over the
-//! design space by a GP, as in SEGO. Constraints declared as depending on the design variables
-//! only are evaluated directly (decision D22).
+//! design space by a GP, as in SEGO ([ConstraintModels]). Constraints declared as depending on
+//! the design variables only are evaluated directly (decision D22). As an option, the
+//! constraints of the acquisition come instead from the MDA solved on the means of the
+//! disciplinary GPs ([MeanMdaQoi], decision D40).
 
 use crate::criteria::Feasibility;
 use crate::errors::{EgmdoError, Result};
+use crate::mda::{Couplings, MdaSettings, SurrogateCouplings, solve_one};
 use crate::problem::MdoProblem;
-use crate::surrogates::{DisciplinaryGp, GpSettings};
+use crate::surrogates::{DisciplinaryGp, DisciplinaryModels, GpSettings};
 use crate::uq::PointUq;
-use ndarray::{Array1, Array2};
+use ndarray::{Array1, Array2, Axis};
+use std::collections::HashMap;
+use std::sync::Mutex;
+use std::thread::ThreadId;
+
+/// The value of a constraint `c_k(z) <= 0` of the acquisition where the mean MDA does not
+/// converge (D40)
+pub const NON_CONVERGED_VIOLATION: f64 = 1e10;
+
+/// The constraint `j` and its sign for inequality `k` of the acquisition optimization: one
+/// per inequality constraint `g`, then two per equality constraint `h` (`h` and `-h`)
+fn inequality(n_ineq: usize, k: usize) -> (usize, f64) {
+    if k < n_ineq {
+        (k, 1.)
+    } else {
+        let r = (k - n_ineq) / 2;
+        let sign = if (k - n_ineq).is_multiple_of(2) {
+            1.
+        } else {
+            -1.
+        };
+        (n_ineq + r, sign)
+    }
+}
 
 /// The models of the constraints `[g..., h...]` of a problem
 #[derive(Clone)]
@@ -134,19 +160,7 @@ impl ConstraintModels {
         let n_ineq = feasibility.n_ineq();
         let n = n_ineq + 2 * (self.gps.len() - n_ineq);
         let constraint = move |k: usize, z: &Array1<f64>| {
-            let (j, sign) = if k < n_ineq {
-                (k, 1.)
-            } else {
-                let r = (k - n_ineq) / 2;
-                (
-                    n_ineq + r,
-                    if (k - n_ineq).is_multiple_of(2) {
-                        1.
-                    } else {
-                        -1.
-                    },
-                )
-            };
+            let (j, sign) = inequality(n_ineq, k);
             let z = z.view().insert_axis(ndarray::Axis(0)).to_owned();
             let value = match &self.gps[j] {
                 Some(gp) => gp.predict(&z).map(|v| v[0]),
@@ -158,6 +172,102 @@ impl ConstraintModels {
             value.map_or(f64::INFINITY, |v| sign * v - feasibility.tolerances()[j])
         };
         (n, constraint)
+    }
+}
+
+/// The last design point of each thread, with its mean MDA quantities of interest
+type QoiCache = Mutex<HashMap<ThreadId, (Array1<f64>, Option<Array1<f64>>)>>;
+
+/// The quantities of interest `[f_obj, g..., h...]` of the MDA solved on the means of the
+/// disciplinary GPs at a design point (the mean MDA), used as the constraints of the
+/// acquisition with [AcquisitionConstraints::MeanMda](crate::AcquisitionConstraints) (D40).
+///
+/// The optimizer queries the constraints one by one at the same point, from several threads:
+/// the last point of each thread is cached, so that one MDA is solved per point.
+pub struct MeanMdaQoi<'a> {
+    couplings: SurrogateCouplings<'a>,
+    settings: &'a MdaSettings,
+    cache: QoiCache,
+}
+
+impl<'a> MeanMdaQoi<'a> {
+    /// The mean MDA of `problem` with the disciplinary GPs `models`
+    pub fn new(
+        problem: &'a MdoProblem,
+        models: &'a DisciplinaryModels,
+        settings: &'a MdaSettings,
+    ) -> Self {
+        MeanMdaQoi {
+            couplings: SurrogateCouplings::mean(problem, models),
+            settings,
+            cache: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// The quantities of interest `[f_obj, g..., h...]` of the mean MDA at design point `z`,
+    /// or `None` if the mean MDA does not converge there
+    pub fn qoi(&self, z: &Array1<f64>) -> Result<Option<Array1<f64>>> {
+        let thread = std::thread::current().id();
+        if let Some((zc, qc)) = self.cache.lock().expect("cache").get(&thread)
+            && zc == z
+        {
+            return Ok(qc.clone());
+        }
+        let (y, status) = solve_one(&self.couplings, &z.view(), self.settings)?;
+        let qoi = if status.is_converged() {
+            let problem = self.couplings.problem();
+            let q = problem.eval_qoi(
+                &z.view().insert_axis(Axis(0)),
+                &y.view().insert_axis(Axis(0)),
+            )?;
+            Some(q.row(0).to_owned())
+        } else {
+            None
+        };
+        self.cache
+            .lock()
+            .expect("cache")
+            .insert(thread, (z.clone(), qoi.clone()));
+        Ok(qoi)
+    }
+
+    /// The constraints of the acquisition optimization `c_k(z) <= 0` from the mean MDA, as
+    /// [ConstraintModels::as_inequalities]; [NON_CONVERGED_VIOLATION] where the mean MDA does
+    /// not converge
+    pub fn as_inequalities<'b>(
+        &'b self,
+        feasibility: &'b Feasibility,
+    ) -> (usize, impl Fn(usize, &Array1<f64>) -> f64 + Sync + 'b) {
+        let n_ineq = feasibility.n_ineq();
+        let n_constraints = feasibility.n_constraints();
+        let n = n_ineq + 2 * (n_constraints - n_ineq);
+        let constraint = move |k: usize, z: &Array1<f64>| {
+            let (j, sign) = inequality(n_ineq, k);
+            match self.qoi(z) {
+                Ok(Some(q)) => sign * q[1 + j] - feasibility.tolerances()[j],
+                _ => NON_CONVERGED_VIOLATION,
+            }
+        };
+        (n, constraint)
+    }
+
+    /// The violation of the constraints of the mean MDA beyond their tolerances,
+    /// `Σ max(g - τ, 0) + Σ max(|h| - τ, 0)`, minimized by the feasibility-first acquisition
+    /// with these constraints (D39, D40); [NON_CONVERGED_VIOLATION] where the mean MDA does not
+    /// converge
+    pub fn violation(&self, feasibility: &Feasibility, z: &Array1<f64>) -> f64 {
+        match self.qoi(z) {
+            Ok(Some(q)) => {
+                let n_ineq = feasibility.n_ineq();
+                (0..feasibility.n_constraints())
+                    .map(|j| {
+                        let c = if j < n_ineq { q[1 + j] } else { q[1 + j].abs() };
+                        (c - feasibility.tolerances()[j]).max(0.)
+                    })
+                    .sum()
+            }
+            _ => NON_CONVERGED_VIOLATION,
+        }
     }
 }
 
@@ -232,6 +342,38 @@ mod tests {
         assert_abs_diff_eq!(c(0, &z0), pred[[0, 0]] - 1e-4, epsilon = 1e-12);
         assert_abs_diff_eq!(c(2, &z0), -2.5 - 1e-2, epsilon = 1e-12);
         assert_abs_diff_eq!(c(3, &z0), 2.5 - 1e-2, epsilon = 1e-12);
+
+        // Mean MDA constraints (D40): the quantities of interest of the mean MDA
+        let mean_mda = MeanMdaQoi::new(&problem, &models, &tp.mda);
+        let (y, status) = solve_one(
+            &SurrogateCouplings::mean(&problem, &models),
+            &z0.view(),
+            &tp.mda,
+        )
+        .unwrap();
+        assert!(status.is_converged());
+        let expected = problem
+            .eval_qoi(
+                &z0.view().insert_axis(Axis(0)),
+                &y.view().insert_axis(Axis(0)),
+            )
+            .unwrap()
+            .row(0)
+            .to_owned();
+        let q = mean_mda.qoi(&z0).unwrap().unwrap();
+        assert_abs_diff_eq!(q, expected, epsilon = 1e-12);
+        // Cached for the next constraints at the same point, recomputed at another one
+        assert_eq!(mean_mda.qoi(&z0).unwrap().unwrap(), q);
+        let z1 = array![-2., 7., 4.];
+        assert_ne!(mean_mda.qoi(&z1).unwrap().unwrap(), q);
+        let (n, c) = mean_mda.as_inequalities(&feas);
+        assert_eq!(n, 4);
+        assert_abs_diff_eq!(c(0, &z0), q[1] - 1e-4, epsilon = 1e-12);
+        assert_abs_diff_eq!(c(1, &z0), q[2] - 1e-4, epsilon = 1e-12);
+        assert_abs_diff_eq!(c(2, &z0), -2.5 - 1e-2, epsilon = 1e-12);
+        assert_abs_diff_eq!(c(3, &z0), 2.5 - 1e-2, epsilon = 1e-12);
+        let violation = (q[1] - 1e-4).max(0.) + (q[2] - 1e-4).max(0.) + (2.5 - 1e-2);
+        assert_abs_diff_eq!(mean_mda.violation(&feas, &z0), violation, epsilon = 1e-12);
 
         // Unknown deterministic constraint
         let bad = problem.clone().deterministic_constraints(&[3]);

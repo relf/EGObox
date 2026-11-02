@@ -5,7 +5,7 @@
 //! [EvaluationRequest]s; the caller evaluates them and gives the outputs back with
 //! [EgmdoSolver::tell]. [minimize] runs this loop with given disciplinary solvers.
 
-use crate::constraints::ConstraintModels;
+use crate::constraints::{ConstraintModels, MeanMdaQoi};
 use crate::criteria::{
     ExpectedImprovement, Feasibility, SampleMinima, multistart_minimize_constrained,
     qoi_joint_samples,
@@ -20,7 +20,7 @@ use crate::uq::{
     Correlation, JointSamples, PointUq, UqSettings, coefficients, coupling_correlations, point_uq,
 };
 use egobox_doe::{Lhs, SamplingMethod};
-use ndarray::{Array1, Array2, Axis, concatenate, s};
+use ndarray::{Array1, Array2, Axis, array, concatenate, s};
 use ndarray_rand::rand::{Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256Plus;
 use rayon::prelude::*;
@@ -64,6 +64,20 @@ enum Criterion {
     LogEi(f64),
 }
 
+/// A constraint `(k, z) -> c_k(z)` of the acquisition optimization
+type BoxedConstraint<'a> = Box<dyn Fn(usize, &Array1<f64>) -> f64 + Sync + 'a>;
+
+/// The models of the constraints in the acquisition optimization
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum AcquisitionConstraints {
+    /// GPs of the constraint PCE means over `DoE_UQ`, as in C-EGMDO (section 17)
+    #[default]
+    PceMeanGp,
+    /// The constraints of the MDA solved on the means of the disciplinary GPs at each
+    /// candidate point (D40)
+    MeanMda,
+}
+
 /// The criterion maximized at an iteration, recorded in its [IterationRecord]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AcquisitionCriterion {
@@ -73,7 +87,8 @@ pub enum AcquisitionCriterion {
     Wb2,
     /// The logarithm of a smoothed expected improvement
     LogEi,
-    /// The probability of feasibility, when no `DoE_UQ` point is feasible (D39)
+    /// The probability of feasibility, when no `DoE_UQ` point is feasible (D39); with the mean
+    /// MDA constraints (D40), the opposite of their violation
     Feasibility,
 }
 
@@ -116,6 +131,8 @@ pub struct EgmdoConfig {
     /// probability of feasibility of the constraint models instead of the acquisition
     /// criterion (D39); `false` in the C-EGMDO paper
     pub feasibility_first: bool,
+    /// The models of the constraints in the acquisition optimization (D40)
+    pub acquisition_constraints: AcquisitionConstraints,
     /// The disciplines enriched at an enrichment point
     pub enrichment: Enrichment,
     /// The tolerance of each constraint `[g..., h...]` (D21); `None` gives `1e-4`
@@ -180,6 +197,7 @@ impl Default for EgmdoConfig {
         EgmdoConfig {
             acquisition: Acquisition::default(),
             feasibility_first: false,
+            acquisition_constraints: AcquisitionConstraints::default(),
             enrichment: Enrichment::default(),
             constraint_tolerances: None,
             n_doe_disciplines: None,
@@ -230,6 +248,14 @@ pub struct IterationRecord {
     pub n_failed_mdas: usize,
     /// The number of `DoE_UQ` points dropped because too few random MDAs converged (D32)
     pub n_dropped_points: usize,
+    /// At the proposed point, the quantities of interest `[f_obj, g..., h...]` of the models
+    /// of the acquisition: the expectation `m_0` of the objective model and the GPs of the
+    /// constraint PCE means (D40)
+    pub qoi_gp: Option<Array1<f64>>,
+    /// At the proposed point, the quantities of interest of the mean MDA, if it converges (D40)
+    pub qoi_mean_mda: Option<Array1<f64>>,
+    /// At `z_new`, the means of the quantities of interest PCEs (D40)
+    pub qoi_pce_mean: Option<Array1<f64>>,
 }
 
 /// The result of an EGMDO run
@@ -667,7 +693,22 @@ impl EgmdoSolver {
         let zeta = field.zeta_of(&samples, &values);
         let ei = ExpectedImprovement::with_zeta(&field, f_min, zeta, eta);
         let mut starts = self.uniform_points(self.config.n_starts);
-        let (n_constraints, constraint) = constraints.as_inequalities(&self.feasibility);
+        let mean_mda = MeanMdaQoi::new(
+            &self.problem,
+            self.models.as_ref().expect("models"),
+            &self.config.mda,
+        );
+        let (n_constraints, constraint): (usize, BoxedConstraint) =
+            match self.config.acquisition_constraints {
+                AcquisitionConstraints::PceMeanGp => {
+                    let (n, c) = constraints.as_inequalities(&self.feasibility);
+                    (n, Box::new(c))
+                }
+                AcquisitionConstraints::MeanMda => {
+                    let (n, c) = mean_mda.as_inequalities(&self.feasibility);
+                    (n, Box::new(c))
+                }
+            };
         // No DoE_UQ point is feasible by the constraint PCE means (D39)
         let none_feasible = self.feasibility.n_constraints() > 0
             && !self
@@ -686,13 +727,28 @@ impl EgmdoSolver {
             };
             multistart_minimize_constrained(
                 &objective,
-                &constraint,
+                &*constraint,
                 n_constraints,
                 self.problem.xlimits(),
                 starts,
             )
         };
-        let (optima, criterion, wb2_scale) = if self.config.feasibility_first && none_feasible {
+        let (optima, criterion, wb2_scale) = if self.config.feasibility_first
+            && none_feasible
+            && self.config.acquisition_constraints == AcquisitionConstraints::MeanMda
+        {
+            // Violation of the mean MDA constraints, which have no standard deviation (D40)
+            let objective = |z: &Array1<f64>| mean_mda.violation(&self.feasibility, z);
+            let no_constraint = |_: usize, _: &Array1<f64>| 0.;
+            let optima = multistart_minimize_constrained(
+                &objective,
+                &no_constraint,
+                0,
+                self.problem.xlimits(),
+                &starts,
+            );
+            (optima, AcquisitionCriterion::Feasibility, None)
+        } else if self.config.feasibility_first && none_feasible {
             // Probability of feasibility of the modelled constraints, the deterministic ones
             // staying constraints of the optimization (D39)
             let (n_deterministic, deterministic) =
@@ -754,6 +810,20 @@ impl EgmdoSolver {
                 ((&zi - z) / &width).mapv(|v| v * v).sum().sqrt() >= DOE_UQ_DUPLICATE_TOLERANCE
             })
         });
+        // The quantities of interest of both models at the proposed point (D40)
+        let (qoi_gp, qoi_mean_mda) = match &candidate {
+            Some(z) => {
+                let z2 = z.view().insert_axis(Axis(0)).to_owned();
+                let m0 = field.expectation(&z2)?[0];
+                let cstr = constraints.predict(&z2)?.row(0).to_owned();
+                let gp = concatenate![Axis(0), array![m0], cstr];
+                (Some(gp), mean_mda.qoi(z)?)
+            }
+            None => (None, None),
+        };
+        drop(constraint);
+        drop(mean_mda);
+        let mut qoi_pce_mean = None;
         let z_new = match candidate {
             Some(z) => match point_uq(
                 &self.problem,
@@ -766,6 +836,7 @@ impl EgmdoSolver {
             ) {
                 Ok(uq) => {
                     self.doe_uq = concatenate![Axis(0), self.doe_uq, z.view().insert_axis(Axis(0))];
+                    qoi_pce_mean = Some(uq.pce.mean());
                     self.uq.push(uq);
                     Some(z)
                 }
@@ -792,6 +863,9 @@ impl EgmdoSolver {
             n_enrichments: 0,
             n_failed_mdas: self.uq.iter().map(|u| u.n_failed).sum(),
             n_dropped_points: 0,
+            qoi_gp,
+            qoi_mean_mda,
+            qoi_pce_mean,
         });
         Ok(())
     }
@@ -1391,6 +1465,56 @@ mod tests {
                 .iter()
                 .all(|h| h.criterion == AcquisitionCriterion::Wb2)
         );
+    }
+
+    #[test]
+    fn test_mean_mda_constraints() {
+        let tp = problems::toy_constrained();
+        let config = |feasibility_first, doe_uq| EgmdoConfig {
+            acquisition_constraints: AcquisitionConstraints::MeanMda,
+            feasibility_first,
+            doe_uq: Some(doe_uq),
+            ..toy_constrained_config(0)
+        };
+        let result = minimize(
+            &tp.problem,
+            &tp.disciplines,
+            config(false, array![[-3.6], [-2.], [1.2], [3.8]]),
+        )
+        .unwrap();
+        assert!(result.best_feasible);
+        assert!(result.z_best[0].abs() < 2.5, "z_best = {}", result.z_best);
+        // Tracking (D40): the quantities of interest of both models at the proposed point, and
+        // the PCE means once it is in DoE_UQ
+        let n_uq0 = 4;
+        let mut added = 0;
+        for h in result.history.iter() {
+            let (gp, mean_mda) = (h.qoi_gp.as_ref().unwrap(), h.qoi_mean_mda.as_ref().unwrap());
+            assert_eq!(gp.len(), tp.problem.n_qoi());
+            assert_eq!(mean_mda.len(), tp.problem.n_qoi());
+            if let Some(z) = &h.z_new {
+                // Recomputed at the end, after the enrichments: same DoE_UQ point
+                assert_eq!(result.doe_uq.row(n_uq0 + added), z.view());
+                assert_eq!(h.qoi_pce_mean.as_ref().unwrap().len(), tp.problem.n_qoi());
+                added += 1;
+            } else {
+                assert!(h.qoi_pce_mean.is_none());
+            }
+        }
+        assert!(added > 0);
+
+        // With feasibility first, from an infeasible DoE_UQ: the violation of the mean MDA
+        // constraints leads to the feasible region
+        let result = minimize(
+            &tp.problem,
+            &tp.disciplines,
+            config(true, array![[-5.], [-4.2], [3.4], [4.6]]),
+        )
+        .unwrap();
+        let first = &result.history[0];
+        assert_eq!(first.criterion, AcquisitionCriterion::Feasibility);
+        assert!(first.max_criterion <= 0., "opposite of a violation");
+        assert!(result.best_feasible);
     }
 
     #[test]
