@@ -17,7 +17,9 @@
 //!   solved or linearized random MDAs, perfectly or GP-correlated across design points: [uq],
 //! * the Karhunen–Loève decomposition and KL-GP random field of the objective: [kl],
 //! * the enrichment criteria: [criteria], and the constraint models: [constraints],
-//! * the test problems of the EGMDO and C-EGMDO papers: [problems].
+//! * the test problems of the EGMDO and C-EGMDO papers: [problems],
+//! * EGMDA, the disciplinary GPs and their enrichment as the MDA solver of another optimizer,
+//!   and its use with `Egor`: [egmda].
 //!
 //! # Examples
 //!
@@ -85,6 +87,7 @@
 
 pub mod constraints;
 pub mod criteria;
+pub mod egmda;
 mod errors;
 pub mod kl;
 pub mod mda;

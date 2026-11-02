@@ -20,11 +20,12 @@ categories = ["algorithms", "mathematics", "science"]
 [features]
 default = []
 # Use cobyla crate (C-ported NLopt COBYLA) instead of basin COBYLA for GP training
-c-cobyla = ["egobox-gp/c-cobyla"]
+c-cobyla = ["egobox-gp/c-cobyla", "egobox-ego/c-cobyla"]
 
 [dependencies]
 egobox-doe = { version = "0.35.2", path = "../doe" }
 egobox-gp = { version = "0.37.1", path = "../gp" }
+egobox-ego = { version = "0.43.0", path = "../ego" }
 
 libm = "0.2.6"
 linfa.workspace = true
@@ -38,4 +39,3 @@ log.workspace = true
 
 [dev-dependencies]
 approx.workspace = true
-egobox-ego = { version = "0.43.0", path = "../ego" }

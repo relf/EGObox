@@ -248,10 +248,30 @@ fn linearize(
     y0: &Array1<f64>,
     xi: &ArrayView2<f64>,
 ) -> Result<Option<Array2<f64>>> {
+    Ok(linearization_factor(problem, models, z, y0)?.map(|l| xi.dot(&l.t()) + y0))
+}
+
+/// The factor `L = (I - J)^-1 diag(σ)` `(n_couplings, n_couplings)` of the linearized random
+/// MDA `y_0 + L Ξ` at design point `z` around the mean MDA solution `y0`, or `None` if `I - J`
+/// is ill-conditioned (decision D37). The covariance of the coupling variables is `L Lᵀ`.
+pub fn linearization_factor(
+    problem: &MdoProblem,
+    models: &DisciplinaryModels,
+    z: &ArrayView1<f64>,
+    y0: &Array1<f64>,
+) -> Result<Option<Array2<f64>>> {
     let (jac, sigma) = coupling_jacobian(problem, models, z, &y0.view())?;
     // The coupling variables can have very different magnitudes: the conditioning is that of
-    // B = S^-1 (I - J) S with S = diag(|y_0| + σ), which does not depend on their units.
-    let scale = (y0.mapv(f64::abs) + &sigma).mapv(|v| if v > 0. { v } else { 1. });
+    // B = S^-1 (I - J) S with S the diagonal of the widths of the coupling ranges, which does
+    // not depend on their units. A scale |y_0| + σ would vanish with a coupling variable,
+    // making B ill-conditioned when I - J is not.
+    let widths = problem.coupling_widths();
+    let scale = Array1::from_shape_fn(widths.len(), |q| {
+        [widths[q], y0[q].abs() + sigma[q], 1.]
+            .into_iter()
+            .find(|&v| v > 0.)
+            .expect("positive scale")
+    });
     let scale_col = scale.view().insert_axis(Axis(1));
     let b = (Array2::eye(jac.nrows()) - jac) * &scale / scale_col;
     let Ok((Some(u), s, Some(vt))) = b.svd(true, true) else {
@@ -267,8 +287,7 @@ fn linearize(
     }
     // B^-1 = V diag(1/s) U^T, (I - J)^-1 = S B^-1 S^-1, then L = (I - J)^-1 diag(σ)
     let b_inv = vt.t().dot(&(&u.t() / &s.insert_axis(Axis(1))));
-    let l = b_inv * scale_col / &scale * &sigma;
-    Ok(Some(xi.dot(&l.t()) + y0))
+    Ok(Some(b_inv * scale_col / &scale * &sigma))
 }
 
 /// Computes [point_uq] at every design point of `z` `(n, nx)`, in parallel.

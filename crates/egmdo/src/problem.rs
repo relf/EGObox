@@ -369,6 +369,20 @@ impl MdoProblem {
         sum / count.mapv(|c| c.max(1.))
     }
 
+    /// The width of the range of each coupling variable: the mean of the widths of the initial
+    /// ranges declared by the disciplines receiving it, or 0 when no discipline receives it.
+    pub fn coupling_widths(&self) -> Array1<f64> {
+        let mut sum = Array1::zeros(self.n_couplings);
+        let mut count = Array1::<f64>::zeros(self.n_couplings);
+        for d in self.disciplines.iter() {
+            for (k, &q) in d.coupling_inputs.iter().enumerate() {
+                sum[q] += d.coupling_bounds[[k, 1]] - d.coupling_bounds[[k, 0]];
+                count[q] += 1.;
+            }
+        }
+        sum / count.mapv(|c| c.max(1.))
+    }
+
     /// Evaluates the quantities of interest `[f_obj, g..., h...]` at design points `z`
     /// with coupling variables `y` (one point per row).
     pub fn eval_qoi(&self, z: &ArrayView2<f64>, y: &ArrayView2<f64>) -> Result<Array2<f64>> {
