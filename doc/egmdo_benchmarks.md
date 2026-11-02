@@ -91,6 +91,23 @@ The papers report evaluations per discipline; they are summed here.
 - **WB2S does not remove the mirrored-basin samples of constrained Sellar.** In some runs, part of the final samples of `Ẑ*` fall near `z1 ≈ −1.8`, where the model (19) is less accurate, although the best point is the optimum. Once the disciplinary GPs are enriched, the EI is zero on almost all the design space, so no scale makes WB2S explore that basin. The bias comes from the final estimation with the model (19), not from the acquisition. The "best point optimal" column is the more reliable indicator in that case.
 - **The "best point" can be poor while `E[Ẑ*]` is right.** This happens with the 2020 settings on modified Sellar (1/20): the squared exponential GPs give biased PCE means at the `DoE_UQ` points, whereas the distribution of `Ẑ*` is centred on the optimum.
 
+## EGMDA: `Egor` with the disciplinary GPs as the MDA solver (D41–D44)
+
+EGMDA (issue #518, spec part III) solves the MDA at each point proposed by `Egor` with the disciplinary GPs, enriched until the linearized coupling variables are certain enough. `Egor` + EGMDA keeps the iterations of the `Egor` baseline and the initial disciplinary DoEs of EGMDO; its initial DoE in `z` is `Egor`'s default, `max(nx + 1, 5)` points. The target is reached when the true MDA at an analyzed point is optimal (same criterion as for the `Egor` baseline). 10 seeds (0 to 9), with the EGMDO and `Egor` MDF rows of the same run:
+
+| Problem | EGMDO defaults: best point optimal, evaluations | `Egor` MDF: optimal, evaluations to target / total | `Egor` + EGMDA, `ε_rel = 10⁻³` | `Egor` + EGMDA, `ε_rel = 10⁻⁴` (default) |
+|---|---|---|---|---|
+| Toy | 8/10, 15.6 | 10/10, 448 / 1045 | 10/10, 35 / 54 | 10/10, 43 / 69 |
+| Modified Sellar | 9/10, 20.3 | 10/10, 412 / 899 | 10/10, 49 / 89 | 10/10, 60 / 115 |
+| Compound cylinder | 7/10, 24.2 | 10/10, 1258 / 2711 | 10/10, 63 / 94 | 10/10, 74 / 118 |
+| Constrained toy | 7/10, 22.3 | 10/10, 512 / 1354 | 10/10, 32 / 42 | 10/10, 40 / 52 |
+| Constrained Sellar | 9/10, 23.9 | 10/10, 308 / 920 | 6/10, 36 / 72 | 10/10, 46 / 100 |
+
+- **`Egor` + EGMDA reaches the optimum in every run with the default `ε_rel = 10⁻⁴`**, on all five problems, after 7 to 17 times fewer disciplinary evaluations than `Egor` on the MDF formulation (median evaluations to target).
+- **It costs more than EGMDO**: 2 to 6 times more evaluations in total, and about 2 to 3 times the EGMDO total to reach the target. It is more robust: 10/10 runs at the optimum against 7 to 9/10 for the EGMDO defaults. Part of the total is spent after the target, as `Egor` keeps iterating; a stopping criterion would lower it.
+- **`ε_rel = 10⁻³` is too loose for active constraints.** The coupling variables keep errors of about `10⁻³` in relative terms, and on constrained Sellar the true `g1 = 3.16 − y1` at the best point is violated by up to `5·10⁻³` (6/10 runs at the optimum, against 10/10 with `10⁻⁴`).
+- **Two fixes came from these runs.** The conditioning test of the linearization (D37) scaled `I − J` by `|y_0| + σ`, which vanishes with a coupling variable: on modified Sellar, points with `y2 ≈ 0` were rejected although `I − J` is well conditioned, and `Egor` suggested them again and again (2/10 runs at the optimum with `10⁻⁴`). It now uses the widths of the coupling ranges. Where the mean MDA does not converge, as at the bound `z2 = −10` of modified Sellar, every discipline is now enriched at the last iterate instead of rejecting the point (D43). Rejected points went from about 30 of 45 per run to 0 or 1. The EGMDO results do not change.
+
 ## Why not reuse the EI and LogEI of `egobox-ego`?
 
 `egobox_ego::criteria` implements the analytic EI and LogEI of a Gaussian prediction. They take a `MixtureGpSurrogate`, from which only `N(μ, σ²)` at the point is used, and a scalar current minimum `fmin`. The EGMDO criterion (16, C-19) is `E[(f'_min(Ξ) − Ỹ_obj(z, Ξ, η))⁺]`, which differs in two ways:
