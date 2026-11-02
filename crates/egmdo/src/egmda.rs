@@ -478,7 +478,10 @@ impl EgmdaSolver {
             .eval_qoi(&z.insert_axis(Axis(0)), &y0.view().insert_axis(Axis(0)))?
             .row(0)
             .to_owned();
-        let Some(l) = linearization_factor(&self.problem, models, &z, &y0)? else {
+        // Without a fallback, the linearization is rejected only where I - J is numerically
+        // singular (D43)
+        let condition = self.problem.n_couplings() as f64 * f64::EPSILON;
+        let Some(l) = linearization_factor(&self.problem, models, &z, &y0, condition)? else {
             self.finish(y0, Some(qoi), f64::NAN, EgmdaStatus::MdaFailure);
             return Ok(None);
         };

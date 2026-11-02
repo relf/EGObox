@@ -440,7 +440,7 @@ Sources: the REMAL paper is used first, and Ghoreishi and Imani only for what it
 | D40 | Constraints by the mean MDA | Optional constraints of the acquisition from the mean MDA instead of the GPs of the constraint PCE means; both recorded at each proposed point |
 | D41 | EGMDA dispersion | Linearized coupling covariance `Σ = L Lᵀ`; `sqrt(Tr Σ)/‖y_0‖`, `sqrt(Tr Σ)` or `sqrt(λ_max(Σ))` against a threshold, all in coupling units; relative `10⁻⁴` by default |
 | D42 | EGMDA enrichment | At `(z, y_0)`; the discipline with the largest share of `Tr Σ` (`Sobol`, default) or every discipline (`All`) |
-| D43 | EGMDA end of analysis | Converged, enrichment cap per point (20), budget, duplicates only (stalled), or failure of the mean MDA or of the linearization; all disciplines enriched at the last iterate of a non-converged mean MDA; `qoi(z, y_0)` returned unless failed |
+| D43 | EGMDA end of analysis | Converged, enrichment cap per point (20), budget, duplicates only (stalled), or failure of the mean MDA or of the linearization (numerically singular `I − J` only); all disciplines enriched at the last iterate of a non-converged mean MDA; `qoi(z, y_0)` returned unless failed |
 | D44 | `Egor` with EGMDA | Ask/tell over `Egor`'s `suggest`; failed points rejected; equality constraints as two inequalities |
 
 ## 13. Default settings
@@ -776,7 +776,7 @@ At a design point `z`:
 - `MaxEnrichments`: the number of enrichments at the point reached its cap (20 by default);
 - `Budget`: the budget of disciplinary evaluations (D13) is reached;
 - `Stalled`: every enrichment point duplicates a training point, or the last enrichment added none;
-- `MdaFailure`: the mean MDA does not converge, or `I − J` is ill-conditioned (D37), so the dispersion cannot be estimated.
+- `MdaFailure`: the mean MDA does not converge, or `I − J` is numerically singular, so the dispersion cannot be estimated. Unlike the linearized random MDA (D37), EGMDA has no fallback: it rejects the linearization only when the ratio of the extreme singular values of the scaled `I − J` is below `n_ξ ε` (`ε` the machine precision), not below `10⁻⁸`. On the aero-structural problem (#503), the `10⁻⁸` threshold rejected the points near the optimum, where this ratio is about `8·10⁻⁹`; `(I − J)⁻¹` is still accurate to about 8 digits there.
 
 Where the mean MDA does not converge, its last iterate is usually close to the solution, and the GPs fail there by extrapolating: every discipline is enriched at the last iterate if it is finite, within the cap and the budget, and the analysis goes on. The point fails only when this is not possible. On the modified Sellar problem, at the bound `z2 = −10` where `y1 = 100` is far outside its initial range `[−5, 24]`, this turned repeated failures into converged analyses. In all cases but `MdaFailure`, the result is `qoi(z, y_0)`. The disciplinary GPs persist from one point to the next: a point analyzed again, or close to analyzed points, needs few or no evaluations.
 
