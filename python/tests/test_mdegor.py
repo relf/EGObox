@@ -3,7 +3,14 @@ import unittest
 import numpy as np
 
 import egobox as egx
-from egobox.egmdo import Discipline, EnrichmentStrategy, Mdegor
+from egobox.egmdo import (
+    Discipline,
+    DispersionCriterion,
+    EgmdaConfig,
+    EgmdoConfig,
+    EnrichmentStrategy,
+    Mdegor,
+)
 
 # Classic constrained Sellar problem (C-EGMDO paper): optimum z* = (1.9776, 0, 0), f* = 3.1834
 SELLAR_DESIGN = {"z1": [-10.0, 10.0], "z2": [0.0, 10.0], "z3": [0.0, 10.0]}
@@ -94,7 +101,9 @@ def toy_mdegor(qoi=toy_qoi, **kwargs) -> Mdegor:
 
 class TestMdegor(unittest.TestCase):
     def test_constrained_sellar(self):
-        mdegor = sellar_mdegor(n_doe=[5, 5], n_mc=200, seed=0)
+        mdegor = sellar_mdegor(n_doe=[5, 5], method=EgmdoConfig(n_mc=200), seed=0)
+        self.assertIsInstance(mdegor.method, EgmdoConfig)
+        self.assertEqual(mdegor.method.n_mc, 200)
         self.assertEqual(mdegor.design_names, ["z1", "z2", "z3"])
         self.assertEqual(mdegor.coupling_names, ["y1", "y2"])
         res = mdegor.minimize(max_iters=10)
@@ -161,9 +170,10 @@ class TestMdegor(unittest.TestCase):
         disciplines[0] = Discipline(
             "d1", y1_reordered, inputs=["y2", "z3", "z1", "z2"], outputs=["y1"]
         )
-        expected = sellar_mdegor(n_doe=[5, 5], max_iters=3, n_sim=20, seed=1)
+        options = {"n_doe": [5, 5], "max_iters": 3, "seed": 1}
+        expected = sellar_mdegor(method=EgmdoConfig(n_sim=20), **options)
         res = sellar_mdegor(
-            disciplines, n_doe=[5, 5], max_iters=3, n_sim=20, seed=1
+            disciplines, method=EgmdoConfig(n_sim=20), **options
         ).minimize()
         expected = expected.minimize()
         np.testing.assert_allclose(res.z_star, expected.z_star)
@@ -176,7 +186,9 @@ class TestMdegor(unittest.TestCase):
 
     def test_linearized_mda(self):
         # Random MDAs linearized at the mean MDA solution: same optimum
-        mdegor = sellar_mdegor(n_doe=[5, 5], n_mc=200, linearized_mda=True, seed=0)
+        mdegor = sellar_mdegor(
+            n_doe=[5, 5], method=EgmdoConfig(n_mc=200, linearized_mda=True), seed=0
+        )
         res = mdegor.minimize(max_iters=10)
         self.assertAlmostEqual(res.f_best, SELLAR_F_REF, delta=0.01 * SELLAR_F_REF)
         self.assertLessEqual(sum(res.n_evaluations), 40)
@@ -186,9 +198,9 @@ class TestMdegor(unittest.TestCase):
         for linearized in [False, True]:
             mdegor = sellar_mdegor(
                 n_doe=[5, 5],
-                n_mc=200,
-                linearized_mda=linearized,
-                gp_correlation=True,
+                method=EgmdoConfig(
+                    n_mc=200, linearized_mda=linearized, gp_correlation=True
+                ),
                 seed=0,
             )
             res = mdegor.minimize(max_iters=10)
@@ -197,11 +209,11 @@ class TestMdegor(unittest.TestCase):
 
     def test_toy_problem_with_egmdo_paper_settings(self):
         mdegor = toy_mdegor(
-            acquisition=egx.InfillStrategy.EI,
             enrichment=EnrichmentStrategy.ALL,
-            p_threshold=None,
-            n_mc=100,
             gp_kernel=egx.CorrelationSpec.SQUARED_EXPONENTIAL,
+            method=EgmdoConfig(
+                acquisition=egx.InfillStrategy.EI, p_threshold=None, n_mc=100
+            ),
         )
         res = mdegor.minimize()
         self.assertEqual(len(res.history), 5)
@@ -217,7 +229,8 @@ class TestMdegor(unittest.TestCase):
             egx.InfillStrategy.LOG_EI,
             4,  # integer value of LOG_EI
         ]:
-            res = toy_mdegor(acquisition=acquisition, max_iters=2, n_sim=10).minimize()
+            method = EgmdoConfig(acquisition=acquisition, n_sim=10)
+            res = toy_mdegor(method=method, max_iters=2).minimize()
             self.assertEqual(len(res.history), 2)
 
     def test_feasibility_first(self):
@@ -229,7 +242,7 @@ class TestMdegor(unittest.TestCase):
             qoi=qoi,
             n_ineq=1,
             doe_uq=np.array([[-5.0], [-4.2], [3.4], [4.6]]),
-            feasibility_first=True,
+            method=EgmdoConfig(feasibility_first=True),
         )
         res = mdegor.minimize()
         self.assertEqual(res.history[0]["criterion"], "feasibility")
@@ -245,8 +258,7 @@ class TestMdegor(unittest.TestCase):
             qoi=qoi,
             n_ineq=1,
             doe_uq=np.array([[-5.0], [-4.2], [3.4], [4.6]]),
-            feasibility_first=True,
-            mean_mda_constraints=True,
+            method=EgmdoConfig(feasibility_first=True, mean_mda_constraints=True),
         )
         res = mdegor.minimize()
         self.assertEqual(res.history[0]["criterion"], "feasibility")
@@ -328,7 +340,7 @@ class TestMdegor(unittest.TestCase):
             cstr_tol=[1e-4, 1e-4, 1e-4],
             n_doe=[5, 5],
             max_iters=3,
-            n_sim=20,
+            method=EgmdoConfig(n_sim=20),
             seed=0,
         )
         res = mdegor.minimize()
@@ -403,19 +415,47 @@ class TestMdegor(unittest.TestCase):
             sellar_mdegor(cstr_tol=[1e-4])
         with self.assertRaises(ValueError):
             sellar_mdegor(enrichment=3)
-        with self.assertRaisesRegex(ValueError, "method should be"):
-            sellar_mdegor(method="egor")
-        with self.assertRaisesRegex(ValueError, "method='egmda' only"):
+        with self.assertRaisesRegex(TypeError, "method should be"):
+            sellar_mdegor(method="egmda")
+        with self.assertRaisesRegex(TypeError, "method should be"):
+            sellar_mdegor(method={"tolerance": 1e-3})
+        with self.assertRaises(TypeError):
             sellar_mdegor(tolerance=1e-3)
-        with self.assertRaisesRegex(ValueError, "method='egmdo' only"):
-            sellar_mdegor(method="egmda", feasibility_first=True)
-        with self.assertRaisesRegex(ValueError, "dispersion should be"):
-            sellar_mdegor(method="egmda", dispersion="trace")
+        with self.assertRaises(TypeError):
+            EgmdaConfig(dispersion="trace")
+        with self.assertRaises(ValueError):
+            EgmdaConfig(dispersion=4)
         with self.assertRaisesRegex(ValueError, "dispersion threshold"):
-            sellar_mdegor(method="egmda", tolerance=0.0)
+            sellar_mdegor(method=EgmdaConfig(tolerance=0.0))
+
+    def test_method_configs(self):
+        egmdo = EgmdoConfig()
+        self.assertEqual(egmdo.acquisition, egx.InfillStrategy.WB2)
+        self.assertEqual(egmdo.p_threshold, 1e-3)
+        self.assertIsNone(egmdo.n_mc)
+        self.assertFalse(egmdo.feasibility_first)
+        self.assertTrue(repr(egmdo).startswith("EgmdoConfig(acquisition="))
+        egmda = EgmdaConfig()
+        self.assertEqual(egmda.dispersion, DispersionCriterion.RELATIVE)
+        self.assertEqual(egmda.tolerance, 1e-4)
+        self.assertEqual(egmda.max_enrichments, 20)
+        self.assertEqual(
+            repr(egmda),
+            "EgmdaConfig(dispersion=DispersionCriterion.RELATIVE, tolerance=0.0001, "
+            "max_enrichments=20)",
+        )
+        egmda.tolerance = 1e-3
+        egmda.dispersion = 3
+        self.assertEqual(egmda.dispersion, DispersionCriterion.SPECTRAL)
+        # The Mdegor holds a copy of the configuration
+        mdegor = toy_mdegor(method=egmda)
+        egmda.max_enrichments = 5
+        self.assertEqual(mdegor.method.max_enrichments, 20)
+        self.assertEqual(mdegor.method.tolerance, 1e-3)
+        self.assertIsInstance(toy_mdegor().method, EgmdoConfig)
 
     def test_egmda_toy_problem(self):
-        res = toy_mdegor(method="egmda", doe_uq=None, max_iters=10).minimize()
+        res = toy_mdegor(method=EgmdaConfig(), doe_uq=None, max_iters=10).minimize()
         self.assertEqual(res.method, "egmda")
         self.assertAlmostEqual(res.z_best[0], -3.0031, delta=0.1)
         self.assertAlmostEqual(res.f_best, -1.1497, delta=0.01 * 1.1497)
@@ -456,7 +496,7 @@ class TestMdegor(unittest.TestCase):
         self.assertEqual(len(res.enrichments[0]["shares"]), 2)
 
     def test_egmda_constrained_sellar(self):
-        res = sellar_mdegor(method="egmda", n_doe=[5, 5], seed=0).minimize()
+        res = sellar_mdegor(method=EgmdaConfig(), n_doe=[5, 5], seed=0).minimize()
         self.assertTrue(res.best_feasible)
         np.testing.assert_allclose(res.z_best, SELLAR_Z_REF, atol=1e-2)
         self.assertAlmostEqual(res.f_best, SELLAR_F_REF, delta=0.01 * SELLAR_F_REF)
@@ -464,7 +504,7 @@ class TestMdegor(unittest.TestCase):
 
     def test_egmda_ask_tell_reproduces_minimize(self):
         funs = [sellar_y1, sellar_y2]
-        options = {"method": "egmda", "n_doe": [5, 5], "max_iters": 3, "seed": 1}
+        options = {"method": EgmdaConfig(), "n_doe": [5, 5], "max_iters": 3, "seed": 1}
         expected = sellar_mdegor(**options).minimize()
         mdegor = sellar_mdegor(sellar_disciplines(with_funs=False), **options)
         while (requests := mdegor.ask()) is not None:
@@ -473,6 +513,13 @@ class TestMdegor(unittest.TestCase):
         np.testing.assert_array_equal(res.doe_uq, expected.doe_uq)
         np.testing.assert_array_equal(res.qoi_mean, expected.qoi_mean)
         self.assertEqual(res.n_evaluations, expected.n_evaluations)
+
+    def test_egmda_spectral_dispersion(self):
+        method = EgmdaConfig(dispersion=DispersionCriterion.SPECTRAL, tolerance=1e-3)
+        res = toy_mdegor(method=method, doe_uq=None, max_iters=3).minimize()
+        for h in res.history:
+            if h["status"] == "converged":
+                self.assertLessEqual(h["dispersion"], 1e-3)
 
     def test_discipline(self):
         d = Discipline("d1", sellar_y1, inputs=["z1", "z2", "z3", "y2"], outputs=["y1"])

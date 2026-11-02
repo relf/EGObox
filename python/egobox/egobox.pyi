@@ -13,6 +13,9 @@ __all__ = [
     "CorrelationSpec",
     "CstrSpec",
     "Discipline",
+    "DispersionCriterion",
+    "EgmdaConfig",
+    "EgmdoConfig",
     "Egor",
     "EgorOptim",
     "EimAggregation",
@@ -415,6 +418,260 @@ class Discipline:
         outputs
         """
     def __new__(cls, name: builtins.str, fun: typing.Callable[[numpy.typing.NDArray[numpy.float64]], numpy.typing.NDArray[numpy.float64]] | None = None, inputs: typing.Sequence[builtins.str] = [], outputs: typing.Sequence[builtins.str] = []) -> Discipline: ...
+    def __repr__(self) -> builtins.str: ...
+
+@typing.final
+class EgmdaConfig:
+    r"""
+    Settings of EGMDA, given as `Mdegor(..., method=EgmdaConfig(...))`
+    
+    `Egor` minimizes the objective, and the multidisciplinary analysis at each of its points is
+    solved with the surrogate means, the surrogates being enriched until the coupling variables,
+    linearized as `N(y_0, Σ)`, are certain enough.
+    
+    Parameters
+    ----------
+    dispersion : DispersionCriterion
+        The dispersion criterion of the linearized coupling variables:
+        DispersionCriterion.RELATIVE (default, sqrt(Tr Σ) / ‖y_0‖), DispersionCriterion.ABSOLUTE
+        (sqrt(Tr Σ)) or DispersionCriterion.SPECTRAL (square root of the largest eigenvalue of Σ).
+    tolerance : float > 0
+        The threshold of the dispersion criterion, in the units of the coupling variables (or
+        relative for DispersionCriterion.RELATIVE).
+    max_enrichments : int
+        The maximum number of enrichments at a design point.
+    """
+    @property
+    def dispersion(self) -> DispersionCriterion:
+        r"""
+        The dispersion criterion of the linearized coupling variables
+        """
+    @dispersion.setter
+    def dispersion(self, value: DispersionCriterion) -> None:
+        r"""
+        The dispersion criterion of the linearized coupling variables
+        """
+    @property
+    def tolerance(self) -> builtins.float:
+        r"""
+        The threshold of the dispersion criterion
+        """
+    @tolerance.setter
+    def tolerance(self, value: builtins.float) -> None:
+        r"""
+        The threshold of the dispersion criterion
+        """
+    @property
+    def max_enrichments(self) -> builtins.int:
+        r"""
+        The maximum number of enrichments at a design point
+        """
+    @max_enrichments.setter
+    def max_enrichments(self, value: builtins.int) -> None:
+        r"""
+        The maximum number of enrichments at a design point
+        """
+    def __new__(cls, dispersion: DispersionCriterion = DispersionCriterion.RELATIVE, tolerance: builtins.float = 0.0001, max_enrichments: builtins.int = 20) -> EgmdaConfig: ...
+    def __repr__(self) -> builtins.str: ...
+
+@typing.final
+class EgmdoConfig:
+    r"""
+    Settings of EGMDO and C-EGMDO, given as `Mdegor(..., method=EgmdoConfig(...))`
+    
+    The surrogates are enriched where the optimum is likely to be, from the uncertainty of the
+    objective and constraints propagated through random multidisciplinary analyses (polynomial
+    chaos expansions and a Karhunen-Loève random field).
+    
+    The defaults follow the C-EGMDO paper (Cardoso et al. 2024). The settings of the EGMDO paper
+    (Dubreuil et al. 2020) are `acquisition=InfillStrategy.EI`, `p_threshold=None` and
+    `n_mc=100`, with `Mdegor(enrichment=EnrichmentStrategy.ALL,
+    gp_kernel=CorrelationSpec.SQUARED_EXPONENTIAL)`.
+    
+    Parameters
+    ----------
+    acquisition : InfillStrategy
+        Acquisition criterion: InfillStrategy.WB2 (default), InfillStrategy.WB2S,
+        InfillStrategy.EI or InfillStrategy.LOG_EI (Monte Carlo estimates, constrained when the
+        problem has constraints).
+    wb2_scale : float
+        Scale of the expected improvement in the WB2 criterion (InfillStrategy.WB2 only).
+    cv_threshold : float
+        Enrichment threshold on the coefficients of variation of the quantities of interest.
+    p_threshold : float, optional
+        Enrichment threshold on the probability of being the solution; None gives 1 / n_doe_uq.
+    n_mc : int, optional
+        Number of random MDAs per point of the uncertainty quantification (default max(200, 2P),
+        P being the size of the polynomial chaos basis).
+    pce_degree : int
+        Total degree of the polynomial chaos expansions.
+    n_ei_samples : int
+        Number of Monte Carlo samples of the acquisition criterion.
+    n_pmin_samples : int
+        Number of Monte Carlo samples of the probability of being the solution.
+    n_starts : int
+        Number of starting points of the acquisition optimization.
+    n_sim : int
+        Number of samples of the final estimation of the minimum.
+    linearized_mda : bool
+        Linearize the random multidisciplinary analysis at the solution of the mean one,
+        instead of solving it for each of the n_mc samples (much faster, accurate when the
+        disciplinary GP uncertainty is small). Points where the mean analysis does not converge
+        fall back to the solved random analyses.
+    gp_correlation : bool
+        Correlate the disciplinary GP uncertainty across the design points of the uncertainty
+        quantification as the GP posteriors, instead of perfectly (one random sample shared by
+        every point, as in the EGMDO papers).
+    feasibility_first : bool
+        While no point of the uncertainty quantification DoE is feasible by its constraint
+        means, maximize the probability of feasibility of the constraint models instead of the
+        acquisition criterion.
+    mean_mda_constraints : bool
+        In the acquisition, evaluate the constraints by the multidisciplinary analysis solved on
+        the means of the disciplinary GPs at each candidate point, instead of the GPs of the
+        constraint means over the uncertainty quantification DoE.
+    """
+    @property
+    def acquisition(self) -> InfillStrategy:
+        r"""
+        Acquisition criterion
+        """
+    @acquisition.setter
+    def acquisition(self, value: InfillStrategy) -> None:
+        r"""
+        Acquisition criterion
+        """
+    @property
+    def wb2_scale(self) -> builtins.float:
+        r"""
+        Scale of the expected improvement in the WB2 criterion
+        """
+    @wb2_scale.setter
+    def wb2_scale(self, value: builtins.float) -> None:
+        r"""
+        Scale of the expected improvement in the WB2 criterion
+        """
+    @property
+    def cv_threshold(self) -> builtins.float:
+        r"""
+        Enrichment threshold on the coefficients of variation
+        """
+    @cv_threshold.setter
+    def cv_threshold(self, value: builtins.float) -> None:
+        r"""
+        Enrichment threshold on the coefficients of variation
+        """
+    @property
+    def p_threshold(self) -> typing.Optional[builtins.float]:
+        r"""
+        Enrichment threshold on the probability of being the solution
+        """
+    @p_threshold.setter
+    def p_threshold(self, value: typing.Optional[builtins.float]) -> None:
+        r"""
+        Enrichment threshold on the probability of being the solution
+        """
+    @property
+    def n_mc(self) -> typing.Optional[builtins.int]:
+        r"""
+        Number of random MDAs per point of the uncertainty quantification
+        """
+    @n_mc.setter
+    def n_mc(self, value: typing.Optional[builtins.int]) -> None:
+        r"""
+        Number of random MDAs per point of the uncertainty quantification
+        """
+    @property
+    def pce_degree(self) -> builtins.int:
+        r"""
+        Total degree of the polynomial chaos expansions
+        """
+    @pce_degree.setter
+    def pce_degree(self, value: builtins.int) -> None:
+        r"""
+        Total degree of the polynomial chaos expansions
+        """
+    @property
+    def n_ei_samples(self) -> builtins.int:
+        r"""
+        Number of Monte Carlo samples of the acquisition criterion
+        """
+    @n_ei_samples.setter
+    def n_ei_samples(self, value: builtins.int) -> None:
+        r"""
+        Number of Monte Carlo samples of the acquisition criterion
+        """
+    @property
+    def n_pmin_samples(self) -> builtins.int:
+        r"""
+        Number of Monte Carlo samples of the probability of being the solution
+        """
+    @n_pmin_samples.setter
+    def n_pmin_samples(self, value: builtins.int) -> None:
+        r"""
+        Number of Monte Carlo samples of the probability of being the solution
+        """
+    @property
+    def n_starts(self) -> builtins.int:
+        r"""
+        Number of starting points of the acquisition optimization
+        """
+    @n_starts.setter
+    def n_starts(self, value: builtins.int) -> None:
+        r"""
+        Number of starting points of the acquisition optimization
+        """
+    @property
+    def n_sim(self) -> builtins.int:
+        r"""
+        Number of samples of the final estimation of the minimum
+        """
+    @n_sim.setter
+    def n_sim(self, value: builtins.int) -> None:
+        r"""
+        Number of samples of the final estimation of the minimum
+        """
+    @property
+    def linearized_mda(self) -> builtins.bool:
+        r"""
+        Linearize the random multidisciplinary analysis
+        """
+    @linearized_mda.setter
+    def linearized_mda(self, value: builtins.bool) -> None:
+        r"""
+        Linearize the random multidisciplinary analysis
+        """
+    @property
+    def gp_correlation(self) -> builtins.bool:
+        r"""
+        Correlate the disciplinary GP uncertainty across design points as the GP posteriors
+        """
+    @gp_correlation.setter
+    def gp_correlation(self, value: builtins.bool) -> None:
+        r"""
+        Correlate the disciplinary GP uncertainty across design points as the GP posteriors
+        """
+    @property
+    def feasibility_first(self) -> builtins.bool:
+        r"""
+        Maximize the probability of feasibility while no point is feasible
+        """
+    @feasibility_first.setter
+    def feasibility_first(self, value: builtins.bool) -> None:
+        r"""
+        Maximize the probability of feasibility while no point is feasible
+        """
+    @property
+    def mean_mda_constraints(self) -> builtins.bool:
+        r"""
+        Constraints of the acquisition by the multidisciplinary analysis on the surrogate means
+        """
+    @mean_mda_constraints.setter
+    def mean_mda_constraints(self, value: builtins.bool) -> None:
+        r"""
+        Constraints of the acquisition by the multidisciplinary analysis on the surrogate means
+        """
+    def __new__(cls, acquisition: InfillStrategy = InfillStrategy.WB2, wb2_scale: builtins.float = 1.0, cv_threshold: builtins.float = 0.01, p_threshold: typing.Optional[builtins.float] = 0.001, n_mc: typing.Optional[builtins.int] = None, pce_degree: builtins.int = 3, n_ei_samples: builtins.int = 2000, n_pmin_samples: builtins.int = 10000, n_starts: builtins.int = 20, n_sim: builtins.int = 100, linearized_mda: builtins.bool = False, gp_correlation: builtins.bool = False, feasibility_first: builtins.bool = False, mean_mda_constraints: builtins.bool = False) -> EgmdoConfig: ...
     def __repr__(self) -> builtins.str: ...
 
 @typing.final
@@ -1224,20 +1481,20 @@ class Mdegor:
     Each disciplinary solver is replaced by Gaussian process surrogates (one per coupling
     variable), enriched adaptively, with as few disciplinary evaluations as possible.
     
-    Two methods are available:
+    Two methods are available, selected by the type of `method`:
     
-    * EGMDO (`method="egmdo"`, default): the surrogates are enriched where the optimum is likely
+    * EGMDO (`EgmdoConfig`, default): the surrogates are enriched where the optimum is likely
       to be, from the uncertainty of the objective and constraints propagated through random
       multidisciplinary analyses (polynomial chaos expansions and a Karhunen-Loève random field).
-    * EGMDA (`method="egmda"`): `Egor` minimizes the objective, and the multidisciplinary
-      analysis at each of its points is solved with the surrogate means, the surrogates being
-      enriched until the linearized coupling variables are certain enough.
+    * EGMDA (`EgmdaConfig`): `Egor` minimizes the objective, and the multidisciplinary analysis
+      at each of its points is solved with the surrogate means, the surrogates being enriched
+      until the linearized coupling variables are certain enough.
     
     The defaults follow the C-EGMDO paper (Cardoso et al. 2024): WB2 acquisition, enrichment of
     the discipline with the largest Sobol index, with Matérn 5/2 GPs. The settings of the EGMDO
-    paper (Dubreuil et al. 2020) are `acquisition=InfillStrategy.EI`,
-    `enrichment=EnrichmentStrategy.ALL`, `p_threshold=None`, `n_mc=100` and
-    `gp_kernel=CorrelationSpec.SQUARED_EXPONENTIAL`.
+    paper (Dubreuil et al. 2020) are `enrichment=EnrichmentStrategy.ALL`,
+    `gp_kernel=CorrelationSpec.SQUARED_EXPONENTIAL` and
+    `method=EgmdoConfig(acquisition=InfillStrategy.EI, p_threshold=None, n_mc=100)`.
     
     Parameters
     ----------
@@ -1267,12 +1524,6 @@ class Mdegor:
     max_iters : int, optional
         Number of iterations: points added to the uncertainty quantification DoE with EGMDO
         (default 10), iterations of `Egor` with EGMDA (default 20).
-    acquisition : InfillStrategy
-        Acquisition criterion: InfillStrategy.WB2 (default), InfillStrategy.WB2S,
-        InfillStrategy.EI or InfillStrategy.LOG_EI (Monte Carlo estimates, constrained when the
-        problem has constraints).
-    wb2_scale : float
-        Scale of the expected improvement in the WB2 criterion (InfillStrategy.WB2 only).
     enrichment : EnrichmentStrategy
         Disciplines evaluated at an enrichment point, EnrichmentStrategy.SOBOL (default) or
         EnrichmentStrategy.ALL.
@@ -1292,57 +1543,13 @@ class Mdegor:
     doe_uq : array[n, len(design)], optional
         Initial design of experiments of the uncertainty quantification, or of `Egor` with
         EGMDA, overrides `n_doe_uq`.
-    cv_threshold : float
-        Enrichment threshold on the coefficients of variation of the quantities of interest.
-    p_threshold : float, optional
-        Enrichment threshold on the probability of being the solution; None gives 1 / n_doe_uq.
-    n_mc : int, optional
-        Number of random MDAs per point of the uncertainty quantification (default max(200, 2P),
-        P being the size of the polynomial chaos basis).
-    pce_degree : int
-        Total degree of the polynomial chaos expansions.
-    n_ei_samples : int
-        Number of Monte Carlo samples of the acquisition criterion.
-    n_pmin_samples : int
-        Number of Monte Carlo samples of the probability of being the solution.
-    n_starts : int
-        Number of starting points of the acquisition optimization.
-    n_sim : int
-        Number of samples of the final estimation of the minimum.
     max_evaluations : int, optional
         Budget of true disciplinary evaluations, all disciplines included.
     mda_relaxation : float in ]0, 1]
         Relaxation of the Jacobi iterations of the multidisciplinary analyses.
-    linearized_mda : bool
-        Linearize the random multidisciplinary analysis at the solution of the mean one,
-        instead of solving it for each of the n_mc samples (much faster, accurate when the
-        disciplinary GP uncertainty is small). Points where the mean analysis does not converge
-        fall back to the solved random analyses.
-    gp_correlation : bool
-        Correlate the disciplinary GP uncertainty across the design points of the uncertainty
-        quantification as the GP posteriors, instead of perfectly (one random sample shared by
-        every point, as in the EGMDO papers).
-    feasibility_first : bool
-        While no point of the uncertainty quantification DoE is feasible by its constraint
-        means, maximize the probability of feasibility of the constraint models instead of the
-        acquisition criterion.
-    mean_mda_constraints : bool
-        In the acquisition, evaluate the constraints by the multidisciplinary analysis solved on
-        the means of the disciplinary GPs at each candidate point, instead of the GPs of the
-        constraint means over the uncertainty quantification DoE.
-    method : str
-        "egmdo" (default) or "egmda". With "egmda", the options `acquisition`, `wb2_scale`,
-        `cv_threshold`, `p_threshold`, `n_mc`, `pce_degree`, `n_ei_samples`, `n_pmin_samples`,
-        `n_starts` and `n_sim` are not used, and `linearized_mda`, `gp_correlation`,
-        `feasibility_first` and `mean_mda_constraints` must be False.
-    dispersion : str, optional
-        EGMDA only: the dispersion criterion of the linearized coupling variables N(y_0, Σ),
-        "relative" (default, sqrt(Tr Σ) / ‖y_0‖), "absolute" (sqrt(Tr Σ)) or "spectral"
-        (sqrt of the largest eigenvalue of Σ).
-    tolerance : float, optional
-        EGMDA only: the threshold of the dispersion criterion, default 1e-4.
-    max_enrichments : int, optional
-        EGMDA only: the maximum number of enrichments at a design point, default 20.
+    method : EgmdoConfig or EgmdaConfig, optional
+        The method and its specific settings: EGMDO with `EgmdoConfig` (default
+        `EgmdoConfig()`), or EGMDA with `EgmdaConfig`.
     seed : int >= 0, optional
         Random generator seed, for reproducible runs.
     """
@@ -1352,11 +1559,16 @@ class Mdegor:
         Names of the design variables, in the column order of the design points
         """
     @property
+    def method(self) -> EgmdoConfig | EgmdaConfig:
+        r"""
+        The method and its settings: a copy of the EgmdoConfig or EgmdaConfig given
+        """
+    @property
     def coupling_names(self) -> builtins.list[builtins.str]:
         r"""
         Names of the coupling variables, in the column order of the coupling points
         """
-    def __new__(cls, design: typing.Mapping[builtins.str, typing.Sequence[builtins.float]], couplings: typing.Mapping[builtins.str, typing.Sequence[builtins.float]], disciplines: typing.Sequence[Discipline], qoi: typing.Callable[[numpy.typing.NDArray[numpy.float64], numpy.typing.NDArray[numpy.float64]], numpy.typing.NDArray[numpy.float64]], n_ineq: builtins.int = 0, n_eq: builtins.int = 0, deterministic_constraints: typing.Optional[typing.Sequence[builtins.int]] = None, cstr_tol: typing.Optional[typing.Sequence[builtins.float]] = None, max_iters: typing.Optional[builtins.int] = None, acquisition: InfillStrategy = InfillStrategy.WB2, wb2_scale: builtins.float = 1.0, enrichment: EnrichmentStrategy = EnrichmentStrategy.SOBOL, gp_kernel: builtins.int = 8, n_doe: typing.Optional[typing.Sequence[builtins.int]] = None, doe: typing.Optional[typing.Sequence[numpy.typing.NDArray[numpy.float64]]] = None, n_doe_uq: typing.Optional[builtins.int] = None, doe_uq: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, cv_threshold: builtins.float = 0.01, p_threshold: typing.Optional[builtins.float] = 0.001, n_mc: typing.Optional[builtins.int] = None, pce_degree: builtins.int = 3, n_ei_samples: builtins.int = 2000, n_pmin_samples: builtins.int = 10000, n_starts: builtins.int = 20, n_sim: builtins.int = 100, max_evaluations: typing.Optional[builtins.int] = None, mda_relaxation: builtins.float = 1.0, linearized_mda: builtins.bool = False, gp_correlation: builtins.bool = False, feasibility_first: builtins.bool = False, mean_mda_constraints: builtins.bool = False, method: builtins.str = 'egmdo', dispersion: typing.Optional[builtins.str] = None, tolerance: typing.Optional[builtins.float] = None, max_enrichments: typing.Optional[builtins.int] = None, seed: typing.Optional[builtins.int] = None) -> Mdegor: ...
+    def __new__(cls, design: typing.Mapping[builtins.str, typing.Sequence[builtins.float]], couplings: typing.Mapping[builtins.str, typing.Sequence[builtins.float]], disciplines: typing.Sequence[Discipline], qoi: typing.Callable[[numpy.typing.NDArray[numpy.float64], numpy.typing.NDArray[numpy.float64]], numpy.typing.NDArray[numpy.float64]], n_ineq: builtins.int = 0, n_eq: builtins.int = 0, deterministic_constraints: typing.Optional[typing.Sequence[builtins.int]] = None, cstr_tol: typing.Optional[typing.Sequence[builtins.float]] = None, max_iters: typing.Optional[builtins.int] = None, enrichment: EnrichmentStrategy = EnrichmentStrategy.SOBOL, gp_kernel: builtins.int = 8, n_doe: typing.Optional[typing.Sequence[builtins.int]] = None, doe: typing.Optional[typing.Sequence[numpy.typing.NDArray[numpy.float64]]] = None, n_doe_uq: typing.Optional[builtins.int] = None, doe_uq: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, max_evaluations: typing.Optional[builtins.int] = None, mda_relaxation: builtins.float = 1.0, method: EgmdoConfig | EgmdaConfig | None = None, seed: typing.Optional[builtins.int] = None) -> Mdegor: ...
     def minimize(self, max_iters: typing.Optional[builtins.int] = None) -> MdegorResult:
         r"""
         Minimize the objective with the disciplinary solvers given as `Discipline.fun`.
@@ -2320,6 +2532,25 @@ class ConstraintStrategy(enum.Enum):
     UPPER_TRUST_BOUND: ConstraintStrategy
     r"""
     Long name alias of UTB
+    """
+
+@typing.final
+class DispersionCriterion(enum.Enum):
+    r"""
+    DispersionCriterion specifies how EGMDA measures the dispersion of the coupling variables
+    linearized around the analysis with the surrogate means, `N(y_0, Σ)`.
+    """
+    RELATIVE = ...
+    r"""
+    `sqrt(Tr Σ) / ‖y_0‖`
+    """
+    ABSOLUTE = ...
+    r"""
+    `sqrt(Tr Σ)`
+    """
+    SPECTRAL = ...
+    r"""
+    The square root of the largest eigenvalue of `Σ`
     """
 
 @typing.final

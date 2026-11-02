@@ -2,8 +2,9 @@
 
 The disciplinary solvers of a multidisciplinary design optimization problem are replaced by
 Gaussian process surrogates, enriched adaptively: where the optimum is likely to be (EGMDO,
-`Mdegor(method="egmdo")`), or where `Egor` needs the multidisciplinary analysis solved
-(EGMDA, `Mdegor(method="egmda")`). See `Mdegor` and `Discipline`.
+`Mdegor(method=EgmdoConfig())`), or where `Egor` needs the multidisciplinary analysis solved
+(EGMDA, `Mdegor(method=EgmdaConfig())`). See `Mdegor`, `Discipline`, `EgmdoConfig` and
+`EgmdaConfig`.
 
 References
 ----------
@@ -18,6 +19,9 @@ Struct. Multidisc. Optim. 67:23, 2024.
 from ..egobox import (
     CorrelationSpec,
     Discipline,
+    DispersionCriterion,
+    EgmdaConfig,
+    EgmdoConfig,
     EnrichmentStrategy,
     InfillStrategy,
     Mdegor,
@@ -28,6 +32,9 @@ from ..egobox import (
 __all__ = [
     "CorrelationSpec",
     "Discipline",
+    "DispersionCriterion",
+    "EgmdaConfig",
+    "EgmdoConfig",
     "EnrichmentStrategy",
     "InfillStrategy",
     "Mdegor",

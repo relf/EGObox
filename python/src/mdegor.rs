@@ -9,7 +9,8 @@
 //! boundary.
 
 use crate::errors::{CallbackError, egmdo_err, install_panic_hook};
-use crate::types::{CorrelationSpec, InfillStrategy, repr_kwargs};
+use crate::mdegor_config::{EgmdaConfig, EgmdoConfig, SharedSettings};
+use crate::types::{CorrelationSpec, repr_kwargs};
 
 use egobox_egmdo as egmdo;
 use egobox_egmdo::egmda;
@@ -421,6 +422,13 @@ fn disciplinary_doe(
         .collect()
 }
 
+/// The method of an `Mdegor`, with its settings as given in Python
+#[derive(Clone)]
+enum MethodSettings {
+    Egmdo(EgmdoConfig),
+    Egmda(EgmdaConfig),
+}
+
 /// The configuration of the method of an `Mdegor`
 #[derive(Clone)]
 enum MethodConfig {
@@ -520,20 +528,20 @@ impl MdegorResult {
 /// Each disciplinary solver is replaced by Gaussian process surrogates (one per coupling
 /// variable), enriched adaptively, with as few disciplinary evaluations as possible.
 ///
-/// Two methods are available:
+/// Two methods are available, selected by the type of `method`:
 ///
-/// * EGMDO (`method="egmdo"`, default): the surrogates are enriched where the optimum is likely
+/// * EGMDO (`EgmdoConfig`, default): the surrogates are enriched where the optimum is likely
 ///   to be, from the uncertainty of the objective and constraints propagated through random
 ///   multidisciplinary analyses (polynomial chaos expansions and a Karhunen-Loève random field).
-/// * EGMDA (`method="egmda"`): `Egor` minimizes the objective, and the multidisciplinary
-///   analysis at each of its points is solved with the surrogate means, the surrogates being
-///   enriched until the linearized coupling variables are certain enough.
+/// * EGMDA (`EgmdaConfig`): `Egor` minimizes the objective, and the multidisciplinary analysis
+///   at each of its points is solved with the surrogate means, the surrogates being enriched
+///   until the linearized coupling variables are certain enough.
 ///
 /// The defaults follow the C-EGMDO paper (Cardoso et al. 2024): WB2 acquisition, enrichment of
 /// the discipline with the largest Sobol index, with Matérn 5/2 GPs. The settings of the EGMDO
-/// paper (Dubreuil et al. 2020) are `acquisition=InfillStrategy.EI`,
-/// `enrichment=EnrichmentStrategy.ALL`, `p_threshold=None`, `n_mc=100` and
-/// `gp_kernel=CorrelationSpec.SQUARED_EXPONENTIAL`.
+/// paper (Dubreuil et al. 2020) are `enrichment=EnrichmentStrategy.ALL`,
+/// `gp_kernel=CorrelationSpec.SQUARED_EXPONENTIAL` and
+/// `method=EgmdoConfig(acquisition=InfillStrategy.EI, p_threshold=None, n_mc=100)`.
 ///
 /// Parameters
 /// ----------
@@ -563,12 +571,6 @@ impl MdegorResult {
 /// max_iters : int, optional
 ///     Number of iterations: points added to the uncertainty quantification DoE with EGMDO
 ///     (default 10), iterations of `Egor` with EGMDA (default 20).
-/// acquisition : InfillStrategy
-///     Acquisition criterion: InfillStrategy.WB2 (default), InfillStrategy.WB2S,
-///     InfillStrategy.EI or InfillStrategy.LOG_EI (Monte Carlo estimates, constrained when the
-///     problem has constraints).
-/// wb2_scale : float
-///     Scale of the expected improvement in the WB2 criterion (InfillStrategy.WB2 only).
 /// enrichment : EnrichmentStrategy
 ///     Disciplines evaluated at an enrichment point, EnrichmentStrategy.SOBOL (default) or
 ///     EnrichmentStrategy.ALL.
@@ -588,57 +590,13 @@ impl MdegorResult {
 /// doe_uq : array[n, len(design)], optional
 ///     Initial design of experiments of the uncertainty quantification, or of `Egor` with
 ///     EGMDA, overrides `n_doe_uq`.
-/// cv_threshold : float
-///     Enrichment threshold on the coefficients of variation of the quantities of interest.
-/// p_threshold : float, optional
-///     Enrichment threshold on the probability of being the solution; None gives 1 / n_doe_uq.
-/// n_mc : int, optional
-///     Number of random MDAs per point of the uncertainty quantification (default max(200, 2P),
-///     P being the size of the polynomial chaos basis).
-/// pce_degree : int
-///     Total degree of the polynomial chaos expansions.
-/// n_ei_samples : int
-///     Number of Monte Carlo samples of the acquisition criterion.
-/// n_pmin_samples : int
-///     Number of Monte Carlo samples of the probability of being the solution.
-/// n_starts : int
-///     Number of starting points of the acquisition optimization.
-/// n_sim : int
-///     Number of samples of the final estimation of the minimum.
 /// max_evaluations : int, optional
 ///     Budget of true disciplinary evaluations, all disciplines included.
 /// mda_relaxation : float in ]0, 1]
 ///     Relaxation of the Jacobi iterations of the multidisciplinary analyses.
-/// linearized_mda : bool
-///     Linearize the random multidisciplinary analysis at the solution of the mean one,
-///     instead of solving it for each of the n_mc samples (much faster, accurate when the
-///     disciplinary GP uncertainty is small). Points where the mean analysis does not converge
-///     fall back to the solved random analyses.
-/// gp_correlation : bool
-///     Correlate the disciplinary GP uncertainty across the design points of the uncertainty
-///     quantification as the GP posteriors, instead of perfectly (one random sample shared by
-///     every point, as in the EGMDO papers).
-/// feasibility_first : bool
-///     While no point of the uncertainty quantification DoE is feasible by its constraint
-///     means, maximize the probability of feasibility of the constraint models instead of the
-///     acquisition criterion.
-/// mean_mda_constraints : bool
-///     In the acquisition, evaluate the constraints by the multidisciplinary analysis solved on
-///     the means of the disciplinary GPs at each candidate point, instead of the GPs of the
-///     constraint means over the uncertainty quantification DoE.
-/// method : str
-///     "egmdo" (default) or "egmda". With "egmda", the options `acquisition`, `wb2_scale`,
-///     `cv_threshold`, `p_threshold`, `n_mc`, `pce_degree`, `n_ei_samples`, `n_pmin_samples`,
-///     `n_starts` and `n_sim` are not used, and `linearized_mda`, `gp_correlation`,
-///     `feasibility_first` and `mean_mda_constraints` must be False.
-/// dispersion : str, optional
-///     EGMDA only: the dispersion criterion of the linearized coupling variables N(y_0, Σ),
-///     "relative" (default, sqrt(Tr Σ) / ‖y_0‖), "absolute" (sqrt(Tr Σ)) or "spectral"
-///     (sqrt of the largest eigenvalue of Σ).
-/// tolerance : float, optional
-///     EGMDA only: the threshold of the dispersion criterion, default 1e-4.
-/// max_enrichments : int, optional
-///     EGMDA only: the maximum number of enrichments at a design point, default 20.
+/// method : EgmdoConfig or EgmdaConfig, optional
+///     The method and its specific settings: EGMDO with `EgmdoConfig` (default
+///     `EgmdoConfig()`), or EGMDA with `EgmdaConfig`.
 /// seed : int >= 0, optional
 ///     Random generator seed, for reproducible runs.
 ///
@@ -646,6 +604,7 @@ impl MdegorResult {
 #[pyclass(skip_from_py_object, module = "egobox")]
 pub(crate) struct Mdegor {
     problem: egmdo::MdoProblem,
+    method: MethodSettings,
     config: MethodConfig,
     funs: Vec<Option<Py<PyAny>>>,
     design_names: Vec<String>,
@@ -670,32 +629,15 @@ impl Mdegor {
         deterministic_constraints = None,
         cstr_tol = None,
         max_iters = None,
-        acquisition = InfillStrategy::Wb2,
-        wb2_scale = 1.,
         enrichment = EnrichmentStrategy::Sobol,
         gp_kernel = CorrelationSpec::MATERN52,
         n_doe = None,
         doe = None,
         n_doe_uq = None,
         doe_uq = None,
-        cv_threshold = 0.01,
-        p_threshold = Some(1e-3),
-        n_mc = None,
-        pce_degree = 3,
-        n_ei_samples = 2000,
-        n_pmin_samples = 10_000,
-        n_starts = 20,
-        n_sim = 100,
         max_evaluations = None,
         mda_relaxation = 1.,
-        linearized_mda = false,
-        gp_correlation = false,
-        feasibility_first = false,
-        mean_mda_constraints = false,
-        method = "egmdo",
-        dispersion = None,
-        tolerance = None,
-        max_enrichments = None,
+        method = None,
         seed = None,
     ))]
     #[allow(clippy::too_many_arguments)]
@@ -714,34 +656,33 @@ impl Mdegor {
         deterministic_constraints: Option<Vec<usize>>,
         cstr_tol: Option<Vec<f64>>,
         max_iters: Option<usize>,
-        acquisition: InfillStrategy,
-        wb2_scale: f64,
         enrichment: EnrichmentStrategy,
         gp_kernel: u8,
         n_doe: Option<Vec<usize>>,
         doe: Option<Vec<PyReadonlyArray2<f64>>>,
         n_doe_uq: Option<usize>,
         doe_uq: Option<PyReadonlyArray2<f64>>,
-        cv_threshold: f64,
-        p_threshold: Option<f64>,
-        n_mc: Option<usize>,
-        pce_degree: usize,
-        n_ei_samples: usize,
-        n_pmin_samples: usize,
-        n_starts: usize,
-        n_sim: usize,
         max_evaluations: Option<usize>,
         mda_relaxation: f64,
-        linearized_mda: bool,
-        gp_correlation: bool,
-        feasibility_first: bool,
-        mean_mda_constraints: bool,
-        method: &str,
-        dispersion: Option<&str>,
-        tolerance: Option<f64>,
-        max_enrichments: Option<usize>,
+        #[gen_stub(override_type(type_repr = "EgmdoConfig | EgmdaConfig | None", imports = ()))]
+        method: Option<Py<PyAny>>,
         seed: Option<u64>,
     ) -> PyResult<Self> {
+        let method = match method {
+            None => MethodSettings::Egmdo(EgmdoConfig::default()),
+            Some(method) => {
+                let method = method.bind(py);
+                if let Ok(config) = method.cast::<EgmdoConfig>() {
+                    MethodSettings::Egmdo(config.borrow().clone())
+                } else if let Ok(config) = method.cast::<EgmdaConfig>() {
+                    MethodSettings::Egmda(config.borrow().clone())
+                } else {
+                    return Err(PyTypeError::new_err(
+                        "method should be an EgmdoConfig, an EgmdaConfig or None",
+                    ));
+                }
+            }
+        };
         let (design_names, xlimits) = parse_variables(&design, "design variable")?;
         let (coupling_names, coupling_limits) = parse_variables(&couplings, "coupling variable")?;
         if design_names.is_empty() {
@@ -824,121 +765,39 @@ impl Mdegor {
                 ));
             }
         };
-        let acquisition = match acquisition {
-            InfillStrategy::Ei => egmdo::Acquisition::Ei,
-            InfillStrategy::Wb2 => egmdo::Acquisition::Wb2 { scale: wb2_scale },
-            InfillStrategy::Wb2s => egmdo::Acquisition::Wb2s,
-            InfillStrategy::LogEi => egmdo::Acquisition::LogEi,
-        };
         let enrichment = match enrichment {
             EnrichmentStrategy::All => egmdo::Enrichment::All,
             EnrichmentStrategy::Sobol => egmdo::Enrichment::Sobol,
         };
-        let gp = egmdo::GpSettings {
-            kernel,
-            ..egmdo::GpSettings::default()
+        let shared = SharedSettings {
+            enrichment,
+            constraint_tolerances: cstr_tol,
+            n_doe_disciplines: n_doe,
+            doe_disciplines: doe,
+            n_doe_uq,
+            doe_uq: doe_uq.map(|d| d.as_array().to_owned()),
+            max_iters,
+            max_evaluations,
+            gp: egmdo::GpSettings {
+                kernel,
+                ..egmdo::GpSettings::default()
+            },
+            mda: egmdo::mda::MdaSettings {
+                relaxation: mda_relaxation,
+                ..egmdo::mda::MdaSettings::default()
+            },
+            seed,
         };
-        let mda = egmdo::mda::MdaSettings {
-            relaxation: mda_relaxation,
-            ..egmdo::mda::MdaSettings::default()
-        };
-        let doe_uq = doe_uq.map(|d| d.as_array().to_owned());
-        let config = match method {
-            "egmdo" => {
-                if dispersion.is_some() || tolerance.is_some() || max_enrichments.is_some() {
-                    return Err(PyValueError::new_err(
-                        "dispersion, tolerance and max_enrichments apply to method='egmda' only",
-                    ));
-                }
-                MethodConfig::Egmdo(egmdo::EgmdoConfig {
-                    acquisition,
-                    feasibility_first,
-                    acquisition_constraints: if mean_mda_constraints {
-                        egmdo::AcquisitionConstraints::MeanMda
-                    } else {
-                        egmdo::AcquisitionConstraints::PceMeanGp
-                    },
-                    enrichment,
-                    constraint_tolerances: cstr_tol,
-                    n_doe_disciplines: n_doe,
-                    doe_disciplines: doe,
-                    n_doe_uq: n_doe_uq.unwrap_or(20),
-                    doe_uq,
-                    max_iters: max_iters.unwrap_or(10),
-                    max_evaluations,
-                    cv_threshold,
-                    p_threshold,
-                    n_ei_samples,
-                    n_pmin_samples,
-                    n_starts,
-                    n_sim,
-                    uq: egmdo::uq::UqSettings {
-                        degree: pce_degree,
-                        n_mc,
-                        random_mda: if linearized_mda {
-                            egmdo::uq::RandomMda::Linearized
-                        } else {
-                            egmdo::uq::RandomMda::Solved
-                        },
-                        correlation: if gp_correlation {
-                            egmdo::uq::Correlation::GpPosterior
-                        } else {
-                            egmdo::uq::Correlation::Perfect
-                        },
-                        ..egmdo::uq::UqSettings::default()
-                    },
-                    gp,
-                    mda,
-                    seed,
-                })
-            }
-            "egmda" => {
-                if linearized_mda || gp_correlation || feasibility_first || mean_mda_constraints {
-                    return Err(PyValueError::new_err(
-                        "linearized_mda, gp_correlation, feasibility_first and \
-                         mean_mda_constraints apply to method='egmdo' only",
-                    ));
-                }
-                let tolerance = tolerance.unwrap_or(egmda::Dispersion::default().threshold());
-                let dispersion = match dispersion.unwrap_or("relative") {
-                    "relative" => egmda::Dispersion::Relative(tolerance),
-                    "absolute" => egmda::Dispersion::Absolute(tolerance),
-                    "spectral" => egmda::Dispersion::Spectral(tolerance),
-                    other => {
-                        return Err(PyValueError::new_err(format!(
-                            "dispersion should be 'relative', 'absolute' or 'spectral', \
-                             got '{other}'"
-                        )));
-                    }
-                };
-                let defaults = egmda::EgmdaConfig::default();
-                MethodConfig::Egmda(egmda::EgmdaConfig {
-                    dispersion,
-                    max_enrichments: max_enrichments.unwrap_or(defaults.max_enrichments),
-                    enrichment,
-                    constraint_tolerances: cstr_tol,
-                    n_doe_disciplines: n_doe,
-                    doe_disciplines: doe,
-                    n_doe: n_doe_uq,
-                    doe: doe_uq,
-                    max_iters: max_iters.unwrap_or(defaults.max_iters),
-                    max_evaluations,
-                    gp,
-                    mda,
-                    seed,
-                })
-            }
-            other => {
-                return Err(PyValueError::new_err(format!(
-                    "method should be 'egmdo' or 'egmda', got '{other}'"
-                )));
-            }
+        let config = match &method {
+            MethodSettings::Egmdo(method) => MethodConfig::Egmdo(method.to_core(shared)),
+            MethodSettings::Egmda(method) => MethodConfig::Egmda(method.to_core(shared)),
         };
         // Validate the configuration against the problem
         Solver::new(&problem, &config, None).map_err(egmdo_err)?;
 
         Ok(Mdegor {
             problem,
+            method,
             config,
             funs,
             design_names,
@@ -953,6 +812,16 @@ impl Mdegor {
     #[getter]
     fn design_names(&self) -> Vec<String> {
         self.design_names.clone()
+    }
+
+    /// The method and its settings: a copy of the EgmdoConfig or EgmdaConfig given
+    #[getter]
+    #[gen_stub(override_return_type(type_repr = "EgmdoConfig | EgmdaConfig", imports = ()))]
+    fn method(&self, py: Python) -> PyResult<Py<PyAny>> {
+        Ok(match &self.method {
+            MethodSettings::Egmdo(config) => Py::new(py, config.clone())?.into_any(),
+            MethodSettings::Egmda(config) => Py::new(py, config.clone())?.into_any(),
+        })
     }
 
     /// Names of the coupling variables, in the column order of the coupling points
