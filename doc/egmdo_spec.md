@@ -435,6 +435,7 @@ Sources: the REMAL paper is used first, and Ghoreishi and Imani only for what it
 | D37 | Linearized random MDA | Optional `y_0 + (I − J)⁻¹ diag(σ) Ξ` at the mean MDA solution; fallback to the solved random MDAs; solved by default |
 | D38 | Correlation across design points | Optional GP posterior correlation of the variables of each point, at the mean MDA solutions; Mehler covariance for the KL; perfect by default |
 | D39 | Feasibility first | Optional: maximize the probability of feasibility of the constraint models while no `DoE_UQ` point is feasible; off by default |
+| D40 | Constraints by the mean MDA | Optional constraints of the acquisition from the mean MDA instead of the GPs of the constraint PCE means; both recorded at each proposed point |
 
 ## 13. Default settings
 
@@ -553,6 +554,10 @@ log PoF(z) = Σ_m log Φ((τ_m − μ_gm(z)) / σ_gm(z)) + Σ_r log[Φ((τ_r −
 ```
 
 where `μ` and `σ` are the mean and standard deviation of the GP of each constraint PCE mean (section 17). Deterministic constraints (D22) are not in the sum and stay constraints of the optimization; the modelled ones are not, since `PoF` accounts for them. `log Φ` is computed without underflow in the left tail, and `σ` is floored, so that a certain constraint ranks the points by their violation. On the aero-structural problem of #503, no point of the initial `DoE_UQ` is feasible and the WB2 maximization under the constraint models rarely reaches the feasible region. Once a `DoE_UQ` point is feasible, the configured criterion is used again. The criterion of each iteration is recorded.
+
+**Decision D40 (constraints by the mean MDA).** As an option (`AcquisitionConstraints::MeanMda`, issue #503), the constraints of the acquisition (C-23) at a candidate `z` are those of the MDA solved on the means of the disciplinary GPs (the mean MDA of section 8), instead of the GPs of the constraint PCE means over `DoE_UQ`. The disciplinary GPs are trained on many more points than `DoE_UQ` has, so these constraints can locate a thin feasible region that the GPs in `z` miss. They cost one surrogate MDA per candidate point; each point is solved once for all constraints (a cache per thread). Where the mean MDA does not converge, the constraints are violated by `10¹⁰`. With feasibility first (D39), these constraints have no standard deviation, so the acquisition minimizes their violation beyond the tolerances, `Σ max(g − τ, 0) + Σ max(|h| − τ, 0)`, and records its opposite as the criterion.
+
+The PCE mean can differ from the mean MDA, especially while the disciplinary uncertainty is large. Each iteration therefore records, whatever the option, the quantities of interest of both models at the proposed point: the expectation `m_0` of the objective model with the GPs of the constraint PCE means, and the mean MDA; and the PCE means once the point is in `DoE_UQ`.
 
 **Optimization.**
 
@@ -720,6 +725,7 @@ The library defaults follow C-EGMDO, the more recent and more robust variant, wi
 |---|---|---|---|---|
 | Acquisition | `Ei`, `Wb2 { scale }`, `Wb2s` (D35), `LogEi` (D36) | `Wb2 { scale: 1 }` | `Ei` | `Wb2` |
 | Feasibility first (D39) | `false`, `true` | `false` | — | `false` |
+| Acquisition constraints (D40) | `PceMeanGp`, `MeanMda` | `PceMeanGp` | — | `PceMeanGp` |
 | Enrichment | `All`, `Sobol` | `Sobol` | `All` | `Sobol` |
 | `ε_P` | > 0 | `10⁻³` | `1/n_UQ` | `10⁻³` |
 | `ε_CV` | > 0 | 0.01 | 0.01 | 0.01 |
@@ -735,7 +741,7 @@ Mapping to the implementation, in addition to section 14:
 
 | Section | Module | Tests |
 |---|---|---|
-| 16, 17 | `problem`, `pce`, `kl` | constraint PCEs share the MDA samples; GP of constraint means interpolates `DoE_UQ` values; deterministic constraints bypass PCE |
+| 16, 17 | `problem`, `pce`, `kl`, `constraints` | constraint PCEs share the MDA samples; GP of constraint means interpolates `DoE_UQ` values; deterministic constraints bypass PCE; mean MDA constraints equal those of the mean MDA solved directly, cached per point (D40) |
 | 18 | `criteria` | `f'_min` with and without feasible points; CEI equals EI without constraints; WB2 = CEI − `m_0`; duplicate rejection; `log PoF` and `log Φ` against closed forms (D39) |
 | 19 | `solver` | `P_sol` sums to the fraction of samples with a feasible point; fallback to least violation; constraint CV floor |
 | 20 | `pce`, `solver` | Sobol indices of known polynomials (e.g. `ξ_1 + 2ξ_2` gives 0.2 and 0.8); group index; only the selected discipline is requested in ask/tell |

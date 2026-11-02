@@ -120,6 +120,9 @@ class TestMdegor(unittest.TestCase):
                 "n_enrichments",
                 "n_failed_mdas",
                 "n_dropped_points",
+                "qoi_gp",
+                "qoi_mean_mda",
+                "qoi_pce_mean",
             },
         )
         # The training data of each discipline are its true evaluations, in its inputs order
@@ -233,6 +236,28 @@ class TestMdegor(unittest.TestCase):
         self.assertLessEqual(res.history[0]["max_criterion"], 0.0)
         self.assertTrue(res.best_feasible)
         self.assertIn("wb2", [h["criterion"] for h in res.history])
+
+    def test_mean_mda_constraints(self):
+        def qoi(z, y):
+            return np.column_stack([toy_qoi(z, y), 0.15 * y[:, 0] - 0.9])
+
+        mdegor = toy_mdegor(
+            qoi=qoi,
+            n_ineq=1,
+            doe_uq=np.array([[-5.0], [-4.2], [3.4], [4.6]]),
+            feasibility_first=True,
+            mean_mda_constraints=True,
+        )
+        res = mdegor.minimize()
+        self.assertEqual(res.history[0]["criterion"], "feasibility")
+        self.assertTrue(res.best_feasible)
+        # The quantities of interest of both models at the proposed points, and the PCE means
+        # at the added ones
+        for h in res.history:
+            self.assertEqual(h["qoi_gp"].shape, (2,))
+            self.assertEqual(h["qoi_mean_mda"].shape, (2,))
+            if h["z_new"] is not None:
+                self.assertEqual(h["qoi_pce_mean"].shape, (2,))
 
     def test_ask_tell_reproduces_minimize(self):
         funs = [toy_y1, toy_y2]
