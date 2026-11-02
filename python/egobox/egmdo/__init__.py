@@ -1,8 +1,9 @@
-"""Efficient global multidisciplinary design optimization (EGMDO and C-EGMDO).
+"""Efficient global multidisciplinary design optimization (EGMDO and C-EGMDO, or EGMDA).
 
 The disciplinary solvers of a multidisciplinary design optimization problem are replaced by
-Gaussian process surrogates, enriched adaptively where the optimum is likely to be.
-See `Mdegor` and `Discipline`.
+Gaussian process surrogates, enriched adaptively: where the optimum is likely to be (EGMDO,
+`Mdegor(method="egmdo")`), or where `Egor` needs the multidisciplinary analysis solved
+(EGMDA, `Mdegor(method="egmda")`). See `Mdegor` and `Discipline`.
 
 References
 ----------

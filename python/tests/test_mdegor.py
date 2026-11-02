@@ -403,6 +403,76 @@ class TestMdegor(unittest.TestCase):
             sellar_mdegor(cstr_tol=[1e-4])
         with self.assertRaises(ValueError):
             sellar_mdegor(enrichment=3)
+        with self.assertRaisesRegex(ValueError, "method should be"):
+            sellar_mdegor(method="egor")
+        with self.assertRaisesRegex(ValueError, "method='egmda' only"):
+            sellar_mdegor(tolerance=1e-3)
+        with self.assertRaisesRegex(ValueError, "method='egmdo' only"):
+            sellar_mdegor(method="egmda", feasibility_first=True)
+        with self.assertRaisesRegex(ValueError, "dispersion should be"):
+            sellar_mdegor(method="egmda", dispersion="trace")
+        with self.assertRaisesRegex(ValueError, "dispersion threshold"):
+            sellar_mdegor(method="egmda", tolerance=0.0)
+
+    def test_egmda_toy_problem(self):
+        res = toy_mdegor(method="egmda", doe_uq=None, max_iters=10).minimize()
+        self.assertEqual(res.method, "egmda")
+        self.assertAlmostEqual(res.z_best[0], -3.0031, delta=0.1)
+        self.assertAlmostEqual(res.f_best, -1.1497, delta=0.01 * 1.1497)
+        self.assertTrue(res.best_feasible)
+        for attr in ("z_star", "y_min", "z_star_mean", "z_star_std", "y_min_mean"):
+            self.assertIsNone(getattr(res, attr))
+        self.assertIsNone(res.qoi_std)
+        # Egor's initial DoE (5 points in 1-D) and 10 iterations
+        self.assertEqual(len(res.history), 15)
+        self.assertEqual(
+            set(res.history[0]),
+            {
+                "iteration",
+                "z",
+                "y",
+                "qoi",
+                "dispersion",
+                "n_enrichments",
+                "status",
+                "accepted",
+                "n_evaluations",
+            },
+        )
+        self.assertEqual([h["iteration"] for h in res.history[:6]], [0] * 5 + [1])
+        accepted = [h for h in res.history if h["accepted"]]
+        n = len(accepted)
+        self.assertEqual(res.doe_uq.shape, (n, 1))
+        self.assertEqual(res.qoi_mean.shape, (n, 1))
+        self.assertEqual(res.coupling_mean.shape, (n, 2))
+        for h in accepted:
+            self.assertEqual(h["status"], "converged")
+            self.assertLessEqual(h["dispersion"], 1e-4)
+        self.assertEqual(res.n_evaluations, res.history[-1]["n_evaluations"])
+        self.assertEqual(
+            sum(len(e["disciplines"]) for e in res.enrichments),
+            sum(res.n_evaluations) - 9,
+        )
+        self.assertEqual(len(res.enrichments[0]["shares"]), 2)
+
+    def test_egmda_constrained_sellar(self):
+        res = sellar_mdegor(method="egmda", n_doe=[5, 5], seed=0).minimize()
+        self.assertTrue(res.best_feasible)
+        np.testing.assert_allclose(res.z_best, SELLAR_Z_REF, atol=1e-2)
+        self.assertAlmostEqual(res.f_best, SELLAR_F_REF, delta=0.01 * SELLAR_F_REF)
+        self.assertEqual(res.qoi_mean.shape[1], 3)
+
+    def test_egmda_ask_tell_reproduces_minimize(self):
+        funs = [sellar_y1, sellar_y2]
+        options = {"method": "egmda", "n_doe": [5, 5], "max_iters": 3, "seed": 1}
+        expected = sellar_mdegor(**options).minimize()
+        mdegor = sellar_mdegor(sellar_disciplines(with_funs=False), **options)
+        while (requests := mdegor.ask()) is not None:
+            mdegor.tell([funs[r.discipline](r.x) for r in requests])
+        res = mdegor.result()
+        np.testing.assert_array_equal(res.doe_uq, expected.doe_uq)
+        np.testing.assert_array_equal(res.qoi_mean, expected.qoi_mean)
+        self.assertEqual(res.n_evaluations, expected.n_evaluations)
 
     def test_discipline(self):
         d = Discipline("d1", sellar_y1, inputs=["z1", "z2", "z3", "y2"], outputs=["y1"])
