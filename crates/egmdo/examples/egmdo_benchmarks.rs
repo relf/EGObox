@@ -1,5 +1,7 @@
 //! Benchmarks of EGMDO and C-EGMDO on the test problems of the papers, with an `Egor`
-//! baseline on the MDF formulation (one true MDA per evaluation of the objective).
+//! baseline on the MDF formulation (one true MDA per evaluation of the objective), and `Egor`
+//! with EGMDA as the MDA solver (the disciplinary GPs enriched until the linearized coupling
+//! variables are certain enough).
 //!
 //! ```text
 //! cargo run -p egobox-egmdo --release --example egmdo_benchmarks -- [n_seeds] [problem...]
@@ -8,6 +10,7 @@
 //! Problems: `toy`, `sellar_modified`, `compound_cylinder`, `toy_constrained`,
 //! `sellar_constrained` (all by default). The results are printed as Markdown tables.
 
+use egobox_egmdo::egmda::{self, Dispersion, EgmdaConfig};
 use egobox_egmdo::mda::{MdaStatus, TrueCouplings, solve_one};
 use egobox_egmdo::problems::{self, TestProblem};
 use egobox_egmdo::uq::UqSettings;
@@ -42,6 +45,21 @@ struct Case {
     criterion: Criterion,
     configs: Vec<(&'static str, EgmdoConfig)>,
     egor_iters: usize,
+}
+
+impl Case {
+    /// `Egor` with EGMDA: the initial disciplinary DoEs and the MDA settings of EGMDO, the
+    /// iterations of the `Egor` baseline
+    fn egmda_config(&self, dispersion: Dispersion) -> EgmdaConfig {
+        let egmdo = &self.configs[0].1;
+        EgmdaConfig {
+            dispersion,
+            n_doe_disciplines: egmdo.n_doe_disciplines.clone(),
+            max_iters: self.egor_iters,
+            mda: egmdo.mda.clone(),
+            ..EgmdaConfig::default()
+        }
+    }
 }
 
 /// Tolerance on the true constraints for a point to be feasible
@@ -301,6 +319,57 @@ fn run_egor(case: &Case, n_seeds: u64) {
     );
 }
 
+/// Runs `Egor` with EGMDA over `n_seeds` seeds and prints one table row: the target is
+/// reached when the true MDA at an analyzed point is optimal
+fn run_egor_egmda(case: &Case, dispersion: Dispersion, n_seeds: u64) {
+    let tp = (case.problem)();
+    let (mut reached, mut optimal, mut failed) = (0, 0, 0);
+    let (mut evals_to_target, mut evals_total, mut times) = (vec![], vec![], vec![]);
+    for seed in 0..n_seeds {
+        let config = EgmdaConfig {
+            seed: Some(seed),
+            ..case.egmda_config(dispersion)
+        };
+        let start = Instant::now();
+        let result = match egmda::minimize(&tp.problem, &tp.disciplines, config) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("{} Egor + EGMDA seed {seed}: {e}", case.name);
+                failed += 1;
+                continue;
+            }
+        };
+        times.push(start.elapsed().as_secs_f64());
+        evals_total.push(result.n_evaluations.iter().sum::<usize>() as f64);
+        let (_, qoi, _) = tp.evaluate(&result.z_best.view()).expect("true MDA");
+        optimal += is_optimal(&tp, &qoi) as usize;
+        if let Some(p) = result.history.iter().find(|p| {
+            p.accepted && is_optimal(&tp, &tp.evaluate(&p.analysis.z.view()).expect("true MDA").1)
+        }) {
+            reached += 1;
+            evals_to_target.push(p.n_evaluations.iter().sum::<usize>() as f64);
+        }
+    }
+    let (m, s) = mean_std(&evals_total);
+    let threshold = match dispersion {
+        Dispersion::Relative(eps) => format!("ε_rel = {eps:e}"),
+        Dispersion::Absolute(eps) => format!("ε_abs = {eps:e}"),
+        Dispersion::Spectral(eps) => format!("ε_λ = {eps:e}"),
+    };
+    println!(
+        "| {} | Egor + EGMDA ({} iterations, {threshold}) | target reached {reached}/{n_seeds}, after {:.0} evaluations (median) | {optimal}/{n_seeds} | {m:.1} ± {s:.1} | {:.1} |{}",
+        case.name,
+        case.egor_iters,
+        median(&evals_to_target),
+        median(&times),
+        if failed > 0 {
+            format!(" {failed} failed runs |")
+        } else {
+            String::new()
+        }
+    );
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let n_seeds = args.first().and_then(|a| a.parse().ok()).unwrap_or(20);
@@ -323,5 +392,8 @@ fn main() {
             run_egmdo(case, label, config, n_seeds);
         }
         run_egor(case, n_seeds);
+        for dispersion in [Dispersion::Relative(1e-3), Dispersion::Relative(1e-4)] {
+            run_egor_egmda(case, dispersion, n_seeds);
+        }
     }
 }

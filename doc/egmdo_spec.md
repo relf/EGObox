@@ -6,7 +6,7 @@ This document specifies the EGMDO algorithm and its constrained extension C-EGMD
 
 > I. Cardoso, S. Dubreuil, N. Bartoli, C. Gogu, M. Salaün, *Constrained efficient global multidisciplinary design optimization using adaptive disciplinary surrogate enrichment*, Struct. Multidisc. Optim. 67:23, 2024. [doi:10.1007/s00158-023-03736-0](https://doi.org/10.1007/s00158-023-03736-0)
 
-Part I (sections 1–15) specifies EGMDO, and part II (sections 16–23) the C-EGMDO extensions. Equation numbers `(n)` refer to the 2020 paper and `(C-n)` to the 2024 paper. Where the papers are silent or ambiguous, the choice made here is marked **Decision**, and collected in sections 12 and 22. The integration plan is in `doc/egmdo_integration_plan.md`.
+Part I (sections 1–15) specifies EGMDO, part II (sections 16–23) the C-EGMDO extensions, and part III (sections 24–27) EGMDA, which uses the disciplinary GPs and their enrichment as the MDA solver of another optimizer. Equation numbers `(n)` refer to the 2020 paper and `(C-n)` to the 2024 paper. Where the papers are silent or ambiguous, the choice made here is marked **Decision**, and collected in sections 12 and 22. The integration plan is in `doc/egmdo_integration_plan.md`.
 
 # Part I — EGMDO
 
@@ -101,7 +101,7 @@ y(z, Ξ) = y_0 + (I − J)⁻¹ diag(σ) Ξ
 - This is the first-order expansion of (9) in `Ξ`. The variation of `σ`, or of the GP error, along `y` is a second-order term, so the full GP posterior has the same expansion: the linearization does not depend on the rank-one assumption at a given `z`.
 - The quantities of interest are evaluated on these samples and their PCEs fitted as in section 4, on the same samples `Ξ^(k)` (D6). The rest of the method is unchanged.
 - One mean MDA and the GP mean gradients replace the `n_MC` random MDAs at each design point. No random MDA is solved, so D5, D32 and D33 do not apply.
-- The point falls back to the solved random MDAs where the mean MDA does not converge, or where `I − J` is ill-conditioned: the ratio of the extreme singular values of `S⁻¹(I − J)S` is below `10⁻⁸`, with `S = diag(|y_0| + σ)` so that the test does not depend on the units of the coupling variables (on the compound cylinder they differ by 10⁶).
+- The point falls back to the solved random MDAs where the mean MDA does not converge, or where `I − J` is ill-conditioned: the ratio of the extreme singular values of `S⁻¹(I − J)S` is below `10⁻⁸`, with `S` the diagonal of the widths of the coupling ranges `C(i)` so that the test does not depend on the units of the coupling variables (on the compound cylinder they differ by 10⁶). A first version used `S = diag(|y_0| + σ)`, which vanishes with a coupling variable: on the modified Sellar problem, at points where `y2 = sqrt(y1) + z1 + z2 ≈ 0`, `S⁻¹(I − J)S` was ill-conditioned while `I − J` has a determinant close to 1 (EGMDA, section 24).
 - The approximation holds when `σ` is small with respect to the curvature of the GP means. It misses the non-Gaussian coupling variables of large uncertainties, as at the beginning of a run with small initial DoEs.
 
 The default is the papers' solved random MDA.
@@ -436,6 +436,10 @@ Sources: the REMAL paper is used first, and Ghoreishi and Imani only for what it
 | D38 | Correlation across design points | Optional GP posterior correlation of the variables of each point, at the mean MDA solutions; Mehler covariance for the KL; perfect by default |
 | D39 | Feasibility first | Optional: maximize the probability of feasibility of the constraint models while no `DoE_UQ` point is feasible; off by default |
 | D40 | Constraints by the mean MDA | Optional constraints of the acquisition from the mean MDA instead of the GPs of the constraint PCE means; both recorded at each proposed point |
+| D41 | EGMDA dispersion | Linearized coupling covariance `Σ = L Lᵀ`; `sqrt(Tr Σ)/‖y_0‖`, `sqrt(Tr Σ)` or `sqrt(λ_max(Σ))` against a threshold, all in coupling units; relative `10⁻⁴` by default |
+| D42 | EGMDA enrichment | At `(z, y_0)`; the discipline with the largest share of `Tr Σ` (`Sobol`, default) or every discipline (`All`) |
+| D43 | EGMDA end of analysis | Converged, enrichment cap per point (20), budget, duplicates only (stalled), or failure of the mean MDA or of the linearization; all disciplines enriched at the last iterate of a non-converged mean MDA; `qoi(z, y_0)` returned unless failed |
+| D44 | `Egor` with EGMDA | Ask/tell over `Egor`'s `suggest`; failed points rejected; equality constraints as two inequalities |
 
 ## 13. Default settings
 
@@ -746,3 +750,82 @@ Mapping to the implementation, in addition to section 14:
 | 19 | `solver` | `P_sol` sums to the fraction of samples with a feasible point; fallback to least violation; constraint CV floor |
 | 20 | `pce`, `solver` | Sobol indices of known polynomials (e.g. `ξ_1 + 2ξ_2` gives 0.2 and 0.8); group index; only the selected discipline is requested in ask/tell |
 | 22 | `problems` | constrained toy and Sellar end to end, references of 22.1 and 22.2 |
+
+# Part III — EGMDA
+
+## 24. The disciplinary GPs as an MDA solver
+
+EGMDA (issue #518, after the approach of [hal-03274761](https://hal.science/hal-03274761v2/document)) uses the disciplinary GPs and their enrichment to solve the MDA at a design point `z` proposed by any optimizer, instead of fixed-point iterations over the true disciplines. The optimizer sees a function of `z` whose evaluations cost true disciplinary evaluations only where the disciplinary GPs are not accurate enough. Unlike EGMDO, there is no PCE, no KL decomposition and no `DoE_UQ`: the uncertainty of the disciplinary GPs is only used to decide whether the MDA is solved accurately enough.
+
+At a design point `z`:
+
+1. Solve the mean MDA (section 8) on the GP means: `y_0(z)`.
+2. Linearize the random MDA around it (D37): `Y(z, Ξ) ≈ y_0 + L Ξ`, with `L = (I − J)⁻¹ diag(σ)`, `J` and `σ` at `(z, y_0)`, so that `Y ≈ N(y_0, Σ)` with `Σ = L Lᵀ = (I − J)⁻¹ diag(σ²) (I − J)⁻ᵀ`.
+3. If the dispersion of `Y` is below its threshold (D41), the MDA is converged: the result is `qoi(z, y_0)`.
+4. Otherwise, enrich the disciplinary GPs at `(z, y_0)` (D42), as in section 8, and go back to 1.
+
+**Decision D41 (dispersion).** The issue proposes `sqrt(Tr Σ)/‖y_0‖ ≤ ε_rel`, `sqrt(Tr Σ) ≤ ε_abs` and `λ_max(Σ) ≤ ε_abs`. The three criteria are implemented (`Dispersion::Relative`, `Absolute`, `Spectral`), the last one as `sqrt(λ_max(Σ)) ≤ ε_abs`, so that all thresholds are in the units of the coupling variables. They are computed from `L` without forming `Σ`: `Tr Σ = ‖L‖_F²` and `λ_max(Σ) = s_max(L)²`. The default is `Relative(10⁻⁴)`. The dispersion measures the uncertainty of the GPs, not the error of `y_0`; on the constrained Sellar problem, `Relative(10⁻³)` leaves errors of about `10⁻³` on the coupling variables, and the active constraint is then violated by up to `5·10⁻³` on the true MDA (section 26).
+
+**Decision D42 (enrichment).** The enrichment point is `(z, y_0)`, as in section 8. The variables `ξ_q` being independent and the model linear, the variance of the coupling variables splits exactly between the disciplines: the share of discipline `i` is `Σ_{q ∈ u_i} ‖L[:, q]‖² / ‖L‖_F²`, the closed Sobol index of its outputs (D28) for `Tr Σ`. With `Enrichment::Sobol` (default), the discipline with the largest share is enriched; with `Enrichment::All`, every discipline with a non-zero share. A point that duplicates a training point of its discipline (D14) is not requested; with `Sobol`, the next discipline by share is taken.
+
+**Decision D43 (end of the analysis).** The analysis of a point ends with a status:
+
+- `Converged`: the dispersion is below its threshold;
+- `MaxEnrichments`: the number of enrichments at the point reached its cap (20 by default);
+- `Budget`: the budget of disciplinary evaluations (D13) is reached;
+- `Stalled`: every enrichment point duplicates a training point, or the last enrichment added none;
+- `MdaFailure`: the mean MDA does not converge, or `I − J` is ill-conditioned (D37), so the dispersion cannot be estimated.
+
+Where the mean MDA does not converge, its last iterate is usually close to the solution, and the GPs fail there by extrapolating: every discipline is enriched at the last iterate if it is finite, within the cap and the budget, and the analysis goes on. The point fails only when this is not possible. On the modified Sellar problem, at the bound `z2 = −10` where `y1 = 100` is far outside its initial range `[−5, 24]`, this turned repeated failures into converged analyses. In all cases but `MdaFailure`, the result is `qoi(z, y_0)`. The disciplinary GPs persist from one point to the next: a point analyzed again, or close to analyzed points, needs few or no evaluations.
+
+In ask/tell mode (`EgmdaSolver`), the first `ask()` returns the initial disciplinary DoEs; `start(z)` then starts the analysis of a point, the following `ask()` calls return its enrichments, and `None` when it is finished. `MdaFunction` wraps the solver with the true disciplinary solvers as a function of `z` for any optimizer, and fails at a point with `MdaFailure`.
+
+## 25. `Egor` with EGMDA
+
+**Decision D44.** `EgmdaOptimizer` minimizes the problem with `Egor` in the design variables and EGMDA at each point, as an ask/tell solver of the disciplinary evaluations, like `EgmdoSolver`:
+
+1. Analyze the points of an initial design of experiments in `z`: LHS of `max(nx + 1, 5)` points (`Egor`'s default), or given.
+2. For `n_max` iterations: `Egor`'s `suggest` proposes a point from the analyzed points and their quantities of interest, and EGMDA analyzes it.
+
+Points with `MdaFailure` are rejected, as `Egor`'s default failsafe strategy does, and points closer than `10⁻⁶` (in `[0, 1]^n`) to an analyzed point are not added again (D25). `Egor` takes constraints `c ≤ τ`: an equality constraint `|h| ≤ τ` is given as the two inequalities `h ≤ τ` and `−h ≤ τ`. The seed of `suggest` changes at each iteration. The result is the best analyzed point, among the feasible ones if any, or with the least violation (D29), with the history of the analyzed points and of the enrichments.
+
+## 26. Results
+
+10 seeds (0 to 9), the initial disciplinary DoEs of the EGMDO benchmarks, the iterations of the `Egor` MDF baseline (`egmdo_benchmarks` example), `Sobol` enrichment. The target is reached when the true MDA at an analyzed point is within 1% of the reference objective with constraints below `10⁻³`; evaluations are disciplinary evaluations, all disciplines included.
+
+| Problem | EGMDO defaults: best point optimal, evaluations | `Egor` MDF: optimal, evaluations to target / total | `Egor` + EGMDA, `ε_rel = 10⁻³` | `Egor` + EGMDA, `ε_rel = 10⁻⁴` (default) |
+|---|---|---|---|---|
+| Toy | 8/10, 15.6 | 10/10, 448 / 1045 | 10/10, 35 / 54 | 10/10, 43 / 69 |
+| Modified Sellar | 9/10, 20.3 | 10/10, 412 / 899 | 10/10, 49 / 89 | 10/10, 60 / 115 |
+| Compound cylinder | 7/10, 24.2 | 10/10, 1258 / 2711 | 10/10, 63 / 94 | 10/10, 74 / 118 |
+| Constrained toy | 7/10, 22.3 | 10/10, 512 / 1354 | 10/10, 32 / 42 | 10/10, 40 / 52 |
+| Constrained Sellar | 9/10, 23.9 | 10/10, 308 / 920 | 6/10, 36 / 72 | 10/10, 46 / 100 |
+
+Evaluations to target are medians, totals are means over the run (`Egor` keeps iterating after reaching the target). The details are in `doc/egmdo_benchmarks.md`.
+
+- `Egor` + EGMDA with `ε_rel = 10⁻⁴` reaches the optimum in every run, with 7 to 17 times fewer disciplinary evaluations than `Egor` on the MDF formulation.
+- It needs 2 to 6 times more evaluations in total than EGMDO, and reaches the target after about 2 to 3 times the total of EGMDO, but it is more robust (10/10 against 7 to 9/10 runs at the optimum).
+- With `ε_rel = 10⁻³`, the coupling variables keep errors of about `10⁻³`: on constrained Sellar the active constraint `g1` is violated by up to `5·10⁻³` on the true MDA, beyond the `10⁻³` of the optimality criterion. Hence the default `10⁻⁴`.
+
+## 27. Options, mapping and limitations
+
+| Option | Values | Default |
+|---|---|---|
+| Dispersion (D41) | `Relative(ε)`, `Absolute(ε)`, `Spectral(ε)` | `Relative(10⁻⁴)` |
+| Enrichment (D42) | `All`, `Sobol` | `Sobol` |
+| Enrichments per point (D43) | ≥ 0 | 20 |
+| Initial DoE in `z` (D44) | size or points | `max(nx + 1, 5)` |
+| Iterations of `Egor` | ≥ 0 | 20 |
+
+The disciplinary DoEs, GP and MDA settings, constraint tolerances, budget and seed are those of EGMDO.
+
+| Section | Module | Tests |
+|---|---|---|
+| 24 | `uq`, `egmda` | `Tr Σ`, `λ_max(Σ)` and the shares from `L` against `Σ = L Lᵀ`; the analysis converges to the true MDA on the toy problem; a point analyzed again needs no evaluation; `Sobol` and `All` requests; enrichment cap and budget; enrichment of all disciplines where the mean MDA fails; ask/tell equals the driver |
+| 25 | `egmda` | toy and constrained Sellar at the optimum; ask/tell equals `minimize`; `MdaFunction` with `Egor` |
+
+Limitations:
+
+- `‖y_0‖` and `Tr Σ` sum coupling variables of different units: on the compound cylinder they differ by 10⁶, and the largest dominates both criteria.
+- The linearization misses the non-Gaussian coupling variables of large uncertainties (D37); the criterion is only reliable near convergence, which is where it is used.
+- The dispersion bounds the uncertainty of the disciplinary GPs, not the error of `y_0`: an overconfident GP (D34) stops the enrichment early.

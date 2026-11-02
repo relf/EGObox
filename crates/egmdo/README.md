@@ -13,6 +13,7 @@ The crate is under development on the `egmdo` branch. It currently provides:
 * the definition of MDO problems: design space, disciplines, coupling variables, objective and constraints,
 * the EGMDO and C-EGMDO algorithms, for problems with or without constraints, as an ask/tell solver (`EgmdoSolver`) or with given disciplinary solvers (`minimize`),
 * the acquisition criteria (EI/CEI, WB2, WB2S, Monte Carlo LogEI) and the enrichment of all disciplines or of the one selected by Sobol indices,
+* EGMDA, the disciplinary surrogates and their enrichment as the MDA solver of another optimizer (`egmda::EgmdaSolver`, `egmda::MdaFunction`), and its use with `Egor` (`egmda::EgmdaOptimizer`, `egmda::minimize`),
 * the disciplinary Gaussian process surrogates,
 * the multidisciplinary analysis (MDA) solver, used with the true disciplines, the surrogate means or random samples of the surrogates,
 * the polynomial chaos expansions with Sobol indices, and the Karhunen–Loève decomposition and KL-GP random field,
