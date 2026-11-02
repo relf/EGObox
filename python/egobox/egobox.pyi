@@ -1314,6 +1314,10 @@ class Mdegor:
         While no point of the uncertainty quantification DoE is feasible by its constraint
         means, maximize the probability of feasibility of the constraint models instead of the
         acquisition criterion.
+    mean_mda_constraints : bool
+        In the acquisition, evaluate the constraints by the multidisciplinary analysis solved on
+        the means of the disciplinary GPs at each candidate point, instead of the GPs of the
+        constraint means over the uncertainty quantification DoE.
     seed : int >= 0, optional
         Random generator seed, for reproducible runs.
     """
@@ -1327,7 +1331,7 @@ class Mdegor:
         r"""
         Names of the coupling variables, in the column order of the coupling points
         """
-    def __new__(cls, design: typing.Mapping[builtins.str, typing.Sequence[builtins.float]], couplings: typing.Mapping[builtins.str, typing.Sequence[builtins.float]], disciplines: typing.Sequence[Discipline], qoi: typing.Callable[[numpy.typing.NDArray[numpy.float64], numpy.typing.NDArray[numpy.float64]], numpy.typing.NDArray[numpy.float64]], n_ineq: builtins.int = 0, n_eq: builtins.int = 0, deterministic_constraints: typing.Optional[typing.Sequence[builtins.int]] = None, cstr_tol: typing.Optional[typing.Sequence[builtins.float]] = None, max_iters: builtins.int = 10, acquisition: InfillStrategy = InfillStrategy.WB2, wb2_scale: builtins.float = 1.0, enrichment: EnrichmentStrategy = EnrichmentStrategy.SOBOL, gp_kernel: builtins.int = 8, n_doe: typing.Optional[typing.Sequence[builtins.int]] = None, doe: typing.Optional[typing.Sequence[numpy.typing.NDArray[numpy.float64]]] = None, n_doe_uq: builtins.int = 20, doe_uq: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, cv_threshold: builtins.float = 0.01, p_threshold: typing.Optional[builtins.float] = 0.001, n_mc: typing.Optional[builtins.int] = None, pce_degree: builtins.int = 3, n_ei_samples: builtins.int = 2000, n_pmin_samples: builtins.int = 10000, n_starts: builtins.int = 20, n_sim: builtins.int = 100, max_evaluations: typing.Optional[builtins.int] = None, mda_relaxation: builtins.float = 1.0, linearized_mda: builtins.bool = False, gp_correlation: builtins.bool = False, feasibility_first: builtins.bool = False, seed: typing.Optional[builtins.int] = None) -> Mdegor: ...
+    def __new__(cls, design: typing.Mapping[builtins.str, typing.Sequence[builtins.float]], couplings: typing.Mapping[builtins.str, typing.Sequence[builtins.float]], disciplines: typing.Sequence[Discipline], qoi: typing.Callable[[numpy.typing.NDArray[numpy.float64], numpy.typing.NDArray[numpy.float64]], numpy.typing.NDArray[numpy.float64]], n_ineq: builtins.int = 0, n_eq: builtins.int = 0, deterministic_constraints: typing.Optional[typing.Sequence[builtins.int]] = None, cstr_tol: typing.Optional[typing.Sequence[builtins.float]] = None, max_iters: builtins.int = 10, acquisition: InfillStrategy = InfillStrategy.WB2, wb2_scale: builtins.float = 1.0, enrichment: EnrichmentStrategy = EnrichmentStrategy.SOBOL, gp_kernel: builtins.int = 8, n_doe: typing.Optional[typing.Sequence[builtins.int]] = None, doe: typing.Optional[typing.Sequence[numpy.typing.NDArray[numpy.float64]]] = None, n_doe_uq: builtins.int = 20, doe_uq: typing.Optional[numpy.typing.NDArray[numpy.float64]] = None, cv_threshold: builtins.float = 0.01, p_threshold: typing.Optional[builtins.float] = 0.001, n_mc: typing.Optional[builtins.int] = None, pce_degree: builtins.int = 3, n_ei_samples: builtins.int = 2000, n_pmin_samples: builtins.int = 10000, n_starts: builtins.int = 20, n_sim: builtins.int = 100, max_evaluations: typing.Optional[builtins.int] = None, mda_relaxation: builtins.float = 1.0, linearized_mda: builtins.bool = False, gp_correlation: builtins.bool = False, feasibility_first: builtins.bool = False, mean_mda_constraints: builtins.bool = False, seed: typing.Optional[builtins.int] = None) -> Mdegor: ...
     def minimize(self, max_iters: typing.Optional[builtins.int] = None) -> MdegorResult:
         r"""
         Minimize the objective with the disciplinary solvers given as `Discipline.fun`.
@@ -1500,7 +1504,11 @@ class MdegorResult:
         Per-iteration records: dicts with keys `z_new` (point added to the uncertainty
         quantification DoE, or None), `criterion` (the criterion maximized: "ei", "wb2", "log_ei"
         or "feasibility"), `max_criterion` (of the logarithm for "feasibility"), `wb2_scale`,
-        `n_modes`, `n_enrichments`, `n_failed_mdas` and `n_dropped_points`
+        `n_modes`, `n_enrichments`, `n_failed_mdas`, `n_dropped_points`, and the quantities of
+        interest (objective, then constraints) at the proposed point: `qoi_gp` (objective model
+        expectation and GPs of the constraint means), `qoi_mean_mda` (multidisciplinary analysis
+        with the surrogate means, None if it does not converge) and `qoi_pce_mean` (means at
+        `z_new`, None if no point is added)
         """
     def __repr__(self) -> builtins.str: ...
 

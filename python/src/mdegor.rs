@@ -239,7 +239,11 @@ pub(crate) struct MdegorResult {
     /// Per-iteration records: dicts with keys `z_new` (point added to the uncertainty
     /// quantification DoE, or None), `criterion` (the criterion maximized: "ei", "wb2", "log_ei"
     /// or "feasibility"), `max_criterion` (of the logarithm for "feasibility"), `wb2_scale`,
-    /// `n_modes`, `n_enrichments`, `n_failed_mdas` and `n_dropped_points`
+    /// `n_modes`, `n_enrichments`, `n_failed_mdas`, `n_dropped_points`, and the quantities of
+    /// interest (objective, then constraints) at the proposed point: `qoi_gp` (objective model
+    /// expectation and GPs of the constraint means), `qoi_mean_mda` (multidisciplinary analysis
+    /// with the surrogate means, None if it does not converge) and `qoi_pce_mean` (means at
+    /// `z_new`, None if no point is added)
     #[pyo3(get)]
     history: Vec<Py<PyDict>>,
 }
@@ -267,6 +271,13 @@ impl MdegorResult {
                 d.set_item("n_enrichments", h.n_enrichments)?;
                 d.set_item("n_failed_mdas", h.n_failed_mdas)?;
                 d.set_item("n_dropped_points", h.n_dropped_points)?;
+                for (key, qoi) in [
+                    ("qoi_gp", &h.qoi_gp),
+                    ("qoi_mean_mda", &h.qoi_mean_mda),
+                    ("qoi_pce_mean", &h.qoi_pce_mean),
+                ] {
+                    d.set_item(key, qoi.as_ref().map(|q| q.to_pyarray(py)))?;
+                }
                 Ok(d.unbind())
             })
             .collect::<PyResult<_>>()?;
@@ -421,6 +432,10 @@ impl MdegorResult {
 ///     While no point of the uncertainty quantification DoE is feasible by its constraint
 ///     means, maximize the probability of feasibility of the constraint models instead of the
 ///     acquisition criterion.
+/// mean_mda_constraints : bool
+///     In the acquisition, evaluate the constraints by the multidisciplinary analysis solved on
+///     the means of the disciplinary GPs at each candidate point, instead of the GPs of the
+///     constraint means over the uncertainty quantification DoE.
 /// seed : int >= 0, optional
 ///     Random generator seed, for reproducible runs.
 ///
@@ -473,6 +488,7 @@ impl Mdegor {
         linearized_mda = false,
         gp_correlation = false,
         feasibility_first = false,
+        mean_mda_constraints = false,
         seed = None,
     ))]
     #[allow(clippy::too_many_arguments)]
@@ -512,6 +528,7 @@ impl Mdegor {
         linearized_mda: bool,
         gp_correlation: bool,
         feasibility_first: bool,
+        mean_mda_constraints: bool,
         seed: Option<u64>,
     ) -> PyResult<Self> {
         let (design_names, xlimits) = parse_variables(&design, "design variable")?;
@@ -609,6 +626,11 @@ impl Mdegor {
         let config = egmdo::EgmdoConfig {
             acquisition,
             feasibility_first,
+            acquisition_constraints: if mean_mda_constraints {
+                egmdo::AcquisitionConstraints::MeanMda
+            } else {
+                egmdo::AcquisitionConstraints::PceMeanGp
+            },
             enrichment,
             constraint_tolerances: cstr_tol,
             n_doe_disciplines: n_doe,
