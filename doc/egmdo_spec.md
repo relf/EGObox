@@ -6,6 +6,8 @@ This document specifies the EGMDO algorithm and its constrained extension C-EGMD
 
 > I. Cardoso, S. Dubreuil, N. Bartoli, C. Gogu, M. Salaün, *Constrained efficient global multidisciplinary design optimization using adaptive disciplinary surrogate enrichment*, Struct. Multidisc. Optim. 67:23, 2024. [doi:10.1007/s00158-023-03736-0](https://doi.org/10.1007/s00158-023-03736-0)
 
+> G. Berthelin, S. Dubreuil, M. Salaün, N. Bartoli, C. Gogu, *Disciplinary proper orthogonal decomposition and interpolation for the resolution of parameterized multidisciplinary analysis*, Int. J. Numer. Methods Eng. 123(15):3594–3626, 2022. [doi:10.1002/nme.6981](https://doi.org/10.1002/nme.6981) (part III, EGMDA)
+
 Part I (sections 1–15) specifies EGMDO, part II (sections 16–23) the C-EGMDO extensions, and part III (sections 24–27) EGMDA, which uses the disciplinary GPs and their enrichment as the MDA solver of another optimizer. Equation numbers `(n)` refer to the 2020 paper and `(C-n)` to the 2024 paper. Where the papers are silent or ambiguous, the choice made here is marked **Decision**, and collected in sections 12 and 22. The integration plan is in `doc/egmdo_integration_plan.md`.
 
 # Part I — EGMDO
@@ -755,7 +757,7 @@ Mapping to the implementation, in addition to section 14:
 
 ## 24. The disciplinary GPs as an MDA solver
 
-EGMDA (issue #518, after the approach of [hal-03274761](https://hal.science/hal-03274761v2/document)) uses the disciplinary GPs and their enrichment to solve the MDA at a design point `z` proposed by any optimizer, instead of fixed-point iterations over the true disciplines. The optimizer sees a function of `z` whose evaluations cost true disciplinary evaluations only where the disciplinary GPs are not accurate enough. Unlike EGMDO, there is no PCE, no KL decomposition and no `DoE_UQ`: the uncertainty of the disciplinary GPs is only used to decide whether the MDA is solved accurately enough.
+EGMDA (issue #518, after the approach of Berthelin et al. 2022, [doi:10.1002/nme.6981](https://doi.org/10.1002/nme.6981)) uses the disciplinary GPs and their enrichment to solve the MDA at a design point `z` proposed by any optimizer, instead of fixed-point iterations over the true disciplines. The optimizer sees a function of `z` whose evaluations cost true disciplinary evaluations only where the disciplinary GPs are not accurate enough. Unlike EGMDO, there is no PCE, no KL decomposition and no `DoE_UQ`: the uncertainty of the disciplinary GPs is only used to decide whether the MDA is solved accurately enough.
 
 At a design point `z`:
 

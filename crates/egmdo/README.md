@@ -1,6 +1,6 @@
 # Efficient global multidisciplinary design optimization
 
-`egobox-egmdo` provides a Rust implementation of the EGMDO algorithm (Dubreuil et al., 2020) and of its constrained extension C-EGMDO (Cardoso et al., 2024), where the disciplinary solvers of a multidisciplinary design optimization problem are replaced by Gaussian process surrogates enriched adaptively.
+`egobox-egmdo` provides a Rust implementation of the EGMDO algorithm (Dubreuil et al., 2020) and of its constrained extension C-EGMDO (Cardoso et al., 2024), where the disciplinary solvers of a multidisciplinary design optimization problem are replaced by Gaussian process surrogates enriched adaptively. It also provides EGMDA, after Berthelin et al. (2022), where these surrogates are the solver of the multidisciplinary analysis of another optimizer such as `Egor`.
 
 ## The big picture
 
@@ -19,7 +19,7 @@ The crate is under development on the `egmdo` branch. It currently provides:
 * the polynomial chaos expansions with Sobol indices, and the Karhunen–Loève decomposition and KL-GP random field,
 * the test problems of the EGMDO and C-EGMDO papers, with benchmarks in `examples/egmdo_benchmarks.rs`.
 
-Variables are identified by index in this crate. The Python binding, `Mdegor` in the `egobox` package (also in `egobox.egmdo`), declares the design and coupling variables by name and wires the disciplines to them by name.
+Variables are identified by index in this crate. The Python binding, `Mdegor` in the `egobox` package (also in `egobox.egmdo`, with `method=EgmdoConfig(...)` or `EgmdaConfig(...)`), declares the design and coupling variables by name and wires the disciplines to them by name.
 
 See `doc/egmdo_integration_plan.md`, `doc/egmdo_spec.md` and `doc/egmdo_benchmarks.md` in the repository for the plan, the specification and the benchmark results.
 
@@ -28,6 +28,8 @@ See `doc/egmdo_integration_plan.md`, `doc/egmdo_spec.md` and `doc/egmdo_benchmar
 S. Dubreuil, N. Bartoli, C. Gogu, T. Lefebvre, *Towards an efficient global multidisciplinary design optimization algorithm*, Struct. Multidisc. Optim. 62:1739–1765, 2020. [doi:10.1007/s00158-020-02514-6](https://doi.org/10.1007/s00158-020-02514-6)
 
 I. Cardoso, S. Dubreuil, N. Bartoli, C. Gogu, M. Salaün, *Constrained efficient global multidisciplinary design optimization using adaptive disciplinary surrogate enrichment*, Struct. Multidisc. Optim. 67:23, 2024. [doi:10.1007/s00158-023-03736-0](https://doi.org/10.1007/s00158-023-03736-0)
+
+G. Berthelin, S. Dubreuil, M. Salaün, N. Bartoli, C. Gogu, *Disciplinary proper orthogonal decomposition and interpolation for the resolution of parameterized multidisciplinary analysis*, Int. J. Numer. Methods Eng. 123(15):3594–3626, 2022. [doi:10.1002/nme.6981](https://doi.org/10.1002/nme.6981)
 
 ## License
 
