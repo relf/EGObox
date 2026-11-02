@@ -209,6 +209,10 @@ Bartoli, N., Lefebvre, T., Dubreuil, S., Olivanti, R., Priem, R., Bons, N., Mart
 [Adaptive modeling strategy for constrained global optimization with application to aerodynamic wing design](https://doi.org/10.1016/j.ast.2019.03.041).
 Aerospace Science and Technology, 90, 85–102.
 
+Berthelin, G., Dubreuil, S., Salaün, M., Bartoli, N., & Gogu, C. (2022).
+[Disciplinary proper orthogonal decomposition and interpolation for the resolution of parameterized multidisciplinary analysis](https://doi.org/10.1002/nme.6981).
+International Journal for Numerical Methods in Engineering, 123(15), 3594–3626.
+
 Bouhlel, M. A., Bartoli, N., Otsmane, A., & Morlier, J. (2016).
 [Improving kriging surrogates of high-dimensional design models by partial least squares dimension reduction](https://doi.org/10.1007/s00158-015-1395-9).
 Structural and Multidisciplinary Optimization, 53(5), 935–952.
@@ -216,6 +220,10 @@ Structural and Multidisciplinary Optimization, 53(5), 935–952.
 Bouhlel, M. A., Hwang, J. T., Bartoli, N., Lafage, R., Morlier, J., & Martins, J. R. R. A. (2019).
 [A python surrogate modeling framework with derivatives](https://doi.org/10.1016/j.advengsoft.2019.03.005).
 Advances in Engineering Software, 102662.
+
+Cardoso, I., Dubreuil, S., Bartoli, N., Gogu, C., & Salaün, M. (2024).
+[Constrained efficient global multidisciplinary design optimization using adaptive disciplinary surrogate enrichment](https://doi.org/10.1007/s00158-023-03736-0).
+Structural and Multidisciplinary Optimization, 67, 23.
 
 Dubreuil, S., Bartoli, N., Gogu, C., & Lefebvre, T. (2020).
 [Towards an efficient global multi-disciplinary design optimization algorithm](https://doi.org/10.1007/s00158-020-02514-6)

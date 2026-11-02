@@ -1,6 +1,7 @@
 //! `Mdegor`: efficient global multidisciplinary design optimization (EGMDO and its constrained
 //! extension C-EGMDO), where the disciplinary solvers are replaced by GP surrogates enriched
-//! adaptively. See the `egobox-egmdo` crate.
+//! adaptively, or `Egor` with these surrogates as the solver of the multidisciplinary analysis
+//! (EGMDA). See the `egobox-egmdo` crate.
 //!
 //! The variables are declared by name in Python and resolved here into the indices used by the
 //! Rust core. A discipline receives its inputs in the order of its `inputs` names, whereas the
@@ -8,9 +9,11 @@
 //! boundary.
 
 use crate::errors::{CallbackError, egmdo_err, install_panic_hook};
-use crate::types::{CorrelationSpec, InfillStrategy, repr_kwargs};
+use crate::mdegor_config::{EgmdaConfig, EgmdoConfig, SharedSettings};
+use crate::types::{CorrelationSpec, repr_kwargs};
 
 use egobox_egmdo as egmdo;
+use egobox_egmdo::egmda;
 use ndarray::{Array2, ArrayView2, Axis};
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyReadonlyArray2, ToPyArray};
 use pyo3::exceptions::{PyTypeError, PyValueError};
@@ -170,15 +173,20 @@ impl MdegorRequest {
 /// Training inputs and outputs of a discipline
 type TrainingData = (Py<PyArray2<f64>>, Py<PyArray2<f64>>);
 
-/// Result of an EGMDO optimization
+/// Result of an Mdegor optimization
 ///
-/// The minimum is estimated by Monte Carlo on the final model of the objective, which accounts
-/// for the remaining uncertainty of the disciplinary surrogates: `z_star` and `y_min` hold samples
-/// of the minimum position and value, summarized by their means and standard deviations.
+/// With EGMDO (`method="egmdo"`), the minimum is estimated by Monte Carlo on the final model of
+/// the objective, which accounts for the remaining uncertainty of the disciplinary surrogates:
+/// `z_star` and `y_min` hold samples of the minimum position and value, summarized by their
+/// means and standard deviations. With EGMDA (`method="egmda"`), these estimates are None and
+/// the uncertainty quantification DoE is the set of points analyzed for `Egor`.
 /// Design points have their columns in the order of `design_names`.
 #[gen_stub_pyclass]
 #[pyclass(skip_from_py_object, module = "egobox")]
 pub(crate) struct MdegorResult {
+    /// The method: "egmdo" or "egmda"
+    #[pyo3(get)]
+    method: String,
     /// Names of the design variables, in the column order of the design points
     #[pyo3(get)]
     design_names: Vec<String>,
@@ -196,38 +204,40 @@ pub(crate) struct MdegorResult {
     /// uncertainty quantification DoE is feasible and `z_best` has the lowest mean violation
     #[pyo3(get)]
     best_feasible: bool,
-    /// Samples of the minimum position, one per row
+    /// Samples of the minimum position, one per row (EGMDO only)
     #[pyo3(get)]
-    z_star: Py<PyArray2<f64>>,
-    /// Samples of the minimum value
+    z_star: Option<Py<PyArray2<f64>>>,
+    /// Samples of the minimum value (EGMDO only)
     #[pyo3(get)]
-    y_min: Py<PyArray1<f64>>,
-    /// Mean of the minimum position
+    y_min: Option<Py<PyArray1<f64>>>,
+    /// Mean of the minimum position (EGMDO only)
     #[pyo3(get)]
-    z_star_mean: Py<PyArray1<f64>>,
-    /// Standard deviation of the minimum position
+    z_star_mean: Option<Py<PyArray1<f64>>>,
+    /// Standard deviation of the minimum position (EGMDO only)
     #[pyo3(get)]
-    z_star_std: Py<PyArray1<f64>>,
-    /// Mean of the minimum value
+    z_star_std: Option<Py<PyArray1<f64>>>,
+    /// Mean of the minimum value (EGMDO only)
     #[pyo3(get)]
-    y_min_mean: f64,
-    /// Standard deviation of the minimum value
+    y_min_mean: Option<f64>,
+    /// Standard deviation of the minimum value (EGMDO only)
     #[pyo3(get)]
-    y_min_std: f64,
+    y_min_std: Option<f64>,
     /// Number of true evaluations of each discipline
     #[pyo3(get)]
     n_evaluations: Vec<usize>,
-    /// Final design of experiments of the uncertainty quantification
+    /// Final design of experiments of the uncertainty quantification; with EGMDA, the points
+    /// analyzed and given to `Egor`
     #[pyo3(get)]
     doe_uq: Py<PyArray2<f64>>,
     /// Means of the quantities of interest (objective, then constraints) at the points of
-    /// `doe_uq`, one point per row
+    /// `doe_uq`, one point per row; with EGMDA, their values with the coupling variables of the
+    /// multidisciplinary analysis with the surrogate means
     #[pyo3(get)]
     qoi_mean: Py<PyArray2<f64>>,
     /// Standard deviations of the quantities of interest (objective, then constraints) at the
-    /// points of `doe_uq`, one point per row
+    /// points of `doe_uq`, one point per row (EGMDO only)
     #[pyo3(get)]
-    qoi_std: Py<PyArray2<f64>>,
+    qoi_std: Option<Py<PyArray2<f64>>>,
     /// Coupling variables of the multidisciplinary analysis with the surrogate means at the
     /// points of `doe_uq`, one point per row, columns in the order of `coupling_names`
     #[pyo3(get)]
@@ -236,16 +246,31 @@ pub(crate) struct MdegorResult {
     /// order of its `inputs` and `outputs`
     #[pyo3(get)]
     disciplinary_doe: Vec<TrainingData>,
-    /// Per-iteration records: dicts with keys `z_new` (point added to the uncertainty
-    /// quantification DoE, or None), `criterion` (the criterion maximized: "ei", "wb2", "log_ei"
-    /// or "feasibility"), `max_criterion` (of the logarithm for "feasibility"), `wb2_scale`,
-    /// `n_modes`, `n_enrichments`, `n_failed_mdas`, `n_dropped_points`, and the quantities of
-    /// interest (objective, then constraints) at the proposed point: `qoi_gp` (objective model
+    /// Per-iteration records.
+    ///
+    /// With EGMDO, dicts with keys `z_new` (point added to the uncertainty quantification DoE,
+    /// or None), `criterion` (the criterion maximized: "ei", "wb2", "log_ei" or "feasibility"),
+    /// `max_criterion` (of the logarithm for "feasibility"), `wb2_scale`, `n_modes`,
+    /// `n_enrichments`, `n_failed_mdas`, `n_dropped_points`, and the quantities of interest
+    /// (objective, then constraints) at the proposed point: `qoi_gp` (objective model
     /// expectation and GPs of the constraint means), `qoi_mean_mda` (multidisciplinary analysis
     /// with the surrogate means, None if it does not converge) and `qoi_pce_mean` (means at
-    /// `z_new`, None if no point is added)
+    /// `z_new`, None if no point is added).
+    ///
+    /// With EGMDA, one dict per analyzed point, with keys `iteration` (0 for the initial design
+    /// of experiments), `z`, `y` (coupling variables of the analysis with the surrogate means),
+    /// `qoi` (None if the analysis failed), `dispersion` (of the linearized coupling variables,
+    /// NaN if it cannot be estimated), `n_enrichments`, `status` ("converged",
+    /// "max_enrichments", "budget", "stalled" or "mda_failure"), `accepted` (whether the point
+    /// was given to `Egor`) and `n_evaluations` (of each discipline, after the analysis).
     #[pyo3(get)]
     history: Vec<Py<PyDict>>,
+    /// With EGMDA, every enrichment of the disciplinary surrogates: dicts with keys `z`,
+    /// `disciplines` (indices of the enriched disciplines), `dispersion` (before the
+    /// enrichment, NaN where the analysis with the surrogate means does not converge) and
+    /// `shares` (of each discipline in the variance of the coupling variables); None with EGMDO
+    #[pyo3(get)]
+    enrichments: Option<Vec<Py<PyDict>>>,
 }
 
 impl MdegorResult {
@@ -282,36 +307,189 @@ impl MdegorResult {
             })
             .collect::<PyResult<_>>()?;
         Ok(MdegorResult {
+            method: "egmdo".to_string(),
             design_names: mdegor.design_names.clone(),
             coupling_names: mdegor.coupling_names.clone(),
             z_best: result.z_best.to_pyarray(py).unbind(),
             f_best: result.f_best,
             best_feasible: result.best_feasible,
-            z_star_mean: result.z_star_mean().into_pyarray(py).unbind(),
-            z_star_std: result.z_star_std().into_pyarray(py).unbind(),
-            y_min_mean: result.y_min_mean(),
-            y_min_std: result.y_min_std(),
-            z_star: result.z_star.to_pyarray(py).unbind(),
-            y_min: result.y_min.to_pyarray(py).unbind(),
+            z_star_mean: Some(result.z_star_mean().into_pyarray(py).unbind()),
+            z_star_std: Some(result.z_star_std().into_pyarray(py).unbind()),
+            y_min_mean: Some(result.y_min_mean()),
+            y_min_std: Some(result.y_min_std()),
+            z_star: Some(result.z_star.to_pyarray(py).unbind()),
+            y_min: Some(result.y_min.to_pyarray(py).unbind()),
             n_evaluations: result.n_evaluations.clone(),
             doe_uq: result.doe_uq.to_pyarray(py).unbind(),
             qoi_mean: result.qoi_mean().into_pyarray(py).unbind(),
-            qoi_std: result.qoi_std().into_pyarray(py).unbind(),
+            qoi_std: Some(result.qoi_std().into_pyarray(py).unbind()),
             coupling_mean: result.coupling_mean().into_pyarray(py).unbind(),
-            disciplinary_doe: mdegor
-                .perms
-                .iter()
-                .enumerate()
-                .map(|(i, perm)| {
-                    let (x, y) = result.models.training_data(i);
-                    (
-                        to_user(&x.view(), perm).into_pyarray(py).unbind(),
-                        y.to_pyarray(py).unbind(),
-                    )
-                })
-                .collect(),
+            disciplinary_doe: disciplinary_doe(py, mdegor, &result.models),
             history,
+            enrichments: None,
         })
+    }
+
+    fn from_egmda(py: Python, mdegor: &Mdegor, result: egmda::EgmdaResult) -> PyResult<Self> {
+        let history = result
+            .history
+            .iter()
+            .map(|p| {
+                let a = &p.analysis;
+                let d = PyDict::new(py);
+                d.set_item("iteration", p.iteration)?;
+                d.set_item("z", a.z.to_pyarray(py))?;
+                d.set_item("y", a.y.to_pyarray(py))?;
+                d.set_item("qoi", a.qoi.as_ref().map(|q| q.to_pyarray(py)))?;
+                d.set_item("dispersion", a.dispersion)?;
+                d.set_item("n_enrichments", a.n_enrichments)?;
+                d.set_item(
+                    "status",
+                    match a.status {
+                        egmda::EgmdaStatus::Converged => "converged",
+                        egmda::EgmdaStatus::MaxEnrichments => "max_enrichments",
+                        egmda::EgmdaStatus::Budget => "budget",
+                        egmda::EgmdaStatus::Stalled => "stalled",
+                        egmda::EgmdaStatus::MdaFailure => "mda_failure",
+                    },
+                )?;
+                d.set_item("accepted", p.accepted)?;
+                d.set_item("n_evaluations", p.n_evaluations.clone())?;
+                Ok(d.unbind())
+            })
+            .collect::<PyResult<_>>()?;
+        let enrichments = result
+            .enrichments
+            .iter()
+            .map(|e| {
+                let d = PyDict::new(py);
+                d.set_item("z", e.z.to_pyarray(py))?;
+                d.set_item("disciplines", e.disciplines.clone())?;
+                d.set_item("dispersion", e.dispersion)?;
+                d.set_item("shares", e.shares.clone())?;
+                Ok(d.unbind())
+            })
+            .collect::<PyResult<_>>()?;
+        // Coupling variables of the accepted points, in the order of x_doe
+        let mut coupling_mean = Array2::zeros((0, mdegor.coupling_names.len()));
+        for p in result.history.iter().filter(|p| p.accepted) {
+            coupling_mean
+                .push_row(p.analysis.y.view())
+                .expect("coupling dimension");
+        }
+        Ok(MdegorResult {
+            method: "egmda".to_string(),
+            design_names: mdegor.design_names.clone(),
+            coupling_names: mdegor.coupling_names.clone(),
+            z_best: result.z_best.to_pyarray(py).unbind(),
+            f_best: result.f_best,
+            best_feasible: result.best_feasible,
+            z_star_mean: None,
+            z_star_std: None,
+            y_min_mean: None,
+            y_min_std: None,
+            z_star: None,
+            y_min: None,
+            n_evaluations: result.n_evaluations.clone(),
+            doe_uq: result.x_doe.to_pyarray(py).unbind(),
+            qoi_mean: result.y_doe.to_pyarray(py).unbind(),
+            qoi_std: None,
+            coupling_mean: coupling_mean.into_pyarray(py).unbind(),
+            disciplinary_doe: disciplinary_doe(py, mdegor, &result.models),
+            history,
+            enrichments: Some(enrichments),
+        })
+    }
+}
+
+/// Training data of each discipline, inputs in the users' order
+fn disciplinary_doe(
+    py: Python,
+    mdegor: &Mdegor,
+    models: &egmdo::DisciplinaryModels,
+) -> Vec<TrainingData> {
+    mdegor
+        .perms
+        .iter()
+        .enumerate()
+        .map(|(i, perm)| {
+            let (x, y) = models.training_data(i);
+            (
+                to_user(&x.view(), perm).into_pyarray(py).unbind(),
+                y.to_pyarray(py).unbind(),
+            )
+        })
+        .collect()
+}
+
+/// The method of an `Mdegor`, with its settings as given in Python
+#[derive(Clone)]
+enum MethodSettings {
+    Egmdo(EgmdoConfig),
+    Egmda(EgmdaConfig),
+}
+
+/// The configuration of the method of an `Mdegor`
+#[derive(Clone)]
+enum MethodConfig {
+    Egmdo(egmdo::EgmdoConfig),
+    Egmda(egmda::EgmdaConfig),
+}
+
+/// The ask/tell solver of the method of an `Mdegor`
+enum Solver {
+    Egmdo(egmdo::EgmdoSolver),
+    Egmda(egmda::EgmdaOptimizer),
+}
+
+impl Solver {
+    /// A solver of `problem`, with `max_iters` iterations if given
+    fn new(
+        problem: &egmdo::MdoProblem,
+        config: &MethodConfig,
+        max_iters: Option<usize>,
+    ) -> egmdo::Result<Self> {
+        Ok(match config {
+            MethodConfig::Egmdo(config) => Solver::Egmdo(egmdo::EgmdoSolver::new(
+                problem.clone(),
+                egmdo::EgmdoConfig {
+                    max_iters: max_iters.unwrap_or(config.max_iters),
+                    ..config.clone()
+                },
+            )?),
+            MethodConfig::Egmda(config) => Solver::Egmda(egmda::EgmdaOptimizer::new(
+                problem.clone(),
+                egmda::EgmdaConfig {
+                    max_iters: max_iters.unwrap_or(config.max_iters),
+                    ..config.clone()
+                },
+            )?),
+        })
+    }
+
+    fn ask(&mut self) -> egmdo::Result<Option<Vec<egmdo::EvaluationRequest>>> {
+        match self {
+            Solver::Egmdo(solver) => solver.ask(),
+            Solver::Egmda(solver) => solver.ask(),
+        }
+    }
+
+    fn tell(&mut self, outputs: Vec<Array2<f64>>) -> egmdo::Result<()> {
+        match self {
+            Solver::Egmdo(solver) => solver.tell(outputs),
+            Solver::Egmda(solver) => solver.tell(outputs),
+        }
+    }
+
+    fn result(&self, py: Python, mdegor: &Mdegor) -> PyResult<MdegorResult> {
+        match self {
+            Solver::Egmdo(solver) => {
+                MdegorResult::new(py, mdegor, solver.result().map_err(egmdo_err)?)
+            }
+            Solver::Egmda(solver) => {
+                MdegorResult::from_egmda(py, mdegor, solver.result().map_err(egmdo_err)?)
+            }
+        }
     }
 }
 
@@ -322,7 +500,15 @@ impl MdegorResult {
         repr_kwargs(
             "MdegorResult",
             &[
-                ("z_star_mean", self.z_star_mean.bind(py).clone().into_any()),
+                ("method", self.method.clone().into_pyobject(py)?.into_any()),
+                (
+                    "z_star_mean",
+                    self.z_star_mean
+                        .as_ref()
+                        .map(|z| z.bind(py).clone())
+                        .into_pyobject(py)?
+                        .into_any(),
+                ),
                 ("y_min_mean", self.y_min_mean.into_pyobject(py)?.into_any()),
                 ("z_best", self.z_best.bind(py).clone().into_any()),
                 ("f_best", self.f_best.into_pyobject(py)?.into_any()),
@@ -335,19 +521,27 @@ impl MdegorResult {
     }
 }
 
-/// Mdegor, efficient global multidisciplinary design optimizer (EGMDO and C-EGMDO)
+/// Mdegor, efficient global multidisciplinary design optimizer (EGMDO and C-EGMDO, or EGMDA)
 ///
 /// Minimizes an objective subject to constraints, both cheap functions of the design variables
 /// and of coupling variables computed by expensive disciplines which depend on each other.
 /// Each disciplinary solver is replaced by Gaussian process surrogates (one per coupling
-/// variable), enriched adaptively where the optimum is likely to be, with as few disciplinary
-/// evaluations as possible.
+/// variable), enriched adaptively, with as few disciplinary evaluations as possible.
+///
+/// Two methods are available, selected by the type of `method`:
+///
+/// * EGMDO (`EgmdoConfig`, default): the surrogates are enriched where the optimum is likely
+///   to be, from the uncertainty of the objective and constraints propagated through random
+///   multidisciplinary analyses (polynomial chaos expansions and a Karhunen-Loève random field).
+/// * EGMDA (`EgmdaConfig`): `Egor` minimizes the objective, and the multidisciplinary analysis
+///   at each of its points is solved with the surrogate means, the surrogates being enriched
+///   until the linearized coupling variables are certain enough.
 ///
 /// The defaults follow the C-EGMDO paper (Cardoso et al. 2024): WB2 acquisition, enrichment of
 /// the discipline with the largest Sobol index, with Matérn 5/2 GPs. The settings of the EGMDO
-/// paper (Dubreuil et al. 2020) are `acquisition=InfillStrategy.EI`,
-/// `enrichment=EnrichmentStrategy.ALL`, `p_threshold=None`, `n_mc=100` and
-/// `gp_kernel=CorrelationSpec.SQUARED_EXPONENTIAL`.
+/// paper (Dubreuil et al. 2020) are `enrichment=EnrichmentStrategy.ALL`,
+/// `gp_kernel=CorrelationSpec.SQUARED_EXPONENTIAL` and
+/// `method=EgmdoConfig(acquisition=InfillStrategy.EI, p_threshold=None, n_mc=100)`.
 ///
 /// Parameters
 /// ----------
@@ -374,14 +568,9 @@ impl MdegorResult {
 ///     only: they are evaluated directly instead of being modelled.
 /// cstr_tol : list of float, optional
 ///     Tolerance of each constraint, default 1e-4.
-/// max_iters : int
-///     Number of iterations (points added to the uncertainty quantification DoE).
-/// acquisition : InfillStrategy
-///     Acquisition criterion: InfillStrategy.WB2 (default), InfillStrategy.WB2S,
-///     InfillStrategy.EI or InfillStrategy.LOG_EI (Monte Carlo estimates, constrained when the
-///     problem has constraints).
-/// wb2_scale : float
-///     Scale of the expected improvement in the WB2 criterion (InfillStrategy.WB2 only).
+/// max_iters : int, optional
+///     Number of iterations: points added to the uncertainty quantification DoE with EGMDO
+///     (default 10), iterations of `Egor` with EGMDA (default 20).
 /// enrichment : EnrichmentStrategy
 ///     Disciplines evaluated at an enrichment point, EnrichmentStrategy.SOBOL (default) or
 ///     EnrichmentStrategy.ALL.
@@ -394,48 +583,20 @@ impl MdegorResult {
 /// doe : list of array[n_i, len(inputs_i)], optional
 ///     Initial designs of experiments of the disciplines (inputs to evaluate, columns in the
 ///     order of `Discipline.inputs`), overrides `n_doe`.
-/// n_doe_uq : int
-///     Size of the initial design of experiments of the uncertainty quantification.
+/// n_doe_uq : int, optional
+///     Size of the initial design of experiments of the uncertainty quantification (default
+///     20); with EGMDA, of the initial design of experiments of `Egor` (default
+///     max(len(design) + 1, 5)).
 /// doe_uq : array[n, len(design)], optional
-///     Initial design of experiments of the uncertainty quantification, overrides `n_doe_uq`.
-/// cv_threshold : float
-///     Enrichment threshold on the coefficients of variation of the quantities of interest.
-/// p_threshold : float, optional
-///     Enrichment threshold on the probability of being the solution; None gives 1 / n_doe_uq.
-/// n_mc : int, optional
-///     Number of random MDAs per point of the uncertainty quantification (default max(200, 2P),
-///     P being the size of the polynomial chaos basis).
-/// pce_degree : int
-///     Total degree of the polynomial chaos expansions.
-/// n_ei_samples : int
-///     Number of Monte Carlo samples of the acquisition criterion.
-/// n_pmin_samples : int
-///     Number of Monte Carlo samples of the probability of being the solution.
-/// n_starts : int
-///     Number of starting points of the acquisition optimization.
-/// n_sim : int
-///     Number of samples of the final estimation of the minimum.
+///     Initial design of experiments of the uncertainty quantification, or of `Egor` with
+///     EGMDA, overrides `n_doe_uq`.
 /// max_evaluations : int, optional
 ///     Budget of true disciplinary evaluations, all disciplines included.
 /// mda_relaxation : float in ]0, 1]
 ///     Relaxation of the Jacobi iterations of the multidisciplinary analyses.
-/// linearized_mda : bool
-///     Linearize the random multidisciplinary analysis at the solution of the mean one,
-///     instead of solving it for each of the n_mc samples (much faster, accurate when the
-///     disciplinary GP uncertainty is small). Points where the mean analysis does not converge
-///     fall back to the solved random analyses.
-/// gp_correlation : bool
-///     Correlate the disciplinary GP uncertainty across the design points of the uncertainty
-///     quantification as the GP posteriors, instead of perfectly (one random sample shared by
-///     every point, as in the EGMDO papers).
-/// feasibility_first : bool
-///     While no point of the uncertainty quantification DoE is feasible by its constraint
-///     means, maximize the probability of feasibility of the constraint models instead of the
-///     acquisition criterion.
-/// mean_mda_constraints : bool
-///     In the acquisition, evaluate the constraints by the multidisciplinary analysis solved on
-///     the means of the disciplinary GPs at each candidate point, instead of the GPs of the
-///     constraint means over the uncertainty quantification DoE.
+/// method : EgmdoConfig or EgmdaConfig, optional
+///     The method and its specific settings: EGMDO with `EgmdoConfig` (default
+///     `EgmdoConfig()`), or EGMDA with `EgmdaConfig`.
 /// seed : int >= 0, optional
 ///     Random generator seed, for reproducible runs.
 ///
@@ -443,14 +604,15 @@ impl MdegorResult {
 #[pyclass(skip_from_py_object, module = "egobox")]
 pub(crate) struct Mdegor {
     problem: egmdo::MdoProblem,
-    config: egmdo::EgmdoConfig,
+    method: MethodSettings,
+    config: MethodConfig,
     funs: Vec<Option<Py<PyAny>>>,
     design_names: Vec<String>,
     coupling_names: Vec<String>,
     /// Per discipline: `perms[i][j]` is the core input column of the user input column `j`
     perms: Vec<Vec<usize>>,
     callback_error: Arc<CallbackError>,
-    solver: Option<egmdo::EgmdoSolver>,
+    solver: Option<Solver>,
 }
 
 #[gen_stub_pymethods]
@@ -466,29 +628,16 @@ impl Mdegor {
         n_eq = 0,
         deterministic_constraints = None,
         cstr_tol = None,
-        max_iters = 10,
-        acquisition = InfillStrategy::Wb2,
-        wb2_scale = 1.,
+        max_iters = None,
         enrichment = EnrichmentStrategy::Sobol,
         gp_kernel = CorrelationSpec::MATERN52,
         n_doe = None,
         doe = None,
-        n_doe_uq = 20,
+        n_doe_uq = None,
         doe_uq = None,
-        cv_threshold = 0.01,
-        p_threshold = Some(1e-3),
-        n_mc = None,
-        pce_degree = 3,
-        n_ei_samples = 2000,
-        n_pmin_samples = 10_000,
-        n_starts = 20,
-        n_sim = 100,
         max_evaluations = None,
         mda_relaxation = 1.,
-        linearized_mda = false,
-        gp_correlation = false,
-        feasibility_first = false,
-        mean_mda_constraints = false,
+        method = None,
         seed = None,
     ))]
     #[allow(clippy::too_many_arguments)]
@@ -506,31 +655,34 @@ impl Mdegor {
         n_eq: usize,
         deterministic_constraints: Option<Vec<usize>>,
         cstr_tol: Option<Vec<f64>>,
-        max_iters: usize,
-        acquisition: InfillStrategy,
-        wb2_scale: f64,
+        max_iters: Option<usize>,
         enrichment: EnrichmentStrategy,
         gp_kernel: u8,
         n_doe: Option<Vec<usize>>,
         doe: Option<Vec<PyReadonlyArray2<f64>>>,
-        n_doe_uq: usize,
+        n_doe_uq: Option<usize>,
         doe_uq: Option<PyReadonlyArray2<f64>>,
-        cv_threshold: f64,
-        p_threshold: Option<f64>,
-        n_mc: Option<usize>,
-        pce_degree: usize,
-        n_ei_samples: usize,
-        n_pmin_samples: usize,
-        n_starts: usize,
-        n_sim: usize,
         max_evaluations: Option<usize>,
         mda_relaxation: f64,
-        linearized_mda: bool,
-        gp_correlation: bool,
-        feasibility_first: bool,
-        mean_mda_constraints: bool,
+        #[gen_stub(override_type(type_repr = "EgmdoConfig | EgmdaConfig | None", imports = ()))]
+        method: Option<Py<PyAny>>,
         seed: Option<u64>,
     ) -> PyResult<Self> {
+        let method = match method {
+            None => MethodSettings::Egmdo(EgmdoConfig::default()),
+            Some(method) => {
+                let method = method.bind(py);
+                if let Ok(config) = method.cast::<EgmdoConfig>() {
+                    MethodSettings::Egmdo(config.borrow().clone())
+                } else if let Ok(config) = method.cast::<EgmdaConfig>() {
+                    MethodSettings::Egmda(config.borrow().clone())
+                } else {
+                    return Err(PyTypeError::new_err(
+                        "method should be an EgmdoConfig, an EgmdaConfig or None",
+                    ));
+                }
+            }
+        };
         let (design_names, xlimits) = parse_variables(&design, "design variable")?;
         let (coupling_names, coupling_limits) = parse_variables(&couplings, "coupling variable")?;
         if design_names.is_empty() {
@@ -613,24 +765,11 @@ impl Mdegor {
                 ));
             }
         };
-        let acquisition = match acquisition {
-            InfillStrategy::Ei => egmdo::Acquisition::Ei,
-            InfillStrategy::Wb2 => egmdo::Acquisition::Wb2 { scale: wb2_scale },
-            InfillStrategy::Wb2s => egmdo::Acquisition::Wb2s,
-            InfillStrategy::LogEi => egmdo::Acquisition::LogEi,
-        };
         let enrichment = match enrichment {
             EnrichmentStrategy::All => egmdo::Enrichment::All,
             EnrichmentStrategy::Sobol => egmdo::Enrichment::Sobol,
         };
-        let config = egmdo::EgmdoConfig {
-            acquisition,
-            feasibility_first,
-            acquisition_constraints: if mean_mda_constraints {
-                egmdo::AcquisitionConstraints::MeanMda
-            } else {
-                egmdo::AcquisitionConstraints::PceMeanGp
-            },
+        let shared = SharedSettings {
             enrichment,
             constraint_tolerances: cstr_tol,
             n_doe_disciplines: n_doe,
@@ -639,27 +778,6 @@ impl Mdegor {
             doe_uq: doe_uq.map(|d| d.as_array().to_owned()),
             max_iters,
             max_evaluations,
-            cv_threshold,
-            p_threshold,
-            n_ei_samples,
-            n_pmin_samples,
-            n_starts,
-            n_sim,
-            uq: egmdo::uq::UqSettings {
-                degree: pce_degree,
-                n_mc,
-                random_mda: if linearized_mda {
-                    egmdo::uq::RandomMda::Linearized
-                } else {
-                    egmdo::uq::RandomMda::Solved
-                },
-                correlation: if gp_correlation {
-                    egmdo::uq::Correlation::GpPosterior
-                } else {
-                    egmdo::uq::Correlation::Perfect
-                },
-                ..egmdo::uq::UqSettings::default()
-            },
             gp: egmdo::GpSettings {
                 kernel,
                 ..egmdo::GpSettings::default()
@@ -670,11 +788,16 @@ impl Mdegor {
             },
             seed,
         };
+        let config = match &method {
+            MethodSettings::Egmdo(method) => MethodConfig::Egmdo(method.to_core(shared)),
+            MethodSettings::Egmda(method) => MethodConfig::Egmda(method.to_core(shared)),
+        };
         // Validate the configuration against the problem
-        egmdo::EgmdoSolver::new(problem.clone(), config.clone()).map_err(egmdo_err)?;
+        Solver::new(&problem, &config, None).map_err(egmdo_err)?;
 
         Ok(Mdegor {
             problem,
+            method,
             config,
             funs,
             design_names,
@@ -689,6 +812,16 @@ impl Mdegor {
     #[getter]
     fn design_names(&self) -> Vec<String> {
         self.design_names.clone()
+    }
+
+    /// The method and its settings: a copy of the EgmdoConfig or EgmdaConfig given
+    #[getter]
+    #[gen_stub(override_return_type(type_repr = "EgmdoConfig | EgmdaConfig", imports = ()))]
+    fn method(&self, py: Python) -> PyResult<Py<PyAny>> {
+        Ok(match &self.method {
+            MethodSettings::Egmdo(config) => Py::new(py, config.clone())?.into_any(),
+            MethodSettings::Egmda(config) => Py::new(py, config.clone())?.into_any(),
+        })
     }
 
     /// Names of the coupling variables, in the column order of the coupling points
@@ -723,12 +856,7 @@ impl Mdegor {
                 })
             })
             .collect::<PyResult<Vec<_>>>()?;
-        let config = egmdo::EgmdoConfig {
-            max_iters: max_iters.unwrap_or(self.config.max_iters),
-            ..self.config.clone()
-        };
-        let mut solver =
-            egmdo::EgmdoSolver::new(self.problem.clone(), config).map_err(egmdo_err)?;
+        let mut solver = Solver::new(&self.problem, &self.config, max_iters).map_err(egmdo_err)?;
         let errors = &self.callback_error;
         while let Some(requests) = run(py, errors, || solver.ask())? {
             let outputs = requests
@@ -742,7 +870,7 @@ impl Mdegor {
                 .collect::<PyResult<Vec<_>>>()?;
             run(py, errors, || solver.tell(outputs))?;
         }
-        MdegorResult::new(py, self, solver.result().map_err(egmdo_err)?)
+        solver.result(py, self)
     }
 
     /// Ask for the next true disciplinary evaluations (ask/tell interface).
@@ -757,10 +885,7 @@ impl Mdegor {
     ///
     fn ask(&mut self, py: Python) -> PyResult<Option<Vec<MdegorRequest>>> {
         if self.solver.is_none() {
-            self.solver = Some(
-                egmdo::EgmdoSolver::new(self.problem.clone(), self.config.clone())
-                    .map_err(egmdo_err)?,
-            );
+            self.solver = Some(Solver::new(&self.problem, &self.config, None).map_err(egmdo_err)?);
         }
         let Mdegor {
             solver,
@@ -815,7 +940,7 @@ impl Mdegor {
             .solver
             .as_ref()
             .ok_or_else(|| PyValueError::new_err("the optimization is not started: call ask()"))?;
-        MdegorResult::new(py, self, solver.result().map_err(egmdo_err)?)
+        solver.result(py, self)
     }
 
     /// Discard the current ask/tell optimization: the next `ask()` starts a new one.

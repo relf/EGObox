@@ -5,6 +5,7 @@ mod egor;
 mod gp_config;
 mod gp_mix;
 mod mdegor;
+mod mdegor_config;
 mod moo_config;
 mod qei_config;
 mod sampling;
@@ -90,6 +91,9 @@ fn egobox(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<MdegorRequest>()?;
     m.add_class::<MdegorResult>()?;
     m.add_class::<EnrichmentStrategy>()?;
+    m.add_class::<mdegor_config::EgmdoConfig>()?;
+    m.add_class::<mdegor_config::EgmdaConfig>()?;
+    m.add_class::<mdegor_config::DispersionCriterion>()?;
 
     Ok(())
 }
