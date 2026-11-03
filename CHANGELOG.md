@@ -39,6 +39,8 @@
 * Fix variance gradients of smooth recombination mixtures (panic or wrong cluster indices with several
   clusters) and the gradient of the upper trust bound constraint strategy
   by @relf in <https://github.com/relf/EGObox/pull/491>
+* Fix GP and sparse GP fit panic with a single training point: an `InvalidValueError` is returned instead
+  by @relf in <https://github.com/relf/EGObox/pull/532>
 * Fix function constraints values of points added by global steps, stored divided by the infill scaling,
   and penalized values of failed points when some selected points are rejected. Function constraints are
   evaluated after the objective as in TREGO local steps, handled in user units by the infill optimization,
