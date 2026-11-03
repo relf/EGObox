@@ -3,7 +3,7 @@ use crate::linalg::{UPLO, cholesky, eigh, qr, singular_values, solve_triangular,
 use crate::mean_models::*;
 use crate::optimization::{CobylaParams, into_f64, optimize_params, prepare_multistart};
 use crate::parameters::{GpParams, GpValidParams};
-use crate::utils::{DiffMatrix, NormalizedData, pairwise_differences};
+use crate::utils::{DiffMatrix, NormalizedData, check_training_size, pairwise_differences};
 use crate::{ParamTuning, ThetaTuning, correlation_models::*};
 
 use linfa::prelude::{Dataset, DatasetBase, Fit, Float, PredictInplace};
@@ -858,6 +858,7 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>, D: Data<Elem
     ) -> Result<Self::Object> {
         let x = dataset.records();
         let y = dataset.targets().to_owned().insert_axis(Axis(1));
+        check_training_size(x)?;
 
         if let Some(d) = self.kpls_dim()
             && *d > x.ncols()
@@ -1236,6 +1237,18 @@ mod tests {
     use ndarray_stats::DeviationExt;
     use paste::paste;
     use rand_xoshiro::Xoshiro256Plus;
+
+    #[test]
+    fn test_fit_single_point_is_an_error() {
+        let xt = arr2(&[[0.5, 1.0]]);
+        let yt = arr1(&[3.0]);
+        let res = GaussianProcess::<f64, ConstantMean, SquaredExponentialCorr>::params(
+            ConstantMean::default(),
+            SquaredExponentialCorr::default(),
+        )
+        .fit(&Dataset::new(xt, yt));
+        assert!(matches!(res, Err(GpError::InvalidValueError(_))));
+    }
 
     #[test]
     fn test_f32_and_f64_fits_agree() {

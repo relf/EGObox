@@ -2,7 +2,8 @@ use crate::ThetaTuning;
 use crate::errors::{GpError, Result};
 use crate::optimization::{CobylaParams, into_f64, optimize_params, prepare_multistart};
 use crate::sparse_parameters::{Inducings, ParamTuning, SgpParams, SgpValidParams, SparseMethod};
-use crate::{GpSamplingMethod, correlation_models::*, sample, utils::pairwise_differences};
+use crate::utils::{check_training_size, pairwise_differences};
+use crate::{GpSamplingMethod, correlation_models::*, sample};
 use finitediff::ndarr;
 use linfa::prelude::{Dataset, DatasetBase, Fit, Float, PredictInplace};
 use linfa_linalg::{cholesky::*, triangular::*};
@@ -426,6 +427,7 @@ impl<F: Float, Corr: CorrelationModel<F>, D: Data<Elem = F> + Sync>
     ) -> Result<Self::Object> {
         let x = dataset.records();
         let y = dataset.targets().to_owned().insert_axis(Axis(1));
+        check_training_size(x)?;
 
         if let Some(d) = self.kpls_dim()
             && *d > x.ncols()
@@ -556,21 +558,21 @@ impl<F: Float, Corr: CorrelationModel<F>, D: Data<Elem = F> + Sync>
             }
         };
 
-        // // bounds of theta, variance and optionally noise variance
-        // let mut bounds = vec![(F::cast(1e-16).log10(), F::cast(1.).log10()); params.ncols()];
-        // Initial guess for theta
+        // Bounds of theta, then variance and optionally noise variance slots: the latter
+        // take the first theta bounds to seed the multistart and are set right after
         let bounds_dim = bounds.len();
-        let bounds = if bounds_dim == 1 {
-            vec![bounds[0]; params_0.len()]
-        } else if theta0_dim == params_0.len() {
+        let mut bounds = if bounds_dim == 1 {
+            vec![bounds[0]; w_star.ncols()]
+        } else if bounds_dim == w_star.ncols() {
             bounds.to_vec()
         } else {
             panic!(
                 "Bounds for theta should be either 1-dim or dim of xtrain ({}), got {}",
                 w_star.ncols(),
-                theta0_dim
+                bounds_dim
             )
         };
+        bounds.resize(params_0.len(), bounds[0]);
 
         let (theta_inits, mut bounds) = prepare_multistart(self.n_start(), &params_0, &bounds);
 
@@ -960,6 +962,16 @@ mod tests {
     }
 
     #[test]
+    fn test_sgp_fit_single_point_is_an_error() {
+        let xt = array![[0.5]];
+        let yt = array![3.0];
+        let res = SparseKriging::params(Inducings::Located(xt.clone()))
+            .noise_variance(ParamTuning::Fixed(0.01))
+            .fit(&Dataset::new(xt, yt));
+        assert!(matches!(res, Err(GpError::InvalidValueError(_))));
+    }
+
+    #[test]
     fn test_sgp_vfe() {
         let mut rng = Xoshiro256Plus::seed_from_u64(42);
         // Generate training data
@@ -1059,6 +1071,46 @@ mod tests {
             &sgp_vals,
             &sgp_vars,
         );
+    }
+
+    fn make_2d_test_data(nt: usize) -> (Array2<f64>, Array1<f64>) {
+        let mut rng = Xoshiro256Plus::seed_from_u64(42);
+        let xt: Array2<f64> = Array2::random_using((nt, 2), Uniform::new(-1., 1.), &mut rng);
+        let yt = xt.map_axis(Axis(1), |x| (3. * x[0]).sin() + x[1] * x[1]);
+        (xt, yt)
+    }
+
+    #[test]
+    fn test_sgp_per_dimension_theta_bounds() {
+        let (xt, yt) = make_2d_test_data(50);
+        for noise in [ParamTuning::Fixed(0.01), ParamTuning::default()] {
+            let sgp = SparseKriging::params(Inducings::Randomized(10))
+                .theta_init(array![0.1, 0.1])
+                .theta_bounds(array![(1e-2, 1e1), (1e-3, 1e2)])
+                .noise_variance(noise)
+                .seed(Some(42))
+                .fit(&Dataset::new(xt.clone(), yt.clone()))
+                .expect("SGP fitted with per-dimension theta bounds");
+            assert_eq!(sgp.theta().len(), 2);
+            assert!(sgp.theta()[0] >= 1e-2 && sgp.theta()[0] <= 1e1);
+            assert!(sgp.theta()[1] >= 1e-3 && sgp.theta()[1] <= 1e2);
+        }
+    }
+
+    #[test]
+    fn test_sgp_per_dimension_fixed_theta() {
+        let (xt, yt) = make_2d_test_data(50);
+        let sgp = SparseKriging::params(Inducings::Randomized(10))
+            .theta_tuning(ThetaTuning::Fixed(array![0.5, 2.]))
+            .noise_variance(ParamTuning::Fixed(0.01))
+            .seed(Some(42))
+            .fit(&Dataset::new(xt, yt))
+            .expect("SGP fitted with per-dimension fixed theta");
+        assert_eq!(sgp.theta().len(), 2);
+        // C COBYLA fails with the zero-width bounds of a fixed theta (all multistart
+        // optimizations fail, whatever the theta dimension): fixed value not retrieved
+        #[cfg(not(feature = "c-cobyla"))]
+        assert_abs_diff_eq!(sgp.theta(), &array![0.5, 2.], epsilon = 1e-12);
     }
 
     #[test]
