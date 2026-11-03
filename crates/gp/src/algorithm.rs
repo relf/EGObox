@@ -1,27 +1,26 @@
 use crate::errors::{GpError, Result};
 use crate::linalg::{UPLO, cholesky, eigh, qr, singular_values, solve_triangular, tri_solve};
 use crate::mean_models::*;
-use crate::optimization::{CobylaParams, into_f64, optimize_params, prepare_multistart};
+use crate::optimization::{
+    CobylaParams, broadcast_bounds, broadcast_theta0, check_kpls_dim, into_f64,
+    multistart_minimize, pls_rotation, prepare_multistart,
+};
 use crate::parameters::{GpParams, GpValidParams};
 use crate::utils::{DiffMatrix, NormalizedData, check_training_size, pairwise_differences};
 use crate::{ParamTuning, ThetaTuning, correlation_models::*};
 
-use linfa::prelude::{Dataset, DatasetBase, Fit, Float, PredictInplace};
+use linfa::prelude::{DatasetBase, Fit, Float, PredictInplace};
 
-use linfa_pls::PlsRegression;
 use ndarray::{Array, Array1, Array2, ArrayBase, Axis, Data, Ix1, Ix2, Zip, s};
 
 use ndarray_rand::RandomExt;
 use ndarray_rand::rand_distr::Normal;
 use ndarray_stats::QuantileExt;
 
-use log::debug;
-use rayon::prelude::*;
 #[cfg(feature = "serializable")]
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::sync::OnceLock;
-use std::time::Instant;
 
 /// Default number of multistart for hyperparameters optimization
 pub const GP_OPTIM_N_START: usize = 10;
@@ -859,17 +858,7 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>, D: Data<Elem
         let x = dataset.records();
         let y = dataset.targets().to_owned().insert_axis(Axis(1));
         check_training_size(x)?;
-
-        if let Some(d) = self.kpls_dim()
-            && *d > x.ncols()
-        {
-            return Err(GpError::InvalidValueError(format!(
-                "Dimension reduction {} should be smaller than actual \
-                    training input dimensions {}",
-                d,
-                x.ncols()
-            )));
-        }
+        check_kpls_dim(self.kpls_dim(), x.ncols())?;
 
         let dim = if let Some(n_components) = self.kpls_dim() {
             *n_components
@@ -877,47 +866,17 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>, D: Data<Elem
             x.ncols()
         };
 
-        let (x, y, active, init) = match self.theta_tuning() {
-            ThetaTuning::Fixed(init) | ThetaTuning::Full { init, bounds: _ } => (
-                x.to_owned(),
-                y.to_owned(),
-                (0..dim).collect::<Vec<_>>(),
-                init,
-            ),
-            ThetaTuning::Partial {
-                init,
-                bounds: _,
-                active,
-            } => (x.to_owned(), y.to_owned(), active.to_vec(), init),
+        let active = match self.theta_tuning() {
+            ThetaTuning::Partial { active, .. } => active.to_vec(),
+            ThetaTuning::Fixed(_) | ThetaTuning::Full { .. } => (0..dim).collect::<Vec<_>>(),
         };
         // Initial guess for theta
-        let theta0_dim = init.len();
-        let theta0 = if theta0_dim == 1 {
-            Array1::from_elem(dim, init[0])
-        } else if theta0_dim == dim {
-            init.to_owned()
-        } else {
-            panic!(
-                "Initial guess for theta should be either 1-dim or dim of xtrain (w_star.ncols()), got {theta0_dim}"
-            )
-        };
+        let theta0 = broadcast_theta0(self.theta_tuning().init(), dim);
 
-        let xtrain = NormalizedData::new(&x);
+        let xtrain = NormalizedData::new(x);
         let ytrain = NormalizedData::new(&y);
 
-        let mut w_star = Array2::eye(x.ncols());
-        if let Some(n_components) = self.kpls_dim() {
-            let ds = Dataset::new(x.to_owned(), y.to_owned());
-            w_star = PlsRegression::params(*n_components).fit(&ds).map_or_else(
-                |e| match e {
-                    linfa_pls::PlsError::PowerMethodConstantResidualError() => {
-                        Ok(Array2::zeros((x.ncols(), *n_components)))
-                    }
-                    err => Err(err),
-                },
-                |v| Ok(v.rotations().0.to_owned()),
-            )?;
-        };
+        let w_star = pls_rotation(x, &y, self.kpls_dim())?;
         let mut x_distances = DiffMatrix::new(&xtrain.data);
         let sums = x_distances
             .d
@@ -947,18 +906,7 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>, D: Data<Elem
                 bounds,
                 active: _,
             } => {
-                let bounds_dim = bounds.len();
-                let bounds = if bounds_dim == 1 {
-                    vec![bounds[0]; w_star.ncols()]
-                } else if bounds_dim == w_star.ncols() {
-                    bounds.to_vec()
-                } else {
-                    panic!(
-                        "Bounds for theta should be either 1-dim or dim of xtrain ({}), got {}",
-                        w_star.ncols(),
-                        bounds_dim
-                    )
-                };
+                let bounds = broadcast_bounds(bounds, w_star.ncols());
 
                 // Select bounds wrt to activity
                 let active_bounds = bounds
@@ -1018,27 +966,15 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>, D: Data<Elem
             // Multistart: user params0 + LHS samples within bounds
             let (params_inits, bounds) =
                 prepare_multistart(self.n_start(), &Array1::from_vec(params0), &bounds);
-            debug!("Optimize with multistart params = {params_inits:?} and bounds = {bounds:?}");
-            let now = Instant::now();
-            let opt_params = (0..params_inits.nrows())
-                .into_par_iter()
-                .map(|i| {
-                    optimize_params(
-                        objfn,
-                        &params_inits.row(i).to_owned(),
-                        &bounds,
-                        CobylaParams {
-                            maxeval: (10 * params_inits.ncols())
-                                .clamp(GP_COBYLA_MIN_EVAL, self.max_eval()),
-                            ..CobylaParams::default()
-                        },
-                    )
-                })
-                .reduce(
-                    || (f64::INFINITY, Array::ones((params_inits.ncols(),))),
-                    |a, b| if b.0 < a.0 { b } else { a },
-                );
-            debug!("elapsed optim = {:?}", now.elapsed().as_millis());
+            let opt_params = multistart_minimize(
+                objfn,
+                &params_inits,
+                &bounds,
+                CobylaParams {
+                    maxeval: (10 * params_inits.ncols()).clamp(GP_COBYLA_MIN_EVAL, self.max_eval()),
+                    ..CobylaParams::default()
+                },
+            );
             let opt_params = opt_params.1.mapv(|v| F::cast(base.powf(v)));
             let opt_noise = if noise_bounds.is_some() {
                 opt_params[n_theta]
@@ -1224,7 +1160,7 @@ mod tests {
     use approx::{assert_abs_diff_eq, assert_abs_diff_ne};
     use argmin_testfunctions::rosenbrock;
     use egobox_doe::{Lhs, LhsKind, SamplingMethod};
-    use linfa::prelude::Predict;
+    use linfa::prelude::{Dataset, Predict};
     #[cfg(not(feature = "blas"))]
     use linfa_linalg::norm::Norm;
     use ndarray::{Array, Zip, arr1, arr2, array};

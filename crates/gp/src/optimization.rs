@@ -1,12 +1,83 @@
+use crate::errors::{GpError, Result};
 use egobox_doe::{Lhs, SamplingMethod};
-use ndarray::{arr1, s};
+use linfa_pls::PlsRegression;
+use ndarray::{ArrayBase, Data, Ix2, arr1, s};
 use ndarray_rand::rand::{Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256Plus;
 
 use ndarray::{Array, Array1, Array2, Zip};
 
-use linfa::prelude::Float;
+use linfa::prelude::{Dataset, Fit, Float};
 
+use log::debug;
+use rayon::prelude::*;
+use std::time::Instant;
+
+/// Check that the dimension reduction `kpls_dim`, if any, is not greater
+/// than the training input dimension `nx`
+pub(crate) fn check_kpls_dim(kpls_dim: Option<&usize>, nx: usize) -> Result<()> {
+    if let Some(d) = kpls_dim
+        && *d > nx
+    {
+        return Err(GpError::InvalidValueError(format!(
+            "Dimension reduction {d} should be smaller than actual                     training input dimensions {nx}"
+        )));
+    }
+    Ok(())
+}
+
+/// Weights of the training inputs: PLS rotations reducing their dimension to `kpls_dim`
+/// when specified (zeros if PLS fails on constant residuals), identity otherwise
+pub(crate) fn pls_rotation<F: Float>(
+    x: &ArrayBase<impl Data<Elem = F>, Ix2>,
+    y: &Array2<F>,
+    kpls_dim: Option<&usize>,
+) -> Result<Array2<F>> {
+    let Some(n_components) = kpls_dim else {
+        return Ok(Array2::eye(x.ncols()));
+    };
+    let ds = Dataset::new(x.to_owned(), y.to_owned());
+    let w_star = PlsRegression::params(*n_components).fit(&ds).map_or_else(
+        |e| match e {
+            linfa_pls::PlsError::PowerMethodConstantResidualError() => {
+                Ok(Array2::zeros((x.ncols(), *n_components)))
+            }
+            err => Err(err),
+        },
+        |v| Ok(v.rotations().0.to_owned()),
+    )?;
+    Ok(w_star)
+}
+
+/// Initial guess of theta of dimension `dim` given either one value for all components
+/// or one value per component
+pub(crate) fn broadcast_theta0<F: Float>(init: &Array1<F>, dim: usize) -> Array1<F> {
+    let theta0_dim = init.len();
+    if theta0_dim == 1 {
+        Array1::from_elem(dim, init[0])
+    } else if theta0_dim == dim {
+        init.to_owned()
+    } else {
+        panic!(
+            "Initial guess for theta should be either 1-dim or dim of xtrain (w_star.ncols()), got {theta0_dim}"
+        )
+    }
+}
+
+/// Bounds of theta of dimension `dim` given either one bounds for all components
+/// or one bounds per component
+pub(crate) fn broadcast_bounds<F: Float>(bounds: &Array1<(F, F)>, dim: usize) -> Vec<(F, F)> {
+    let bounds_dim = bounds.len();
+    if bounds_dim == 1 {
+        vec![bounds[0]; dim]
+    } else if bounds_dim == dim {
+        bounds.to_vec()
+    } else {
+        panic!("Bounds for theta should be either 1-dim or dim of xtrain ({dim}), got {bounds_dim}")
+    }
+}
+
+#[derive(Clone, Copy)]
 pub(crate) struct CobylaParams {
     pub rhobeg: f64,
     pub ftol_rel: f64,
@@ -72,6 +143,31 @@ pub(crate) fn prepare_multistart<F: Float>(
         std::cmp::Ordering::Less => (),
     };
     (theta0s, bounds)
+}
+
+/// Minimize `objfn` with COBYLA started in parallel from each row of `inits` (log10 scale)
+/// within `bounds`, returns the best value and parameters, (inf, ones) when all fail
+pub(crate) fn multistart_minimize<ObjF, F>(
+    objfn: ObjF,
+    inits: &Array2<F>,
+    bounds: &[(F, F)],
+    cobyla: CobylaParams,
+) -> (f64, Array1<f64>)
+where
+    ObjF: Fn(&[f64], Option<&mut [f64]>, &mut ()) -> f64 + Sync,
+    F: Float,
+{
+    debug!("Optimize with multistart params = {inits:?} and bounds = {bounds:?}");
+    let now = Instant::now();
+    let opt = (0..inits.nrows())
+        .into_par_iter()
+        .map(|i| optimize_params(&objfn, &inits.row(i).to_owned(), bounds, cobyla))
+        .reduce(
+            || (f64::INFINITY, Array::ones((inits.ncols(),))),
+            |a, b| if b.0 < a.0 { b } else { a },
+        );
+    debug!("elapsed optim = {:?}", now.elapsed().as_millis());
+    opt
 }
 
 /// Optimize gp hyper parameters given an initial guess and bounds with cobyla
