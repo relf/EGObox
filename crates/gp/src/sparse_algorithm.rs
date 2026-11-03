@@ -504,14 +504,17 @@ impl<F: Float, Corr: CorrelationModel<F>, D: Data<Elem = F> + Sync>
         let sigma2_0 = y_std[0] * y_std[0];
 
         // Params consist in [theta1, ..., thetap, sigma2, [noise]]
+        // where theta is optimized unless it is fixed
         // where sigma2 is the variance of the gaussian process
         // where noise is the variance of the noise when it is estimated
-        let n = theta0.len() + 1 + is_noise_estimated as usize;
+        let is_theta_fixed = matches!(self.theta_tuning(), ThetaTuning::Fixed(_));
+        let n_theta = if is_theta_fixed { 0 } else { theta0.len() };
+        let n = n_theta + 1 + is_noise_estimated as usize;
         let mut params_0 = Array1::zeros(n);
         params_0
-            .slice_mut(s![..n - 1 - is_noise_estimated as usize])
-            .assign(&theta0);
-        params_0[n - 1 - is_noise_estimated as usize] = sigma2_0;
+            .slice_mut(s![..n_theta])
+            .assign(&theta0.slice(s![..n_theta]));
+        params_0[n_theta] = sigma2_0;
         if is_noise_estimated {
             // noise variance is estimated, noise0 is initial_guess
             params_0[n - 1] = *noise0;
@@ -534,15 +537,18 @@ impl<F: Float, Corr: CorrelationModel<F>, D: Data<Elem = F> + Sync>
             )
             .unwrap();
 
-            let theta = input.slice(s![..input.len() - 1 - is_noise_estimated as usize]);
-            let sigma2 = input[input.len() - 1 - is_noise_estimated as usize];
+            let theta = if is_theta_fixed {
+                theta0.to_owned()
+            } else {
+                input.slice(s![..n_theta]).to_owned()
+            };
+            let sigma2 = input[n_theta];
             let noise = if is_noise_estimated {
                 input[input.len() - 1]
             } else {
                 F::cast(*noise0)
             };
 
-            let theta = theta.mapv(F::cast);
             match self.reduced_likelihood(
                 &theta,
                 sigma2,
@@ -558,27 +564,33 @@ impl<F: Float, Corr: CorrelationModel<F>, D: Data<Elem = F> + Sync>
             }
         };
 
-        // Bounds of theta, then variance and optionally noise variance slots: the latter
-        // take the first theta bounds to seed the multistart and are set right after
-        let bounds_dim = bounds.len();
-        let mut bounds = if bounds_dim == 1 {
-            vec![bounds[0]; w_star.ncols()]
-        } else if bounds_dim == w_star.ncols() {
-            bounds.to_vec()
+        let variance_bounds = (F::cast(1e-12), F::cast(9.) * sigma2_0);
+        let bounds = if is_theta_fixed {
+            // Variance and optionally noise variance bounds (noise bounds set right after)
+            vec![variance_bounds; params_0.len()]
         } else {
-            panic!(
-                "Bounds for theta should be either 1-dim or dim of xtrain ({}), got {}",
-                w_star.ncols(),
-                bounds_dim
-            )
+            // Bounds of theta, then variance and optionally noise variance slots: the latter
+            // take the first theta bounds to seed the multistart and are set right after
+            let bounds_dim = bounds.len();
+            let mut bounds = if bounds_dim == 1 {
+                vec![bounds[0]; w_star.ncols()]
+            } else if bounds_dim == w_star.ncols() {
+                bounds.to_vec()
+            } else {
+                panic!(
+                    "Bounds for theta should be either 1-dim or dim of xtrain ({}), got {}",
+                    w_star.ncols(),
+                    bounds_dim
+                )
+            };
+            bounds.resize(params_0.len(), bounds[0]);
+            bounds
         };
-        bounds.resize(params_0.len(), bounds[0]);
 
         let (theta_inits, mut bounds) = prepare_multistart(self.n_start(), &params_0, &bounds);
 
         // variance bounds
-        bounds[theta_inits.ncols() - 1 - is_noise_estimated as usize] =
-            (F::cast(1e-12).log10(), (F::cast(9.) * sigma2_0).log10());
+        bounds[n_theta] = (variance_bounds.0.log10(), variance_bounds.1.log10());
         // optionally adjust noise variance bounds
         if let ParamTuning::Optimized {
             init: _,
@@ -617,10 +629,12 @@ impl<F: Float, Corr: CorrelationModel<F>, D: Data<Elem = F> + Sync>
         debug!("elapsed optim = {:?}", now.elapsed().as_millis());
         let opt_params = opt_params.1.mapv(|v| F::cast(base.powf(v)));
 
-        let opt_theta = opt_params
-            .slice(s![..n - 1 - is_noise_estimated as usize])
-            .to_owned();
-        let opt_sigma2 = opt_params[n - 1 - is_noise_estimated as usize];
+        let opt_theta = if is_theta_fixed {
+            theta0
+        } else {
+            opt_params.slice(s![..n_theta]).to_owned()
+        };
+        let opt_sigma2 = opt_params[n_theta];
         let opt_noise = if is_noise_estimated {
             opt_params[n - 1]
         } else {
@@ -1106,11 +1120,31 @@ mod tests {
             .seed(Some(42))
             .fit(&Dataset::new(xt, yt))
             .expect("SGP fitted with per-dimension fixed theta");
-        assert_eq!(sgp.theta().len(), 2);
-        // C COBYLA fails with the zero-width bounds of a fixed theta (all multistart
-        // optimizations fail, whatever the theta dimension): fixed value not retrieved
-        #[cfg(not(feature = "c-cobyla"))]
-        assert_abs_diff_eq!(sgp.theta(), &array![0.5, 2.], epsilon = 1e-12);
+        assert_eq!(sgp.theta(), &array![0.5, 2.]);
+    }
+
+    #[test]
+    fn test_sgp_fixed_theta_optimizes_variances() {
+        let (xt, yt) = make_2d_test_data(50);
+        let y_var = yt.var(1.);
+        for (theta, expected) in [
+            (array![0.5], array![0.5, 0.5]),
+            (array![0.5, 2.], array![0.5, 2.]),
+        ] {
+            let sgp = SparseKriging::params(Inducings::Randomized(10))
+                .theta_tuning(ThetaTuning::Fixed(theta))
+                .noise_variance(ParamTuning::Optimized {
+                    init: 0.01,
+                    bounds: (1e-4, 1.),
+                })
+                .seed(Some(42))
+                .fit(&Dataset::new(xt.clone(), yt.clone()))
+                .expect("SGP fitted with fixed theta");
+            assert_eq!(sgp.theta(), &expected);
+            // Variances optimized within their bounds (up to log10 rounding)
+            assert!(sgp.variance() >= 1e-12 && sgp.variance() <= 9. * y_var * (1. + 1e-9));
+            assert!(sgp.noise_variance() >= 1e-4 * (1. - 1e-9) && sgp.noise_variance() <= 1.);
+        }
     }
 
     #[test]
