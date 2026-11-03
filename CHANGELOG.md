@@ -44,6 +44,8 @@
   evaluated after the objective as in TREGO local steps, handled in user units by the infill optimization,
   and an infill point slightly violating them (beyond `cstr_tol`) is moved back to the feasible side
   by @relf in <https://github.com/relf/EGObox/pull/524>
+* Fix sparse GP fit panic when theta bounds or a fixed theta are given per dimension
+  by @relf in <https://github.com/relf/EGObox/pull/531>
 
 ## Version 1.0.0 - 12/10/2026
 
