@@ -1,17 +1,12 @@
 use crate::errors::{GpError, Result};
+use crate::linalg::{UPLO, cholesky, eigh, qr, singular_values, solve_triangular, tri_solve};
 use crate::mean_models::*;
 use crate::optimization::{CobylaParams, into_f64, optimize_params, prepare_multistart};
 use crate::parameters::{GpParams, GpValidParams};
 use crate::utils::{DiffMatrix, NormalizedData, check_training_size, pairwise_differences};
 use crate::{ParamTuning, ThetaTuning, correlation_models::*};
 
-use linfa::dataset::{WithLapack, WithoutLapack};
 use linfa::prelude::{Dataset, DatasetBase, Fit, Float, PredictInplace};
-
-#[cfg(not(feature = "blas"))]
-use linfa_linalg::{cholesky::*, eigh::*, qr::*, svd::*, triangular::*};
-#[cfg(feature = "blas")]
-use ndarray_linalg::{cholesky::*, eigh::*, qr::*, svd::*, triangular::*};
 
 use linfa_pls::PlsRegression;
 use ndarray::{Array, Array1, Array2, ArrayBase, Axis, Data, Ix1, Ix2, Zip, s};
@@ -81,30 +76,6 @@ impl<F: Float> GpInnerParams<F> {
         self.r_inv_f
             .get_or_init(|| tri_solve(&self.r_chol.t(), self.ft.to_owned(), UPLO::Upper))
     }
-}
-
-/// Solve `a . x = b` where `a` is a triangular matrix whose non-zero part is given by `uplo`
-#[cfg(not(feature = "blas"))]
-fn tri_solve<F: Float>(
-    a: &ArrayBase<impl Data<Elem = F>, Ix2>,
-    b: Array2<F>,
-    uplo: UPLO,
-) -> Array2<F> {
-    a.solve_triangular_into(b, uplo).unwrap()
-}
-
-/// See non blas version
-#[cfg(feature = "blas")]
-fn tri_solve<F: Float>(
-    a: &ArrayBase<impl Data<Elem = F>, Ix2>,
-    b: Array2<F>,
-    uplo: UPLO,
-) -> Array2<F> {
-    a.view()
-        .with_lapack()
-        .solve_triangular_into(uplo, Diag::NonUnit, b.with_lapack())
-        .unwrap()
-        .without_lapack()
 }
 
 /// A GP regression is an interpolation method where the
@@ -480,7 +451,6 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GaussianProc
     /// fixed, and the correlation matrix's Cholesky factor is updated with an
     /// exact block (rank-`m`) update instead of being recomputed from scratch.
     /// Consumes `self` and returns a new `GaussianProcess`.
-    #[cfg(not(feature = "blas"))]
     pub fn update(
         self,
         x_new: &ArrayBase<impl Data<Elem = F>, Ix2>,
@@ -507,22 +477,21 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GaussianProc
             self.params
                 .corr
                 .rval_from_distances(&new_distances.d, &self.theta, &self.w_star);
-        let diag = self.params.nugget() + self.noise_ratio;
-        let mut r22: Array2<F> = Array2::<F>::eye(m).mapv(|v| v + v * diag);
-        for (i, ij) in new_distances.d_indices.outer_iter().enumerate() {
-            r22[[ij[0], ij[1]]] = rnew[[i, 0]];
-            r22[[ij[1], ij[0]]] = rnew[[i, 0]];
-        }
+        let r22 = correlation_matrix(
+            &new_distances,
+            &rnew,
+            self.params.nugget() + self.noise_ratio,
+        );
 
         let l11 = self.inner_params.r_chol; // (n, n) lower triangular
 
         // L21 (m, n): solve L11 @ L21^T = R21^T
-        let l21_t = l11.solve_triangular(&r21.t().to_owned(), UPLO::Lower)?; // (n, m)
+        let l21_t = solve_triangular(&l11, r21.t().to_owned(), UPLO::Lower)?; // (n, m)
         let l21 = l21_t.t().to_owned(); // (m, n)
 
         // Schur complement and its Cholesky factor L22 (m, m)
         let schur = r22 - l21.dot(&l21_t);
-        let l22 = schur.cholesky()?;
+        let l22 = cholesky(schur)?;
 
         // Assemble the augmented Cholesky factor L (n+m, n+m)
         let mut l = Array2::<F>::zeros((n + m, n + m));
@@ -535,7 +504,7 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GaussianProc
         // need a new (small) triangular solve against L22.
         let fnew = self.params.mean.coefs(&xnew_norm); // (m, p)
         let ft_top = self.inner_params.ft; // (n, p)
-        let ft_bottom = l22.solve_triangular(&(&fnew - &l21.dot(&ft_top)), UPLO::Lower)?;
+        let ft_bottom = solve_triangular(&l22, &fnew - &l21.dot(&ft_top), UPLO::Lower)?;
         let mut ft = Array2::<F>::zeros((n + m, ft_top.ncols()));
         ft.slice_mut(s![..n, ..]).assign(&ft_top);
         ft.slice_mut(s![n.., ..]).assign(&ft_bottom);
@@ -543,25 +512,15 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GaussianProc
         // Extend the whitened targets yt = L^-1 y. yt_top is an O(n^2) solve
         // against the frozen L11 (NOT a refactorization); yt_bottom is a small
         // solve against L22.
-        let yt_top = l11.solve_triangular(&self.yt_norm.data, UPLO::Lower)?; // (n, 1)
-        let yt_bottom = l22.solve_triangular(&(&ynew_norm - &l21.dot(&yt_top)), UPLO::Lower)?;
+        let yt_top = solve_triangular(&l11, self.yt_norm.data.to_owned(), UPLO::Lower)?; // (n, 1)
+        let yt_bottom = solve_triangular(&l22, &ynew_norm - &l21.dot(&yt_top), UPLO::Lower)?;
         let mut yt = Array2::<F>::zeros((n + m, 1));
         yt.slice_mut(s![..n, ..]).assign(&yt_top);
         yt.slice_mut(s![n.., ..]).assign(&yt_bottom);
 
         // Re-run the cheap (p is small) GLS step on the augmented system.
-        let (ft_qr_q, ft_qr_r) = ft.qr().unwrap().into_decomp();
-        let beta = ft_qr_r
-            .clone()
-            .solve_triangular_into(ft_qr_q.t().dot(&yt), UPLO::Upper)?;
-        let rho = &yt - &ft.dot(&beta);
-        let rho_sqr = rho.mapv(|v| v * v).sum_axis(Axis(0));
-        let gamma = l.t().solve_triangular_into(rho, UPLO::Upper)?;
-
-        let n_obs = F::cast(n + m);
-        let logdet = l.diag().mapv(|v: F| v.log10()).sum() * F::cast(2.) / n_obs;
-        let sigma2_n = rho_sqr[0] / n_obs;
-        let likelihood = -n_obs * (sigma2_n.log10() + logdet);
+        let ft_qr = qr(&ft)?;
+        let (likelihood, inner_params) = gls_params(l, ft, ft_qr, yt, self.yt_norm.std[0])?;
 
         // Append the new points to the stored (normalized and raw) datasets.
         let mut xt_data = Array2::<F>::zeros((n + m, self.xt_norm.data.ncols()));
@@ -584,163 +543,7 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GaussianProc
             theta: self.theta,
             noise_ratio: self.noise_ratio,
             likelihood,
-            inner_params: GpInnerParams {
-                sigma2: sigma2_n * self.yt_norm.std[0] * self.yt_norm.std[0],
-                beta,
-                gamma,
-                r_chol: l,
-                ft,
-                ft_qr_r,
-                r_inv_f: OnceLock::new(),
-            },
-            w_star: self.w_star,
-            xt_norm: NormalizedData {
-                data: xt_data,
-                mean: self.xt_norm.mean,
-                std: self.xt_norm.std,
-            },
-            yt_norm: NormalizedData {
-                data: yt_data,
-                mean: self.yt_norm.mean,
-                std: self.yt_norm.std,
-            },
-            training_data: (x_train, y_train),
-            params: self.params,
-        })
-    }
-
-    /// See non-blas version above for the full explanation. Same algorithm,
-    /// using the ndarray-linalg / LAPACK triangular-solve & Cholesky API.
-    /// Consumes `self` and returns a new `GaussianProcess`.
-    #[cfg(feature = "blas")]
-    pub fn update(
-        self,
-        x_new: &ArrayBase<impl Data<Elem = F>, Ix2>,
-        y_new: &ArrayBase<impl Data<Elem = F>, Ix1>,
-    ) -> Result<Self> {
-        let m = x_new.nrows();
-        if m == 0 {
-            return Ok(self);
-        }
-        let n = self.xt_norm.data.nrows();
-
-        let xnew_norm = (x_new - &self.xt_norm.mean) / &self.xt_norm.std;
-        let ynew_norm =
-            (&y_new.to_owned().insert_axis(Axis(1)) - &self.yt_norm.mean) / &self.yt_norm.std;
-
-        let r21 = self._compute_correlation(&xnew_norm); // (m, n)
-
-        let new_distances = DiffMatrix::new(&xnew_norm);
-        let rnew =
-            self.params
-                .corr
-                .rval_from_distances(&new_distances.d, &self.theta, &self.w_star);
-        let diag = self.params.nugget() + self.noise_ratio;
-        let mut r22: Array2<F> = Array2::<F>::eye(m).mapv(|v| v + v * diag);
-        for (i, ij) in new_distances.d_indices.outer_iter().enumerate() {
-            r22[[ij[0], ij[1]]] = rnew[[i, 0]];
-            r22[[ij[1], ij[0]]] = rnew[[i, 0]];
-        }
-
-        let l11 = self.inner_params.r_chol.with_lapack(); // (n, n)
-        let r21_t = r21.t().to_owned().with_lapack();
-        let l21_t = l11
-            .solve_triangular(UPLO::Lower, Diag::NonUnit, &r21_t)
-            .unwrap(); // (n, m)
-        let l21 = l21_t.t().to_owned(); // (m, m)... (m, n) in lapack space
-
-        let l21_owned = l21.without_lapack();
-        let l21_t_owned = l21_t.without_lapack();
-        let schur = r22 - l21_owned.dot(&l21_t_owned);
-        let l22 = schur.with_lapack().cholesky(UPLO::Lower)?;
-
-        let mut l = Array2::<F>::zeros((n + m, n + m));
-        l.slice_mut(s![..n, ..n])
-            .assign(&l11.to_owned().without_lapack());
-        l.slice_mut(s![n.., ..n]).assign(&l21_owned);
-        l.slice_mut(s![n.., n..])
-            .assign(&l22.to_owned().without_lapack());
-
-        let fnew = self.params.mean.coefs(&xnew_norm);
-        let ft_top = self.inner_params.ft;
-        let rhs_f = (&fnew - &l21_owned.dot(&ft_top)).with_lapack();
-        let ft_bottom = l22
-            .solve_triangular(UPLO::Lower, Diag::NonUnit, &rhs_f)
-            .unwrap()
-            .without_lapack();
-        let mut ft = Array2::<F>::zeros((n + m, ft_top.ncols()));
-        ft.slice_mut(s![..n, ..]).assign(&ft_top);
-        ft.slice_mut(s![n.., ..]).assign(&ft_bottom);
-
-        let yt_top = l11
-            .solve_triangular(
-                UPLO::Lower,
-                Diag::NonUnit,
-                &self.yt_norm.data.to_owned().with_lapack(),
-            )
-            .unwrap()
-            .without_lapack();
-        let rhs_y = (&ynew_norm - &l21_owned.dot(&yt_top)).with_lapack();
-        let yt_bottom = l22
-            .solve_triangular(UPLO::Lower, Diag::NonUnit, &rhs_y)
-            .unwrap()
-            .without_lapack();
-        let mut yt = Array2::<F>::zeros((n + m, 1));
-        yt.slice_mut(s![..n, ..]).assign(&yt_top);
-        yt.slice_mut(s![n.., ..]).assign(&yt_bottom);
-
-        let (ft_qr_q, ft_qr_r) = ft.to_owned().with_lapack().qr().unwrap();
-        let beta = ft_qr_r
-            .solve_triangular_into(
-                UPLO::Upper,
-                Diag::NonUnit,
-                ft_qr_q.t().dot(&yt.to_owned().with_lapack()),
-            )
-            .unwrap();
-        let rho = &yt.to_owned().with_lapack() - &ft.to_owned().with_lapack().dot(&beta);
-        let rho_sqr = rho.mapv(|v| v * v).sum_axis(Axis(0));
-        let gamma = l
-            .to_owned()
-            .with_lapack()
-            .t()
-            .solve_triangular_into(UPLO::Upper, Diag::NonUnit, rho)
-            .unwrap()
-            .without_lapack();
-
-        let n_obs = F::cast(n + m);
-        let logdet = l.diag().mapv(|v: F| v.log10()).sum() * F::cast(2.) / n_obs;
-        let sigma2_n = F::cast(rho_sqr[0]) / n_obs;
-        let likelihood = -n_obs * (sigma2_n.log10() + logdet);
-
-        let mut xt_data = Array2::<F>::zeros((n + m, self.xt_norm.data.ncols()));
-        xt_data.slice_mut(s![..n, ..]).assign(&self.xt_norm.data);
-        xt_data.slice_mut(s![n.., ..]).assign(&xnew_norm);
-
-        let mut yt_data = Array2::<F>::zeros((n + m, 1));
-        yt_data.slice_mut(s![..n, ..]).assign(&self.yt_norm.data);
-        yt_data.slice_mut(s![n.., ..]).assign(&ynew_norm);
-
-        let mut x_train = Array2::<F>::zeros((n + m, x_new.ncols()));
-        x_train.slice_mut(s![..n, ..]).assign(&self.training_data.0);
-        x_train.slice_mut(s![n.., ..]).assign(x_new);
-
-        let mut y_train = Array1::<F>::zeros(n + m);
-        y_train.slice_mut(s![..n]).assign(&self.training_data.1);
-        y_train.slice_mut(s![n..]).assign(y_new);
-
-        Ok(GaussianProcess {
-            theta: self.theta,
-            noise_ratio: self.noise_ratio,
-            likelihood,
-            inner_params: GpInnerParams {
-                sigma2: sigma2_n * self.yt_norm.std[0] * self.yt_norm.std[0],
-                beta: beta.without_lapack(),
-                gamma,
-                r_chol: l,
-                ft,
-                ft_qr_r: ft_qr_r.without_lapack(),
-                r_inv_f: OnceLock::new(),
-            },
+            inner_params,
             w_star: self.w_star,
             xt_norm: NormalizedData {
                 data: xt_data,
@@ -1281,6 +1084,21 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>, D: Data<Elem
     }
 }
 
+/// Correlation matrix of the points of `distances` given the correlation values `rvals`
+/// of their pairs, with `diag` added on the diagonal (nugget and noise ratio)
+fn correlation_matrix<F: Float>(
+    distances: &DiffMatrix<F>,
+    rvals: &ArrayBase<impl Data<Elem = F>, Ix2>,
+    diag: F,
+) -> Array2<F> {
+    let mut r_mx: Array2<F> = Array2::<F>::eye(distances.n_obs).mapv(|v| v + v * diag);
+    for (i, ij) in distances.d_indices.outer_iter().enumerate() {
+        r_mx[[ij[0], ij[1]]] = rvals[[i, 0]];
+        r_mx[[ij[1], ij[0]]] = rvals[[i, 0]];
+    }
+    r_mx
+}
+
 /// Compute reduced likelihood function
 /// fx: mean factors term at x samples,
 /// rxx: correlation factors at x samples,
@@ -1288,7 +1106,6 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>, D: Data<Elem
 /// ytrain: normalized output training values
 /// nugget: factor to improve numerical stability
 /// noise_ratio: noise-to-signal ratio tau^2 / sigma^2 added to the diagonal of R
-#[cfg(not(feature = "blas"))]
 fn reduced_likelihood<F: Float>(
     fx: &ArrayBase<impl Data<Elem = F>, Ix2>,
     rxx: ArrayBase<impl Data<Elem = F>, Ix2>,
@@ -1298,26 +1115,20 @@ fn reduced_likelihood<F: Float>(
     noise_ratio: F,
 ) -> Result<(F, GpInnerParams<F>)> {
     // Set up R
-    let diag = nugget + noise_ratio;
-    let mut r_mx: Array2<F> = Array2::<F>::eye(x_distances.n_obs).mapv(|v| v + v * diag);
-    for (i, ij) in x_distances.d_indices.outer_iter().enumerate() {
-        r_mx[[ij[0], ij[1]]] = rxx[[i, 0]];
-        r_mx[[ij[1], ij[0]]] = rxx[[i, 0]];
-    }
-    let fxl = fx;
+    let r_mx = correlation_matrix(x_distances, &rxx, nugget + noise_ratio);
     // R cholesky decomposition
-    let r_chol = r_mx.cholesky()?;
+    let r_chol = cholesky(r_mx)?;
     // Solve generalized least squared problem
-    let ft = r_chol.solve_triangular(fxl, UPLO::Lower)?;
-    let (ft_qr_q, ft_qr_r) = ft.qr().unwrap().into_decomp();
+    let ft = solve_triangular(&r_chol, fx.to_owned(), UPLO::Lower)?;
+    let ft_qr = qr(&ft)?;
 
     // Check whether we have an ill-conditionned problem
-    let (_, sv_qr_r, _) = ft_qr_r.svd(false, false).unwrap();
+    let sv_qr_r = singular_values(&ft_qr.1)?;
     let cond_ft = sv_qr_r[sv_qr_r.len() - 1] / sv_qr_r[0];
-    if F::cast(cond_ft) < F::cast(1e-10) {
-        let (_, sv_f, _) = &fxl.svd(false, false).unwrap();
+    if cond_ft < F::cast(1e-10) {
+        let sv_f = singular_values(fx)?;
         let cond_fx = sv_f[0] / sv_f[sv_f.len() - 1];
-        if F::cast(cond_fx) > F::cast(1e15) {
+        if cond_fx > F::cast(1e15) {
             return Err(GpError::LikelihoodComputationError(
                 "F is too ill conditioned. Poor combination \
                 of regression model and observations."
@@ -1330,16 +1141,30 @@ fn reduced_likelihood<F: Float>(
             ));
         }
     }
-    let yt = r_chol.solve_triangular(&ytrain.data, UPLO::Lower)?;
+    let yt = solve_triangular(&r_chol, ytrain.data.to_owned(), UPLO::Lower)?;
 
-    let beta = ft_qr_r.solve_triangular_into(ft_qr_q.t().dot(&yt), UPLO::Upper)?;
+    gls_params(r_chol, ft, ft_qr, yt, ytrain.std[0])
+}
+
+/// Generalized least squares estimation of the GP parameters and reduced likelihood given
+/// the Cholesky factor `r_chol` of the correlation matrix R, the regression matrix whitened
+/// by R `ft = r_chol^-1 . F` with its QR decomposition, the normalized outputs whitened by R
+/// `yt = r_chol^-1 . y` and the outputs standard deviation `y_std`
+fn gls_params<F: Float>(
+    r_chol: Array2<F>,
+    ft: Array2<F>,
+    (ft_qr_q, ft_qr_r): (Array2<F>, Array2<F>),
+    yt: Array2<F>,
+    y_std: F,
+) -> Result<(F, GpInnerParams<F>)> {
+    let beta = solve_triangular(&ft_qr_r, ft_qr_q.t().dot(&yt), UPLO::Upper)?;
     let rho = yt - ft.dot(&beta);
     let rho_sqr = rho.mapv(|v| v * v).sum_axis(Axis(0));
 
-    let gamma = r_chol.t().solve_triangular_into(rho, UPLO::Upper)?;
+    let gamma = solve_triangular(&r_chol.t(), rho, UPLO::Upper)?;
     // The determinant of R is equal to the squared product of
     // the diagonal elements of its Cholesky decomposition r_chol
-    let n_obs: F = F::cast(x_distances.n_obs);
+    let n_obs: F = F::cast(r_chol.nrows());
 
     let logdet = r_chol.diag().mapv(|v: F| v.log10()).sum() * F::cast(2.) / n_obs;
 
@@ -1350,105 +1175,12 @@ fn reduced_likelihood<F: Float>(
     Ok((
         reduced_likelihood,
         GpInnerParams {
-            sigma2: sigma2[0] * ytrain.std[0] * ytrain.std[0],
+            sigma2: sigma2[0] * y_std * y_std,
             beta,
             gamma,
             r_chol,
             ft,
             ft_qr_r,
-            r_inv_f: OnceLock::new(),
-        },
-    ))
-}
-
-/// See non blas version
-#[cfg(feature = "blas")]
-fn reduced_likelihood<F: Float>(
-    fx: &ArrayBase<impl Data<Elem = F>, Ix2>,
-    rxx: ArrayBase<impl Data<Elem = F>, Ix2>,
-    x_distances: &DiffMatrix<F>,
-    ytrain: &NormalizedData<F>,
-    nugget: F,
-    noise_ratio: F,
-) -> Result<(F, GpInnerParams<F>)> {
-    // Set up R
-    let diag = nugget + noise_ratio;
-    let mut r_mx: Array2<F> = Array2::<F>::eye(x_distances.n_obs).mapv(|v| v + v * diag);
-    for (i, ij) in x_distances.d_indices.outer_iter().enumerate() {
-        r_mx[[ij[0], ij[1]]] = rxx[[i, 0]];
-        r_mx[[ij[1], ij[0]]] = rxx[[i, 0]];
-    }
-
-    let fxl = fx.to_owned().with_lapack();
-
-    // R cholesky decomposition
-    let r_chol = r_mx.with_lapack().cholesky(UPLO::Lower)?;
-
-    // Solve generalized least squared problem
-    let ft = r_chol.solve_triangular(UPLO::Lower, Diag::NonUnit, &fxl)?;
-    let (ft_qr_q, ft_qr_r) = ft.qr().unwrap();
-
-    // Check whether we have an ill-conditionned problem
-    let (_, sv_qr_r, _) = ft_qr_r.svd(false, false).unwrap();
-    let cond_ft = sv_qr_r[sv_qr_r.len() - 1] / sv_qr_r[0];
-    if F::cast(cond_ft) < F::cast(1e-10) {
-        let (_, sv_f, _) = &fxl.svd(false, false).unwrap();
-        let cond_fx = sv_f[0] / sv_f[sv_f.len() - 1];
-        if F::cast(cond_fx) > F::cast(1e15) {
-            return Err(GpError::LikelihoodComputationError(
-                "F is too ill conditioned. Poor combination \
-                of regression model and observations."
-                    .to_string(),
-            ));
-        } else {
-            // ft is too ill conditioned, get out (try different theta)
-            return Err(GpError::LikelihoodComputationError(
-                "ft is too ill conditioned, try another theta again".to_string(),
-            ));
-        }
-    }
-
-    let yt = r_chol.solve_triangular(
-        UPLO::Lower,
-        Diag::NonUnit,
-        &ytrain.data.to_owned().with_lapack(),
-    )?;
-
-    let beta = ft_qr_r.solve_triangular_into(UPLO::Upper, Diag::NonUnit, ft_qr_q.t().dot(&yt))?;
-
-    let rho = yt - ft.dot(&beta);
-    let rho_sqr = rho.mapv(|v| v * v).sum_axis(Axis(0));
-    let rho_sqr = rho_sqr.without_lapack();
-
-    let gamma = r_chol
-        .t()
-        .solve_triangular_into(UPLO::Upper, Diag::NonUnit, rho)?;
-
-    // The determinant of R is equal to the squared product of
-    // the diagonal elements of its Cholesky decomposition r_chol
-    let n_obs: F = F::cast(x_distances.n_obs);
-
-    let logdet = r_chol
-        .to_owned()
-        .without_lapack()
-        .diag()
-        .mapv(|v: F| v.log10())
-        .sum()
-        * F::cast(2.)
-        / n_obs;
-
-    // Reduced likelihood
-    let sigma2: Array1<F> = rho_sqr / n_obs;
-    let reduced_likelihood = -n_obs * (sigma2.sum().log10() + logdet);
-    Ok((
-        reduced_likelihood,
-        GpInnerParams {
-            sigma2: sigma2[0] * ytrain.std[0] * ytrain.std[0],
-            beta: beta.without_lapack(),
-            gamma: gamma.without_lapack(),
-            r_chol: r_chol.without_lapack(),
-            ft: ft.without_lapack(),
-            ft_qr_r: ft_qr_r.without_lapack(),
             r_inv_f: OnceLock::new(),
         },
     ))
@@ -1468,19 +1200,9 @@ pub(crate) fn sample<F: Float>(
 ) -> Array2<F> {
     let n_eval = x.nrows();
     let c = match method {
-        GpSamplingMethod::Cholesky => {
-            #[cfg(not(feature = "blas"))]
-            let c = cov_x.with_lapack().cholesky().unwrap();
-            #[cfg(feature = "blas")]
-            let c = cov_x.with_lapack().cholesky(UPLO::Lower).unwrap();
-            c
-        }
+        GpSamplingMethod::Cholesky => cholesky(cov_x).unwrap(),
         GpSamplingMethod::EigenValues => {
-            #[cfg(feature = "blas")]
-            let (v, w) = cov_x.with_lapack().eigh(UPLO::Lower).unwrap();
-            #[cfg(not(feature = "blas"))]
-            let (v, w) = cov_x.with_lapack().eigh_into().unwrap();
-            let v = v.mapv(F::cast);
+            let (v, w) = eigh(cov_x).unwrap();
             let v = v.mapv(|x| {
                 // We lower bound the float value at 1e-9
                 if x < F::cast(1e-9) {
@@ -1488,15 +1210,9 @@ pub(crate) fn sample<F: Float>(
                 }
                 x.sqrt()
             });
-            let d = Array2::from_diag(&v).with_lapack();
-            #[cfg(feature = "blas")]
-            let c = w.dot(&d);
-            #[cfg(not(feature = "blas"))]
-            let c = w.dot(&d);
-            c
+            w.dot(&Array2::from_diag(&v))
         }
-    }
-    .without_lapack();
+    };
     let normal = Normal::new(0., 1.).unwrap();
     let ary = Array::random((n_eval, n_traj), normal).mapv(|v| F::cast(v));
     mean_x.to_owned() + c.dot(&ary)
