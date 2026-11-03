@@ -116,7 +116,19 @@ where
     }
 
     /// Mean prediction of a constraint surrogate model scaled by scale_cstr
+    #[deprecated(since = "0.43.0", note = "internal to the EGO solver")]
     pub fn mean_cstr(
+        cstr_model: &dyn MixtureGpSurrogate,
+        x: &[f64],
+        gradient: Option<&mut [f64]>,
+        scale_cstr: f64,
+        active: &[usize],
+    ) -> f64 {
+        Self::scaled_mean_cstr(cstr_model, x, gradient, scale_cstr, active)
+    }
+
+    /// Mean prediction of a constraint surrogate model scaled by scale_cstr
+    pub(crate) fn scaled_mean_cstr(
         cstr_model: &dyn MixtureGpSurrogate,
         x: &[f64],
         gradient: Option<&mut [f64]>,
@@ -138,7 +150,20 @@ where
 
     /// Upper trust bound prediction of a constraint surrogate model scaled by scale_cstr
     /// with a doubt factor CSTR_DOUBT
+    #[deprecated(since = "0.43.0", note = "internal to the EGO solver")]
     pub fn upper_trust_bound_cstr(
+        cstr_model: &dyn MixtureGpSurrogate,
+        x: &[f64],
+        gradient: Option<&mut [f64]>,
+        scale_cstr: f64,
+        active: &[usize],
+    ) -> f64 {
+        Self::scaled_upper_trust_bound_cstr(cstr_model, x, gradient, scale_cstr, active)
+    }
+
+    /// Upper trust bound prediction of a constraint surrogate model scaled by scale_cstr
+    /// with a doubt factor CSTR_DOUBT
+    pub(crate) fn scaled_upper_trust_bound_cstr(
         cstr_model: &dyn MixtureGpSurrogate,
         x: &[f64],
         gradient: Option<&mut [f64]>,
@@ -366,7 +391,24 @@ where
     /// Compute gradient of infill criterion objective expected to be minimized
     /// meaning infill criterion objective is negative infill criterion
     #[allow(clippy::too_many_arguments)]
+    #[deprecated(since = "0.43.0", note = "internal to the EGO solver")]
     pub fn eval_grad_infill_obj(
+        &self,
+        x: &[f64],
+        obj_model: &dyn MixtureGpSurrogate,
+        fmin: f64,
+        viability_model: Option<&dyn MixtureGpSurrogate>,
+        alpha: Option<f64>,
+        scale: f64,
+        scale_ic: f64,
+    ) -> Vec<f64> {
+        self.eval_infill_obj_grad(x, obj_model, fmin, viability_model, alpha, scale, scale_ic)
+    }
+
+    /// Compute gradient of infill criterion objective expected to be minimized
+    /// meaning infill criterion objective is negative infill criterion
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn eval_infill_obj_grad(
         &self,
         x: &[f64],
         obj_model: &dyn MixtureGpSurrogate,
@@ -392,7 +434,40 @@ where
     /// Compute infill criterion objective with constraints handling
     /// expected to be minimized meaning infill criterion objective is negative infill criterion
     #[allow(clippy::too_many_arguments)]
+    #[deprecated(since = "0.43.0", note = "internal to the EGO solver")]
     pub fn eval_infill_obj_with_cstrs(
+        &self,
+        x: &[f64],
+        obj_model: &dyn MixtureGpSurrogate,
+        cstr_models: &[Box<dyn MixtureGpSurrogate>],
+        cstr_tols: &Array1<f64>,
+        fmin: f64,
+        viability_model: Option<&dyn MixtureGpSurrogate>,
+        alpha: Option<f64>,
+        scale: f64,
+        scale_ic: f64,
+        feasibility: bool,
+        sigma_weight: f64,
+    ) -> f64 {
+        self.eval_cstr_infill_obj(
+            x,
+            obj_model,
+            cstr_models,
+            cstr_tols,
+            fmin,
+            viability_model,
+            alpha,
+            scale,
+            scale_ic,
+            feasibility,
+            sigma_weight,
+        )
+    }
+
+    /// Compute infill criterion objective with constraints handling
+    /// expected to be minimized meaning infill criterion objective is negative infill criterion
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn eval_cstr_infill_obj(
         &self,
         x: &[f64],
         obj_model: &dyn MixtureGpSurrogate,
@@ -435,6 +510,7 @@ where
 
     /// Compute gradient of infill criterion objective with constraints handling
     #[allow(clippy::too_many_arguments)]
+    #[deprecated(since = "0.43.0", note = "internal to the EGO solver")]
     pub fn eval_grad_infill_obj_with_cstrs(
         &self,
         x: &[f64],
@@ -449,14 +525,45 @@ where
         feasibility: bool,
         sigma_weight: f64,
     ) -> Vec<f64> {
+        self.eval_cstr_infill_obj_grad(
+            x,
+            obj_model,
+            cstr_models,
+            cstr_tols,
+            fmin,
+            viability_model,
+            alpha,
+            scale,
+            scale_ic,
+            feasibility,
+            sigma_weight,
+        )
+    }
+
+    /// Compute gradient of infill criterion objective with constraints handling
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn eval_cstr_infill_obj_grad(
+        &self,
+        x: &[f64],
+        obj_model: &dyn MixtureGpSurrogate,
+        cstr_models: &[Box<dyn MixtureGpSurrogate>],
+        cstr_tols: &Array1<f64>,
+        fmin: f64,
+        viability_model: Option<&dyn MixtureGpSurrogate>,
+        alpha: Option<f64>,
+        scale: f64,
+        scale_ic: f64,
+        feasibility: bool,
+        sigma_weight: f64,
+    ) -> Vec<f64> {
         if cstr_models.is_empty() {
-            self.eval_grad_infill_obj(x, obj_model, fmin, viability_model, alpha, scale, scale_ic)
+            self.eval_infill_obj_grad(x, obj_model, fmin, viability_model, alpha, scale, scale_ic)
         } else {
             let composition = self.config.infill_criterion.composition();
 
             if composition.is_log() {
                 let infill_grad = if feasibility {
-                    Array1::from_vec(self.eval_grad_infill_obj(
+                    Array1::from_vec(self.eval_infill_obj_grad(
                         x,
                         obj_model,
                         fmin,
@@ -486,7 +593,7 @@ where
                             scale_ic,
                             sigma_weight,
                         ),
-                        Array1::from_vec(self.eval_grad_infill_obj(
+                        Array1::from_vec(self.eval_infill_obj_grad(
                             x,
                             obj_model,
                             fmin,
@@ -511,7 +618,19 @@ where
     }
 
     /// Evaluate the objective function at given x points
+    #[deprecated(since = "0.43.0", note = "internal to the EGO solver")]
     pub fn eval_obj<
+        O: CostFunction<Param = Array2<f64>, Output = Array2<f64>, Error = crate::EgoError>,
+    >(
+        &self,
+        pb: &mut Problem<O>,
+        x: &Array2<f64>,
+    ) -> Result<Array2<f64>> {
+        self.evaluate_obj(pb, x)
+    }
+
+    /// Evaluate the objective function at given x points
+    pub(crate) fn evaluate_obj<
         O: CostFunction<Param = Array2<f64>, Output = Array2<f64>, Error = crate::EgoError>,
     >(
         &self,
@@ -547,7 +666,17 @@ where
     }
 
     /// Evaluate the constraints given as function at given x points
+    #[deprecated(since = "0.43.0", note = "internal to the EGO solver")]
     pub fn eval_fcstrs(
+        &self,
+        fcstrs: &[impl CstrFn],
+        x: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+    ) -> Array2<f64> {
+        self.evaluate_fcstrs(fcstrs, x)
+    }
+
+    /// Evaluate the constraints given as function at given x points
+    pub(crate) fn evaluate_fcstrs(
         &self,
         fcstrs: &[impl CstrFn],
         x: &ArrayBase<impl Data<Elem = f64>, Ix2>,
@@ -630,7 +759,18 @@ where
 
     /// Evaluate the constraints given as function at given x points
     /// within the problem structure so that the function is taken from there
+    #[deprecated(since = "0.43.0", note = "internal to the EGO solver")]
     pub fn eval_problem_fcstrs<O: Constraints<C>>(
+        &self,
+        pb: &Problem<O>,
+        x: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+    ) -> Array2<f64> {
+        self.evaluate_problem_fcstrs(pb, x)
+    }
+
+    /// Evaluate the constraints given as function at given x points
+    /// within the problem structure so that the function is taken from there
+    pub(crate) fn evaluate_problem_fcstrs<O: Constraints<C>>(
         &self,
         pb: &Problem<O>,
         x: &ArrayBase<impl Data<Elem = f64>, Ix2>,
@@ -639,7 +779,7 @@ where
         let fcstrs = problem.constraints();
         let fcstr_specs = problem.constraint_specs();
 
-        let res = self.eval_fcstrs(fcstrs, x);
+        let res = self.evaluate_fcstrs(fcstrs, x);
         if let Some(specs) = fcstr_specs {
             crate::types::transform_function_constraints(&res, specs)
         } else {
@@ -660,9 +800,9 @@ where
         y_penalized: Option<&Array2<f64>>,
         (x_data, y_data, c_data): (&mut Array2<f64>, &mut Array2<f64>, &mut Array2<f64>),
     ) -> Result<Evaluation> {
-        let y_new = self.eval_obj(problem, x_new)?;
+        let y_new = self.evaluate_obj(problem, x_new)?;
         let y_new = self.config.to_internal_outputs(y_new);
-        let c_new = self.eval_problem_fcstrs(problem, x_new);
+        let c_new = self.evaluate_problem_fcstrs(problem, x_new);
 
         let y_penalized =
             y_penalized.filter(|_| self.config.failsafe_strategy == FailsafeStrategy::Imputation);
@@ -718,7 +858,7 @@ mod tests {
     fn test_upper_trust_bound_cstr_gradient() {
         let model = cstr_model();
         let utb = |x: &[f64], grad: Option<&mut [f64]>| {
-            EgorSolver::<GpMixtureParams<f64>, Cstr>::upper_trust_bound_cstr(
+            EgorSolver::<GpMixtureParams<f64>, Cstr>::scaled_upper_trust_bound_cstr(
                 &model,
                 x,
                 grad,
@@ -753,10 +893,13 @@ mod tests {
         // activity, x being the full point with these components set
         let model = cstr_model();
         let cstrs: [(&str, CstrEval); 2] = [
-            ("mean", EgorSolver::<GpMixtureParams<f64>, Cstr>::mean_cstr),
+            (
+                "mean",
+                EgorSolver::<GpMixtureParams<f64>, Cstr>::scaled_mean_cstr,
+            ),
             (
                 "upper trust bound",
-                EgorSolver::<GpMixtureParams<f64>, Cstr>::upper_trust_bound_cstr,
+                EgorSolver::<GpMixtureParams<f64>, Cstr>::scaled_upper_trust_bound_cstr,
             ),
         ];
         let active = [2, 0];

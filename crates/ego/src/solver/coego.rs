@@ -55,6 +55,7 @@ where
     /// may contain indices with an 'nx value' used as a marker
     /// meaning to discard the indice information while keeping
     /// rows of the same length.
+    #[deprecated(since = "0.43.0", note = "internal to the EGO solver")]
     pub fn strip(active: &[usize], dim: usize) -> Vec<usize> {
         strip(active, dim)
     }

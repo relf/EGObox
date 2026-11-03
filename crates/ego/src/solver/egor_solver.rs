@@ -210,7 +210,7 @@ where
         let clusterings = vec![None; self.config.n_surrogates()];
         let theta_inits = vec![None; self.config.n_surrogates()];
 
-        let c_data = self.eval_problem_fcstrs(problem, &x_data);
+        let c_data = self.evaluate_problem_fcstrs(problem, &x_data);
 
         let activity = self
             .config
@@ -303,7 +303,7 @@ where
             if doe.ncols() == self.xlimits.nrows() {
                 // only x are specified
                 info!("Compute initial DOE on specified {} points", doe.nrows());
-                (self.eval_obj(problem, doe)?, doe.to_owned())
+                (self.evaluate_obj(problem, doe)?, doe.to_owned())
             } else {
                 // split doe in x and y
                 info!("Use specified DOE {} samples", doe.nrows());
@@ -342,7 +342,7 @@ where
             } else {
                 lhs.sample(n_doe)
             };
-            (self.eval_obj(problem, &x)?, x)
+            (self.evaluate_obj(problem, &x)?, x)
         };
         // Warm-start DOE constraint columns are already in canonical form.
         // otherwise transform constraints to canonical form (ie. cstr < 0)
@@ -458,7 +458,7 @@ where
         problem: &mut Problem<O>,
         state: EgorState<f64>,
     ) -> Result<EgorState<f64>> {
-        match self.ego_step(problem, state.clone()) {
+        match self.global_step(problem, state.clone()) {
             Err(EgoError::NoMorePointToAddError(state)) => {
                 Ok(state.terminate_with(TerminationReason::SolverConverged))
             }
@@ -530,7 +530,7 @@ where
             }
             None => &models,
         };
-        let infill_data = mean_solver.as_ref().unwrap_or(self).refresh_infill_data(
+        let infill_data = mean_solver.as_ref().unwrap_or(self).local_infill_data(
             problem,
             &mut local_state,
             search_models,

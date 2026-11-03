@@ -95,6 +95,10 @@ where
     /// infill criterion value is also returned
     #[allow(clippy::too_many_arguments)]
     #[allow(clippy::type_complexity)]
+    #[deprecated(
+        since = "0.43.0",
+        note = "internal to the EGO solver, use Egor or EgorService instead"
+    )]
     pub fn select_next_points(
         &self,
         init: bool,
@@ -286,7 +290,7 @@ where
         Candidates {
             x: x_fail.to_owned(),
             y: Array2::from_elem((x_fail.nrows(), inputs.y_data.ncols()), f64::NAN),
-            c: self.eval_fcstrs(
+            c: self.evaluate_fcstrs(
                 &crate::types::affine_fcstrs(inputs.fcstrs, inputs.fcstr_specs),
                 x_fail,
             ),
@@ -394,7 +398,7 @@ where
                 let yk_pen = self.compute_penalized_point(&xk, obj_models, cstr_models, y_data);
                 let xk = xk.insert_axis(Axis(0));
                 // Function constraints values as stored in data (unscaled)
-                let ck = self.eval_fcstrs(&transformed_fcstrs, &xk);
+                let ck = self.evaluate_fcstrs(&transformed_fcstrs, &xk);
                 Some(Candidates {
                     x: xk,
                     y: yk,
