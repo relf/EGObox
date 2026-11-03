@@ -248,17 +248,23 @@ fn linearize(
     y0: &Array1<f64>,
     xi: &ArrayView2<f64>,
 ) -> Result<Option<Array2<f64>>> {
-    Ok(linearization_factor(problem, models, z, y0)?.map(|l| xi.dot(&l.t()) + y0))
+    Ok(
+        linearization_factor(problem, models, z, y0, LINEARIZATION_CONDITION)?
+            .map(|l| xi.dot(&l.t()) + y0),
+    )
 }
 
 /// The factor `L = (I - J)^-1 diag(σ)` `(n_couplings, n_couplings)` of the linearized random
 /// MDA `y_0 + L Ξ` at design point `z` around the mean MDA solution `y0`, or `None` if `I - J`
-/// is ill-conditioned (decision D37). The covariance of the coupling variables is `L Lᵀ`.
+/// is ill-conditioned: the ratio of its extreme singular values, scaled by the widths of the
+/// coupling ranges, is at most `condition` ([LINEARIZATION_CONDITION] for the linearized random
+/// MDA, decision D37). The covariance of the coupling variables is `L Lᵀ`.
 pub fn linearization_factor(
     problem: &MdoProblem,
     models: &DisciplinaryModels,
     z: &ArrayView1<f64>,
     y0: &Array1<f64>,
+    condition: f64,
 ) -> Result<Option<Array2<f64>>> {
     let (jac, sigma) = coupling_jacobian(problem, models, z, &y0.view())?;
     // The coupling variables can have very different magnitudes: the conditioning is that of
@@ -281,7 +287,7 @@ pub fn linearization_factor(
     let (s_min, s_max) = s
         .iter()
         .fold((f64::INFINITY, 0f64), |(lo, hi), &v| (lo.min(v), hi.max(v)));
-    if s_min.is_nan() || s_min <= LINEARIZATION_CONDITION * s_max {
+    if s_min.is_nan() || s_min <= condition * s_max {
         log::warn!("I - J is ill-conditioned at z = {z} (singular values {s} after scaling)");
         return Ok(None);
     }
@@ -622,6 +628,20 @@ pub(crate) mod tests {
                 .unwrap();
             assert_abs_diff_eq!(sigma[0], std[[0, 0]]);
         }
+    }
+
+    #[test]
+    fn test_linearization_condition() {
+        let (tp, models) = toy_models();
+        let z = array![-2.5];
+        let mean = SurrogateCouplings::mean(&tp.problem, &models);
+        let (y0, _) = solve_one(&mean, &z.view(), &tp.mda).unwrap();
+        let factor = |condition| {
+            linearization_factor(&tp.problem, &models, &z.view(), &y0, condition).unwrap()
+        };
+        assert!(factor(LINEARIZATION_CONDITION).is_some());
+        // The extreme singular values of any matrix have a ratio of at most 1
+        assert!(factor(1.).is_none());
     }
 
     #[test]

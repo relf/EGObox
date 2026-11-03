@@ -419,7 +419,10 @@ impl EgmdaConfig {
                 .unwrap_or(egmda::EgmdaConfig::default().max_iters),
             max_evaluations: shared.max_evaluations,
             gp: shared.gp,
-            mda: shared.mda,
+            mda: egmdo::mda::MdaSettings {
+                range_floor: egmda::EGMDA_RANGE_FLOOR,
+                ..shared.mda
+            },
             seed: shared.seed,
         }
     }

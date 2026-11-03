@@ -98,10 +98,10 @@ EGMDA (issue #518, spec part III) solves the MDA at each point proposed by `Egor
 | Problem | EGMDO defaults: best point optimal, evaluations | `Egor` MDF: optimal, evaluations to target / total | `Egor` + EGMDA, `ε_rel = 10⁻³` | `Egor` + EGMDA, `ε_rel = 10⁻⁴` (default) |
 |---|---|---|---|---|
 | Toy | 8/10, 15.6 | 10/10, 448 / 1045 | 10/10, 35 / 54 | 10/10, 43 / 69 |
-| Modified Sellar | 9/10, 20.3 | 10/10, 412 / 899 | 10/10, 49 / 89 | 10/10, 60 / 115 |
+| Modified Sellar | 9/10, 20.3 | 10/10, 412 / 899 | 10/10, 49 / 89 | 10/10, 60 / 112 |
 | Compound cylinder | 7/10, 24.2 | 10/10, 1258 / 2711 | 10/10, 63 / 94 | 10/10, 74 / 118 |
 | Constrained toy | 7/10, 22.3 | 10/10, 512 / 1354 | 10/10, 32 / 42 | 10/10, 40 / 52 |
-| Constrained Sellar | 9/10, 23.9 | 10/10, 308 / 920 | 6/10, 36 / 72 | 10/10, 46 / 100 |
+| Constrained Sellar | 9/10, 23.9 | 10/10, 308 / 920 | 6/10, 36 / 72 | 10/10, 46 / 102 |
 
 - **`Egor` + EGMDA reaches the optimum in every run with the default `ε_rel = 10⁻⁴`**, on all five problems, after 7 to 17 times fewer disciplinary evaluations than `Egor` on the MDF formulation (median evaluations to target).
 - **It costs more than EGMDO**: 2 to 6 times more evaluations in total, and about 2 to 3 times the EGMDO total to reach the target. It is more robust: 10/10 runs at the optimum against 7 to 9/10 for the EGMDO defaults. Part of the total is spent after the target, as `Egor` keeps iterating; a stopping criterion would lower it.
