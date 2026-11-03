@@ -9,6 +9,10 @@
     outside the crate
   * GP models and `Egor` hot-start checkpoints saved in binary format by previous versions no longer load
     (JSON models and configurations still load)
+* **Deprecations** (Rust only): `EgorSolver` methods which are internal steps of the solver (`ego_step`,
+  `trego_step`, `select_next_points`, `refresh_infill_data`, `eval_obj`, `eval_*infill_obj*`, ...) are
+  deprecated and will be removed in the next breaking release, use `Egor` or `EgorService` instead
+  by @relf in <https://github.com/relf/EGObox/pull/530>
 * Noisy functions:
   * Full GP can estimate a homoscedastic noise as the noise-to-signal ratio `tau^2 / sigma^2`, fixed or
     optimized with theta (`GpParams::noise_ratio()`, `GpMixtureParams::noise_ratio()`,
