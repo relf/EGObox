@@ -1,25 +1,25 @@
 use crate::ThetaTuning;
 use crate::errors::{GpError, Result};
-use crate::optimization::{CobylaParams, into_f64, optimize_params, prepare_multistart};
-use crate::sparse_parameters::{Inducings, ParamTuning, SgpParams, SgpValidParams, SparseMethod};
+use crate::optimization::{
+    CobylaParams, broadcast_bounds, broadcast_theta0, check_kpls_dim, into_f64,
+    multistart_minimize, pls_rotation, prepare_multistart,
+};
+use crate::parameters::ParamTuning;
+use crate::sparse_parameters::{Inducings, SgpParams, SgpValidParams, SparseMethod};
 use crate::utils::{check_training_size, pairwise_differences};
 use crate::{GpSamplingMethod, correlation_models::*, sample};
 use finitediff::ndarr;
-use linfa::prelude::{Dataset, DatasetBase, Fit, Float, PredictInplace};
+use linfa::prelude::{DatasetBase, Fit, Float, PredictInplace};
 use linfa_linalg::{cholesky::*, triangular::*};
-use linfa_pls::PlsRegression;
 use ndarray::{Array, Array1, Array2, ArrayBase, ArrayView2, Axis, Data, Ix1, Ix2, Zip, s};
 use ndarray_einsum::*;
 use ndarray_rand::rand::SeedableRng;
 use ndarray_rand::rand::seq::SliceRandom;
 use rand_xoshiro::Xoshiro256Plus;
 
-use log::debug;
-use rayon::prelude::*;
 #[cfg(feature = "serializable")]
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use std::time::Instant;
 
 /// Woodbury data computed during training and used for prediction
 ///
@@ -428,34 +428,12 @@ impl<F: Float, Corr: CorrelationModel<F>, D: Data<Elem = F> + Sync>
         let x = dataset.records();
         let y = dataset.targets().to_owned().insert_axis(Axis(1));
         check_training_size(x)?;
-
-        if let Some(d) = self.kpls_dim()
-            && *d > x.ncols()
-        {
-            return Err(GpError::InvalidValueError(format!(
-                "Dimension reduction {} should be smaller than actual \
-                    training input dimensions {}",
-                d,
-                x.ncols()
-            )));
-        }
+        check_kpls_dim(self.kpls_dim(), x.ncols())?;
 
         let xtrain = x;
         let ytrain = y;
 
-        let mut w_star = Array2::eye(x.ncols());
-        if let Some(n_components) = self.kpls_dim() {
-            let ds = Dataset::new(xtrain.to_owned(), ytrain.to_owned());
-            w_star = PlsRegression::params(*n_components).fit(&ds).map_or_else(
-                |e| match e {
-                    linfa_pls::PlsError::PowerMethodConstantResidualError() => {
-                        Ok(Array2::zeros((x.ncols(), *n_components)))
-                    }
-                    err => Err(err),
-                },
-                |v| Ok(v.rotations().0.to_owned()),
-            )?;
-        };
+        let w_star = pls_rotation(xtrain, &ytrain, self.kpls_dim())?;
 
         let mut rng = match self.seed() {
             Some(seed) => Xoshiro256Plus::seed_from_u64(*seed),
@@ -472,32 +450,21 @@ impl<F: Float, Corr: CorrelationModel<F>, D: Data<Elem = F> + Sync>
             ParamTuning::Optimized { init: c, bounds: _ } => (true, c),
         };
 
-        let (init, bounds) = match self.theta_tuning() {
-            ThetaTuning::Full { init, bounds } => (init.clone(), bounds.clone()),
-            ThetaTuning::Partial {
-                init,
-                active: _,
-                bounds,
-            } => {
+        // Theta bounds when theta is optimized
+        let theta_bounds = match self.theta_tuning() {
+            ThetaTuning::Full { bounds, .. } => Some(bounds),
+            ThetaTuning::Partial { bounds, .. } => {
                 log::warn!(
                     "Partial hyperparameter optimization not implemented in SparseGp, full optimization used"
                 );
-                (init.clone(), bounds.clone())
+                Some(bounds)
             }
-            ThetaTuning::Fixed(init) => (init.clone(), init.iter().map(|v| (*v, *v)).collect()),
+            ThetaTuning::Fixed(_) => None,
         };
 
         // Initial guess for theta
-        let theta0_dim = init.len();
-        let theta0 = if theta0_dim == 1 {
-            Array1::from_elem(w_star.ncols(), self.theta_tuning().init()[0])
-        } else if theta0_dim == w_star.ncols() {
-            Array::from_vec(self.theta_tuning().init().to_vec())
-        } else {
-            panic!(
-                "Initial guess for theta should be either 1-dim or dim of xtrain (w_star.ncols()), got {theta0_dim}"
-            )
-        };
+        let theta0_dim = self.theta_tuning().init().len();
+        let theta0 = broadcast_theta0(self.theta_tuning().init(), w_star.ncols());
 
         // Initial guess for variance
         let y_std = ytrain.std_axis(Axis(0), F::one());
@@ -507,7 +474,7 @@ impl<F: Float, Corr: CorrelationModel<F>, D: Data<Elem = F> + Sync>
         // where theta is optimized unless it is fixed
         // where sigma2 is the variance of the gaussian process
         // where noise is the variance of the noise when it is estimated
-        let is_theta_fixed = matches!(self.theta_tuning(), ThetaTuning::Fixed(_));
+        let is_theta_fixed = theta_bounds.is_none();
         let n_theta = if is_theta_fixed { 0 } else { theta0.len() };
         let n = n_theta + 1 + is_noise_estimated as usize;
         let mut params_0 = Array1::zeros(n);
@@ -565,26 +532,15 @@ impl<F: Float, Corr: CorrelationModel<F>, D: Data<Elem = F> + Sync>
         };
 
         let variance_bounds = (F::cast(1e-12), F::cast(9.) * sigma2_0);
-        let bounds = if is_theta_fixed {
-            // Variance and optionally noise variance bounds (noise bounds set right after)
-            vec![variance_bounds; params_0.len()]
-        } else {
+        let bounds = if let Some(theta_bounds) = theta_bounds {
             // Bounds of theta, then variance and optionally noise variance slots: the latter
             // take the first theta bounds to seed the multistart and are set right after
-            let bounds_dim = bounds.len();
-            let mut bounds = if bounds_dim == 1 {
-                vec![bounds[0]; w_star.ncols()]
-            } else if bounds_dim == w_star.ncols() {
-                bounds.to_vec()
-            } else {
-                panic!(
-                    "Bounds for theta should be either 1-dim or dim of xtrain ({}), got {}",
-                    w_star.ncols(),
-                    bounds_dim
-                )
-            };
+            let mut bounds = broadcast_bounds(theta_bounds, w_star.ncols());
             bounds.resize(params_0.len(), bounds[0]);
             bounds
+        } else {
+            // Variance and optionally noise variance bounds (noise bounds set right after)
+            vec![variance_bounds; params_0.len()]
         };
 
         let (theta_inits, mut bounds) = prepare_multistart(self.n_start(), &params_0, &bounds);
@@ -602,31 +558,19 @@ impl<F: Float, Corr: CorrelationModel<F>, D: Data<Elem = F> + Sync>
                 *noise_bounds = (lo.log10(), up.log10());
             }
         }
-        debug!("Optimize with multistart theta = {theta_inits:?} and bounds = {bounds:?}");
-        let now = Instant::now();
-        let opt_params = (0..theta_inits.nrows())
-            .into_par_iter()
-            .map(|i| {
-                optimize_params(
-                    objfn,
-                    &theta_inits.row(i).to_owned(),
-                    &bounds,
-                    CobylaParams {
-                        maxeval: (10 * theta0_dim)
-                            .clamp(crate::GP_COBYLA_MIN_EVAL, self.max_eval()),
-                        // Sparse covariance factorizations need the variance
-                        // and noise bounds during trial evaluations too.
-                        #[cfg(not(feature = "c-cobyla"))]
-                        bounded_evaluations: true,
-                        ..CobylaParams::default()
-                    },
-                )
-            })
-            .reduce(
-                || (f64::INFINITY, Array::ones((theta_inits.ncols(),))),
-                |a, b| if b.0 < a.0 { b } else { a },
-            );
-        debug!("elapsed optim = {:?}", now.elapsed().as_millis());
+        let opt_params = multistart_minimize(
+            objfn,
+            &theta_inits,
+            &bounds,
+            CobylaParams {
+                maxeval: (10 * theta0_dim).clamp(crate::GP_COBYLA_MIN_EVAL, self.max_eval()),
+                // Sparse covariance factorizations need the variance
+                // and noise bounds during trial evaluations too.
+                #[cfg(not(feature = "c-cobyla"))]
+                bounded_evaluations: true,
+                ..CobylaParams::default()
+            },
+        );
         let opt_params = opt_params.1.mapv(|v| F::cast(base.powf(v)));
 
         let opt_theta = if is_theta_fixed {
@@ -870,6 +814,7 @@ fn make_inducings<F: Float>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use linfa::prelude::Dataset;
 
     use approx::assert_abs_diff_eq;
     use ndarray::{Array, array, concatenate};

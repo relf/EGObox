@@ -1,36 +1,12 @@
 use crate::correlation_models::CorrelationModel;
 use crate::errors::{GpError, Result};
 use crate::mean_models::ConstantMean;
-use crate::parameters::GpValidParams;
+use crate::parameters::{GpValidParams, ParamTuning};
 use crate::{GP_COBYLA_MIN_EVAL, ThetaTuning};
 use linfa::{Float, ParamGuard};
 use ndarray::{Array1, Array2, array};
 #[cfg(feature = "serializable")]
 use serde::{Deserialize, Serialize};
-
-/// Tuning of a scalar hyperparameter: either fixed or optimized within bounds
-/// (e.g. the noise variance of a sparse GP or the noise ratio of a GP)
-#[derive(Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "serializable", derive(Serialize, Deserialize))]
-pub enum ParamTuning<F: Float> {
-    /// Constant parameter (ie given not estimated)
-    Fixed(F),
-    /// Parameter is optimized between given bounds (lower, upper) starting from the inital guess
-    Optimized {
-        /// Initial guess parameter value
-        init: F,
-        /// Bounds of the optimized parameter (lower, upper)
-        bounds: (F, F),
-    },
-}
-impl<F: Float> Default for ParamTuning<F> {
-    fn default() -> ParamTuning<F> {
-        Self::Optimized {
-            init: F::cast(1e-2),
-            bounds: (F::cast(100.0) * F::epsilon(), F::cast(1e10)),
-        }
-    }
-}
 
 /// SGP inducing points specification
 #[derive(Clone, Debug, PartialEq, Eq)]
