@@ -1881,8 +1881,10 @@ mod tests {
         let res = EgorBuilder::optimize(f_g24)
             .configure(|config| {
                 config
+                    // Constant trend: with the exact linear trend of the g24 objective,
+                    // the GP variance vanishes and qEI points end up rejected
                     .configure_gp(|gp| {
-                        gp.regression_spec(RegressionSpec::ALL)
+                        gp.regression_spec(RegressionSpec::CONSTANT)
                             .correlation_spec(CorrelationSpec::ALL)
                     })
                     .n_cstr(2)

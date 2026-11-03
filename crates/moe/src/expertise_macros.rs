@@ -26,22 +26,23 @@ macro_rules! compute_error {
         let input_dim = $dataset.records().shape()[1];
         let n_fold = std::cmp::min($dataset.nsamples(), 5);
         trace!("Cross validation N fold = {n_fold}");
-        if (n_fold < 4 * input_dim && stringify!($regr) == "Quadratic") {
+        if ($dataset.nsamples() < 4 * input_dim && stringify!($regr) == "Quadratic") {
             f64::INFINITY // not enough points => huge error
-        } else if (n_fold < 3 * input_dim && stringify!($regr) == "Linear") {
+        } else if ($dataset.nsamples() < 3 * input_dim && stringify!($regr) == "Linear") {
             f64::INFINITY // not enough points => huge error
         } else {
             for (gp, valid) in $dataset.iter_fold(n_fold, |train| {
-                let gp = params
-                    .clone()
-                    .kpls_dim($self.kpls_dim())
-                    .fit(&train)
-                    .unwrap();
-                trace!("GP trained");
-                gp
+                params.clone().kpls_dim($self.kpls_dim()).fit(&train)
             }) {
-                let pred = gp.predict(valid.records()).unwrap();
-                let error = (valid.targets() - pred).norm_l2();
+                // A fit failure (e.g. not enough training points for the regression
+                // terms of the fold) disqualifies the surrogate => huge error
+                let error = match gp {
+                    Ok(gp) => (valid.targets() - gp.predict(valid.records()).unwrap()).norm_l2(),
+                    Err(err) => {
+                        trace!("GP training failed: {err}");
+                        f64::INFINITY
+                    }
+                };
                 trace!("Prediction error = {error}");
                 errors.push(error);
             }
