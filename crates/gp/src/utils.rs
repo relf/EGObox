@@ -1,3 +1,4 @@
+use crate::errors::{GpError, Result};
 use linfa::Float;
 use ndarray::{Array1, Array2, ArrayBase, Axis, Data, Ix1, Ix2, s};
 #[cfg(feature = "serializable")]
@@ -51,6 +52,18 @@ pub fn normalize<F: Float>(
     let xnorm = (x - &x_mean) / &x_std;
 
     (xnorm, x_mean, x_std)
+}
+
+/// Check that there are enough training points to fit a GP: at least two
+/// as the training data are normalized with their standard deviation
+pub(crate) fn check_training_size<F: Float>(x: &ArrayBase<impl Data<Elem = F>, Ix2>) -> Result<()> {
+    if x.nrows() < 2 {
+        return Err(GpError::InvalidValueError(format!(
+            "At least 2 training points are required to fit a GP, got {}",
+            x.nrows()
+        )));
+    }
+    Ok(())
 }
 
 /// A structure to retain absolute differences computation used to compute covariance matrix

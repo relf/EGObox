@@ -15,6 +15,7 @@
 mod algorithm;
 pub mod correlation_models;
 mod errors;
+mod linalg;
 pub mod mean_models;
 pub mod metrics;
 mod sparse_algorithm;
