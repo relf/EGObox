@@ -228,7 +228,16 @@ where
     }
 
     /// Whether we have to recluster the data
+    #[deprecated(
+        since = "0.43.0",
+        note = "internal to the EGO solver, use Egor or EgorService instead"
+    )]
     pub fn have_to_recluster(&self, added: usize, prev_added: usize) -> bool {
+        self.needs_reclustering(added, prev_added)
+    }
+
+    /// Whether we have to recluster the data
+    pub(crate) fn needs_reclustering(&self, added: usize, prev_added: usize) -> bool {
         self.config.gp.n_clusters.is_auto()
             && (added != 0 && added.is_multiple_of(10) && added - prev_added > 0)
     }
@@ -497,7 +506,7 @@ where
                     x_train.nrows(),
                     x_fail.nrows()
                 );
-                Some(self.make_viability_surrogate(x_train, x_fail))
+                Some(self.train_viability_surrogate(x_train, x_fail))
             }
             _ => None,
         }
@@ -505,7 +514,21 @@ where
 
     /// Train GP model for viability surrogate (binary classification)
     /// given training data and surrogate builder
+    #[deprecated(
+        since = "0.43.0",
+        note = "internal to the EGO solver, use Egor or EgorService instead"
+    )]
     pub fn make_viability_surrogate(
+        &self,
+        x_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+        x_fail: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+    ) -> Box<dyn MixtureGpSurrogate> {
+        self.train_viability_surrogate(x_data, x_fail)
+    }
+
+    /// Train GP model for viability surrogate (binary classification)
+    /// given training data and surrogate builder
+    pub(crate) fn train_viability_surrogate(
         &self,
         x_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
         x_fail: &ArrayBase<impl Data<Elem = f64>, Ix2>,
@@ -713,7 +736,24 @@ where
     }
 
     /// Refresh infill data used to optimize infill criterion
+    #[deprecated(
+        since = "0.43.0",
+        note = "internal to the EGO solver, use Egor or EgorService instead"
+    )]
     pub fn refresh_infill_data<
+        O: CostFunction<Param = Array2<f64>, Output = Array2<f64>, Error = crate::EgoError>
+            + Constraints<C>,
+    >(
+        &self,
+        problem: &mut Problem<O>,
+        state: &mut EgorState<f64>,
+        models: &[Box<dyn egobox_moe::MixtureGpSurrogate>],
+    ) -> InfillObjData<f64> {
+        self.local_infill_data(problem, state, models)
+    }
+
+    /// Refresh infill data used to optimize infill criterion
+    pub(crate) fn local_infill_data<
         O: CostFunction<Param = Array2<f64>, Output = Array2<f64>, Error = crate::EgoError>
             + Constraints<C>,
     >(
@@ -834,8 +874,27 @@ where
     /// * Train surrogates
     /// * Find next promising location(s) of optimum
     /// * Update state: Evaluate true function, update doe and optimum
-    #[allow(clippy::type_complexity)]
+    #[deprecated(
+        since = "0.43.0",
+        note = "internal to the EGO solver, use Egor or EgorService instead"
+    )]
     pub fn ego_step<
+        O: CostFunction<Param = Array2<f64>, Output = Array2<f64>, Error = crate::EgoError>
+            + Constraints<C>,
+    >(
+        &mut self,
+        problem: &mut Problem<O>,
+        state: EgorState<f64>,
+    ) -> Result<EgorState<f64>> {
+        self.global_step(problem, state)
+    }
+
+    /// This function is the main EGO algorithm iteration:
+    /// * Train surrogates
+    /// * Find next promising location(s) of optimum
+    /// * Update state: Evaluate true function, update doe and optimum
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn global_step<
         O: CostFunction<Param = Array2<f64>, Output = Array2<f64>, Error = crate::EgoError>
             + Constraints<C>,
     >(
@@ -857,7 +916,7 @@ where
         // and, further down, to incorporate the actually evaluated point(s) into
         // the persisted models (neither `new_state.doe.{added,prev_added}` nor
         // `new_state.get_iter()` change until after this whole retry loop).
-        let recluster = self.have_to_recluster(new_state.doe.added, new_state.doe.prev_added);
+        let recluster = self.needs_reclustering(new_state.doe.added, new_state.doe.prev_added);
         if recluster {
             info!("Reclustering surrogates...");
         }

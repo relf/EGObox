@@ -184,7 +184,7 @@ where
                     if let Some(grad) = gradient {
                         let g_infill_obj = if cstr_infill {
                             // Use constrained infill criterion
-                            self.eval_grad_infill_obj_with_cstrs(
+                            self.eval_cstr_infill_obj_grad(
                                 &xcoop,
                                 obj_model,
                                 cstr_models,
@@ -198,7 +198,7 @@ where
                                 *sigma_weight,
                             )
                         } else {
-                            self.eval_grad_infill_obj(
+                            self.eval_infill_obj_grad(
                                 &xcoop,
                                 obj_model,
                                 *fmin,
@@ -212,7 +212,7 @@ where
                     }
                     if cstr_infill {
                         // Use constrained infill criterion
-                        self.eval_infill_obj_with_cstrs(
+                        self.eval_cstr_infill_obj(
                             &xcoop,
                             obj_model,
                             cstr_models,
@@ -256,9 +256,15 @@ where
 
                         let scale_cstr = params.scale_cstr.as_ref().expect("constraint scaling")[i];
                         if self.config.cstr_strategy == ConstraintStrategy::MeanConstraint {
-                            Self::mean_cstr(&*cstr_models[i], &xcoop, gradient, scale_cstr, &active)
+                            Self::scaled_mean_cstr(
+                                &*cstr_models[i],
+                                &xcoop,
+                                gradient,
+                                scale_cstr,
+                                &active,
+                            )
                         } else {
-                            Self::upper_trust_bound_cstr(
+                            Self::scaled_upper_trust_bound_cstr(
                                 &*cstr_models[i],
                                 &xcoop,
                                 gradient,
@@ -314,7 +320,7 @@ where
                         let InfillObjData { xbest: xcoop, .. } = params;
                         let mut xcoop = xcoop.clone();
                         coego::set_active_x(&mut xcoop, &active, x);
-                        let pov = Self::mean_cstr(
+                        let pov = Self::scaled_mean_cstr(
                             &**viab_model,
                             &xcoop,
                             gradient.as_deref_mut(),

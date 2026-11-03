@@ -82,6 +82,10 @@ where
     /// Local step where infill criterion is optimized within trust region.
     /// `models` are expected to be trained on the current state data, they
     /// are updated with the evaluated point and persisted in the returned state.
+    #[deprecated(
+        since = "0.43.0",
+        note = "internal to the EGO solver, use Egor or EgorService instead"
+    )]
     pub fn trego_step<
         O: CostFunction<Param = Array2<f64>, Output = Array2<f64>, Error = crate::EgoError>
             + Constraints<C>,
