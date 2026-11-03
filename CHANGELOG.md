@@ -46,6 +46,9 @@
   by @relf in <https://github.com/relf/EGObox/pull/524>
 * Fix sparse GP fit panic when theta bounds or a fixed theta are given per dimension
   by @relf in <https://github.com/relf/EGObox/pull/531>
+* Fix sparse GP fixed theta ignored with C COBYLA (`c-cobyla` feature): theta, variance and noise variance
+  were all set to 10. A fixed theta is no longer optimized, only variances are
+  by @relf in <https://github.com/relf/EGObox/pull/534>
 
 ## Version 1.0.0 - 12/10/2026
 
