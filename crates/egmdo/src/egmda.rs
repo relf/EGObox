@@ -119,11 +119,15 @@ pub struct EgmdaConfig {
     pub max_evaluations: Option<usize>,
     /// GP settings of the disciplinary GPs
     pub gp: GpSettings,
-    /// MDA settings
+    /// MDA settings; by default with the floor [EGMDA_RANGE_FLOOR] of the convergence test
     pub mda: MdaSettings,
     /// Seed of all random draws; `None` for a non-reproducible run
     pub seed: Option<u64>,
 }
+
+/// The floor of the MDA convergence test of EGMDA, relative to the widths of the coupling
+/// ranges ([MdaSettings::range_floor], decision D45)
+pub const EGMDA_RANGE_FLOOR: f64 = 1e-6;
 
 impl Default for EgmdaConfig {
     fn default() -> Self {
@@ -139,7 +143,10 @@ impl Default for EgmdaConfig {
             max_iters: 20,
             max_evaluations: None,
             gp: GpSettings::default(),
-            mda: MdaSettings::default(),
+            mda: MdaSettings {
+                range_floor: EGMDA_RANGE_FLOOR,
+                ..MdaSettings::default()
+            },
             seed: None,
         }
     }
@@ -478,7 +485,10 @@ impl EgmdaSolver {
             .eval_qoi(&z.insert_axis(Axis(0)), &y0.view().insert_axis(Axis(0)))?
             .row(0)
             .to_owned();
-        let Some(l) = linearization_factor(&self.problem, models, &z, &y0)? else {
+        // Without a fallback, the linearization is rejected only where I - J is numerically
+        // singular (D43)
+        let condition = self.problem.n_couplings() as f64 * f64::EPSILON;
+        let Some(l) = linearization_factor(&self.problem, models, &z, &y0, condition)? else {
             self.finish(y0, Some(qoi), f64::NAN, EgmdaStatus::MdaFailure);
             return Ok(None);
         };
