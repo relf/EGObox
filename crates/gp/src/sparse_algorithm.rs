@@ -2,7 +2,8 @@ use crate::ThetaTuning;
 use crate::errors::{GpError, Result};
 use crate::optimization::{CobylaParams, into_f64, optimize_params, prepare_multistart};
 use crate::sparse_parameters::{Inducings, ParamTuning, SgpParams, SgpValidParams, SparseMethod};
-use crate::{GpSamplingMethod, correlation_models::*, sample, utils::pairwise_differences};
+use crate::utils::{check_training_size, pairwise_differences};
+use crate::{GpSamplingMethod, correlation_models::*, sample};
 use finitediff::ndarr;
 use linfa::prelude::{Dataset, DatasetBase, Fit, Float, PredictInplace};
 use linfa_linalg::{cholesky::*, triangular::*};
@@ -426,6 +427,7 @@ impl<F: Float, Corr: CorrelationModel<F>, D: Data<Elem = F> + Sync>
     ) -> Result<Self::Object> {
         let x = dataset.records();
         let y = dataset.targets().to_owned().insert_axis(Axis(1));
+        check_training_size(x)?;
 
         if let Some(d) = self.kpls_dim()
             && *d > x.ncols()
@@ -957,6 +959,16 @@ mod tests {
             &sgp_vals,
             &sgp_vars,
         );
+    }
+
+    #[test]
+    fn test_sgp_fit_single_point_is_an_error() {
+        let xt = array![[0.5]];
+        let yt = array![3.0];
+        let res = SparseKriging::params(Inducings::Located(xt.clone()))
+            .noise_variance(ParamTuning::Fixed(0.01))
+            .fit(&Dataset::new(xt, yt));
+        assert!(matches!(res, Err(GpError::InvalidValueError(_))));
     }
 
     #[test]
