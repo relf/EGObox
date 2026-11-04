@@ -1187,6 +1187,19 @@ mod tests {
     }
 
     #[test]
+    fn test_fit_less_points_than_regression_terms_is_an_error() {
+        // 5 points for the 6 terms of a 2D quadratic trend
+        let xt = arr2(&[[0., 0.], [1., 0.], [0., 1.], [1., 1.], [0.5, 0.2]]);
+        let yt = arr1(&[0., 1., 2., 3., 4.]);
+        let res = GaussianProcess::<f64, QuadraticMean, SquaredExponentialCorr>::params(
+            QuadraticMean::default(),
+            SquaredExponentialCorr::default(),
+        )
+        .fit(&Dataset::new(xt, yt));
+        assert!(res.is_err());
+    }
+
+    #[test]
     fn test_f32_and_f64_fits_agree() {
         // Same training data in single and double precision: the hyperparameters
         // optimization must give close models (likelihoods converted to f64 safely),

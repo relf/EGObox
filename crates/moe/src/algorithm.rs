@@ -1529,6 +1529,56 @@ mod tests {
         println!("Best expert {best_expert}");
     }
 
+    fn lhs_data(
+        xlimits: &Array2<f64>,
+        n: usize,
+        f: impl Fn(ndarray::ArrayView1<f64>) -> f64,
+    ) -> (Array2<f64>, Xoshiro256Plus) {
+        let rng = Xoshiro256Plus::seed_from_u64(42);
+        let xt = Lhs::new(xlimits).with_rng(rng.clone()).sample(n);
+        let yt = xt.map_axis(Axis(1), f).insert_axis(Axis(1));
+        // row major layout as for clustered data
+        let data = concatenate(Axis(1), &[xt.view(), yt.view()]).unwrap();
+        (data.as_standard_layout().to_owned(), rng)
+    }
+
+    #[test]
+    fn test_find_best_expert_quadratic_2d() {
+        // Exact quadratic function: the quadratic trend is the best expert
+        let xlimits = array![[-2., 2.], [-2., 2.]];
+        let (data, rng) = lhs_data(&xlimits, 30, |x| {
+            1. + x[0] - 2. * x[1] + 3. * x[0] * x[0] + x[0] * x[1] + 2. * x[1] * x[1]
+        });
+        let moe = GpMixture::params()
+            .regression_spec(RegressionSpec::ALL)
+            .correlation_spec(CorrelationSpec::SQUAREDEXPONENTIAL)
+            .with_rng(rng)
+            .check_unwrap();
+        let best_expert = moe.find_best_expert(0, 2, &data).unwrap();
+        assert!(
+            best_expert.to_string().starts_with("Quadratic"),
+            "Best expert {best_expert}"
+        );
+    }
+
+    #[test]
+    fn test_find_best_expert_quadratic_not_enough_fold_points() {
+        // 4 * dim samples: quadratic trend allowed while cross-validation folds
+        // have less training points than the 21 quadratic terms in 5-D
+        let xlimits = Array2::from_shape_fn((5, 2), |(_, j)| if j == 0 { -1. } else { 1. });
+        let (data, rng) = lhs_data(&xlimits, 20, |x| x.dot(&x));
+        let moe = GpMixture::params()
+            .regression_spec(RegressionSpec::ALL)
+            .correlation_spec(CorrelationSpec::SQUAREDEXPONENTIAL)
+            .with_rng(rng)
+            .check_unwrap();
+        let best_expert = moe.find_best_expert(0, 5, &data).unwrap();
+        assert!(
+            !best_expert.to_string().starts_with("Quadratic"),
+            "Best expert {best_expert}"
+        );
+    }
+
     #[test]
     fn test_find_best_heaviside_factor() {
         let mut rng = Xoshiro256Plus::seed_from_u64(0);
