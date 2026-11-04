@@ -602,82 +602,40 @@ impl SurrogateBuilder for MixintGpMixtureParams {
 
     /// Sets the allowed regression models used in gaussian processes.
     fn set_regression_spec(&mut self, regression_spec: RegressionSpec) {
-        self.0 = MixintGpMixtureValidParams {
-            gpmix_params: self.0.gpmix_params.clone().regression_spec(regression_spec),
-            xtypes: self.0.xtypes.clone(),
-            work_in_folded_space: self.0.work_in_folded_space,
-        }
+        self.0.gpmix_params.set_regression_spec(regression_spec);
     }
 
     /// Sets the allowed correlation models used in gaussian processes.
     fn set_correlation_spec(&mut self, correlation_spec: CorrelationSpec) {
-        self.0 = MixintGpMixtureValidParams {
-            gpmix_params: self
-                .0
-                .gpmix_params
-                .clone()
-                .correlation_spec(correlation_spec),
-            xtypes: self.0.xtypes.clone(),
-            work_in_folded_space: self.0.work_in_folded_space,
-        }
+        self.0.gpmix_params.set_correlation_spec(correlation_spec);
     }
 
     /// Sets the number of components to be used specifiying PLS projection is used (a.k.a KPLS method).
     fn set_kpls_dim(&mut self, kpls_dim: Option<usize>) {
-        self.0 = MixintGpMixtureValidParams {
-            gpmix_params: self.0.gpmix_params.clone().kpls_dim(kpls_dim),
-            xtypes: self.0.xtypes.clone(),
-            work_in_folded_space: self.0.work_in_folded_space,
-        }
+        self.0.gpmix_params.set_kpls_dim(kpls_dim);
     }
 
     /// Sets the number of clusters used by the mixture of surrogate experts.
     fn set_n_clusters(&mut self, n_clusters: NbClusters) {
-        self.0 = MixintGpMixtureValidParams {
-            gpmix_params: self.0.gpmix_params.clone().n_clusters(n_clusters),
-            xtypes: self.0.xtypes.clone(),
-            work_in_folded_space: self.0.work_in_folded_space,
-        }
+        self.0.gpmix_params.set_n_clusters(n_clusters);
     }
 
     fn set_recombination(&mut self, recombination: Recombination<f64>) {
-        self.0 = MixintGpMixtureValidParams {
-            gpmix_params: self.0.gpmix_params.clone().recombination(recombination),
-            xtypes: self.0.xtypes.clone(),
-            work_in_folded_space: self.0.work_in_folded_space,
-        }
+        self.0.gpmix_params.set_recombination(recombination);
     }
 
     /// Sets the theta hyperparameter tuning strategy
     fn set_theta_tunings(&mut self, theta_tunings: &[ThetaTuning<f64>]) {
-        self.0 = MixintGpMixtureValidParams {
-            gpmix_params: self.0.gpmix_params.clone().theta_tunings(theta_tunings),
-            xtypes: self.0.xtypes.clone(),
-            work_in_folded_space: self.0.work_in_folded_space,
-        }
+        self.0.gpmix_params.set_theta_tunings(theta_tunings);
     }
 
     fn set_optim_params(&mut self, n_start: usize, max_eval: usize) {
-        let builder = self
-            .0
-            .gpmix_params
-            .clone()
-            .n_start(n_start)
-            .max_eval(max_eval);
-        self.0 = MixintGpMixtureValidParams {
-            gpmix_params: builder,
-            xtypes: self.0.xtypes.clone(),
-            work_in_folded_space: self.0.work_in_folded_space,
-        }
+        self.0.gpmix_params.set_optim_params(n_start, max_eval);
     }
 
     /// Sets the noise-to-signal ratio tuning of full GP experts
     fn set_noise_ratio(&mut self, noise_ratio: ParamTuning<f64>) {
-        self.0 = MixintGpMixtureValidParams {
-            gpmix_params: self.0.gpmix_params.clone().noise_ratio(noise_ratio),
-            xtypes: self.0.xtypes.clone(),
-            work_in_folded_space: self.0.work_in_folded_space,
-        }
+        self.0.gpmix_params.set_noise_ratio(noise_ratio);
     }
 
     /// Sets the random generator used during training (e.g. clustering)
@@ -1041,29 +999,6 @@ impl<D: Data<Elem = f64>> PredictInplace<ArrayBase<D, Ix2>, Array1<f64>> for Mix
     }
 }
 
-struct MoeVariancePredictor<'a>(&'a GpMixture);
-impl<D: Data<Elem = f64>> PredictInplace<ArrayBase<D, Ix2>, Array1<f64>>
-    for MoeVariancePredictor<'_>
-{
-    fn predict_inplace(&self, x: &ArrayBase<D, Ix2>, y: &mut Array1<f64>) {
-        assert_eq!(
-            x.nrows(),
-            y.len(),
-            "The number of data points must match the number of output targets."
-        );
-
-        let values = self
-            .0
-            .predict_var(x)
-            .expect("MixintGpMixture variances prediction");
-        *y = values;
-    }
-
-    fn default_target(&self, x: &ArrayBase<D, Ix2>) -> Array1<f64> {
-        Array1::zeros(x.nrows())
-    }
-}
-
 /// A factory to build consistent sampling method and surrogate regarding
 /// XType specifications
 pub struct MixintContext {
@@ -1189,6 +1124,36 @@ mod tests {
     use linfa::Dataset;
     use ndarray::array;
 
+    #[test]
+    fn test_surrogate_builder_setters_keep_xtypes() {
+        let xtypes = vec![XType::Float(0., 1.), XType::Enum(3)];
+        let mut builder = MixintGpMixtureParams::new(Some(&xtypes), &GpMixtureParams::new());
+        builder.work_in_folded_space(true);
+        let theta_tunings = [ThetaTuning::Fixed(array![0.5])];
+        builder.set_regression_spec(RegressionSpec::LINEAR);
+        builder.set_correlation_spec(CorrelationSpec::MATERN52);
+        builder.set_kpls_dim(Some(1));
+        builder.set_n_clusters(NbClusters::fixed(2));
+        builder.set_recombination(Recombination::Smooth(Some(0.5)));
+        builder.set_theta_tunings(&theta_tunings);
+        builder.set_optim_params(3, 42);
+        builder.set_noise_ratio(ParamTuning::Fixed(0.1));
+
+        assert_eq!(
+            format!("{:?}", builder.xtypes()),
+            format!("{:?}", Some(&xtypes))
+        );
+        assert!(builder.check_ref().unwrap().work_in_folded_space());
+        let inner = builder.0.gpmix_params.check_ref().unwrap();
+        assert_eq!(inner.regression_spec(), RegressionSpec::LINEAR);
+        assert_eq!(inner.correlation_spec(), CorrelationSpec::MATERN52);
+        assert_eq!(inner.kpls_dim(), Some(1));
+        assert_eq!(inner.n_clusters(), NbClusters::fixed(2));
+        assert_eq!(inner.recombination(), Recombination::Smooth(Some(0.5)));
+        assert_eq!(inner.theta_tunings(), &theta_tunings.to_vec());
+        assert_eq!((inner.n_start(), inner.max_eval()), (3, 42));
+        assert_eq!(inner.noise_ratio(), &ParamTuning::Fixed(0.1));
+    }
     #[test]
     fn test_mixint_lhs() {
         let xtypes = vec![
