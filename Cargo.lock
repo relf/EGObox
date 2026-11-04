@@ -662,6 +662,7 @@ dependencies = [
  "ndarray 0.16.1",
  "ndarray-npy",
  "rayon",
+ "serde",
  "serde_json",
 ]
 

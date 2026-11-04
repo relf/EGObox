@@ -58,6 +58,9 @@
   choosing linear or quadratic trends in dimension 2 or more, and panicking when a cross-validation fold
   has not enough points for the trend. With the `blas` feature, a GP fit with less points than its trend
   terms returns an error instead of panicking, as without it by @relf in <https://github.com/relf/EGObox/pull/537>
+* Fix `gpx` loading of a model saved by Python `Gpx.save()`: JSON file rejected, binary file read as its
+  inner mixture without the mixed-integer input handling. `AffinedSurrogate::save()` returns an error
+  instead of panicking when the file cannot be created by @relf in <https://github.com/relf/EGObox/pull/539>
 
 ## Version 1.0.0 - 12/10/2026
 
