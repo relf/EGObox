@@ -79,6 +79,15 @@ pub(crate) fn qr<F: Float>(
 pub(crate) fn qr<F: Float>(
     a: &ArrayBase<impl Data<Elem = F>, Ix2>,
 ) -> Result<(Array2<F>, Array2<F>)> {
+    // LAPACK accepts wide matrices but the triangular solves on such R factor panic:
+    // fail as the default backend does
+    if a.nrows() < a.ncols() {
+        return Err(linfa_linalg::LinalgError::NotThin {
+            rows: a.nrows(),
+            cols: a.ncols(),
+        }
+        .into());
+    }
     let (q, r) = a.view().with_lapack().qr()?;
     Ok((q.without_lapack(), r.without_lapack()))
 }
