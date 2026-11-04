@@ -629,6 +629,9 @@ impl EgorConfig {
     ///
     /// Either `nt` = `nx` then only `x` input values are specified and `ns` evals are done to get y output doe values,
     /// or `nt = nx + ny` then `x = doe\[:, :nx\]` and `y = doe\[:, nx:\]` are specified
+    ///
+    /// When optimizing within a mixed-integer space, `x` values are given in the continuous space
+    /// where an `XType::Enum` takes one column per category (see `egobox_moe::to_continuous_space`).
     pub fn doe(mut self, doe: &Array2<f64>) -> Self {
         self.0.doe = Some(doe.to_owned());
         self
