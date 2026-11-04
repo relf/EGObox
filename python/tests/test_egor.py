@@ -750,6 +750,50 @@ class TestEgor(unittest.TestCase):
         with self.assertRaises(ValueError):
             egx.Egor([[0.0, 25.0]], x_doe=x_doe, y_doe=xsinx(x_doe[:2]))
 
+    def test_x_doe_y_doe_with_enum(self):
+        def f(x):
+            return x[:, [1]] ** 2 + x[:, [0]]
+
+        calls = []
+
+        def counted_f(x):
+            calls.append(x.copy())
+            return f(x)
+
+        # One column per variable: the enum column holds the category index
+        x_doe = np.array([[0, 0.0], [1, 0.5], [0, -0.5], [1, 1.0], [0, 1.0]])
+        xspecs = [
+            egx.XSpec(egx.XType.ENUM, [2]),
+            egx.XSpec(egx.XType.FLOAT, [-1.0, 1.0]),
+        ]
+        # x_doe only: the initial doe is evaluated at the given points
+        res = egx.Egor(xspecs, x_doe=x_doe).minimize(counted_f, max_iters=2, seed=1)
+        np.testing.assert_array_equal(calls[0], x_doe)
+        np.testing.assert_array_equal(res.x_doe[:5], x_doe)
+        # x_doe and y_doe: no evaluation of the initial doe
+        calls = []
+        y_doe = f(x_doe)
+        res = egx.Egor(xspecs, x_doe=x_doe, y_doe=y_doe).minimize(
+            counted_f, max_iters=0, seed=1
+        )
+        self.assertEqual(calls, [])
+        np.testing.assert_array_equal(res.x_doe, x_doe)
+        np.testing.assert_array_equal(res.y_doe, y_doe)
+
+    def test_x_doe_with_enum_errors(self):
+        xspecs = [
+            egx.XSpec(egx.XType.ENUM, [2]),
+            egx.XSpec(egx.XType.FLOAT, [-1.0, 1.0]),
+        ]
+        # One column per category is not the expected layout
+        one_hot = np.array([[1, 0, 0.0], [0, 1, 0.5], [1, 0, -0.5]])
+        with self.assertRaises(ValueError):
+            egx.Egor(xspecs, x_doe=one_hot)
+        # Category index out of range or not an integer
+        for bad in [2.0, -1.0, 0.5]:
+            with self.assertRaises(ValueError):
+                egx.Egor(xspecs, x_doe=np.array([[0, 0.0], [bad, 0.5]]))
+
     def test_n_cstr_inferred_from_cstr_specs(self):
         specs = [egx.CstrSpec.leq(1.0), egx.CstrSpec.between(0.0, 1.0)]
         egx.Egor([[0.0, 1.0]], cstr_specs=specs)

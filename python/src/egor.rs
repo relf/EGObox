@@ -21,7 +21,7 @@ use crate::types::*;
 
 use egobox_ego::{CoegoStatus, EGO_DEFAULT_N_START, InfillObjData, find_best_result_index};
 use egobox_gp::ThetaTuning;
-use egobox_moe::NbClusters;
+use egobox_moe::{NbClusters, to_continuous_space};
 use ndarray::{Array1, Array2, ArrayView2, Axis, array, concatenate};
 use numpy::{IntoPyArray, PyArray2, PyReadonlyArray2, PyReadonlyArrayDyn, ToPyArray};
 use pyo3::exceptions::{PyTypeError, PyValueError};
@@ -530,7 +530,7 @@ impl Egor {
 
 /// Build the initial DOE given with `x_doe` and optional `y_doe`
 fn initial_doe(
-    nx: usize,
+    xtypes: &[egobox_moe::XType],
     x_doe: Option<PyReadonlyArray2<f64>>,
     y_doe: Option<PyReadonlyArray2<f64>>,
 ) -> PyResult<Option<Array2<f64>>> {
@@ -541,23 +541,44 @@ fn initial_doe(
         return Ok(None);
     };
     let x_doe = x_doe.as_array();
+    let nx = xtypes.len();
     if x_doe.ncols() != nx {
         return Err(PyValueError::new_err(format!(
             "x_doe should be of shape (ns, {nx}), got {:?}",
             x_doe.shape()
         )));
     }
+    check_enum_indices(xtypes, &x_doe)?;
+    // The solver works in the continuous space where an enum takes one column per category
+    let x_doe = to_continuous_space(xtypes, &x_doe);
     match y_doe {
         Some(y_doe) => {
             let y_doe = y_doe.as_array();
-            check_doe(Some(&x_doe), &y_doe)?;
+            check_doe(Some(&x_doe.view()), &y_doe)?;
             Ok(Some(
-                concatenate(Axis(1), &[x_doe, y_doe])
+                concatenate(Axis(1), &[x_doe.view(), y_doe])
                     .map_err(|e| PyValueError::new_err(e.to_string()))?,
             ))
         }
-        None => Ok(Some(x_doe.to_owned())),
+        None => Ok(Some(x_doe)),
     }
+}
+
+/// Check that `x` columns of enum variables hold category indices
+fn check_enum_indices(xtypes: &[egobox_moe::XType], x: &ArrayView2<f64>) -> PyResult<()> {
+    for (i, xtype) in xtypes.iter().enumerate() {
+        if let egobox_moe::XType::Enum(n) = xtype
+            && let Some(v) = x
+                .column(i)
+                .iter()
+                .find(|v| !(v.fract() == 0. && **v >= 0. && **v < *n as f64))
+        {
+            return Err(PyValueError::new_err(format!(
+                "x_doe column {i} (ENUM with {n} categories) should hold category indices in [0, {n}), got {v}"
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Check (x_doe, y_doe) are non empty with the same number of rows
@@ -643,7 +664,7 @@ impl Egor {
         verbose: Option<Py<PyAny>>,
     ) -> PyResult<Self> {
         let xtypes = parse(py, xspecs)?;
-        let doe = initial_doe(xtypes.len(), x_doe, y_doe)?;
+        let doe = initial_doe(&xtypes, x_doe, y_doe)?;
         let n_cstr = match cstr_specs.as_ref() {
             Some(specs) if n_cstr != 0 && n_cstr != specs.len() => {
                 return Err(PyValueError::new_err(format!(
