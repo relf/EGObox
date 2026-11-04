@@ -53,7 +53,8 @@
   by @relf in <https://github.com/relf/EGObox/pull/534>
 * Fix mixture of experts selection (several regression models allowed, e.g. `RegressionSpec::ALL`) never
   choosing linear or quadratic trends in dimension 2 or more, and panicking when a cross-validation fold
-  has not enough points for the trend by @relf in <https://github.com/relf/EGObox/pull/537>
+  has not enough points for the trend. With the `blas` feature, a GP fit with less points than its trend
+  terms returns an error instead of panicking, as without it by @relf in <https://github.com/relf/EGObox/pull/537>
 
 ## Version 1.0.0 - 12/10/2026
 
