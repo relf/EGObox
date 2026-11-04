@@ -39,6 +39,9 @@
 * Fix variance gradients of smooth recombination mixtures (panic or wrong cluster indices with several
   clusters) and the gradient of the upper trust bound constraint strategy
   by @relf in <https://github.com/relf/EGObox/pull/491>
+* Fix Python `Egor` initial DOE (`x_doe`, `y_doe`) with an `ENUM` variable: panic or silently misread DOE.
+  `x_doe` is converted to the solver continuous space, and `ENUM` columns are checked to hold category
+  indices by @relf in <https://github.com/relf/EGObox/pull/538>
 * Fix GP and sparse GP fit panic with a single training point: an `InvalidValueError` is returned instead
   by @relf in <https://github.com/relf/EGObox/pull/532>
 * Fix function constraints values of points added by global steps, stored divided by the infill scaling,
