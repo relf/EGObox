@@ -98,7 +98,7 @@ impl GpSurrogate for AffinedSurrogate {
     }
 
     fn save(&self, path: &str, format: GpFileFormat) -> Result<()> {
-        let mut file = fs::File::create(path).unwrap();
+        let mut file = fs::File::create(path)?;
         let bytes = match format {
             GpFileFormat::Json => {
                 serde_json::to_vec(self as &dyn GpSurrogate).map_err(MoeError::SaveJsonError)?
@@ -227,5 +227,27 @@ impl Clone for AffinedSurrogate {
             offset: self.offset,
             training_data: self.training_data.clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{GpMixtureParams, SurrogateBuilder};
+    use ndarray::array;
+
+    #[test]
+    fn test_save_in_missing_dir_is_an_error() {
+        let xt = array![[0.], [1.], [2.], [3.]];
+        let yt = array![0., 1., 4., 9.];
+        let inner = GpMixtureParams::new()
+            .train(xt.view(), yt.view())
+            .expect("GP training");
+        let surrogate = AffinedSurrogate::new(inner, -1., 0.);
+        let res = surrogate.save(
+            "target/test_affined_missing_dir/affined.json",
+            GpFileFormat::Json,
+        );
+        assert!(res.is_err(), "file creation error expected");
     }
 }

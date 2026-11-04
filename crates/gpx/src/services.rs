@@ -4,7 +4,7 @@
 //! and format inference helpers.
 
 use anyhow::{Context, Result, anyhow};
-use egobox_moe::{GpMetric, GpMixture, MixtureGpSurrogate};
+use egobox_moe::{GpMetric, GpMixture, MixintGpMixture, MixtureGpSurrogate};
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fs;
@@ -74,33 +74,39 @@ pub fn compute_metrics(
     res
 }
 
-fn decode_binary_models(data: &[u8]) -> Result<Vec<Box<dyn MixtureGpSurrogate>>> {
-    let gp_models: Vec<Box<dyn MixtureGpSurrogate>> =
-        bincode::serde::decode_from_slice(data, bincode::config::standard())
-            .map(|(res, _)| res)
-            .unwrap_or_default();
-
-    if !gp_models.is_empty() {
-        return Ok(gp_models);
-    }
-
-    let gp: Box<GpMixture> = bincode::serde::decode_from_slice(data, bincode::config::standard())
+/// Decode `data` as a `T` with bincode, all bytes being used: a saved
+/// `MixintGpMixture` must not be decoded as its leading `GpMixture` field
+fn decode_binary<T: serde::de::DeserializeOwned>(data: &[u8]) -> Option<T> {
+    bincode::serde::decode_from_slice(data, bincode::config::standard())
+        .ok()
+        .filter(|(_, read)| *read == data.len())
         .map(|(res, _)| res)
-        .map_err(|e| anyhow!("cannot decode binary model: {e}"))?;
-    Ok(vec![gp as Box<dyn MixtureGpSurrogate>])
 }
 
+/// Decode models saved as a vector of models (Egor, `gpx fit`)
+/// or as a single model (Python `Gpx` or `SparseGpx` `save()`)
+fn decode_binary_models(data: &[u8]) -> Result<Vec<Box<dyn MixtureGpSurrogate>>> {
+    decode_binary::<Vec<Box<dyn MixtureGpSurrogate>>>(data)
+        .or_else(|| decode_binary::<GpMixture>(data).map(|gp| vec![Box::new(gp) as _]))
+        .or_else(|| decode_binary::<MixintGpMixture>(data).map(|gp| vec![Box::new(gp) as _]))
+        .ok_or_else(|| anyhow!("cannot decode binary model"))
+}
+
+/// JSON counterpart of [decode_binary_models]
 fn decode_json_models(data: &[u8]) -> Result<Vec<Box<dyn MixtureGpSurrogate>>> {
-    let gp_models: Vec<Box<dyn MixtureGpSurrogate>> =
-        serde_json::from_slice(data).unwrap_or_default();
-
-    if !gp_models.is_empty() {
-        return Ok(gp_models);
-    }
-
-    let gp: Box<GpMixture> =
-        serde_json::from_slice(data).map_err(|e| anyhow!("cannot decode JSON model: {e}"))?;
-    Ok(vec![gp as Box<dyn MixtureGpSurrogate>])
+    serde_json::from_slice::<Vec<Box<dyn MixtureGpSurrogate>>>(data)
+        .ok()
+        .or_else(|| {
+            serde_json::from_slice::<GpMixture>(data)
+                .ok()
+                .map(|gp| vec![Box::new(gp) as _])
+        })
+        .or_else(|| {
+            serde_json::from_slice::<MixintGpMixture>(data)
+                .ok()
+                .map(|gp| vec![Box::new(gp) as _])
+        })
+        .ok_or_else(|| anyhow!("cannot decode JSON model"))
 }
 
 pub fn load_models(path: &str) -> Result<Vec<Box<dyn MixtureGpSurrogate>>> {
@@ -176,5 +182,114 @@ pub fn infer_predict_output_format(output: &str) -> DataFormat {
         DataFormat::Npy
     } else {
         DataFormat::Csv
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egobox_moe::{GpFileFormat, GpMixtureParams, GpSurrogate, MixintGpMixtureParams, XType};
+    use linfa::ParamGuard;
+    use linfa::traits::Fit;
+    use ndarray::{Array1, array};
+
+    #[test]
+    fn test_load_mixint_model_saved_alone() {
+        // Python Gpx.save() writes a single MixintGpMixture
+        let xt = array![
+            [0., 0.],
+            [1., 1.],
+            [2., 0.],
+            [0., 1.],
+            [1., 0.],
+            [2., 1.],
+            [0.5, 0.],
+            [1.5, 1.]
+        ];
+        let yt: Array1<f64> = xt.column(0).mapv(|v| v * v) + xt.column(1);
+        let xtypes = [XType::Float(0., 2.), XType::Enum(2)];
+        let mut params = MixintGpMixtureParams::new(Some(&xtypes), &GpMixtureParams::new());
+        params.work_in_folded_space(true);
+        let gp = params
+            .check()
+            .unwrap()
+            .fit(&linfa::Dataset::new(xt, yt))
+            .unwrap();
+        let x = array![[1.2, 1.], [0.3, 0.]];
+        let expected = gp.predict(&x.view()).unwrap();
+
+        let dir = std::env::temp_dir();
+        for (name, format) in [
+            ("gpx_test_mixint.json", GpFileFormat::Json),
+            ("gpx_test_mixint.bin", GpFileFormat::Binary),
+        ] {
+            let path = dir.join(name);
+            let path = path.to_str().unwrap();
+            gp.save(path, format).unwrap();
+            let models = load_models(path);
+            let _ = fs::remove_file(path);
+            let models = models.unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert_eq!(models.len(), 1);
+            // JSON floats are not round-tripped exactly
+            let pred = models[0].predict(&x.view()).unwrap();
+            assert!((pred - &expected).abs().iter().all(|d| *d < 1e-4), "{name}");
+        }
+    }
+
+    #[test]
+    fn test_load_model_vector_and_single_gp_mixture() {
+        let xt = array![[0.], [1.], [2.], [3.], [4.]];
+        let yt = array![0., 1., 4., 9., 16.];
+        let gp = GpMixtureParams::new()
+            .check()
+            .unwrap()
+            .fit(&linfa::Dataset::new(xt, yt))
+            .unwrap();
+        let x = array![[0.5], [2.5]];
+        let expected = gp.predict(&x.view()).unwrap();
+        let models: Vec<Box<dyn MixtureGpSurrogate>> = vec![Box::new(gp.clone()), Box::new(gp)];
+
+        let dir = std::env::temp_dir();
+        let vec_bin = dir.join("gpx_test_vec.bin");
+        let vec_json = dir.join("gpx_test_vec.json");
+        let single_bin = dir.join("gpx_test_single.bin");
+        let single_json = dir.join("gpx_test_single.json");
+        fs::write(
+            &vec_bin,
+            bincode::serde::encode_to_vec(&models, bincode::config::standard()).unwrap(),
+        )
+        .unwrap();
+        fs::write(&vec_json, serde_json::to_vec(&models).unwrap()).unwrap();
+        models[0]
+            .save(single_bin.to_str().unwrap(), GpFileFormat::Binary)
+            .unwrap();
+        models[0]
+            .save(single_json.to_str().unwrap(), GpFileFormat::Json)
+            .unwrap();
+
+        for (path, n) in [
+            (vec_bin, 2),
+            (vec_json, 2),
+            (single_bin, 1),
+            (single_json, 1),
+        ] {
+            let loaded = load_models(path.to_str().unwrap());
+            let _ = fs::remove_file(&path);
+            let loaded = loaded.unwrap_or_else(|e| panic!("{path:?}: {e}"));
+            assert_eq!(loaded.len(), n, "{path:?}");
+            let pred = loaded[n - 1].predict(&x.view()).unwrap();
+            // JSON floats are not round-tripped exactly
+            let err = (&pred - &expected).abs();
+            assert!(err.iter().all(|d| *d < 1e-4), "{path:?}: {err}");
+        }
+    }
+
+    #[test]
+    fn test_load_invalid_model_file_is_an_error() {
+        let path = std::env::temp_dir().join("gpx_test_invalid.bin");
+        fs::write(&path, b"not a model").unwrap();
+        let res = load_models(path.to_str().unwrap());
+        let _ = fs::remove_file(&path);
+        assert!(res.is_err());
     }
 }
