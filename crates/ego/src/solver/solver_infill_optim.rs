@@ -206,6 +206,7 @@ where
                                 alpha,
                                 *scale_infill_obj,
                                 *scale_wb2,
+                                *sigma_weight,
                             )
                         };
                         grad[..].copy_from_slice(&coego::get_active_grad(&g_infill_obj, &active));

@@ -402,7 +402,16 @@ where
         scale: f64,
         scale_ic: f64,
     ) -> Vec<f64> {
-        self.eval_infill_obj_grad(x, obj_model, fmin, viability_model, alpha, scale, scale_ic)
+        self.eval_infill_obj_grad(
+            x,
+            obj_model,
+            fmin,
+            viability_model,
+            alpha,
+            scale,
+            scale_ic,
+            1.0,
+        )
     }
 
     /// Compute gradient of infill criterion objective expected to be minimized
@@ -417,6 +426,7 @@ where
         alpha: Option<f64>,
         scale: f64,
         scale_ic: f64,
+        sigma_weight: f64,
     ) -> Vec<f64> {
         let x_f = x.to_vec();
         let grad = -(self.config.infill_criterion.grad(
@@ -425,7 +435,7 @@ where
             fmin,
             viability_model,
             alpha,
-            None,
+            Some(sigma_weight),
             Some(scale_ic),
         ));
         (grad / scale).to_vec()
@@ -557,7 +567,16 @@ where
         sigma_weight: f64,
     ) -> Vec<f64> {
         if cstr_models.is_empty() {
-            self.eval_infill_obj_grad(x, obj_model, fmin, viability_model, alpha, scale, scale_ic)
+            self.eval_infill_obj_grad(
+                x,
+                obj_model,
+                fmin,
+                viability_model,
+                alpha,
+                scale,
+                scale_ic,
+                sigma_weight,
+            )
         } else {
             let composition = self.config.infill_criterion.composition();
 
@@ -571,6 +590,7 @@ where
                         alpha,
                         scale,
                         scale_ic,
+                        sigma_weight,
                     ))
                 } else {
                     // when no feasible point is found,
@@ -601,6 +621,7 @@ where
                             alpha,
                             scale,
                             scale_ic,
+                            sigma_weight,
                         )),
                     )
                 } else {
@@ -1002,6 +1023,76 @@ mod tests {
             .compute_virtual_point(&xk, &y, &[], &[])
             .unwrap();
         assert_eq!(virtual_point, vec![1., 0.3]);
+    }
+
+    #[test]
+    fn test_infill_obj_gradient_with_sigma_weight() {
+        // GP variance portfolio: the infill objective gradient takes the weight
+        // of the GP standard deviation into account as its value does
+        let obj_model = cstr_model();
+        let cstr_models: Vec<Box<dyn MixtureGpSurrogate>> = vec![Box::new(cstr_model())];
+        let cstr_tols = array![1e-4];
+        let x = [0.3, -1.1, 0.7];
+        let sigma_weight = 0.1;
+        let (pred, var) = obj_model.predict_valvar(&array![x]).unwrap();
+        // improvement of one weighted standard deviation
+        let fmin = pred[0] - sigma_weight * var[0].sqrt();
+        for strategy in [
+            InfillStrategy::EI,
+            InfillStrategy::LogEI,
+            InfillStrategy::WB2,
+        ] {
+            let config = EgorConfig::default()
+                .xtypes(&to_xtypes(&array![[-2., 2.], [-2., 2.], [-2., 2.]]))
+                .infill_strategy(strategy.clone())
+                .check()
+                .unwrap();
+            let solver: EgorSolver<GpMixtureParams<f64>, Cstr> = EgorSolver::new(config);
+            // without then with constraint models (probability of feasibility weighting)
+            for cstrs in [&cstr_models[..0], &cstr_models[..]] {
+                let value = |x: &[f64]| {
+                    solver.eval_cstr_infill_obj(
+                        x,
+                        &obj_model,
+                        cstrs,
+                        &cstr_tols,
+                        fmin,
+                        None,
+                        None,
+                        1.,
+                        1.,
+                        true,
+                        sigma_weight,
+                    )
+                };
+                let grad = solver.eval_cstr_infill_obj_grad(
+                    &x,
+                    &obj_model,
+                    cstrs,
+                    &cstr_tols,
+                    fmin,
+                    None,
+                    None,
+                    1.,
+                    1.,
+                    true,
+                    sigma_weight,
+                );
+                let e = 1e-6;
+                for k in 0..3 {
+                    let (mut xp, mut xm) = (x, x);
+                    xp[k] += e;
+                    xm[k] -= e;
+                    let fdiff = (value(&xp) - value(&xm)) / (2. * e);
+                    approx::assert_abs_diff_eq!(
+                        grad[k],
+                        fdiff,
+                        epsilon = 1e-2 * fdiff.abs() + 1e-6
+                    );
+                }
+                println!("{strategy:?} with {} cstr: {grad:?} ok", cstrs.len());
+            }
+        }
     }
 
     #[test]
