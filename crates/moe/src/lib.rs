@@ -81,7 +81,7 @@
 #![warn(rustdoc::broken_intra_doc_links)]
 mod clustering;
 mod errors;
-mod expertise_macros;
+mod experts;
 mod gaussian_mixture;
 mod surrogates;
 mod types;

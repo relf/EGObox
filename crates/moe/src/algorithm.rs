@@ -1,46 +1,32 @@
 use super::gaussian_mixture::GaussianMixture;
+use crate::GpType;
 use crate::clustering::{find_best_number_of_clusters, sort_by_cluster};
 use crate::errors::MoeError;
 use crate::errors::Result;
+use crate::experts::{
+    Expert, allowed_experts, cross_validation_error, gp_expert_params, sgp_expert_params,
+};
 use crate::parameters::{GpMixtureParams, GpMixtureValidParams};
 use crate::{GpMetrics, IaeAlphaPlotData, types::*};
-use crate::{GpType, expertise_macros::*};
 use crate::{NbClusters, surrogates::*};
 
-use egobox_gp::{GaussianProcess, SparseGaussianProcess, correlation_models::*, mean_models::*};
-use linfa::dataset::Records;
 use linfa::traits::{Fit, Predict, PredictInplace};
 use linfa::{Dataset, DatasetBase, Float, ParamGuard};
 use linfa_clustering::GaussianMixtureModel;
 use log::{debug, info, trace};
-use paste::paste;
 use std::cmp::Ordering;
 use std::ops::Sub;
 
-#[cfg(not(feature = "blas"))]
-use linfa_linalg::norm::*;
 use ndarray::{
     Array1, Array2, Array3, ArrayBase, ArrayView2, Axis, Data, Ix1, Ix2, Zip, concatenate, s,
 };
 
-#[cfg(feature = "blas")]
-use ndarray_linalg::Norm;
 use ndarray_rand::rand::Rng;
 use ndarray_stats::QuantileExt;
 
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Write;
-
-macro_rules! check_allowed {
-    ($spec:ident, $model_kind:ident, $model:ident, $list:ident) => {
-        paste! {
-            if $spec.contains([< $model_kind Spec>]::[< $model:upper >]) {
-                $list.push(stringify!($model));
-            }
-        }
-    };
-}
 
 impl<D: Data<Elem = f64>> Fit<ArrayBase<D, Ix2>, ArrayBase<D, Ix1>, MoeError>
     for GpMixtureValidParams<f64>
@@ -212,82 +198,48 @@ impl GpMixtureValidParams<f64> {
         let xtrain = data.slice(s![.., ..nx]).to_owned();
         let ytrain = data.slice(s![.., nx..]).to_owned();
         let mut dataset = Dataset::from((xtrain.clone(), ytrain.clone().remove_axis(Axis(1))));
-        let regression_spec = self.regression_spec();
-        let mut allowed_means = vec![];
-        check_allowed!(regression_spec, Regression, Constant, allowed_means);
-        check_allowed!(regression_spec, Regression, Linear, allowed_means);
-        check_allowed!(regression_spec, Regression, Quadratic, allowed_means);
-        let correlation_spec = self.correlation_spec();
-        let mut allowed_corrs = vec![];
-        check_allowed!(
-            correlation_spec,
-            Correlation,
-            SquaredExponential,
-            allowed_corrs
-        );
-        check_allowed!(
-            correlation_spec,
-            Correlation,
-            AbsoluteExponential,
-            allowed_corrs
-        );
-        check_allowed!(correlation_spec, Correlation, Matern32, allowed_corrs);
-        check_allowed!(correlation_spec, Correlation, Matern52, allowed_corrs);
+        let candidates = allowed_experts(self.regression_spec(), self.correlation_spec());
 
         debug!("Find best expert");
-        let best = if allowed_means.len() == 1 && allowed_corrs.len() == 1 {
-            (format!("{}_{}", allowed_means[0], allowed_corrs[0]), None) // shortcut
-        } else {
-            let mut map_error = Vec::new();
-            compute_errors!(self, allowed_means, allowed_corrs, dataset, map_error);
-            let errs: Vec<f64> = map_error.iter().map(|(_, err)| *err).collect();
-            debug!("Accuracies {map_error:?}");
-            let argmin = errs
-                .iter()
-                .enumerate()
-                .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(Ordering::Equal))
-                .map(|(index, _)| index)
-                .unwrap();
-            (map_error[argmin].0.clone(), Some(map_error[argmin].1))
+        let best = match candidates.as_slice() {
+            [] => {
+                return Err(MoeError::ExpertError(
+                    "No expert allowed by regression and correlation specs".to_string(),
+                ));
+            }
+            [expert] => (*expert, None), // shortcut
+            _ => {
+                let errors: Vec<(Expert, f64)> = candidates
+                    .iter()
+                    .map(|&expert| {
+                        let err = cross_validation_error(
+                            expert,
+                            self.kpls_dim(),
+                            self.noise_ratio(),
+                            &mut dataset,
+                        );
+                        (expert, err)
+                    })
+                    .collect();
+                debug!(
+                    "Accuracies {:?}",
+                    errors
+                        .iter()
+                        .map(|(expert, err)| (expert.to_string(), *err))
+                        .collect::<Vec<_>>()
+                );
+                let (expert, err) = errors
+                    .iter()
+                    .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(Ordering::Equal))
+                    .unwrap();
+                (*expert, Some(*err))
+            }
         };
         debug!("after Find best expert");
 
         let expert = match self.gp_type() {
             GpType::FullGp => {
-                let best_expert_params: std::result::Result<Box<dyn GpSurrogateParams>, MoeError> =
-                    match best.0.as_str() {
-                        "Constant_SquaredExponential" => {
-                            Ok(make_surrogate_params!(Constant, SquaredExponential))
-                        }
-                        "Constant_AbsoluteExponential" => {
-                            Ok(make_surrogate_params!(Constant, AbsoluteExponential))
-                        }
-                        "Constant_Matern32" => Ok(make_surrogate_params!(Constant, Matern32)),
-                        "Constant_Matern52" => Ok(make_surrogate_params!(Constant, Matern52)),
-                        "Linear_SquaredExponential" => {
-                            Ok(make_surrogate_params!(Linear, SquaredExponential))
-                        }
-                        "Linear_AbsoluteExponential" => {
-                            Ok(make_surrogate_params!(Linear, AbsoluteExponential))
-                        }
-                        "Linear_Matern32" => Ok(make_surrogate_params!(Linear, Matern32)),
-                        "Linear_Matern52" => Ok(make_surrogate_params!(Linear, Matern52)),
-                        "Quadratic_SquaredExponential" => {
-                            Ok(make_surrogate_params!(Quadratic, SquaredExponential))
-                        }
-                        "Quadratic_AbsoluteExponential" => {
-                            Ok(make_surrogate_params!(Quadratic, AbsoluteExponential))
-                        }
-                        "Quadratic_Matern32" => Ok(make_surrogate_params!(Quadratic, Matern32)),
-                        "Quadratic_Matern52" => Ok(make_surrogate_params!(Quadratic, Matern52)),
-                        _ => {
-                            return Err(MoeError::ExpertError(format!(
-                                "Unknown expert {}",
-                                best.0
-                            )));
-                        }
-                    };
-                let mut expert_params = best_expert_params?;
+                let mut expert_params = gp_expert_params(best.0);
                 expert_params.n_start(self.n_start());
                 expert_params.max_eval(self.max_eval());
                 expert_params.kpls_dim(self.kpls_dim());
@@ -306,25 +258,8 @@ impl GpMixtureValidParams<f64> {
                 sparse_method,
                 ..
             } => {
-                let inducings = inducings.to_owned();
-                let best_expert_params: std::result::Result<Box<dyn SgpSurrogateParams>, MoeError> =
-                    match best.0.as_str() {
-                        "Constant_SquaredExponential" => {
-                            Ok(make_sgp_surrogate_params!(SquaredExponential, inducings))
-                        }
-                        "Constant_AbsoluteExponential" => {
-                            Ok(make_sgp_surrogate_params!(AbsoluteExponential, inducings))
-                        }
-                        "Constant_Matern32" => Ok(make_sgp_surrogate_params!(Matern32, inducings)),
-                        "Constant_Matern52" => Ok(make_sgp_surrogate_params!(Matern52, inducings)),
-                        _ => {
-                            return Err(MoeError::ExpertError(format!(
-                                "Unknown expert {}",
-                                best.0
-                            )));
-                        }
-                    };
-                let mut expert_params = best_expert_params?;
+                let mut expert_params = sgp_expert_params(best.0, inducings.to_owned())
+                    .ok_or_else(|| MoeError::ExpertError(format!("Unknown expert {}", best.0)))?;
                 // a seed has to be drawn: drawing an Option may give None (entropy)
                 let seed = Some(self.rng().r#gen::<u64>());
                 debug!("Theta tuning = {:?}", self.theta_tunings());
@@ -1317,7 +1252,11 @@ mod tests {
     use argmin_testfunctions::rosenbrock;
     use egobox_doe::{Lhs, SamplingMethod};
     use egobox_gp::ParamTuning;
+    #[cfg(not(feature = "blas"))]
+    use linfa_linalg::norm::*;
     use ndarray::{Array, Array2, Zip, array};
+    #[cfg(feature = "blas")]
+    use ndarray_linalg::Norm;
     use ndarray_npy::write_npy;
     use ndarray_rand::RandomExt;
     use ndarray_rand::rand::SeedableRng;
@@ -1603,6 +1542,25 @@ mod tests {
                 .unwrap()
         };
         assert_eq!(train(), train());
+    }
+
+    #[test]
+    fn test_no_allowed_expert_is_an_error() {
+        let xt = array![[0.], [1.], [2.], [3.], [4.], [5.]];
+        let yt = xt.column(0).mapv(f64::sin);
+        for (regr, corr) in [
+            (RegressionSpec::empty(), CorrelationSpec::ALL),
+            (RegressionSpec::ALL, CorrelationSpec::empty()),
+        ] {
+            let res = GpMixture::params()
+                .regression_spec(regr)
+                .correlation_spec(corr)
+                .fit(&Dataset::new(xt.clone(), yt.clone()));
+            assert!(
+                matches!(res, Err(MoeError::ExpertError(_))),
+                "{regr:?}/{corr:?}"
+            );
+        }
     }
 
     #[test]
