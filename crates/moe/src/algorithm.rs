@@ -7,6 +7,7 @@ use crate::experts::{
     Expert, allowed_experts, cross_validation_error, gp_expert_params, sgp_expert_params,
 };
 use crate::parameters::{GpMixtureParams, GpMixtureValidParams};
+use crate::persistence::{read_model, write_model};
 use crate::{GpMetrics, IaeAlphaPlotData, types::*};
 use crate::{NbClusters, surrogates::*};
 
@@ -25,8 +26,6 @@ use ndarray_rand::rand::Rng;
 use ndarray_stats::QuantileExt;
 
 use serde::{Deserialize, Serialize};
-use std::fs;
-use std::io::Write;
 
 impl<D: Data<Elem = f64>> Fit<ArrayBase<D, Ix2>, ArrayBase<D, Ix1>, MoeError>
     for GpMixtureValidParams<f64>
@@ -442,18 +441,7 @@ impl GpSurrogate for GpMixture {
 
     /// Save Moe model in given file.
     fn save(&self, path: &str, format: GpFileFormat) -> Result<()> {
-        let mut file = fs::File::create(path)?;
-
-        let bytes = match format {
-            GpFileFormat::Json => serde_json::to_vec(self).map_err(MoeError::SaveJsonError)?,
-            GpFileFormat::Binary => {
-                bincode::serde::encode_to_vec(self, bincode::config::standard())
-                    .map_err(MoeError::SaveBinaryError)?
-            }
-        };
-        file.write_all(&bytes)?;
-
-        Ok(())
+        write_model(path, self, format)
     }
 }
 
@@ -1178,17 +1166,7 @@ impl GpMixture {
 
     /// Load Moe from the given file.
     pub fn load(path: &str, format: GpFileFormat) -> Result<Box<GpMixture>> {
-        let data = fs::read(path)?;
-        let moe = match format {
-            GpFileFormat::Json => serde_json::from_slice(&data).map_err(|err| {
-                MoeError::LoadError(format!("Error while loading from {path}: ({err})"))
-            })?,
-            GpFileFormat::Binary => {
-                bincode::serde::decode_from_slice(&data, bincode::config::standard())
-                    .map(|(surrogate, _)| surrogate)?
-            }
-        };
-        Ok(Box::new(moe))
+        read_model(path, format).map(Box::new)
     }
 }
 

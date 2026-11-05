@@ -4,10 +4,9 @@
 //! and format inference helpers.
 
 use anyhow::{Context, Result, anyhow};
-use egobox_moe::{GpMetric, GpMixture, MixintGpMixture, MixtureGpSurrogate};
+use egobox_moe::{GpMetric, MixtureGpSurrogate};
 use rayon::prelude::*;
 use std::collections::HashMap;
-use std::fs;
 use std::path::Path;
 
 use crate::{DataFormat, ModelFormat};
@@ -74,47 +73,9 @@ pub fn compute_metrics(
     res
 }
 
-/// Decode `data` as a `T` with bincode, all bytes being used: a saved
-/// `MixintGpMixture` must not be decoded as its leading `GpMixture` field
-fn decode_binary<T: serde::de::DeserializeOwned>(data: &[u8]) -> Option<T> {
-    bincode::serde::decode_from_slice(data, bincode::config::standard())
-        .ok()
-        .filter(|(_, read)| *read == data.len())
-        .map(|(res, _)| res)
-}
-
-/// Decode models saved as a vector of models (Egor, `gpx fit`)
-/// or as a single model (Python `Gpx` or `SparseGpx` `save()`)
-fn decode_binary_models(data: &[u8]) -> Result<Vec<Box<dyn MixtureGpSurrogate>>> {
-    decode_binary::<Vec<Box<dyn MixtureGpSurrogate>>>(data)
-        .or_else(|| decode_binary::<GpMixture>(data).map(|gp| vec![Box::new(gp) as _]))
-        .or_else(|| decode_binary::<MixintGpMixture>(data).map(|gp| vec![Box::new(gp) as _]))
-        .ok_or_else(|| anyhow!("cannot decode binary model"))
-}
-
-/// JSON counterpart of [decode_binary_models]
-fn decode_json_models(data: &[u8]) -> Result<Vec<Box<dyn MixtureGpSurrogate>>> {
-    serde_json::from_slice::<Vec<Box<dyn MixtureGpSurrogate>>>(data)
-        .ok()
-        .or_else(|| {
-            serde_json::from_slice::<GpMixture>(data)
-                .ok()
-                .map(|gp| vec![Box::new(gp) as _])
-        })
-        .or_else(|| {
-            serde_json::from_slice::<MixintGpMixture>(data)
-                .ok()
-                .map(|gp| vec![Box::new(gp) as _])
-        })
-        .ok_or_else(|| anyhow!("cannot decode JSON model"))
-}
-
+/// Load the models saved in the given file, see [egobox_moe::load_models]
 pub fn load_models(path: &str) -> Result<Vec<Box<dyn MixtureGpSurrogate>>> {
-    let data: Vec<u8> = fs::read(path).with_context(|| format!("cannot read model file {path}"))?;
-
-    decode_binary_models(&data)
-        .or_else(|_| decode_json_models(&data))
-        .map_err(|e| anyhow!("cannot decode model file {path}: {e}"))
+    egobox_moe::load_models(path).with_context(|| format!("cannot load model file {path}"))
 }
 
 pub fn select_model(
@@ -192,6 +153,7 @@ mod tests {
     use linfa::ParamGuard;
     use linfa::traits::Fit;
     use ndarray::{Array1, array};
+    use std::fs;
 
     #[test]
     fn test_load_mixint_model_saved_alone() {

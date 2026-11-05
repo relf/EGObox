@@ -1,14 +1,11 @@
 use crate::IaeAlphaPlotData;
 use crate::errors::Result;
+use crate::persistence::write_model;
 use crate::surrogates::*;
 use crate::types::*;
 use ndarray::{Array1, Array2, ArrayView2};
 
 use serde::{Deserialize, Serialize};
-
-use crate::MoeError;
-use std::fs;
-use std::io::Write;
 
 /// A wrapper surrogate applying an affine transform to another surrogate's predictions.
 ///
@@ -98,18 +95,7 @@ impl GpSurrogate for AffinedSurrogate {
     }
 
     fn save(&self, path: &str, format: GpFileFormat) -> Result<()> {
-        let mut file = fs::File::create(path)?;
-        let bytes = match format {
-            GpFileFormat::Json => {
-                serde_json::to_vec(self as &dyn GpSurrogate).map_err(MoeError::SaveJsonError)?
-            }
-            GpFileFormat::Binary => {
-                bincode::serde::encode_to_vec(self as &dyn GpSurrogate, bincode::config::standard())
-                    .map_err(MoeError::SaveBinaryError)?
-            }
-        };
-        file.write_all(&bytes)?;
-        Ok(())
+        write_model(path, self as &dyn GpSurrogate, format)
     }
 }
 
