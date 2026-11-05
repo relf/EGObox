@@ -48,7 +48,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for Recombination {
 #[gen_stub_pyclass]
 #[pyclass(skip_from_py_object, module = "egobox")]
 #[derive(Clone, Default, Debug)]
-pub(crate) struct RegressionSpec(pub(crate) u8);
+pub(crate) struct RegressionSpec;
 
 #[gen_stub_pymethods]
 #[pymethods]
@@ -133,6 +133,17 @@ impl<'a, 'py> FromPyObject<'a, 'py> for InfillStrategy {
     }
 }
 
+impl From<InfillStrategy> for egobox_ego::InfillStrategy {
+    fn from(value: InfillStrategy) -> Self {
+        match value {
+            InfillStrategy::Ei => egobox_ego::InfillStrategy::EI,
+            InfillStrategy::Wb2 => egobox_ego::InfillStrategy::WB2,
+            InfillStrategy::Wb2s => egobox_ego::InfillStrategy::WB2S,
+            InfillStrategy::LogEi => egobox_ego::InfillStrategy::LogEI,
+        }
+    }
+}
+
 /// ConstraintStrategy specifies the strategy to use for handling constraints in infill optimization.
 #[gen_stub_pyclass_enum]
 #[pyclass(
@@ -185,6 +196,15 @@ impl<'a, 'py> FromPyObject<'a, 'py> for ConstraintStrategy {
             Err(_) => Err(PyTypeError::new_err(
                 "cstr_strategy must be a ConstraintStrategy enum or an integer in [1, 2]",
             )),
+        }
+    }
+}
+
+impl From<ConstraintStrategy> for egobox_ego::ConstraintStrategy {
+    fn from(value: ConstraintStrategy) -> Self {
+        match value {
+            ConstraintStrategy::Mc => egobox_ego::ConstraintStrategy::MeanConstraint,
+            ConstraintStrategy::Utb => egobox_ego::ConstraintStrategy::UpperTrustBound,
         }
     }
 }
@@ -271,6 +291,17 @@ impl<'a, 'py> FromPyObject<'a, 'py> for QEiStrategy {
     }
 }
 
+impl From<QEiStrategy> for egobox_ego::QEiStrategy {
+    fn from(value: QEiStrategy) -> Self {
+        match value {
+            QEiStrategy::Kb => egobox_ego::QEiStrategy::KrigingBeliever,
+            QEiStrategy::Kblb => egobox_ego::QEiStrategy::KrigingBelieverLowerBound,
+            QEiStrategy::Kbub => egobox_ego::QEiStrategy::KrigingBelieverUpperBound,
+            QEiStrategy::Clmin => egobox_ego::QEiStrategy::ConstantLiarMinimum,
+        }
+    }
+}
+
 /// InfillOptimizer specifies the optimization algorithm to use for infill optimization.
 #[gen_stub_pyclass_enum]
 #[pyclass(
@@ -304,6 +335,15 @@ impl<'a, 'py> FromPyObject<'a, 'py> for InfillOptimizer {
             Err(_) => Err(PyTypeError::new_err(
                 "infill_optimizer must be an InfillOptimizer enum or an integer in [1, 2]",
             )),
+        }
+    }
+}
+
+impl From<InfillOptimizer> for egobox_ego::InfillOptimizer {
+    fn from(value: InfillOptimizer) -> Self {
+        match value {
+            InfillOptimizer::Cobyla => egobox_ego::InfillOptimizer::Cobyla,
+            InfillOptimizer::Slsqp => egobox_ego::InfillOptimizer::Slsqp,
         }
     }
 }
@@ -371,6 +411,16 @@ impl<'a, 'py> FromPyObject<'a, 'py> for FeasibleInfillStrategy {
     }
 }
 
+impl From<FeasibleInfillStrategy> for egobox_ego::FeasibleInfillStrategy {
+    fn from(value: FeasibleInfillStrategy) -> Self {
+        match value {
+            FeasibleInfillStrategy::None => egobox_ego::FeasibleInfillStrategy::None,
+            FeasibleInfillStrategy::EfiP => egobox_ego::FeasibleInfillStrategy::EfiP,
+            FeasibleInfillStrategy::EfiFe => egobox_ego::FeasibleInfillStrategy::EfiFe(0.3),
+        }
+    }
+}
+
 /// FailsafeStrategy specifies the strategy to use for handling failures during infill optimization.
 #[gen_stub_pyclass_enum]
 #[pyclass(
@@ -410,6 +460,16 @@ impl<'a, 'py> FromPyObject<'a, 'py> for FailsafeStrategy {
             Err(_) => Err(PyTypeError::new_err(
                 "failsafe_strategy must be a FailsafeStrategy enum or an integer in [1, 3]",
             )),
+        }
+    }
+}
+
+impl From<FailsafeStrategy> for egobox_ego::FailsafeStrategy {
+    fn from(value: FailsafeStrategy) -> Self {
+        match value {
+            FailsafeStrategy::Rejection => egobox_ego::FailsafeStrategy::Rejection,
+            FailsafeStrategy::Imputation => egobox_ego::FailsafeStrategy::Imputation,
+            FailsafeStrategy::Viability => egobox_ego::FailsafeStrategy::Viability,
         }
     }
 }
@@ -567,6 +627,15 @@ impl<'a, 'py> FromPyObject<'a, 'py> for SparseMethod {
             Err(_) => Err(PyTypeError::new_err(
                 "method must be a SparseMethod enum or an integer in [1, 2]",
             )),
+        }
+    }
+}
+
+impl From<SparseMethod> for egobox_gp::SparseMethod {
+    fn from(value: SparseMethod) -> Self {
+        match value {
+            SparseMethod::Fitc => egobox_gp::SparseMethod::Fitc,
+            SparseMethod::Vfe => egobox_gp::SparseMethod::Vfe,
         }
     }
 }

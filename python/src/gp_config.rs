@@ -1,4 +1,9 @@
+use std::cmp::Ordering;
+
 use crate::types::*;
+use egobox_moe::{NbClusters, ThetaTuning};
+use ndarray::{Array1, array};
+use ndarray_rand::rand::SeedableRng;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict};
@@ -183,6 +188,61 @@ impl GpConfig {
         }
         validate_corr_spec(self.corr_spec)?;
         validate_theta(self.theta_init.as_ref(), self.theta_bounds.as_ref())
+    }
+
+    /// Regression models of the experts
+    pub(crate) fn regression_spec(&self) -> egobox_moe::RegressionSpec {
+        egobox_moe::RegressionSpec::from_bits(self.regr_spec).unwrap()
+    }
+
+    /// Correlation models of the experts
+    pub(crate) fn correlation_spec(&self) -> egobox_moe::CorrelationSpec {
+        egobox_moe::CorrelationSpec::from_bits(self.corr_spec).unwrap()
+    }
+
+    /// Number of clusters: fixed when positive, automatic when 0,
+    /// automatic within [1, -n_clusters] when negative
+    pub(crate) fn n_clusters(&self) -> NbClusters {
+        match self.n_clusters.cmp(&0) {
+            Ordering::Greater => NbClusters::fixed(self.n_clusters as usize),
+            Ordering::Equal => NbClusters::auto(),
+            Ordering::Less => NbClusters::automax(-self.n_clusters as usize),
+        }
+    }
+
+    /// Theta hyperparameters tuning from `theta_init` and `theta_bounds`
+    pub(crate) fn theta_tuning(&self) -> ThetaTuning<f64> {
+        theta_tuning(self.theta_init.as_ref(), self.theta_bounds.as_ref())
+    }
+}
+
+/// Theta hyperparameters tuning: the default one, with the given initial values
+/// and bounds when specified
+pub(crate) fn theta_tuning(
+    theta_init: Option<&Vec<f64>>,
+    theta_bounds: Option<&Vec<Vec<f64>>>,
+) -> ThetaTuning<f64> {
+    let mut theta_tuning = ThetaTuning::<f64>::default();
+    if let Some(init) = theta_init {
+        theta_tuning = ThetaTuning::Full {
+            init: Array1::from_vec(init.to_vec()),
+            bounds: array![ThetaTuning::<f64>::DEFAULT_BOUNDS],
+        }
+    }
+    if let Some(bounds) = theta_bounds {
+        theta_tuning = ThetaTuning::Full {
+            init: theta_tuning.init().to_owned(),
+            bounds: bounds.iter().map(|v| (v[0], v[1])).collect(),
+        }
+    }
+    theta_tuning
+}
+
+/// Random generator seeded with `seed` when given, from entropy otherwise
+pub(crate) fn seeded_rng(seed: Option<u64>) -> rand_xoshiro::Xoshiro256Plus {
+    match seed {
+        Some(seed) => rand_xoshiro::Xoshiro256Plus::seed_from_u64(seed),
+        None => rand_xoshiro::Xoshiro256Plus::from_entropy(),
     }
 }
 

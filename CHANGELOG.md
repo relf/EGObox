@@ -33,6 +33,8 @@
   loads models whatever the format (binary or JSON) and the content (several models, a single `GpMixture`
   or `MixintGpMixture`). `egobox_ego::load_gp_models()` and `gpx` use them, so `load_gp_models()` also
   loads single model and JSON files by @relf in <https://github.com/relf/EGObox/pull/544>
+* Constraint specs with several objectives: `egobox_ego::transform_constraints_at()` transforms raw
+  constraint values given `n_obj` leading objective columns by @relf in <https://github.com/relf/EGObox/pull/548>
 * GP performance, following GpFlash (Marchildon 2026):
   * Fused posterior value, variance and gradients predictions (`predict_valvar_with_gradients()`):
     infill criteria gradients 1.6–1.8× faster by @relf in <https://github.com/relf/EGObox/pull/491>
