@@ -1,31 +1,31 @@
-use crate::errors::Result;
-use std::fs;
-use std::io::Write;
+use crate::errors::{EgoError, Result};
+use egobox_moe::{GpFileFormat, MixtureGpSurrogate, MoeError};
 use std::path::Path;
 
-/// Save models in a bincode file
-pub fn save_gp_models<P: AsRef<Path>>(
-    path: P,
-    models: &[Box<dyn egobox_moe::MixtureGpSurrogate>],
-) -> Result<()> {
-    let mut file = fs::File::create(path)?;
-
-    let bytes = bincode::serde::encode_to_vec(models, bincode::config::standard())?;
-    file.write_all(&bytes)?;
-
-    Ok(())
+/// Keep the error variants of the former implementation
+fn ego_error(err: MoeError) -> EgoError {
+    match err {
+        MoeError::LoadIoError(err) => EgoError::IoError(err),
+        MoeError::SaveBinaryError(err) => EgoError::SaveBinaryError(err),
+        err => EgoError::MoeError(err),
+    }
 }
 
-/// Load models from a bincode file
-pub fn load_gp_models<P: AsRef<Path>>(
+/// Save models in a bincode file
+///
+/// See [egobox_moe::save_models]
+pub fn save_gp_models<P: AsRef<Path>>(
     path: P,
-) -> Result<Vec<Box<dyn egobox_moe::MixtureGpSurrogate>>> {
-    let data: Vec<u8> = std::fs::read(path)?;
-    let models: Vec<Box<dyn egobox_moe::MixtureGpSurrogate>> =
-        bincode::serde::decode_from_slice(&data, bincode::config::standard())
-            .map(|(res, _)| res)?;
+    models: &[Box<dyn MixtureGpSurrogate>],
+) -> Result<()> {
+    egobox_moe::save_models(path, models, GpFileFormat::Binary).map_err(ego_error)
+}
 
-    Ok(models)
+/// Load models from a file saved by `Egor` (GP models of the iterations)
+///
+/// Any file accepted by [egobox_moe::load_models] is loaded.
+pub fn load_gp_models<P: AsRef<Path>>(path: P) -> Result<Vec<Box<dyn MixtureGpSurrogate>>> {
+    egobox_moe::load_models(path).map_err(ego_error)
 }
 
 #[cfg(test)]

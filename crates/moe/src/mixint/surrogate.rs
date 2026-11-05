@@ -1,6 +1,7 @@
 //! Mixed-integer mixture of Gaussian processes
 
 use crate::errors::{MoeError, Result};
+use crate::persistence::{read_model, write_model};
 use crate::xtypes::{XType, discrete};
 use crate::{
     Clustered, Clustering, FullGpSurrogate, GpMetrics, GpMixture, GpMixtureParams,
@@ -14,9 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use super::space::cast_to_model_space;
 use super::{MixintGpMixtureParams, MixintGpMixtureValidParams};
-use crate::{GpFileFormat, MoeError as MoeErrorType};
-use std::fs;
-use std::io::Write;
+use crate::GpFileFormat;
 
 /// The Moe model that takes into account XType specifications
 #[derive(Serialize, Deserialize, Clone)]
@@ -101,16 +100,7 @@ impl GpSurrogate for MixintGpMixture {
 
     /// Save Moe model in given file.
     fn save(&self, path: &str, format: GpFileFormat) -> Result<()> {
-        let mut file = fs::File::create(path)?;
-        let bytes = match format {
-            GpFileFormat::Json => serde_json::to_vec(self).map_err(MoeErrorType::SaveJsonError)?,
-            GpFileFormat::Binary => {
-                bincode::serde::encode_to_vec(self, bincode::config::standard())
-                    .map_err(MoeErrorType::SaveBinaryError)?
-            }
-        };
-        file.write_all(&bytes)?;
-        Ok(())
+        write_model(path, self, format)
     }
 }
 
@@ -184,17 +174,7 @@ impl MixintGpMixture {
 
     /// Load MixintGpMixture from given file.
     pub fn load(path: &str, format: GpFileFormat) -> Result<Box<MixintGpMixture>> {
-        let data = fs::read(path)?;
-        let moe = match format {
-            GpFileFormat::Json => serde_json::from_slice(&data).map_err(|err| {
-                MoeErrorType::LoadError(format!("Error while loading from {path}: ({err})"))
-            })?,
-            GpFileFormat::Binary => {
-                bincode::serde::decode_from_slice(&data, bincode::config::standard())
-                    .map(|(surrogate, _)| surrogate)?
-            }
-        };
-        Ok(Box::new(moe))
+        read_model(path, format).map(Box::new)
     }
 }
 

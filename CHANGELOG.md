@@ -29,6 +29,10 @@
   around the best point (`TregoStrategy::local_gp()`, `local_gp_min_points()`) and/or minimization of
   the objective posterior mean instead of the infill criterion (`TregoStrategy::local_mean()`)
   by @relf in <https://github.com/relf/EGObox/pull/506>
+* Model files: `egobox_moe::save_models()` saves several models in one file, `egobox_moe::load_models()`
+  loads models whatever the format (binary or JSON) and the content (several models, a single `GpMixture`
+  or `MixintGpMixture`). `egobox_ego::load_gp_models()` and `gpx` use them, so `load_gp_models()` also
+  loads single model and JSON files by @relf in <https://github.com/relf/EGObox/pull/544>
 * GP performance, following GpFlash (Marchildon 2026):
   * Fused posterior value, variance and gradients predictions (`predict_valvar_with_gradients()`):
     infill criteria gradients 1.6–1.8× faster by @relf in <https://github.com/relf/EGObox/pull/491>
@@ -65,6 +69,8 @@
   of the seeds, experts being seeded from entropy, and sparse GP fit panicking when a likelihood trial gives
   a non positive definite inducing points covariance (rejected instead). Sparse GP mixtures trained with a
   given seed give different results than before by @relf in <https://github.com/relf/EGObox/pull/541>
+* Fix GP and sparse GP surrogates (experts of mixtures) `save()` panicking when the file cannot be created:
+  an error is returned instead by @relf in <https://github.com/relf/EGObox/pull/544>
 
 ## Version 1.0.0 - 12/10/2026
 

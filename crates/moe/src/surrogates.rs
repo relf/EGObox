@@ -1,4 +1,5 @@
 use crate::errors::Result;
+use crate::persistence::{read_model, write_model};
 use crate::types::GpFileFormat;
 use egobox_gp::{
     GaussianProcess, GpParams, ParamTuning, SgpParams, SparseGaussianProcess, SparseMethod,
@@ -11,8 +12,6 @@ use paste::paste;
 use serde::{Deserialize, Serialize};
 
 use crate::MoeError;
-use std::fs;
-use std::io::Write;
 /// A trait for Gp surrogate parameters to build surrogate.
 pub trait GpSurrogateParams {
     /// Set theta
@@ -204,17 +203,7 @@ macro_rules! declare_surrogate {
                 }
 
                 fn save(&self, path: &str, format: GpFileFormat) -> Result<()> {
-                    let mut file = fs::File::create(path).unwrap();
-                    let bytes = match format {
-                        GpFileFormat::Json => serde_json::to_vec(self as &dyn GpSurrogate)
-                            .map_err(MoeError::SaveJsonError)?,
-                        GpFileFormat::Binary => {
-                            bincode::serde::encode_to_vec(self as &dyn GpSurrogate, bincode::config::standard()).map_err(MoeError::SaveBinaryError)?
-                        }
-                    };
-                    file.write_all(&bytes)?;
-
-                    Ok(())
+                    write_model(path, self as &dyn GpSurrogate, format)
                 }
 
             }
@@ -387,16 +376,7 @@ macro_rules! declare_sgp_surrogate {
                 }
 
                 fn save(&self, path: &str, format: GpFileFormat) -> Result<()> {
-                    let mut file = fs::File::create(path).unwrap();
-                    let bytes = match format {
-                        GpFileFormat::Json => serde_json::to_vec(self as &dyn SgpSurrogate)
-                            .map_err(MoeError::SaveJsonError)?,
-                        GpFileFormat::Binary => {
-                            bincode::serde::encode_to_vec(self as &dyn SgpSurrogate, bincode::config::standard()).map_err(MoeError::SaveBinaryError)?
-                        }
-                    };
-                    file.write_all(&bytes)?;
-                    Ok(())
+                    write_model(path, self as &dyn SgpSurrogate, format)
                 }
             }
 
@@ -483,20 +463,13 @@ declare_sgp_surrogate!(Matern52);
 
 /// Load GP surrogate from given json file.
 pub fn load(path: &str, format: GpFileFormat) -> Result<Box<dyn GpSurrogate>> {
-    let data = fs::read(path)?;
-    match format {
-        GpFileFormat::Json => {
-            serde_json::from_slice::<Box<dyn GpSurrogate>>(&data).map_err(|err| {
-                MoeError::LoadError(format!("Error while loading from {path}: ({err})"))
-            })
+    read_model(path, format).map_err(|err| match err {
+        // binary errors are load errors too here
+        MoeError::LoadBinaryError(err) => {
+            MoeError::LoadError(format!("Error while loading from {path} ({err})"))
         }
-        GpFileFormat::Binary => bincode::serde::decode_from_slice::<Box<dyn GpSurrogate>, _>(
-            &data,
-            bincode::config::standard(),
-        )
-        .map(|(surrogate, _)| surrogate)
-        .map_err(|err| MoeError::LoadError(format!("Error while loading from {path} ({err})"))),
-    }
+        err => err,
+    })
 }
 
 #[doc(hidden)]
@@ -572,5 +545,24 @@ mod tests {
     fn test_load_fail() {
         let gp = load("notfound.json", GpFileFormat::Json);
         assert!(gp.is_err());
+    }
+
+    #[test]
+    fn test_save_in_missing_dir_is_an_error() {
+        let xt = Lhs::new(&array![[0., 25.]]).sample(20);
+        let yt = xsinx(&xt).insert_axis(Axis(1));
+        let gp = make_surrogate_params!(Constant, SquaredExponential)
+            .train(&xt.view(), &yt.view())
+            .expect("GP fit error");
+        let inducings = egobox_gp::Inducings::Located(xt.slice(ndarray::s![..5, ..]).to_owned());
+        let sgp = make_sgp_surrogate_params!(SquaredExponential, inducings)
+            .train(&xt.view(), &yt.view())
+            .expect("SGP fit error");
+        for surrogate in [gp, sgp] {
+            for format in [GpFileFormat::Json, GpFileFormat::Binary] {
+                let res = surrogate.save("target/tests/missing_dir/gp.json", format);
+                assert!(res.is_err(), "{surrogate}");
+            }
+        }
     }
 }

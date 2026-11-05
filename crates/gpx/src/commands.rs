@@ -3,8 +3,10 @@
 //! Each public function in this module implements one CLI subcommand
 //! workflow (`fit`, `qa`, `spec`, `predict`, `py`).
 
-use anyhow::{Result, anyhow, bail};
-use egobox_moe::{GpMixture, MixtureGpSurrogate, NbClusters, Recombination};
+use anyhow::{Context, Result, anyhow, bail};
+use egobox_moe::{
+    GpFileFormat, GpMixture, MixtureGpSurrogate, NbClusters, Recombination, save_models,
+};
 use linfa::Dataset;
 use linfa::traits::Fit;
 use ndarray::Array2;
@@ -129,18 +131,12 @@ pub fn run_fit(
         gp_models.push(Box::new(gp) as Box<dyn MixtureGpSurrogate>);
     }
 
-    match format {
-        ModelFormat::Binary => {
-            let bytes = bincode::serde::encode_to_vec(&gp_models, bincode::config::standard())
-                .map_err(|e| anyhow!("cannot serialize trained model(s) to binary: {e}"))?;
-            fs::write(output, bytes)?;
-        }
-        ModelFormat::Json => {
-            let text = serde_json::to_string_pretty(&gp_models)
-                .map_err(|e| anyhow!("cannot serialize trained model(s) to JSON: {e}"))?;
-            fs::write(output, text)?;
-        }
-    }
+    let file_format = match format {
+        ModelFormat::Binary => GpFileFormat::Binary,
+        ModelFormat::Json => GpFileFormat::Json,
+    };
+    save_models(output, &gp_models, file_format)
+        .with_context(|| format!("cannot save trained model(s) to {output}"))?;
 
     let nx = x.ncols();
     let ny = y_all.ncols();
