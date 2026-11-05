@@ -61,6 +61,10 @@
 * Fix `gpx` loading of a model saved by Python `Gpx.save()`: JSON file rejected, binary file read as its
   inner mixture without the mixed-integer input handling. `AffinedSurrogate::save()` returns an error
   instead of panicking when the file cannot be created by @relf in <https://github.com/relf/EGObox/pull/539>
+* Fix seeded sparse GP mixtures (`GpType::SparseGp`, Python `SparseGpMix`) not reproducible for about half
+  of the seeds, experts being seeded from entropy, and sparse GP fit panicking when a likelihood trial gives
+  a non positive definite inducing points covariance (rejected instead). Sparse GP mixtures trained with a
+  given seed give different results than before by @relf in <https://github.com/relf/EGObox/pull/541>
 
 ## Version 1.0.0 - 12/10/2026
 

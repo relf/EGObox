@@ -627,14 +627,12 @@ impl<F: Float, Corr: CorrelationModel<F>> SgpValidParams<F, Corr> {
         z: &Array2<F>,
         nugget: F,
     ) -> Result<(F, WoodburyData<F>)> {
-        let (likelihood, w_data) = match self.method() {
+        match self.method() {
             SparseMethod::Fitc => {
                 self.fitc(theta, sigma2, noise, w_star, xtrain, ytrain, z, nugget)
             }
             SparseMethod::Vfe => self.vfe(theta, sigma2, noise, w_star, xtrain, ytrain, z, nugget),
-        };
-
-        Ok((likelihood, w_data))
+        }
     }
 
     /// Compute covariance matrix between a and b matrices
@@ -667,19 +665,17 @@ impl<F: Float, Corr: CorrelationModel<F>> SgpValidParams<F, Corr> {
         ytrain: &ArrayView2<F>,
         z: &Array2<F>,
         nugget: F,
-    ) -> (F, WoodburyData<F>) {
+    ) -> Result<(F, WoodburyData<F>)> {
         let nz = z.nrows();
         let knn = Array1::from_elem(xtrain.nrows(), sigma2);
         let kmm = self.compute_k(z, z, w_star, theta, sigma2) + Array::eye(nz) * nugget;
         let kmn = self.compute_k(z, xtrain, w_star, theta, sigma2);
 
         // Compute (lower) Cholesky decomposition: Kmm = U U^T
-        let u = kmm.cholesky().unwrap();
+        let u = kmm.cholesky()?;
 
         // Compute cholesky decomposition: Qnn = V^T V
-        let ui = u
-            .solve_triangular(&Array::eye(u.nrows()), UPLO::Lower)
-            .unwrap();
+        let ui = u.solve_triangular(&Array::eye(u.nrows()), UPLO::Lower)?;
         let v = ui.dot(&kmn);
 
         // Assumption on the gaussian noise on training outputs
@@ -695,10 +691,8 @@ impl<F: Float, Corr: CorrelationModel<F>> SgpValidParams<F, Corr> {
         // Compute (lower) Cholesky decomposition: A = I + V diag(beta) V^T = L L^T
         let a = Array::eye(nz) + &(v.to_owned() * beta.to_owned().insert_axis(Axis(0))).dot(&v.t());
 
-        let l = a.cholesky().unwrap();
-        let li = l
-            .solve_triangular(&Array::eye(l.nrows()), UPLO::Lower)
-            .unwrap();
+        let l = a.cholesky()?;
+        let li = l.solve_triangular(&Array::eye(l.nrows()), UPLO::Lower)?;
 
         // Compute a and b
         let a = einsum("ij,i->ij", &[ytrain, &beta])
@@ -726,7 +720,7 @@ impl<F: Float, Corr: CorrelationModel<F>> SgpValidParams<F, Corr> {
             inv: (ui.t()).dot(&ui) - li_ui_t.dot(&li_ui),
         };
 
-        (likelihood, w_data)
+        Ok((likelihood, w_data))
     }
 
     /// VFE method
@@ -741,19 +735,17 @@ impl<F: Float, Corr: CorrelationModel<F>> SgpValidParams<F, Corr> {
         ytrain: &ArrayView2<F>,
         z: &Array2<F>,
         nugget: F,
-    ) -> (F, WoodburyData<F>) {
+    ) -> Result<(F, WoodburyData<F>)> {
         // Compute: Kmm and Kmn
         let nz = z.nrows();
         let kmm = self.compute_k(z, z, w_star, theta, sigma2) + Array::eye(nz) * nugget;
         let kmn = self.compute_k(z, xtrain, w_star, theta, sigma2);
 
         // Compute cholesky decomposition: Kmm = U U^T
-        let u = kmm.cholesky().unwrap();
+        let u = kmm.cholesky()?;
 
         // Compute cholesky decomposition: Qnn = V^T V
-        let ui = u
-            .solve_triangular(&Array::eye(u.nrows()), UPLO::Lower)
-            .unwrap();
+        let ui = u.solve_triangular(&Array::eye(u.nrows()), UPLO::Lower)?;
         let v = ui.dot(&kmn);
 
         // Compute beta, the effective noise precision
@@ -764,10 +756,8 @@ impl<F: Float, Corr: CorrelationModel<F>> SgpValidParams<F, Corr> {
 
         // Compute cholesky decomposition: B = I + A = L L^T
         let b: Array2<F> = Array::eye(nz) + &a;
-        let l = b.cholesky().unwrap();
-        let li = l
-            .solve_triangular(&Array::eye(l.nrows()), UPLO::Lower)
-            .unwrap();
+        let l = b.cholesky()?;
+        let li = l.solve_triangular(&Array::eye(l.nrows()), UPLO::Lower)?;
 
         // Compute b
         let b = li.dot(&v).dot(ytrain).mapv(|v| v * beta);
@@ -791,7 +781,7 @@ impl<F: Float, Corr: CorrelationModel<F>> SgpValidParams<F, Corr> {
             inv: ui.t().dot(&bi).dot(&ui),
         };
 
-        (likelihood, w_data)
+        Ok((likelihood, w_data))
     }
 }
 
@@ -1107,5 +1097,27 @@ mod tests {
         let _sgp = SparseKriging::params(Inducings::Randomized(n_inducings))
             .fit(&Dataset::new(xt.clone(), yt.clone()))
             .expect("GP fitted");
+    }
+
+    #[test]
+    fn test_fit_with_singular_inducing_covariance_trials() {
+        // Some theta values tried by the likelihood optimization give a non positive
+        // definite inducing points covariance: they have to be rejected, not panic
+        use egobox_doe::{Lhs, SamplingMethod};
+        use ndarray_rand::rand::Rng;
+        let xt = Lhs::new(&array![[0., 25.]])
+            .with_rng(Xoshiro256Plus::seed_from_u64(42))
+            .sample(100);
+        let yt = xt
+            .mapv(|x| (x - 3.5) * ((x - 3.5) / PI).sin())
+            .remove_axis(Axis(1));
+        let seed = Xoshiro256Plus::seed_from_u64(42).r#gen::<u64>();
+        for method in [SparseMethod::Fitc, SparseMethod::Vfe] {
+            let res = SparseKriging::params(Inducings::Randomized(10))
+                .sparse_method(method)
+                .seed(Some(seed))
+                .fit(&Dataset::new(xt.clone(), yt.clone()));
+            assert!(res.is_ok(), "{method:?}: {:?}", res.err());
+        }
     }
 }

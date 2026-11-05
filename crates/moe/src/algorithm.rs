@@ -325,7 +325,8 @@ impl GpMixtureValidParams<f64> {
                         }
                     };
                 let mut expert_params = best_expert_params?;
-                let seed = self.rng().r#gen();
+                // a seed has to be drawn: drawing an Option may give None (entropy)
+                let seed = Some(self.rng().r#gen::<u64>());
                 debug!("Theta tuning = {:?}", self.theta_tunings());
                 expert_params.sparse_method(*sparse_method);
                 expert_params.seed(seed);
@@ -1577,6 +1578,31 @@ mod tests {
             !best_expert.to_string().starts_with("Quadratic"),
             "Best expert {best_expert}"
         );
+    }
+
+    #[test]
+    fn test_sparse_mixture_seeded_training_is_reproducible() {
+        // seed 42 used to draw no seed for the sparse GP expert (entropy)
+        let xlimits = array![[0., 25.]];
+        let (data, _) = lhs_data(&xlimits, 100, |x| {
+            (x[0] - 3.5) * ((x[0] - 3.5) / std::f64::consts::PI).sin()
+        });
+        let xt = data.slice(s![.., ..1]).to_owned();
+        let yt = data.column(1).to_owned();
+        let xtest = array![[1.], [7.5], [12.3], [20.]];
+        let train = || {
+            GpMixture::params()
+                .gp_type(GpType::SparseGp {
+                    sparse_method: egobox_gp::SparseMethod::Fitc,
+                    inducings: egobox_gp::Inducings::Randomized(10),
+                })
+                .with_rng(Xoshiro256Plus::seed_from_u64(42))
+                .fit(&Dataset::new(xt.clone(), yt.clone()))
+                .unwrap()
+                .predict(&xtest)
+                .unwrap()
+        };
+        assert_eq!(train(), train());
     }
 
     #[test]
