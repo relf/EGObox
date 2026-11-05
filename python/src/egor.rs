@@ -20,15 +20,13 @@ use crate::trego_config::{TregoConfig, TregoConfigSpec};
 use crate::types::*;
 
 use egobox_ego::{CoegoStatus, EGO_DEFAULT_N_START, InfillObjData, find_best_result_index};
-use egobox_gp::ThetaTuning;
-use egobox_moe::{NbClusters, to_continuous_space};
-use ndarray::{Array1, Array2, ArrayView2, Axis, array, concatenate};
+use egobox_moe::to_continuous_space;
+use ndarray::{Array1, Array2, ArrayView2, Axis, concatenate};
 use numpy::{IntoPyArray, PyArray2, PyReadonlyArray2, PyReadonlyArrayDyn, ToPyArray};
 use pyo3::exceptions::{PyKeyboardInterrupt, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyTuple};
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
-use std::cmp::Ordering;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 
@@ -962,62 +960,6 @@ impl Egor {
         Ok(x_suggested.to_pyarray(py).into())
     }
 
-    fn n_clusters(&self) -> NbClusters {
-        match self.gp_config.n_clusters.cmp(&0) {
-            Ordering::Greater => NbClusters::fixed(self.gp_config.n_clusters as usize),
-            Ordering::Equal => NbClusters::auto(),
-            Ordering::Less => NbClusters::automax(-self.gp_config.n_clusters as usize),
-        }
-    }
-
-    fn infill_strategy(&self) -> egobox_ego::InfillStrategy {
-        match self.infill_strategy {
-            InfillStrategy::Ei => egobox_ego::InfillStrategy::EI,
-            InfillStrategy::Wb2 => egobox_ego::InfillStrategy::WB2,
-            InfillStrategy::Wb2s => egobox_ego::InfillStrategy::WB2S,
-            InfillStrategy::LogEi => egobox_ego::InfillStrategy::LogEI,
-        }
-    }
-
-    fn feasible_infill_strategy(&self) -> egobox_ego::FeasibleInfillStrategy {
-        match self.feasible_infill_strategy {
-            FeasibleInfillStrategy::None => egobox_ego::FeasibleInfillStrategy::None,
-            FeasibleInfillStrategy::EfiP => egobox_ego::FeasibleInfillStrategy::EfiP,
-            FeasibleInfillStrategy::EfiFe => egobox_ego::FeasibleInfillStrategy::EfiFe(0.3),
-        }
-    }
-
-    fn cstr_strategy(&self) -> egobox_ego::ConstraintStrategy {
-        match self.cstr_strategy {
-            ConstraintStrategy::Mc => egobox_ego::ConstraintStrategy::MeanConstraint,
-            ConstraintStrategy::Utb => egobox_ego::ConstraintStrategy::UpperTrustBound,
-        }
-    }
-
-    fn qei_strategy(&self) -> egobox_ego::QEiStrategy {
-        match self.qei_config.strategy {
-            QEiStrategy::Kb => egobox_ego::QEiStrategy::KrigingBeliever,
-            QEiStrategy::Kblb => egobox_ego::QEiStrategy::KrigingBelieverLowerBound,
-            QEiStrategy::Kbub => egobox_ego::QEiStrategy::KrigingBelieverUpperBound,
-            QEiStrategy::Clmin => egobox_ego::QEiStrategy::ConstantLiarMinimum,
-        }
-    }
-
-    fn infill_optimizer(&self) -> egobox_ego::InfillOptimizer {
-        match self.infill_optimizer {
-            InfillOptimizer::Cobyla => egobox_ego::InfillOptimizer::Cobyla,
-            InfillOptimizer::Slsqp => egobox_ego::InfillOptimizer::Slsqp,
-        }
-    }
-
-    fn failsafe_strategy(&self) -> egobox_ego::FailsafeStrategy {
-        match self.failsafe_strategy {
-            FailsafeStrategy::Rejection => egobox_ego::FailsafeStrategy::Rejection,
-            FailsafeStrategy::Imputation => egobox_ego::FailsafeStrategy::Imputation,
-            FailsafeStrategy::Viability => egobox_ego::FailsafeStrategy::Viability,
-        }
-    }
-
     /// Index of the best row of `y_doe` [obj, cstr_1, ... cstr_n_cstr] holding raw constraint values,
     /// interpreted with `cstr_specs` (if any) and their tolerances, as the optimizer does.
     fn best_row_index(&self, y_doe: &ArrayView2<f64>) -> PyResult<usize> {
@@ -1080,28 +1022,12 @@ impl Egor {
         Some(tol)
     }
 
+    /// Experts recombination, with a fixed heaviside factor (optimized at fit by GpMix)
     fn recombination(&self) -> egobox_moe::Recombination<f64> {
         match self.gp_config.recombination {
             Recombination::Hard => egobox_moe::Recombination::Hard,
             Recombination::Smooth => egobox_moe::Recombination::Smooth(Some(1.0)),
         }
-    }
-
-    fn theta_tuning(&self) -> ThetaTuning<f64> {
-        let mut theta_tuning = ThetaTuning::<f64>::default();
-        if let Some(init) = self.gp_config.theta_init.as_ref() {
-            theta_tuning = ThetaTuning::Full {
-                init: Array1::from_vec(init.to_vec()),
-                bounds: array![ThetaTuning::<f64>::DEFAULT_BOUNDS],
-            }
-        }
-        if let Some(bounds) = self.gp_config.theta_bounds.as_ref() {
-            theta_tuning = ThetaTuning::Full {
-                init: theta_tuning.init().to_owned(),
-                bounds: bounds.iter().map(|v| (v[0], v[1])).collect(),
-            }
-        }
-        theta_tuning
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1118,12 +1044,6 @@ impl Egor {
         timeout: Option<f64>,
         stop_on_error: bool,
     ) -> egobox_ego::EgorConfig {
-        let infill_strategy = self.infill_strategy();
-        let feasible_infill_strategy = self.feasible_infill_strategy();
-        let cstr_strategy = self.cstr_strategy();
-        let qei_strategy = self.qei_strategy();
-        let infill_optimizer = self.infill_optimizer();
-        let failsafe_strategy = self.failsafe_strategy();
         let coego_status = if self.coego_n_coop == 0 {
             CoegoStatus::Disabled
         } else {
@@ -1149,33 +1069,31 @@ impl Egor {
 
         let mut config = config
             .configure_gp(|gp| {
-                let regr = RegressionSpec(self.gp_config.regr_spec);
-                let corr = CorrelationSpec(self.gp_config.corr_spec);
-                gp.regression_spec(egobox_moe::RegressionSpec::from_bits(regr.0).unwrap())
-                    .correlation_spec(egobox_moe::CorrelationSpec::from_bits(corr.0).unwrap())
+                gp.regression_spec(self.gp_config.regression_spec())
+                    .correlation_spec(self.gp_config.correlation_spec())
                     .kpls_dim(self.gp_config.kpls_dim)
-                    .n_clusters(self.n_clusters())
+                    .n_clusters(self.gp_config.n_clusters())
                     .recombination(self.recombination())
-                    .theta_tuning(self.theta_tuning())
+                    .theta_tuning(self.gp_config.theta_tuning())
                     .n_start(self.gp_config.theta_n_start)
                     .max_eval(self.gp_config.theta_max_eval)
             })
-            .infill_strategy(infill_strategy)
-            .feasible_infill_strategy(feasible_infill_strategy)
+            .infill_strategy(self.infill_strategy.into())
+            .feasible_infill_strategy(self.feasible_infill_strategy.into())
             .cstr_infill(self.cstr_infill)
-            .cstr_strategy(cstr_strategy)
+            .cstr_strategy(self.cstr_strategy.into())
             .configure_qei(|qei_config| {
                 qei_config
                     .batch(self.qei_config.batch)
-                    .strategy(qei_strategy)
+                    .strategy(self.qei_config.strategy.into())
                     .optmod(self.qei_config.optim_every)
             })
-            .infill_optimizer(infill_optimizer)
+            .infill_optimizer(self.infill_optimizer.into())
             .coego(coego_status)
             .stop_on_error(stop_on_error)
             .warm_start(warm_start)
             .hot_start(hot_start.into())
-            .failsafe_strategy(failsafe_strategy);
+            .failsafe_strategy(self.failsafe_strategy.into());
 
         if let Some(target) = self.target {
             config = config.target(target);

@@ -268,11 +268,10 @@ pub fn transform_constraints(y: &Array2<f64>, specs: &[CstrSpec]) -> Array2<f64>
 }
 
 /// Same as [`transform_constraints`] with `n_obj` leading objective columns.
-pub(crate) fn transform_constraints_at(
-    y: &Array2<f64>,
-    n_obj: usize,
-    specs: &[CstrSpec],
-) -> Array2<f64> {
+///
+/// Input `y` has shape `(nrows, n_obj + n_user_cstrs)` and the result has shape
+/// `(nrows, n_obj + n_internal_cstrs)`, objective columns being copied as is.
+pub fn transform_constraints_at(y: &Array2<f64>, n_obj: usize, specs: &[CstrSpec]) -> Array2<f64> {
     let nrows = y.nrows();
     let n_intern = n_internal_cstrs(specs);
     let mut result = Array2::zeros((nrows, n_obj + n_intern));

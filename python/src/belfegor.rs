@@ -8,7 +8,7 @@ use crate::qei_config::QEiConfig;
 use crate::types::*;
 
 use egobox_ego::{EGO_DEFAULT_N_START, find_compromise_index, find_pareto_front_indices};
-use ndarray::{Array1, Array2, ArrayView2, Axis, concatenate, s};
+use ndarray::{Array1, Array2, ArrayView2, Axis};
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyReadonlyArray2, ToPyArray};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -437,18 +437,7 @@ impl Belfegor {
         let y = match self.egor.cstr_specs.as_ref() {
             Some(specs) => {
                 let specs = specs.iter().map(|s| s.inner.clone()).collect::<Vec<_>>();
-                // constraints transformation expects [obj, cstr_1, ...] rows
-                let y1 = concatenate![
-                    Axis(1),
-                    y_doe.slice(s![.., ..1]),
-                    y_doe.slice(s![.., n_obj..])
-                ];
-                let cstrs = egobox_ego::transform_constraints(&y1, &specs);
-                concatenate![
-                    Axis(1),
-                    y_doe.slice(s![.., ..n_obj]),
-                    cstrs.slice(s![.., 1..])
-                ]
+                egobox_ego::transform_constraints_at(&y_doe.to_owned(), n_obj, &specs)
             }
             None => y_doe.to_owned(),
         };

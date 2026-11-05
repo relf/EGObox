@@ -10,18 +10,16 @@
 //! See the [tutorial notebook](https://github.com/relf/egobox/notebooks/Sgp_Tutorial.ipynb) for usage.
 //!
 use crate::errors::{gp_file_format, moe_err, moe_file_err, training_data};
-use crate::gp_config::{validate_corr_spec, validate_theta};
+use crate::gp_config::{seeded_rng, theta_tuning, validate_corr_spec, validate_theta};
 use crate::surrogate_api;
 use crate::{logging::init_logger, types::*};
-use egobox_moe::{GpMixture, GpSurrogate, GpType, Inducings, ThetaTuning};
+use egobox_moe::{GpMixture, GpSurrogate, GpType, Inducings};
 use linfa::{Dataset, traits::Fit};
-use ndarray::{Array1, Array2, array};
-use ndarray_rand::rand::SeedableRng;
+use ndarray::Array2;
 use numpy::{PyArray1, PyArray2, PyReadonlyArray2, PyReadonlyArrayDyn};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
-use rand_xoshiro::Xoshiro256Plus;
 
 /// Default number of GP hyperparameters optimization restarts of sparse GP
 const SPARSE_GP_OPTIM_N_START: usize = 10;
@@ -151,11 +149,7 @@ impl SparseGpMix {
 
         let dataset = Dataset::new(xt, yt);
 
-        let rng = if let Some(seed) = self.seed {
-            Xoshiro256Plus::seed_from_u64(seed)
-        } else {
-            Xoshiro256Plus::from_entropy()
-        };
+        let rng = seeded_rng(self.seed);
 
         let inducings = if let Some(inducing) = self.inducing.as_ref() {
             Inducings::Located(inducing.clone())
@@ -167,30 +161,15 @@ impl SparseGpMix {
             ));
         };
 
-        let method = match self.method {
-            SparseMethod::Fitc => egobox_gp::SparseMethod::Fitc,
-            SparseMethod::Vfe => egobox_gp::SparseMethod::Vfe,
-        };
-
-        let mut theta_tuning = ThetaTuning::default();
-        if let Some(init) = self.theta_init.as_ref() {
-            theta_tuning = ThetaTuning::Full {
-                init: Array1::from_vec(init.to_vec()),
-                bounds: array![ThetaTuning::<f64>::DEFAULT_BOUNDS],
-            }
-        }
-        if let Some(bounds) = self.theta_bounds.as_ref() {
-            theta_tuning = ThetaTuning::Full {
-                init: theta_tuning.init().to_owned(),
-                bounds: bounds.iter().map(|v| (v[0], v[1])).collect(),
-            }
-        }
-        let theta_tunings = vec![theta_tuning];
+        let theta_tunings = vec![theta_tuning(
+            self.theta_init.as_ref(),
+            self.theta_bounds.as_ref(),
+        )];
 
         let sgp = py.detach(|| {
             GpMixture::params()
                 .gp_type(GpType::SparseGp {
-                    sparse_method: method,
+                    sparse_method: self.method.into(),
                     inducings,
                 })
                 .correlation_spec(

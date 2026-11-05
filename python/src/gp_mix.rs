@@ -9,24 +9,19 @@
 //!
 //! See the [tutorial notebook](https://github.com/relf/egobox/notebooks/Gpx_Tutorial.ipynb) for usage.
 //!
-use std::cmp::Ordering;
-
 use crate::errors::{gp_file_format, input_x, moe_err, moe_file_err, output_y, training_data};
 use crate::logging::init_logger;
 use crate::surrogate_api;
 use crate::types::*;
-use crate::{domain::parse, gp_config::GpConfig};
+use crate::{domain::parse, gp_config::GpConfig, gp_config::seeded_rng};
 
 use egobox_ego::{EGO_GP_OPTIM_MAX_EVAL, EGO_GP_OPTIM_N_START};
 use egobox_moe::{GpSurrogate, MixintGpMixture, NbClusters, ThetaTuning};
 use linfa::{Dataset, traits::Fit};
-use ndarray::{Array1, array};
-use ndarray_rand::rand::SeedableRng;
 use numpy::{PyArray1, PyArray2, PyReadonlyArrayDyn};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
-use rand_xoshiro::Xoshiro256Plus;
 
 /// Gaussian processes mixture builder
 ///
@@ -198,35 +193,14 @@ impl GpMix {
         }
         let dataset = Dataset::new(xt, yt);
 
+        // heaviside factor optimized at fit, while Egor fixes it
         let recomb = match self.gp_config.recombination {
             Recombination::Hard => egobox_moe::Recombination::Hard,
             Recombination::Smooth => egobox_moe::Recombination::Smooth(None),
         };
-        let rng = if let Some(seed) = self.seed {
-            Xoshiro256Plus::seed_from_u64(seed)
-        } else {
-            Xoshiro256Plus::from_entropy()
-        };
-
-        let mut theta_tuning = ThetaTuning::default();
-        if let Some(init) = self.gp_config.theta_init.as_ref() {
-            theta_tuning = ThetaTuning::Full {
-                init: Array1::from_vec(init.to_vec()),
-                bounds: array![ThetaTuning::<f64>::DEFAULT_BOUNDS],
-            }
-        }
-        if let Some(bounds) = self.gp_config.theta_bounds.as_ref() {
-            theta_tuning = ThetaTuning::Full {
-                init: theta_tuning.init().to_owned(),
-                bounds: bounds.iter().map(|v| (v[0], v[1])).collect(),
-            }
-        }
-
-        let n_clusters = match self.gp_config.n_clusters.cmp(&0) {
-            Ordering::Greater => NbClusters::fixed(self.gp_config.n_clusters as usize),
-            Ordering::Equal => NbClusters::auto(),
-            Ordering::Less => NbClusters::automax(-self.gp_config.n_clusters as usize),
-        };
+        let rng = seeded_rng(self.seed);
+        let mut theta_tuning = self.gp_config.theta_tuning();
+        let n_clusters = self.gp_config.n_clusters();
         let n_start: usize = if self.gp_config.theta_n_start == 0 {
             // no multistart, use theta_init as is
             theta_tuning = ThetaTuning::Fixed(theta_tuning.init().to_owned());
@@ -242,13 +216,11 @@ impl GpMix {
         };
 
         let moe = py.detach(|| {
-            let regr = RegressionSpec(self.gp_config.regr_spec);
-            let corr = CorrelationSpec(self.gp_config.corr_spec);
             MixintGpMixture::params(self.xtypes.as_deref())
                 .n_clusters(n_clusters)
                 .recombination(recomb)
-                .regression_spec(egobox_moe::RegressionSpec::from_bits(regr.0).unwrap())
-                .correlation_spec(egobox_moe::CorrelationSpec::from_bits(corr.0).unwrap())
+                .regression_spec(self.gp_config.regression_spec())
+                .correlation_spec(self.gp_config.correlation_spec())
                 .theta_tunings(&theta_tunings)
                 .kpls_dim(self.gp_config.kpls_dim)
                 .n_start(n_start)
