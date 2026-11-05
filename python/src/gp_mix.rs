@@ -13,19 +13,16 @@ use std::cmp::Ordering;
 
 use crate::errors::{gp_file_format, input_x, moe_err, moe_file_err, output_y, training_data};
 use crate::logging::init_logger;
+use crate::surrogate_api;
 use crate::types::*;
 use crate::{domain::parse, gp_config::GpConfig};
 
 use egobox_ego::{EGO_GP_OPTIM_MAX_EVAL, EGO_GP_OPTIM_N_START};
-use egobox_moe::{
-    Clustered, GpMetrics, MixintGpMixture, MixtureGpSurrogate, NbClusters, ThetaTuning,
-};
-#[allow(unused_imports)] // Avoid linting problem
-use egobox_moe::{GpMixture, GpSurrogate, GpSurrogateExt};
+use egobox_moe::{GpSurrogate, MixintGpMixture, NbClusters, ThetaTuning};
 use linfa::{Dataset, traits::Fit};
-use ndarray::{Array1, Array2, Zip, array};
+use ndarray::{Array1, array};
 use ndarray_rand::rand::SeedableRng;
-use numpy::{IntoPyArray, PyArray1, PyArray2, PyReadonlyArrayDyn};
+use numpy::{PyArray1, PyArray2, PyReadonlyArrayDyn};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
@@ -355,10 +352,7 @@ impl Gpx {
     ///     when the model can not be saved
     ///
     fn save(&self, filename: String) -> PyResult<bool> {
-        self.0
-            .save(&filename, gp_file_format(&filename))
-            .map_err(|e| moe_file_err(e, &filename))?;
-        Ok(true)
+        surrogate_api::save(&self.0, &filename)
     }
 
     /// Load Gaussian processes mixture from file.
@@ -409,19 +403,7 @@ impl Gpx {
         x: PyReadonlyArrayDyn<f64>,
         return_std: bool,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let x = input_x(x.as_array(), self.0.dims().0)?;
-        let mean = self.0.predict(&x).map_err(moe_err)?.into_pyarray(py);
-        if return_std {
-            let std = self
-                .0
-                .predict_var(&x)
-                .map_err(moe_err)?
-                .mapv(|v| v.max(0.).sqrt())
-                .into_pyarray(py);
-            Ok((mean, std).into_pyobject(py)?.into_any())
-        } else {
-            Ok(mean.into_any())
-        }
+        surrogate_api::predict(&self.0, py, x, return_std)
     }
 
     /// Predict variances at nsamples points.
@@ -441,8 +423,7 @@ impl Gpx {
         py: Python<'py>,
         x: PyReadonlyArrayDyn<f64>,
     ) -> PyResult<Bound<'py, PyArray1<f64>>> {
-        let x = input_x(x.as_array(), self.0.dims().0)?;
-        Ok(self.0.predict_var(&x).map_err(moe_err)?.into_pyarray(py))
+        surrogate_api::predict_var(&self.0, py, x)
     }
 
     /// Predict surrogate output derivatives at nsamples points.
@@ -463,12 +444,7 @@ impl Gpx {
         py: Python<'py>,
         x: PyReadonlyArrayDyn<f64>,
     ) -> PyResult<Bound<'py, PyArray2<f64>>> {
-        let x = input_x(x.as_array(), self.0.dims().0)?;
-        Ok(self
-            .0
-            .predict_gradients(&x)
-            .map_err(moe_err)?
-            .into_pyarray(py))
+        surrogate_api::predict_gradients(&self.0, py, x)
     }
 
     /// Predict variance derivatives at nsamples points.
@@ -489,12 +465,7 @@ impl Gpx {
         py: Python<'py>,
         x: PyReadonlyArrayDyn<f64>,
     ) -> PyResult<Bound<'py, PyArray2<f64>>> {
-        let x = input_x(x.as_array(), self.0.dims().0)?;
-        Ok(self
-            .0
-            .predict_var_gradients(&x)
-            .map_err(moe_err)?
-            .into_pyarray(py))
+        surrogate_api::predict_var_gradients(&self.0, py, x)
     }
 
     /// Sample gaussian process trajectories.
@@ -517,8 +488,7 @@ impl Gpx {
         x: PyReadonlyArrayDyn<f64>,
         n_traj: usize,
     ) -> PyResult<Bound<'py, PyArray2<f64>>> {
-        let x = input_x(x.as_array(), self.0.dims().0)?;
-        Ok(self.0.sample(&x, n_traj).map_err(moe_err)?.into_pyarray(py))
+        surrogate_api::sample(&self.0, py, x, n_traj)
     }
 
     /// Get the input and output dimensions of the surrogate
@@ -599,48 +569,28 @@ impl Gpx {
         &self,
         py: Python<'py>,
     ) -> (Bound<'py, PyArray2<f64>>, Bound<'py, PyArray1<f64>>) {
-        let (xdata, ydata) = self.0.training_data();
-        (
-            xdata.to_owned().into_pyarray(py),
-            ydata.to_owned().into_pyarray(py),
-        )
+        surrogate_api::training_data(&self.0, py)
     }
 
     /// Optimized thetas hyperparameters of the fitted GP experts,
     /// array[n_clusters, nx or kpls_dim] (one row per expert)
     #[getter]
     fn thetas<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
-        let experts = self.0.experts();
-        let proto = experts.first().expect("Mixture should contain an expert");
-        let mut thetas = Array2::zeros((self.0.n_clusters(), proto.theta().len()));
-        Zip::from(thetas.rows_mut())
-            .and(experts)
-            .for_each(|mut theta, expert| theta.assign(expert.theta()));
-        thetas.into_pyarray(py)
+        surrogate_api::thetas(&self.0, py)
     }
 
     /// Variance of the fitted GP experts (ie posterior GP variance), array[n_clusters]
     /// (one value per expert)
     #[getter]
     fn variances<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
-        let experts = self.0.experts();
-        let mut variances = Array1::zeros(self.0.n_clusters());
-        Zip::from(&mut variances)
-            .and(experts)
-            .for_each(|var, expert| *var = expert.variance());
-        variances.into_pyarray(py)
+        surrogate_api::variances(&self.0, py)
     }
 
     /// Reduced likelihood values obtained when fitting the GP experts, array[n_clusters]
     /// (one value per expert). May be used to compare various parameterizations.
     #[getter]
     fn likelihoods<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
-        let experts = self.0.experts();
-        let mut likelihoods = Array1::zeros(self.0.n_clusters());
-        Zip::from(&mut likelihoods)
-            .and(experts)
-            .for_each(|lkh, expert| *lkh = expert.likelihood());
-        likelihoods.into_pyarray(py)
+        surrogate_api::likelihoods(&self.0, py)
     }
 }
 
