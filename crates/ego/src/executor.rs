@@ -243,6 +243,10 @@ fn install_signal_handler() -> crate::Result<()> {
         .map_err(EgoError::InternalError)
 }
 
+/// A function telling whether the optimization has to be interrupted,
+/// used instead of the process-wide signal handler (see [crate::Egor::interrupt_check])
+pub(crate) type InterruptCheck = std::sync::Arc<dyn Fn() -> bool + Send + Sync>;
+
 struct Observer {
     inner: OptimizationObserver,
     error: std::rc::Rc<RefCell<Option<EgoError>>>,
@@ -263,6 +267,7 @@ impl basin::Observe<BasinState> for Observer {
 pub(crate) fn run<O, C, SB>(
     problem: ProblemFunc<O, C>,
     solver: EgorSolver<SB, C>,
+    interrupt_check: Option<InterruptCheck>,
 ) -> crate::Result<EgorState<f64>>
 where
     O: ObjFn,
@@ -270,8 +275,14 @@ where
     SB: SurrogateBuilder + Serialize + DeserializeOwned,
 {
     use basin::{ExactCheckpoint, ExactCheckpointWriter, ObserverMode, read_exact_checkpoint};
-    install_signal_handler()?;
-    let interrupt = INTERRUPTS.load(Ordering::Relaxed);
+    let interrupted: Box<dyn Fn() -> bool> = match interrupt_check {
+        Some(check) => Box::new(move || check()),
+        None => {
+            install_signal_handler()?;
+            let interrupt = INTERRUPTS.load(Ordering::Relaxed);
+            Box::new(move || INTERRUPTS.load(Ordering::Relaxed) != interrupt)
+        }
+    };
     let config = solver.config.clone();
     let path = std::path::Path::new(config.outdir.as_deref().unwrap_or(".checkpoints"))
         .join(CHECKPOINT_FILE);
@@ -309,7 +320,7 @@ where
     let errors = observer_error.clone();
     let timeout = config.timeout.map(web_time::Duration::from_secs_f64);
     let mut exec = exec.max_iter(u64::MAX).stop_when(move |state| {
-        if INTERRUPTS.load(Ordering::Relaxed) != interrupt {
+        if interrupted() {
             return Some(TerminationReason::Cancelled);
         }
         if errors.borrow().is_some() {

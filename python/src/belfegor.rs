@@ -254,6 +254,12 @@ impl Belfegor {
     ///     y values hold the raw constraint values as returned by `fun` (not transformed
     ///     by `cstr_specs`).
     ///
+    /// Notes
+    /// -----
+    /// Ctrl-C (KeyboardInterrupt) stops the optimization after the current iteration and the
+    /// result obtained so far is returned with status.exit == ExitStatus.INTERRUPT.
+    /// An objective evaluation interrupted by Ctrl-C counts as a failed evaluation.
+    ///
     #[pyo3(signature = (fun, fcstrs=None, fcstr_specs=None, max_iters = 20, run_info = None, outdir = None, warm_start = false, hot_start = None, seed = None, timeout = None, verbose = None, stop_on_error = false))]
     #[allow(clippy::too_many_arguments)]
     fn minimize(

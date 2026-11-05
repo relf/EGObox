@@ -24,11 +24,13 @@ use egobox_gp::ThetaTuning;
 use egobox_moe::{NbClusters, to_continuous_space};
 use ndarray::{Array1, Array2, ArrayView2, Axis, array, concatenate};
 use numpy::{IntoPyArray, PyArray2, PyReadonlyArray2, PyReadonlyArrayDyn, ToPyArray};
-use pyo3::exceptions::{PyTypeError, PyValueError};
+use pyo3::exceptions::{PyKeyboardInterrupt, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyTuple};
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 use std::cmp::Ordering;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 
 fn parse_trego_config(py: Python, value: Py<PyAny>) -> PyResult<TregoConfigSpec> {
     let value = value.bind(py);
@@ -368,6 +370,12 @@ impl Egor {
     ///
     ///     y values hold the raw constraint values as returned by `fun` (not transformed
     ///     by `cstr_specs`), so `y_doe` can be given to `best_result` or to `Egor(y_doe=...)`.
+    ///
+    /// Notes
+    /// -----
+    /// Ctrl-C (KeyboardInterrupt) stops the optimization after the current iteration and the
+    /// result obtained so far is returned with status.exit == ExitStatus.INTERRUPT.
+    /// An objective evaluation interrupted by Ctrl-C counts as a failed evaluation.
     ///
     #[pyo3(signature = (fun, fcstrs=None, fcstr_specs=None, max_iters = 20, run_info = None, outdir = None, warm_start = false, hot_start = None, seed = None, timeout = None, verbose = None, stop_on_error = false))]
     #[allow(clippy::too_many_arguments)]
@@ -734,6 +742,18 @@ impl Egor {
         let callback_error = &callback_error;
         install_panic_hook();
 
+        // Ctrl-C is handled by Python: a KeyboardInterrupt raised within a user callback,
+        // or a SIGINT received while the optimizer runs, stops the optimization
+        // after the current iteration (see `interrupt_check` below)
+        let interrupted = Arc::new(AtomicBool::new(false));
+        let is_interrupt = |py: Python, e: &PyErr| {
+            let interrupt = e.is_instance_of::<PyKeyboardInterrupt>(py);
+            if interrupt {
+                interrupted.store(true, AtomicOrdering::Relaxed);
+            }
+            interrupt
+        };
+
         let n_obj = moo.map_or(1, |moo| moo.n_obj);
         let ny = n_obj
             + self
@@ -745,6 +765,11 @@ impl Egor {
                 let args = (x.to_owned().into_pyarray(py),);
                 let res = fun.bind(py).call1(args);
                 match res {
+                    // Interrupted evaluation: a failed one, the optimization stops afterwards
+                    Err(e) if is_interrupt(py, &e) => {
+                        log::warn!("Objective function evaluation interrupted");
+                        Err(e.to_string())
+                    }
                     // Python exception in objective function is handled by the optimizer
                     // wrt stop_on_error and failsafe_strategy options
                     Err(e) => {
@@ -786,14 +811,24 @@ impl Egor {
             .map(|cstr| {
                 |x: &[f64], g: Option<&mut [f64]>, _u: &mut InfillObjData<f64>| -> f64 {
                     Python::attach(|py| {
+                        // an interrupted call is made again (cheap function constraints),
+                        // the optimization stops after the current iteration
+                        let call = |grad: bool| {
+                            cstr.call(py, x, grad).or_else(|e| {
+                                if is_interrupt(py, &e) {
+                                    cstr.call(py, x, grad)
+                                } else {
+                                    Err(e)
+                                }
+                            })
+                        };
                         if let Some(g) = g
-                            && let Err(e) = cstr
-                                .call(py, x, true)
-                                .and_then(|res| extract_cstr_gradient(&res, g))
+                            && let Err(e) =
+                                call(true).and_then(|res| extract_cstr_gradient(&res, g))
                         {
                             callback_error.abort(e)
                         }
-                        cstr.call(py, x, false)
+                        call(false)
                             .and_then(|res| extract_cstr_value(&res))
                             .unwrap_or_else(|e| callback_error.abort(e))
                     })
@@ -836,10 +871,17 @@ impl Egor {
             RunInfo::default()
         };
 
-        let mixintegor = mixintegor.run_info(egobox_ego::RunInfo {
-            fname: py_run_info.fname.clone(),
-            num: py_run_info.num,
-        });
+        let interrupted_check = interrupted.clone();
+        let mixintegor = mixintegor
+            .run_info(egobox_ego::RunInfo {
+                fname: py_run_info.fname.clone(),
+                num: py_run_info.num,
+            })
+            // run Python signal handlers: a pending SIGINT raises KeyboardInterrupt
+            .interrupt_check(move || {
+                interrupted_check.load(AtomicOrdering::Relaxed)
+                    || Python::attach(|py| py.check_signals().is_err())
+            });
 
         let pareto = moo.is_some();
         let res = py.detach(|| {

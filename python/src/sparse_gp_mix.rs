@@ -189,9 +189,6 @@ impl SparseGpMix {
         }
         let theta_tunings = vec![theta_tuning];
 
-        if let Err(ctrlc::Error::MultipleHandlers) = ctrlc::set_handler(|| std::process::exit(2)) {
-            // ignore multiple handlers error
-        };
         let sgp = py.detach(|| {
             GpMixture::params()
                 .gp_type(GpType::SparseGp {

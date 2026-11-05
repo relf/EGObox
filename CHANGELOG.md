@@ -71,6 +71,12 @@
   given seed give different results than before by @relf in <https://github.com/relf/EGObox/pull/541>
 * Fix GP and sparse GP surrogates (experts of mixtures) `save()` panicking when the file cannot be created:
   an error is returned instead by @relf in <https://github.com/relf/EGObox/pull/544>
+* Fix Python Ctrl-C handling: after a `GpMix`/`SparseGpMix` fit, Ctrl-C during `minimize` exited the
+  interpreter, and after a `minimize`, Ctrl-C during a fit or in plain Python code was ignored. Python
+  signal handling is now kept: Ctrl-C stops `minimize` after the current iteration with the `INTERRUPT`
+  status (also when raised within the objective or a function constraint), and raises `KeyboardInterrupt`
+  elsewhere. New `Egor::interrupt_check()` replaces the Ctrl-C handler of a run by a custom check
+  by @relf in <https://github.com/relf/EGObox/pull/545>
 
 ## Version 1.0.0 - 12/10/2026
 

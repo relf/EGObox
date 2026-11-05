@@ -236,6 +236,30 @@ fn interruption_works_for_repeated_runs() {
 }
 
 #[test]
+fn interrupt_check_stops_repeated_runs() {
+    for _ in 0..2 {
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = calls.clone();
+        let result = EgorBuilder::optimize(xsinx)
+            .configure(|cfg| cfg.seed(42).max_iters(10))
+            .min_within(&array![[0., 25.]])
+            .unwrap()
+            // checked after initialization then after each iteration
+            .interrupt_check(move || {
+                counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed) >= 2
+            })
+            .run()
+            .unwrap();
+        assert_eq!(
+            result.state.termination_status,
+            TerminationStatus::Terminated(TerminationReason::Interrupt)
+        );
+        assert_eq!(result.state.iter, 2);
+        assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 3);
+    }
+}
+
+#[test]
 fn current_param_and_cost_are_an_evaluated_point() {
     let result = EgorBuilder::optimize(xsinx)
         .configure(|cfg| cfg.doe(&array![[0.], [7.], [25.]]).seed(42).max_iters(3))

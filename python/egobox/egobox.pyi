@@ -180,6 +180,12 @@ class Belfegor:
         
             y values hold the raw constraint values as returned by `fun` (not transformed
             by `cstr_specs`).
+        
+        Notes
+        -----
+        Ctrl-C (KeyboardInterrupt) stops the optimization after the current iteration and the
+        result obtained so far is returned with status.exit == ExitStatus.INTERRUPT.
+        An objective evaluation interrupted by Ctrl-C counts as a failed evaluation.
         """
     def suggest(self, x_doe: numpy.typing.NDArray[numpy.float64], y_doe: numpy.typing.NDArray[numpy.float64], seed: typing.Optional[builtins.int] = None) -> numpy.typing.NDArray[numpy.float64]:
         r"""
@@ -563,6 +569,12 @@ class Egor:
         
             y values hold the raw constraint values as returned by `fun` (not transformed
             by `cstr_specs`), so `y_doe` can be given to `best_result` or to `Egor(y_doe=...)`.
+        
+        Notes
+        -----
+        Ctrl-C (KeyboardInterrupt) stops the optimization after the current iteration and the
+        result obtained so far is returned with status.exit == ExitStatus.INTERRUPT.
+        An objective evaluation interrupted by Ctrl-C counts as a failed evaluation.
         """
     def suggest(self, x_doe: numpy.typing.NDArray[numpy.float64], y_doe: numpy.typing.NDArray[numpy.float64], seed: typing.Optional[builtins.int] = None) -> numpy.typing.NDArray[numpy.float64]:
         r"""
