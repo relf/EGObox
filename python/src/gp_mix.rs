@@ -244,9 +244,6 @@ impl GpMix {
             vec![theta_tuning; 1] // used as default theta tuning for all experts
         };
 
-        if let Err(ctrlc::Error::MultipleHandlers) = ctrlc::set_handler(|| std::process::exit(2)) {
-            // ignore multiple handlers error
-        };
         let moe = py.detach(|| {
             let regr = RegressionSpec(self.gp_config.regr_spec);
             let corr = CorrelationSpec(self.gp_config.corr_spec);

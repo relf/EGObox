@@ -305,6 +305,7 @@ impl<O: ObjFn, C: CstrFn> EgorFactory<O, C> {
             },
             solver: EgorSolver::new(config.check()?),
             run_info: self.run_info,
+            interrupt_check: None,
         })
     }
 }
@@ -320,6 +321,7 @@ pub struct Egor<
     fobj: ProblemFunc<O, C>,
     solver: EgorSolver<SB, C>,
     run_info: RunInfo,
+    interrupt_check: Option<crate::executor::InterruptCheck>,
 }
 
 impl<O: ObjFn, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> Egor<O, C, SB> {
@@ -334,7 +336,11 @@ impl<O: ObjFn, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> E
             std::fs::write(filepath, json)?;
         }
 
-        let state = crate::executor::run(self.fobj.clone(), self.solver.clone())?;
+        let state = crate::executor::run(
+            self.fobj.clone(),
+            self.solver.clone(),
+            self.interrupt_check.clone(),
+        )?;
         info!(
             "Optimization Result:\n    \
              param (best):  {}\n    \
@@ -455,6 +461,19 @@ impl<O: ObjFn, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> E
     /// Set execution metadata used to qualify optimization run
     pub fn run_info(mut self, info: RunInfo) -> Self {
         self.run_info = info;
+        self
+    }
+
+    /// Interrupt the optimization when the given `check` returns true,
+    /// instead of on Ctrl-C (SIGINT).
+    ///
+    /// By default, a process-wide Ctrl-C handler is installed at the first run, and Ctrl-C
+    /// stops the optimization with [TerminationReason::Interrupt](crate::TerminationReason).
+    /// When a check is given, no handler is installed: `check` is called after each
+    /// completed iteration and the optimization stops the same way when it returns true.
+    /// This lets an embedding application (e.g. a Python interpreter) keep its own signal handling.
+    pub fn interrupt_check(mut self, check: impl Fn() -> bool + Send + Sync + 'static) -> Self {
+        self.interrupt_check = Some(std::sync::Arc::new(check));
         self
     }
 }
