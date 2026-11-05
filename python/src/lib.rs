@@ -8,6 +8,7 @@ mod moo_config;
 mod qei_config;
 mod sampling;
 mod sparse_gp_mix;
+mod surrogate_api;
 mod trego_config;
 
 pub(crate) mod domain;
