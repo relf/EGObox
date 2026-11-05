@@ -76,7 +76,7 @@
   signal handling is now kept: Ctrl-C stops `minimize` after the current iteration with the `INTERRUPT`
   status (also when raised within the objective or a function constraint), and raises `KeyboardInterrupt`
   elsewhere. New `Egor::interrupt_check()` replaces the Ctrl-C handler of a run by a custom check
-  by @relf in <https://github.com/relf/EGObox/pull/545>
+  by @relf in <https://github.com/relf/EGObox/pull/546>
 
 ## Version 1.0.0 - 12/10/2026
 
