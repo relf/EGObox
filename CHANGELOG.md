@@ -1,14 +1,19 @@
 # Changes
 
-## Unreleased
+## Version 1.0.1 - 06/11/2026
 
+Bug-fix release. The Python API has no breaking change; breaking changes are Rust only (crates:
+`egobox-ego` 0.43.0, `egobox-moe` 0.37.0, `egobox-gp` 0.37.2, `egobox-gpx` 0.6.1). See
+[release notes](doc/release-notes-1.0.1.md) for details, including compatibility notes on binary model files
+and results for a given seed.
+
+* **Compatibility**: GP models and `Egor` hot-start checkpoints saved in binary format by previous versions
+  no longer load, in Rust and Python (JSON models and configurations still load)
 * **Breaking changes** (Rust only):
   * `egobox-ego` 0.43.0: `SurrogateState`, `TregoState` and `TregoStrategy` gain fields and are now
     `#[non_exhaustive]` (no struct literal outside the crate, use `Default` and builders)
   * `egobox-moe` 0.37.0: `SurrogateBuilder::set_noise_ratio()` is a new required method for implementations
     outside the crate
-  * GP models and `Egor` hot-start checkpoints saved in binary format by previous versions no longer load
-    (JSON models and configurations still load)
 * **Deprecations** (Rust only): `EgorSolver` methods which are internal steps of the solver (`ego_step`,
   `trego_step`, `select_next_points`, `refresh_infill_data`, `eval_obj`, `eval_*infill_obj*`, ...) are
   deprecated and will be removed in the next breaking release, use `Egor` or `EgorService` instead
@@ -45,6 +50,22 @@
 * Fix variance gradients of smooth recombination mixtures (panic or wrong cluster indices with several
   clusters) and the gradient of the upper trust bound constraint strategy
   by @relf in <https://github.com/relf/EGObox/pull/491>
+* Fix TREGO local steps panicking with the viability failsafe strategy (`FailsafeStrategy::Viability`), and
+  function constraints receiving internal continuous space points in local steps (discrete values not
+  folded, gradients not mapped back) by @relf in <https://github.com/relf/EGObox/pull/508>
+* Fix CoEGO gradients given in increasing index order instead of the (shuffled) activity order of the
+  optimized variables, permuting SLSQP gradients, and function constraints receiving only the active
+  components of the point by @relf in <https://github.com/relf/EGObox/pull/509>
+* Fix I/O errors: `load_gp_models()` returns the decoding error instead of an empty list, and
+  `save_gp_models()`, the files written in the output directory and `MixintGpMixture` training on given
+  clusters return errors instead of panicking by @relf in <https://github.com/relf/EGObox/pull/510>
+* Fix automatic clustering (`NbClusters::auto()`) panicking with less than 5 training points
+  by @relf in <https://github.com/relf/EGObox/pull/512>
+* Fix seeded `Egor` runs not reproducible with the GP variance portfolio or several clusters: portfolio
+  points are ordered and the configured seed seeds the clustering (new provided method
+  `SurrogateBuilder::set_rng()`) by @relf in <https://github.com/relf/EGObox/pull/513>
+* Fix GP fitting in single precision (`f32`) panicking on unsound float conversions
+  by @relf in <https://github.com/relf/EGObox/pull/514>
 * Fix Python `Egor` initial DOE (`x_doe`, `y_doe`) with an `ENUM` variable: panic or silently misread DOE.
   `x_doe` is converted to the solver continuous space, and `ENUM` columns are checked to hold category
   indices by @relf in <https://github.com/relf/EGObox/pull/538>
