@@ -90,6 +90,12 @@
   with the best point found and the new termination reason `SolverExit(GP_TRAINING_ERROR)`
   (`ExitStatus.UNEXPECTED_EXIT` in Python), a warning naming the failure
   by @relf in <https://github.com/relf/EGObox/pull/552>
+* Fix mixture cluster size checks counting array elements instead of points. Each cluster of a multi-cluster
+  mixture needs at least 3 points and enough points for the least demanding allowed regression trend: with
+  `RegressionSpec::ALL` from dimension 5, clusters a constant trend fits are no longer rejected, and with only
+  linear or quadratic trends allowed, a too small cluster is reported as a `ClusteringError` instead of
+  failing in the GP fit. The automatic cluster-number search no longer accepts 2-point clusters
+  by @relf in <https://github.com/relf/EGObox/pull/553>
 
 ## Version 1.0.0 - 12/10/2026
 

@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+use crate::algorithm::MIN_CLUSTER_POINTS;
 use crate::parameters::GpMixtureParams;
 use crate::{NbClusters, types::*};
 use log::debug; // , info};
@@ -53,6 +54,15 @@ pub(crate) fn sort_by_cluster<F: Float>(
         res.push(subset);
     }
     res
+}
+
+/// Whether each cluster (rows of `[x, y]` data) of a multi-cluster mixture
+/// has at least [MIN_CLUSTER_POINTS] points, as required to train the mixture
+fn clusters_have_enough_points(clusters: &[Array2<f64>]) -> bool {
+    clusters.len() <= 1
+        || clusters
+            .iter()
+            .all(|cluster| cluster.nrows() >= MIN_CLUSTER_POINTS)
 }
 
 /// Find the best number of cluster thanks to cross validation
@@ -170,10 +180,7 @@ pub fn find_best_number_of_clusters<R: Rng + Clone>(
                             .unwrap();
                             let data_clustering = gmm.predict(&xytrain);
                             let clusters = sort_by_cluster(n_clusters, &xytrain, &data_clustering);
-                            for cluster in clusters.iter().take(i + 1) {
-                                // If there is at least 3 points
-                                ok = ok && cluster.len() > 3
-                            }
+                            ok = ok && clusters_have_enough_points(&clusters);
                             let actual = valid.targets();
                             let mixture = mixture.set_recombination(Recombination::Hard);
                             let h_error = match mixture.predict(valid.records()) {
@@ -410,6 +417,17 @@ mod tests {
     //use ndarray_npy::write_npy;
     use ndarray_rand::rand::SeedableRng;
     use rand_xoshiro::Xoshiro256Plus;
+
+    #[test]
+    fn test_clusters_have_enough_points_counts_rows() {
+        // 2 points of [x, y] in 1-D: 4 elements, still only 2 points
+        let two = Array2::<f64>::zeros((2, 2));
+        let three = Array2::<f64>::zeros((3, 2));
+        assert!(!clusters_have_enough_points(&[three.clone(), two]));
+        assert!(clusters_have_enough_points(&[three.clone(), three]));
+        // a single cluster is not checked, as when training the mixture
+        assert!(clusters_have_enough_points(&[Array2::zeros((2, 2))]));
+    }
 
     #[test]
     fn test_find_best_number_of_clusters_with_few_points() {

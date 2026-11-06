@@ -36,7 +36,8 @@ impl<D: Data<Elem = f64>> Fit<ArrayBase<D, Ix2>, ArrayBase<D, Ix1>, MoeError>
     ///
     /// # Errors
     ///
-    /// * [MoeError::ClusteringError]: if there is not enough points regarding the clusters,
+    /// * [MoeError::ClusteringError]: if a cluster of a multi-cluster mixture has fewer than
+    ///   3 points, or too few points for every allowed regression trend,
     /// * [MoeError::GpError]: if gaussian process fitting fails
     ///
     fn fit(
@@ -145,14 +146,7 @@ impl GpMixtureValidParams<f64> {
 
         // Fit GPs on clustered data
         let mut experts = Vec::new();
-        let nb_clusters = clusters.len();
         for (nc, cluster) in clusters.iter().enumerate() {
-            if nb_clusters > 1 && cluster.nrows() < 3 {
-                return Err(MoeError::ClusteringError(format!(
-                    "Not enough points in cluster, requires at least 3, got {}",
-                    cluster.nrows()
-                )));
-            }
             debug!("nc={} theta_tuning={:?}", nc, self.theta_tunings());
             let expert = self.find_best_expert(nc, nx, cluster)?;
             experts.push(expert);
@@ -311,25 +305,37 @@ impl GpMixtureValidParams<f64> {
     }
 }
 
+/// Minimum number of points in each cluster of a multi-cluster mixture
+pub(crate) const MIN_CLUSTER_POINTS: usize = 3;
+
+/// Number of points needed to fit the least demanding trend allowed by `regr`
+/// in dimension `dim`
+fn min_trend_points(dim: usize, regr: RegressionSpec) -> usize {
+    if regr.contains(RegressionSpec::CONSTANT) {
+        1
+    } else if regr.contains(RegressionSpec::LINEAR) {
+        dim + 1
+    } else if regr.contains(RegressionSpec::QUADRATIC) {
+        (dim + 1) * (dim + 2) / 2
+    } else {
+        1 // no trend allowed: reported when selecting the expert
+    }
+}
+
+/// Check that each cluster (rows of `[x, y]` data) of a multi-cluster mixture
+/// has enough points to train an expert with one of the allowed trends
 fn check_number_of_points<F>(
     clusters: &[ArrayBase<impl Data<Elem = F>, Ix2>],
     dim: usize,
     regr: RegressionSpec,
 ) -> Result<()> {
     if clusters.len() > 1 {
-        let min_number_point = if regr.contains(RegressionSpec::QUADRATIC) {
-            (dim + 1) * (dim + 2) / 2
-        } else if regr.contains(RegressionSpec::LINEAR) {
-            dim + 1
-        } else {
-            1
-        };
-        for cluster in clusters {
-            if cluster.len() < min_number_point {
+        let min_points = MIN_CLUSTER_POINTS.max(min_trend_points(dim, regr));
+        for (i, cluster) in clusters.iter().enumerate() {
+            if cluster.nrows() < min_points {
                 return Err(MoeError::ClusteringError(format!(
-                    "Not enough points in training set. Need {} points, got {}",
-                    min_number_point,
-                    cluster.len()
+                    "Not enough points in cluster {i}: requires at least {min_points}, got {}",
+                    cluster.nrows()
                 )));
             }
         }
@@ -1494,6 +1500,84 @@ mod tests {
         assert!(
             !best_expert.to_string().starts_with("Quadratic"),
             "Best expert {best_expert}"
+        );
+    }
+
+    #[test]
+    fn test_check_number_of_points_counts_rows() {
+        let clusters = |rows: &[usize], dim: usize| -> Vec<Array2<f64>> {
+            rows.iter().map(|&n| Array2::zeros((n, dim + 1))).collect()
+        };
+        let linear_or_quadratic = RegressionSpec::LINEAR | RegressionSpec::QUADRATIC;
+        for (dim, regr, rows, ok) in [
+            // a linear trend needs dim+1 points
+            (3, RegressionSpec::LINEAR, vec![3, 10], false),
+            (3, RegressionSpec::LINEAR, vec![4, 10], true),
+            // a quadratic trend needs (dim+1)(dim+2)/2 points
+            (2, RegressionSpec::QUADRATIC, vec![5, 10], false),
+            (2, RegressionSpec::QUADRATIC, vec![6, 10], true),
+            // the least demanding allowed trend sets the requirement
+            (6, RegressionSpec::ALL, vec![3, 10], true),
+            (6, linear_or_quadratic, vec![6, 10], false),
+            (6, linear_or_quadratic, vec![7, 10], true),
+            // at least 3 points per cluster
+            (1, RegressionSpec::CONSTANT, vec![2, 10], false),
+            (1, RegressionSpec::CONSTANT, vec![3, 10], true),
+            // a single cluster is not checked
+            (6, RegressionSpec::QUADRATIC, vec![1], true),
+        ] {
+            let res = check_number_of_points(&clusters(&rows, dim), dim, regr);
+            assert_eq!(
+                res.is_ok(),
+                ok,
+                "dim={dim} regr={regr:?} rows={rows:?}: {res:?}"
+            );
+        }
+    }
+
+    /// 6-D data in two well-separated clusters, of `n_small` and 30 points,
+    /// with the Hard clustering separating them
+    fn two_separated_clusters(n_small: usize) -> (Array2<f64>, Array1<f64>, Clustering) {
+        let dim = 6;
+        let mut rng = Xoshiro256Plus::seed_from_u64(42);
+        let small = Array2::random_using((n_small, dim), Uniform::new(0., 1.), &mut rng);
+        let large = Array2::random_using((30, dim), Uniform::new(10., 11.), &mut rng);
+        let xt = concatenate(Axis(0), &[small.view(), large.view()]).unwrap();
+        let yt = xt.sum_axis(Axis(1));
+        let means = Array2::from_shape_fn((2, dim), |(i, _)| if i == 0 { 0.5 } else { 10.5 });
+        let covariances =
+            Array3::from_shape_fn((2, dim, dim), |(_, i, j)| if i == j { 0.1 } else { 0. });
+        let gmx = GaussianMixture::new(array![0.5, 0.5], means, covariances).unwrap();
+        (xt, yt, Clustering::new(gmx, Recombination::Hard))
+    }
+
+    #[test]
+    fn test_train_on_clusters_small_cluster_with_constant_trend() {
+        // 3 points: too few for a linear (7) or quadratic (28) trend in 6-D,
+        // enough for the constant one, which is allowed
+        let (xt, yt, clustering) = two_separated_clusters(3);
+        let moe = GpMixture::params()
+            .regression_spec(RegressionSpec::ALL)
+            .with_rng(Xoshiro256Plus::seed_from_u64(42))
+            .check_unwrap()
+            .train_on_clusters(&xt, &yt, &clustering)
+            .expect("mixture trained");
+        assert_eq!(moe.n_clusters(), 2);
+    }
+
+    #[test]
+    fn test_train_on_clusters_small_cluster_with_linear_trend() {
+        // 3 points: too few for the only allowed trend, linear (7 points in 6-D)
+        let (xt, yt, clustering) = two_separated_clusters(3);
+        let res = GpMixture::params()
+            .regression_spec(RegressionSpec::LINEAR)
+            .with_rng(Xoshiro256Plus::seed_from_u64(42))
+            .check_unwrap()
+            .train_on_clusters(&xt, &yt, &clustering);
+        assert!(
+            matches!(res, Err(MoeError::ClusteringError(_))),
+            "{:?}",
+            res.map(|moe| moe.to_string())
         );
     }
 
