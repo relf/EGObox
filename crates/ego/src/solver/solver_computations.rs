@@ -566,7 +566,10 @@ where
         feasibility: bool,
         sigma_weight: f64,
     ) -> Vec<f64> {
-        if cstr_models.is_empty() {
+        if cstr_models.is_empty() && !feasibility {
+            // neutral infill value, as in `eval_cstr_infill_obj`
+            neutral_infill_grad(x.len()).to_vec()
+        } else if cstr_models.is_empty() {
             self.eval_infill_obj_grad(
                 x,
                 obj_model,
@@ -1092,6 +1095,58 @@ mod tests {
                 }
                 println!("{strategy:?} with {} cstr: {grad:?} ok", cstrs.len());
             }
+        }
+    }
+
+    #[test]
+    fn test_cstr_infill_obj_gradient_without_feasible_point() {
+        // Constrained infill criterion without constraint models (e.g. function constraints
+        // only) while no feasible point is found: the value is the neutral one, constant,
+        // hence a null gradient
+        let obj_model = cstr_model();
+        let x = [0.3, -1.1, 0.7];
+        let (pred, _) = obj_model.predict_valvar(&array![x]).unwrap();
+        for strategy in [
+            InfillStrategy::EI,
+            InfillStrategy::LogEI,
+            InfillStrategy::WB2,
+        ] {
+            let config = EgorConfig::default()
+                .xtypes(&to_xtypes(&array![[-2., 2.], [-2., 2.], [-2., 2.]]))
+                .infill_strategy(strategy.clone())
+                .check()
+                .unwrap();
+            let solver: EgorSolver<GpMixtureParams<f64>, Cstr> = EgorSolver::new(config);
+            let value = |x: &[f64]| {
+                solver.eval_cstr_infill_obj(
+                    x,
+                    &obj_model,
+                    &[],
+                    &array![],
+                    pred[0],
+                    None,
+                    None,
+                    1.,
+                    1.,
+                    false,
+                    1.,
+                )
+            };
+            let grad = solver.eval_cstr_infill_obj_grad(
+                &x,
+                &obj_model,
+                &[],
+                &array![],
+                pred[0],
+                None,
+                None,
+                1.,
+                1.,
+                false,
+                1.,
+            );
+            assert_eq!(value(&x), value(&[-1.5, 0.2, 1.9]), "{strategy:?}");
+            assert_eq!(grad, vec![0.; 3], "{strategy:?}");
         }
     }
 
