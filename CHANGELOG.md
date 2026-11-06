@@ -87,7 +87,9 @@
   unconstrained criterion one. It is null now by @relf in <https://github.com/relf/EGObox/pull/550>
 * Fix `Egor` panicking with "GP training failure" in long runs: once the optimum is found, infill points
   accumulate next to it until the GP correlation matrix is numerically singular. The optimization now stops
-  as converged with the best point found, a warning naming the failure by @relf in <https://github.com/relf/EGObox/pull/552>
+  with the best point found and the new termination reason `SolverExit(GP_TRAINING_ERROR)`
+  (`ExitStatus.UNEXPECTED_EXIT` in Python), a warning naming the failure
+  by @relf in <https://github.com/relf/EGObox/pull/552>
 
 ## Version 1.0.0 - 12/10/2026
 

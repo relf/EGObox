@@ -20,7 +20,7 @@ use ndarray_rand::rand::{Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256Plus;
 use serde::{Serialize, de::DeserializeOwned};
 
-use super::egor_solver::converged_on_training_failure;
+use super::egor_solver::exit_on_training_failure;
 use super::multistart::LocalLhsMultiStarter;
 use super::surrogate_set::{DataClustering, SurrogateSet};
 
@@ -261,7 +261,7 @@ where
                 DataClustering::Fixed,
                 point_index,
             ) {
-                new_state = converged_on_training_failure(err, new_state);
+                new_state = exit_on_training_failure(err, new_state);
             }
             new_state = surrogates.put(new_state);
         }

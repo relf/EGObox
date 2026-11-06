@@ -118,6 +118,9 @@ use std::time::Instant;
 pub const DEFAULT_CSTR_TOL: f64 = 1e-4;
 /// Termination reason when the objective function returns an error.
 pub const OBJECTIVE_FUNCTION_ERROR: &str = "Objective function error";
+/// Termination reason when a surrogate model cannot be trained (e.g. numerically singular
+/// GP correlation matrix once infill points pile up next to the found optimum).
+pub const GP_TRAINING_ERROR: &str = "GP training error";
 
 /// EGO solver implementing the `basin::Solver` trait used by [`crate::Egor`]
 /// to benefit from basin executor features (checkpointing, observers, interruption).
@@ -144,16 +147,11 @@ pub fn to_xtypes(xlimits: &ArrayBase<impl Data<Elem = f64>, Ix2>) -> Vec<XType> 
     xtypes
 }
 
-/// Terminate `state` as converged after a GP training failure: typically, once the optimum
-/// is found, infill points accumulate next to it until the GP correlation matrix is singular
-pub(crate) fn converged_on_training_failure(
-    err: EgoError,
-    state: EgorState<f64>,
-) -> EgorState<f64> {
-    log::warn!(
-        "GP training failure ({err:?}): optimization stopped as converged with the best point found"
-    );
-    state.terminate_with(TerminationReason::SolverConverged)
+/// Terminate `state` after a GP training failure: typically, once the optimum is found,
+/// infill points accumulate next to it until the GP correlation matrix is singular
+pub(crate) fn exit_on_training_failure(err: EgoError, state: EgorState<f64>) -> EgorState<f64> {
+    log::warn!("GP training failure ({err:?}): optimization stopped with the best point found");
+    state.terminate_with(TerminationReason::SolverExit(GP_TRAINING_ERROR.to_string()))
 }
 
 /// Terminate with the `fallback` state when the objective function failed
@@ -475,7 +473,7 @@ where
                 Ok(state.terminate_with(TerminationReason::SolverConverged))
             }
             // models trained before evaluating any new point
-            Err(err @ EgoError::MoeError(_)) => Ok(converged_on_training_failure(err, state)),
+            Err(err @ EgoError::MoeError(_)) => Ok(exit_on_training_failure(err, state)),
             result => exit_on_objective_error(result, state),
         }
     }
@@ -515,7 +513,7 @@ where
                 point_index,
             ) {
                 let state = surrogates.put(local_state);
-                return Ok(converged_on_training_failure(err, state));
+                return Ok(exit_on_training_failure(err, state));
             }
         }
         // Models are moved along the local step, kept out of the state meanwhile

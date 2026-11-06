@@ -588,10 +588,10 @@ mod tests {
 
     #[test]
     #[serial]
-    fn test_gp_training_failure_terminates_as_converged() {
+    fn test_gp_training_failure_exits_with_best_point() {
         // A GP training failure (e.g. once the optimum is found, infill points pile up
         // next to it until the correlation matrix is numerically singular) stops the run
-        // as converged with the evaluated points and the best one found
+        // with the evaluated points and the best one found
         for trego in [false, true] {
             TRAININGS.store(0, std::sync::atomic::Ordering::Relaxed);
             let res = EgorBuilder::optimize(xsinx)
@@ -609,7 +609,9 @@ mod tests {
             );
             assert_eq!(
                 res.state.termination_status,
-                TerminationStatus::Terminated(TerminationReason::SolverConverged)
+                TerminationStatus::Terminated(TerminationReason::SolverExit(
+                    crate::GP_TRAINING_ERROR.to_string()
+                ))
             );
             assert!(res.state.iter < 20);
             assert_eq!(

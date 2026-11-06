@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use crate::errors::{EgoError, Result};
 use crate::moo::scalarization::compromise_index;
 use crate::solver::coego;
-use crate::solver::egor_solver::converged_on_training_failure;
+use crate::solver::egor_solver::exit_on_training_failure;
 use crate::solver::point_selection::SelectionInputs;
 use crate::solver::surrogate_set::{DataClustering, SurrogateSet, ThetaOptimization, TrainSpec};
 use crate::utils::{find_best_result_index_from, is_feasible_at, usable_data};
@@ -1101,7 +1101,7 @@ where
                 do_clustering,
                 point_index,
             ) {
-                new_state = converged_on_training_failure(err, new_state);
+                new_state = exit_on_training_failure(err, new_state);
             }
         }
         Ok(surrogates.put(new_state))
