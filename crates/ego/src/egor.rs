@@ -489,7 +489,7 @@ mod tests {
     use approx::assert_abs_diff_eq;
     use argmin_testfunctions::rosenbrock;
     use egobox_doe::{Lhs, SamplingMethod};
-    use egobox_moe::{NbClusters, as_continuous_limits};
+    use egobox_moe::{MixtureGpSurrogate, NbClusters, as_continuous_limits};
     use ndarray::{Array1, Array2, ArrayView1, ArrayView2, Ix1, Zip, array, s};
     use ndarray_rand::rand::SeedableRng;
     use rand_xoshiro::Xoshiro256Plus;
@@ -512,6 +512,114 @@ mod tests {
 
     fn xsinx(x: &ArrayView2<f64>) -> Array2<f64> {
         (x - 3.5) * ((x - 3.5) / std::f64::consts::PI).mapv(|v| v.sin())
+    }
+
+    /// Number of trainings done by [`FailingBuilder`]
+    static TRAININGS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    /// Trainings of [`FailingBuilder`] fail from this one on
+    const FAILING_TRAINING: usize = 4;
+
+    /// GP mixture builder whose trainings fail from the `FAILING_TRAINING`-th one on,
+    /// as when the GP correlation matrix is numerically singular
+    #[derive(Clone, serde::Serialize, serde::Deserialize)]
+    struct FailingBuilder(GpMixtureParams<f64>);
+
+    impl FailingBuilder {
+        fn check_training() -> std::result::Result<(), egobox_moe::MoeError> {
+            if TRAININGS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < FAILING_TRAINING {
+                Ok(())
+            } else {
+                Err(egobox_moe::MoeError::GpError(
+                    egobox_gp::GpError::LinalgError(linfa_linalg::LinalgError::NotPositiveDefinite),
+                ))
+            }
+        }
+    }
+
+    impl SurrogateBuilder for FailingBuilder {
+        fn new_with_xtypes(xtypes: &[XType]) -> Self {
+            FailingBuilder(GpMixtureParams::new_with_xtypes(xtypes))
+        }
+        fn set_regression_spec(&mut self, spec: RegressionSpec) {
+            self.0.set_regression_spec(spec)
+        }
+        fn set_correlation_spec(&mut self, spec: CorrelationSpec) {
+            self.0.set_correlation_spec(spec)
+        }
+        fn set_kpls_dim(&mut self, kpls_dim: Option<usize>) {
+            self.0.set_kpls_dim(kpls_dim)
+        }
+        fn set_n_clusters(&mut self, n_clusters: NbClusters) {
+            self.0.set_n_clusters(n_clusters)
+        }
+        fn set_recombination(&mut self, recombination: egobox_moe::Recombination<f64>) {
+            self.0.set_recombination(recombination)
+        }
+        fn set_theta_tunings(&mut self, theta_tunings: &[egobox_gp::ThetaTuning<f64>]) {
+            self.0.set_theta_tunings(theta_tunings)
+        }
+        fn set_optim_params(&mut self, n_start: usize, max_eval: usize) {
+            self.0.set_optim_params(n_start, max_eval)
+        }
+        fn set_noise_ratio(&mut self, noise_ratio: egobox_gp::ParamTuning<f64>) {
+            self.0.set_noise_ratio(noise_ratio)
+        }
+        fn set_rng(&mut self, rng: Xoshiro256Plus) {
+            self.0.set_rng(rng)
+        }
+        fn train(
+            &self,
+            xt: ArrayView2<f64>,
+            yt: ArrayView1<f64>,
+        ) -> std::result::Result<Box<dyn MixtureGpSurrogate>, egobox_moe::MoeError> {
+            Self::check_training()?;
+            self.0.train(xt, yt)
+        }
+        fn train_on_clusters(
+            &self,
+            xt: ArrayView2<f64>,
+            yt: ArrayView1<f64>,
+            clustering: &egobox_moe::Clustering,
+        ) -> std::result::Result<Box<dyn MixtureGpSurrogate>, egobox_moe::MoeError> {
+            Self::check_training()?;
+            self.0.train_on_clusters(xt, yt, clustering)
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_gp_training_failure_terminates_as_converged() {
+        // A GP training failure (e.g. once the optimum is found, infill points pile up
+        // next to it until the correlation matrix is numerically singular) stops the run
+        // as converged with the evaluated points and the best one found
+        for trego in [false, true] {
+            TRAININGS.store(0, std::sync::atomic::Ordering::Relaxed);
+            let res = EgorBuilder::optimize(xsinx)
+                .configure(|cfg| cfg.seed(42).max_iters(20).trego(trego))
+                .build::<FailingBuilder>(&to_xtypes(&array![[0., 25.]]))
+                .unwrap()
+                .run()
+                .unwrap();
+            println!(
+                "trego={trego}: iterations={}, observations={}, best={} ({:?})",
+                res.state.iter,
+                res.x_doe.nrows(),
+                res.y_opt[0],
+                res.state.termination_status
+            );
+            assert_eq!(
+                res.state.termination_status,
+                TerminationStatus::Terminated(TerminationReason::SolverConverged)
+            );
+            assert!(res.state.iter < 20);
+            assert_eq!(
+                res.y_opt[0],
+                res.y_doe.column(0).fold(f64::INFINITY, |a, &b| a.min(b))
+            );
+            // evaluated points kept: initial DOE (5 points), then one point per iteration
+            assert_eq!(res.x_doe.nrows(), 5 + res.state.iter as usize);
+            assert_eq!(res.y_doe.nrows(), res.x_doe.nrows());
+        }
     }
 
     #[test]
