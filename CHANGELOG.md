@@ -2,12 +2,10 @@
 
 ## Version 1.0.1 - 06/11/2026
 
-This release makes optimization and surrogate modeling more robust: more than twenty fixes, including panics in
-long runs, TREGO, CoEGO, function constraints, mixtures of experts and sparse GPs, and Ctrl-C handling in
-Python. It also speeds up GP fits and infill criteria gradients. The Python API is unchanged, but models and
-hot-start checkpoints saved in binary format by 1.0.0 no longer load, and results can differ for a given
-seed. Rust API changes include breaking ones (crates: `egobox-ego` 0.43.0, `egobox-moe` 0.37.0,
-`egobox-gp` 0.37.2, `egobox-gpx` 0.6.1). See [release notes](doc/release-notes-1.0.1.md) for details.
+Bug-fix release. The Python API has no breaking change; breaking changes are Rust only (crates:
+`egobox-ego` 0.43.0, `egobox-moe` 0.37.0, `egobox-gp` 0.37.2, `egobox-gpx` 0.6.1). See
+[release notes](doc/release-notes-1.0.1.md) for details, including compatibility notes on binary model files
+and results for a given seed.
 
 * **Compatibility**: GP models and `Egor` hot-start checkpoints saved in binary format by previous versions
   no longer load, in Rust and Python (JSON models and configurations still load)

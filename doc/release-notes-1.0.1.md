@@ -1,5 +1,7 @@
 # EGObox 1.0.1 release notes
 
+Bug-fix release with no breaking change in the Python API; breaking changes are Rust only.
+
 This release makes the optimizer and the surrogate models more robust. It fixes more than twenty defects:
 - panics in long runs, TREGO and automatic clustering;
 - wrong gradients;
