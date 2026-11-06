@@ -2,7 +2,6 @@ use crate::optimizers::*;
 use crate::types::*;
 
 use crate::moo::criterion::MooCriterion;
-use crate::utils::{pofs, pofs_grad};
 use crate::{DEFAULT_CSTR_TOL, EgorSolver};
 
 use egobox_moe::MixtureGpSurrogate;
@@ -12,6 +11,7 @@ use ndarray::{Array, Array1, Array2};
 use rayon::prelude::*;
 use serde::{Serialize, de::DeserializeOwned};
 
+use super::acquisition::{Acquisition, PofWeighting, infill_objective};
 use super::coego;
 use super::multistart::MultiStarter;
 
@@ -113,6 +113,7 @@ where
             moo_criterion,
         } = infill_optpb;
         let mut infill_data = infill_data.clone();
+        let cstr_tols_vec = cstr_tols.to_vec();
 
         let x_ref = current_best.0.to_owned();
         let mut best_point = (current_best.1[0], current_best.0.to_owned());
@@ -124,26 +125,27 @@ where
                 .as_deref()
                 .filter(|_| self.config.feasibility_infill.is_enabled());
 
-            // Infill objective: when `cstr_infill` is true, the infill criterion
-            // is weighted by the probability of feasibility (PoF) of the
-            // metamodelized constraints, otherwise the criterion is used as is
-            // and the metamodelized constraints are handled by the optimizer.
-            let make_obj = |cstr_infill: bool| {
+            // Infill objective: the multi-objective criterion if any, the infill criterion
+            // otherwise. When `weighted` (`cstr_infill`), it is weighted by the probability
+            // of feasibility (PoF) of the metamodelized constraints, otherwise it is used
+            // as is and the metamodelized constraints are handled by the optimizer.
+            let mono = self.mono_acquisition(obj_model, viab_model, alpha);
+            let acquisition: &dyn Acquisition = match moo_criterion {
+                Some(criterion) => criterion,
+                None => &mono,
+            };
+            let pof = PofWeighting {
+                models: cstr_models,
+                tols: &cstr_tols_vec,
+            };
+            let make_obj = |weighted: bool| {
                 let active = active.clone();
+                let pof = weighted.then_some(&pof);
                 move |x: &[f64],
                       gradient: Option<&mut [f64]>,
                       params: &mut InfillObjData<f64>|
                       -> f64 {
-                    let InfillObjData {
-                        scale_infill_obj,
-                        scale_wb2,
-                        xbest: xcoop,
-                        fmin,
-                        feasibility,
-                        sigma_weight,
-                        ..
-                    } = params;
-                    let mut xcoop = xcoop.clone();
+                    let mut xcoop = params.xbest.clone();
                     coego::set_active_x(&mut xcoop, &active, x);
 
                     // Defensive programming COBYLA may pass NaNs
@@ -151,93 +153,13 @@ where
                         return f64::INFINITY;
                     }
 
-                    if let Some(criterion) = moo_criterion {
-                        // Multi-objective criterion (linear composition with PoF)
-                        let with_grad = gradient.is_some();
-                        let (mut obj, mut g_obj) = if cstr_infill && !*feasibility {
-                            // neutral factor: only use the probability of feasibility
-                            (-1., Array1::zeros(xcoop.len()))
-                        } else if with_grad {
-                            let (v, g) = criterion.value_grad(&xcoop);
-                            (-v / *scale_infill_obj, -g / *scale_infill_obj)
-                        } else {
-                            (
-                                -criterion.value(&xcoop) / *scale_infill_obj,
-                                Array1::zeros(xcoop.len()),
-                            )
-                        };
-                        if cstr_infill {
-                            let tols = cstr_tols.to_vec();
-                            let pof = pofs(&xcoop, cstr_models, &tols);
-                            if with_grad {
-                                g_obj = g_obj * pof + pofs_grad(&xcoop, cstr_models, &tols) * obj;
-                            }
-                            obj *= pof;
-                        }
-                        if let Some(grad) = gradient {
-                            let g_obj = g_obj.to_vec();
-                            grad[..].copy_from_slice(&coego::get_active_grad(&g_obj, &active));
-                        }
-                        return obj;
+                    let (obj, g_obj) =
+                        infill_objective(acquisition, pof, &xcoop, params, gradient.is_some());
+                    if let (Some(grad), Some(g_obj)) = (gradient, g_obj) {
+                        let g_obj = g_obj.to_vec();
+                        grad[..].copy_from_slice(&coego::get_active_grad(&g_obj, &active));
                     }
-
-                    if let Some(grad) = gradient {
-                        let g_infill_obj = if cstr_infill {
-                            // Use constrained infill criterion
-                            self.eval_cstr_infill_obj_grad(
-                                &xcoop,
-                                obj_model,
-                                cstr_models,
-                                cstr_tols,
-                                *fmin,
-                                viab_model,
-                                alpha,
-                                *scale_infill_obj,
-                                *scale_wb2,
-                                *feasibility,
-                                *sigma_weight,
-                            )
-                        } else {
-                            self.eval_infill_obj_grad(
-                                &xcoop,
-                                obj_model,
-                                *fmin,
-                                viab_model,
-                                alpha,
-                                *scale_infill_obj,
-                                *scale_wb2,
-                                *sigma_weight,
-                            )
-                        };
-                        grad[..].copy_from_slice(&coego::get_active_grad(&g_infill_obj, &active));
-                    }
-                    if cstr_infill {
-                        // Use constrained infill criterion
-                        self.eval_cstr_infill_obj(
-                            &xcoop,
-                            obj_model,
-                            cstr_models,
-                            cstr_tols,
-                            *fmin,
-                            viab_model,
-                            alpha,
-                            *scale_infill_obj,
-                            *scale_wb2,
-                            *feasibility,
-                            *sigma_weight,
-                        )
-                    } else {
-                        self.eval_infill_obj(
-                            &xcoop,
-                            obj_model,
-                            *fmin,
-                            viab_model,
-                            alpha,
-                            *scale_infill_obj,
-                            *scale_wb2,
-                            *sigma_weight,
-                        )
-                    }
+                    obj
                 }
             };
             let obj = make_obj(self.config.cstr_infill);
