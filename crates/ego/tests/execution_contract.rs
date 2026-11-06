@@ -1,4 +1,6 @@
-use egobox_ego::{EgorBuilder, TerminationReason, TerminationStatus};
+use egobox_ego::{
+    EgorBuilder, InfillOptimizer, InfillStrategy, TerminationReason, TerminationStatus,
+};
 use ndarray::{Array2, ArrayView2, array};
 
 fn xsinx(x: &ArrayView2<f64>) -> Array2<f64> {
@@ -257,6 +259,35 @@ fn interrupt_check_stops_repeated_runs() {
         assert_eq!(result.state.iter, 2);
         assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 3);
     }
+}
+
+#[test]
+fn gp_training_failure_terminates_as_converged() {
+    // Once the optimum is found, infill points pile up next to it until the GP
+    // correlation matrix is numerically singular: the run stops as converged
+    // with the best point found instead of failing
+    let result = EgorBuilder::optimize(xsinx)
+        .configure(|cfg| {
+            cfg.seed(42)
+                .max_iters(1000)
+                .infill_strategy(InfillStrategy::LogEI)
+                .infill_optimizer(InfillOptimizer::Cobyla)
+        })
+        .min_within(&array![[0., 25.]])
+        .unwrap()
+        .run()
+        .unwrap();
+    println!(
+        "iterations={}, observations={}, best={}",
+        result.state.iter,
+        result.x_doe.nrows(),
+        result.y_opt[0]
+    );
+    approx::assert_abs_diff_eq!(result.y_opt[0], -15.125, epsilon = 1e-3);
+    assert_eq!(
+        result.state.termination_status,
+        TerminationStatus::Terminated(TerminationReason::SolverConverged)
+    );
 }
 
 #[test]

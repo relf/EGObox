@@ -20,6 +20,7 @@ use ndarray_rand::rand::{Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256Plus;
 use serde::{Serialize, de::DeserializeOwned};
 
+use super::egor_solver::converged_on_training_failure;
 use super::multistart::LocalLhsMultiStarter;
 use super::surrogate_set::{DataClustering, SurrogateSet};
 
@@ -252,14 +253,16 @@ where
             // (fast incremental update unless full retraining is required)
             let mut surrogates = SurrogateSet::take(&mut new_state)?;
             let point_index = state.get_iter() as usize * self.config.qei_config.batch;
-            self.refresh_models(
+            if let Err(err) = self.refresh_models(
                 &mut surrogates,
                 &x_data,
                 &y_data,
                 &state.coego.activity,
                 DataClustering::Fixed,
                 point_index,
-            );
+            ) {
+                new_state = converged_on_training_failure(err, new_state);
+            }
             new_state = surrogates.put(new_state);
         }
 

@@ -144,6 +144,18 @@ pub fn to_xtypes(xlimits: &ArrayBase<impl Data<Elem = f64>, Ix2>) -> Vec<XType> 
     xtypes
 }
 
+/// Terminate `state` as converged after a GP training failure: typically, once the optimum
+/// is found, infill points accumulate next to it until the GP correlation matrix is singular
+pub(crate) fn converged_on_training_failure(
+    err: EgoError,
+    state: EgorState<f64>,
+) -> EgorState<f64> {
+    log::warn!(
+        "GP training failure ({err:?}): optimization stopped as converged with the best point found"
+    );
+    state.terminate_with(TerminationReason::SolverConverged)
+}
+
 /// Terminate with the `fallback` state when the objective function failed
 fn exit_on_objective_error(
     result: Result<EgorState<f64>>,
@@ -462,6 +474,8 @@ where
             Err(EgoError::NoMorePointToAddError(state)) => {
                 Ok(state.terminate_with(TerminationReason::SolverConverged))
             }
+            // models trained before evaluating any new point
+            Err(err @ EgoError::MoeError(_)) => Ok(converged_on_training_failure(err, state)),
             result => exit_on_objective_error(result, state),
         }
     }
@@ -492,14 +506,17 @@ where
                 .as_ref()
                 .ok_or_else(|| EgoError::InternalError("EgorSolver: No data!".to_string()))?;
             let point_index = local_state.get_iter() as usize * self.config.qei_config.batch;
-            self.refresh_models(
+            if let Err(err) = self.refresh_models(
                 &mut surrogates,
                 x_data,
                 y_data,
                 &local_state.coego.activity,
                 DataClustering::Fixed,
                 point_index,
-            );
+            ) {
+                let state = surrogates.put(local_state);
+                return Ok(converged_on_training_failure(err, state));
+            }
         }
         // Models are moved along the local step, kept out of the state meanwhile
         let models = std::mem::take(&mut surrogates.models);
