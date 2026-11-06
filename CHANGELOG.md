@@ -79,6 +79,9 @@
   status (also when raised within the objective or a function constraint), and raises `KeyboardInterrupt`
   elsewhere. New `Egor::interrupt_check()` replaces the Ctrl-C handler of a run by a custom check
   by @relf in <https://github.com/relf/EGObox/pull/546>
+* Fix infill criterion gradient ignoring the GP standard deviation weight of the GP variance portfolio
+  (`use_gp_var_portfolio`): gradient-based infill optimization (SLSQP, the default) used the gradient of
+  the unweighted criterion for the weights other than 1 by @relf in <https://github.com/relf/EGObox/pull/549>
 
 ## Version 1.0.0 - 12/10/2026
 
