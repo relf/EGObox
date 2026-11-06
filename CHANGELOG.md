@@ -82,6 +82,9 @@
 * Fix infill criterion gradient ignoring the GP standard deviation weight of the GP variance portfolio
   (`use_gp_var_portfolio`): gradient-based infill optimization (SLSQP, the default) used the gradient of
   the unweighted criterion for the weights other than 1 by @relf in <https://github.com/relf/EGObox/pull/549>
+* Fix constrained infill criterion gradient (`cstr_infill`) when there is no constraint surrogate (function
+  constraints only) and no feasible point yet: the criterion value is a constant, while its gradient was the
+  unconstrained criterion one. It is null now by @relf in <https://github.com/relf/EGObox/pull/550>
 
 ## Version 1.0.0 - 12/10/2026
 
