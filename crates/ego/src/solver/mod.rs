@@ -78,6 +78,7 @@
 //!     .run()
 //! ```
 
+mod acquisition;
 pub mod activity_strategy;
 mod coego;
 mod egor_config;

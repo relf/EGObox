@@ -1,10 +1,11 @@
-use crate::criteria::InfillComposition;
 use crate::errors::Result;
 use crate::types::*;
 use egobox_moe::{XType, to_discrete_space};
 
-use crate::utils::{compute_cstr_scales, logpofs, logpofs_grad, pofs, pofs_grad, update_data};
+use crate::utils::{compute_cstr_scales, pofs, update_data};
 use crate::{EgorSolver, solver::coego};
+
+use super::acquisition::{MonoAcquisition, PofWeighting, infill_objective};
 
 use basin::{CostFunction, Problem};
 
@@ -20,16 +21,22 @@ use serde::de::DeserializeOwned;
 
 const CSTR_DOUBT: f64 = 3.;
 
-fn neutral_infill_val(composition: InfillComposition) -> f64 {
-    if composition.is_log() { 0.0 } else { -1.0 }
-}
-
-fn neutral_infill_grad(dim: usize) -> Array1<f64> {
-    Array1::zeros(dim)
-}
-
-fn neutral_infill(composition: InfillComposition, dim: usize) -> (f64, Array1<f64>) {
-    (neutral_infill_val(composition), neutral_infill_grad(dim))
+/// Infill objective data of the deprecated infill objective evaluation methods
+fn infill_obj_data(
+    fmin: f64,
+    scale: f64,
+    scale_ic: f64,
+    feasibility: bool,
+    sigma_weight: f64,
+) -> InfillObjData<f64> {
+    InfillObjData {
+        fmin,
+        scale_infill_obj: scale,
+        scale_wb2: scale_ic,
+        feasibility,
+        sigma_weight,
+        ..Default::default()
+    }
 }
 
 /// Results of the evaluation of new points appended to the data
@@ -318,18 +325,11 @@ where
         let mut crit_vals = Array1::zeros(x.nrows());
         let (mut nan_count, mut inf_count) = (0, 0);
 
+        let acquisition = self.mono_acquisition(obj_model, None, None);
+        let data = infill_obj_data(fmin, 1.0, scale_ic, true, sigma_weight);
         // Filter out points that are NaN or Inf in the infill criterion evaluation
         Zip::from(&mut crit_vals).and(x.rows()).for_each(|c, x| {
-            let val = self.eval_infill_obj(
-                &x.to_vec(),
-                obj_model,
-                fmin,
-                None,
-                None,
-                scale_ic,
-                sigma_weight,
-                1.0,
-            );
+            let (val, _) = infill_objective(&acquisition, None, &x.to_vec(), &data, false);
             *c = if val.is_nan() {
                 nan_count += 1;
                 1.0
@@ -360,32 +360,19 @@ where
         }
     }
 
-    /// Compute infill criterion objective expected to be minimized
-    /// meaning infill criterion objective is negative infill criterion
-    /// the latter is expected to be maximized
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn eval_infill_obj(
-        &self,
-        x: &[f64],
-        obj_model: &dyn MixtureGpSurrogate,
-        fmin: f64,
-        viability_model: Option<&dyn MixtureGpSurrogate>,
+    /// Mono-objective acquisition of the configured infill criterion
+    pub(crate) fn mono_acquisition<'a>(
+        &'a self,
+        obj_model: &'a dyn MixtureGpSurrogate,
+        viability_model: Option<&'a dyn MixtureGpSurrogate>,
         alpha: Option<f64>,
-        scale: f64,
-        scale_ic: f64,
-        sigma_weight: f64,
-    ) -> f64 {
-        let x_f = x.to_vec();
-        let obj = -(self.config.infill_criterion.value(
-            &x_f,
+    ) -> MonoAcquisition<'a> {
+        MonoAcquisition {
+            criterion: &*self.config.infill_criterion,
             obj_model,
-            fmin,
             viability_model,
             alpha,
-            Some(sigma_weight),
-            Some(scale_ic),
-        ));
-        obj / scale
+        }
     }
 
     /// Compute gradient of infill criterion objective expected to be minimized
@@ -402,43 +389,10 @@ where
         scale: f64,
         scale_ic: f64,
     ) -> Vec<f64> {
-        self.eval_infill_obj_grad(
-            x,
-            obj_model,
-            fmin,
-            viability_model,
-            alpha,
-            scale,
-            scale_ic,
-            1.0,
-        )
-    }
-
-    /// Compute gradient of infill criterion objective expected to be minimized
-    /// meaning infill criterion objective is negative infill criterion
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn eval_infill_obj_grad(
-        &self,
-        x: &[f64],
-        obj_model: &dyn MixtureGpSurrogate,
-        fmin: f64,
-        viability_model: Option<&dyn MixtureGpSurrogate>,
-        alpha: Option<f64>,
-        scale: f64,
-        scale_ic: f64,
-        sigma_weight: f64,
-    ) -> Vec<f64> {
-        let x_f = x.to_vec();
-        let grad = -(self.config.infill_criterion.grad(
-            &x_f,
-            obj_model,
-            fmin,
-            viability_model,
-            alpha,
-            Some(sigma_weight),
-            Some(scale_ic),
-        ));
-        (grad / scale).to_vec()
+        let acquisition = self.mono_acquisition(obj_model, viability_model, alpha);
+        let data = infill_obj_data(fmin, scale, scale_ic, true, 1.0);
+        let (_, grad) = infill_objective(&acquisition, None, x, &data, true);
+        grad.expect("infill objective gradient").to_vec()
     }
 
     /// Compute infill criterion objective with constraints handling
@@ -459,63 +413,14 @@ where
         feasibility: bool,
         sigma_weight: f64,
     ) -> f64 {
-        self.eval_cstr_infill_obj(
-            x,
-            obj_model,
-            cstr_models,
-            cstr_tols,
-            fmin,
-            viability_model,
-            alpha,
-            scale,
-            scale_ic,
-            feasibility,
-            sigma_weight,
-        )
-    }
-
-    /// Compute infill criterion objective with constraints handling
-    /// expected to be minimized meaning infill criterion objective is negative infill criterion
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn eval_cstr_infill_obj(
-        &self,
-        x: &[f64],
-        obj_model: &dyn MixtureGpSurrogate,
-        cstr_models: &[Box<dyn MixtureGpSurrogate>],
-        cstr_tols: &Array1<f64>,
-        fmin: f64,
-        viability_model: Option<&dyn MixtureGpSurrogate>,
-        alpha: Option<f64>,
-        scale: f64,
-        scale_ic: f64,
-        feasibility: bool,
-        sigma_weight: f64,
-    ) -> f64 {
-        let composition = self.config.infill_criterion.composition();
-        let infill_obj = if feasibility {
-            self.eval_infill_obj(
-                x,
-                obj_model,
-                fmin,
-                viability_model,
-                alpha,
-                scale,
-                scale_ic,
-                sigma_weight,
-            )
-        } else {
-            // when no feasible point is found,
-            // make the infill criterion value a neutral factor
-            // that is -1 when CEI, 0 when logCEI
-            // in order to just use probability of feasibility for the infill criterion value
-            // and not penalize it more than that
-            neutral_infill_val(composition)
+        let acquisition = self.mono_acquisition(obj_model, viability_model, alpha);
+        let tols = cstr_tols.to_vec();
+        let pof = PofWeighting {
+            models: cstr_models,
+            tols: &tols,
         };
-        if composition.is_log() {
-            infill_obj - logpofs(x, cstr_models, &cstr_tols.to_vec())
-        } else {
-            infill_obj * pofs(x, cstr_models, &cstr_tols.to_vec())
-        }
+        let data = infill_obj_data(fmin, scale, scale_ic, feasibility, sigma_weight);
+        infill_objective(&acquisition, Some(&pof), x, &data, false).0
     }
 
     /// Compute gradient of infill criterion objective with constraints handling
@@ -535,110 +440,15 @@ where
         feasibility: bool,
         sigma_weight: f64,
     ) -> Vec<f64> {
-        self.eval_cstr_infill_obj_grad(
-            x,
-            obj_model,
-            cstr_models,
-            cstr_tols,
-            fmin,
-            viability_model,
-            alpha,
-            scale,
-            scale_ic,
-            feasibility,
-            sigma_weight,
-        )
-    }
-
-    /// Compute gradient of infill criterion objective with constraints handling
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn eval_cstr_infill_obj_grad(
-        &self,
-        x: &[f64],
-        obj_model: &dyn MixtureGpSurrogate,
-        cstr_models: &[Box<dyn MixtureGpSurrogate>],
-        cstr_tols: &Array1<f64>,
-        fmin: f64,
-        viability_model: Option<&dyn MixtureGpSurrogate>,
-        alpha: Option<f64>,
-        scale: f64,
-        scale_ic: f64,
-        feasibility: bool,
-        sigma_weight: f64,
-    ) -> Vec<f64> {
-        if cstr_models.is_empty() && !feasibility {
-            // neutral infill value, as in `eval_cstr_infill_obj`
-            neutral_infill_grad(x.len()).to_vec()
-        } else if cstr_models.is_empty() {
-            self.eval_infill_obj_grad(
-                x,
-                obj_model,
-                fmin,
-                viability_model,
-                alpha,
-                scale,
-                scale_ic,
-                sigma_weight,
-            )
-        } else {
-            let composition = self.config.infill_criterion.composition();
-
-            if composition.is_log() {
-                let infill_grad = if feasibility {
-                    Array1::from_vec(self.eval_infill_obj_grad(
-                        x,
-                        obj_model,
-                        fmin,
-                        viability_model,
-                        alpha,
-                        scale,
-                        scale_ic,
-                        sigma_weight,
-                    ))
-                } else {
-                    // when no feasible point is found,
-                    // make the infill criterion gradient a neutral factor
-                    neutral_infill_grad(x.len())
-                };
-
-                let logcei_grad = infill_grad - logpofs_grad(x, cstr_models, &cstr_tols.to_vec());
-                logcei_grad.to_vec()
-            } else {
-                let (infill, infill_grad) = if feasibility {
-                    (
-                        self.eval_infill_obj(
-                            x,
-                            obj_model,
-                            fmin,
-                            viability_model,
-                            alpha,
-                            scale,
-                            scale_ic,
-                            sigma_weight,
-                        ),
-                        Array1::from_vec(self.eval_infill_obj_grad(
-                            x,
-                            obj_model,
-                            fmin,
-                            viability_model,
-                            alpha,
-                            scale,
-                            scale_ic,
-                            sigma_weight,
-                        )),
-                    )
-                } else {
-                    // when no feasible point is found, use the criterion neutral fallback
-                    neutral_infill(composition, x.len())
-                };
-
-                let pofs = pofs(x, cstr_models, &cstr_tols.to_vec());
-                let pofs_grad = pofs_grad(x, cstr_models, &cstr_tols.to_vec());
-
-                let cei_grad = infill_grad * pofs + pofs_grad * infill;
-                cei_grad.to_vec()
-            }
-        }
+        let acquisition = self.mono_acquisition(obj_model, viability_model, alpha);
+        let tols = cstr_tols.to_vec();
+        let pof = PofWeighting {
+            models: cstr_models,
+            tols: &tols,
+        };
+        let data = infill_obj_data(fmin, scale, scale_ic, feasibility, sigma_weight);
+        let (_, grad) = infill_objective(&acquisition, Some(&pof), x, &data, true);
+        grad.expect("infill objective gradient").to_vec()
     }
 
     /// Evaluate the objective function at given x points
@@ -1026,144 +836,5 @@ mod tests {
             .compute_virtual_point(&xk, &y, &[], &[])
             .unwrap();
         assert_eq!(virtual_point, vec![1., 0.3]);
-    }
-
-    #[test]
-    fn test_infill_obj_gradient_with_sigma_weight() {
-        // GP variance portfolio: the infill objective gradient takes the weight
-        // of the GP standard deviation into account as its value does
-        let obj_model = cstr_model();
-        let cstr_models: Vec<Box<dyn MixtureGpSurrogate>> = vec![Box::new(cstr_model())];
-        let cstr_tols = array![1e-4];
-        let x = [0.3, -1.1, 0.7];
-        let sigma_weight = 0.1;
-        let (pred, var) = obj_model.predict_valvar(&array![x]).unwrap();
-        // improvement of one weighted standard deviation
-        let fmin = pred[0] - sigma_weight * var[0].sqrt();
-        for strategy in [
-            InfillStrategy::EI,
-            InfillStrategy::LogEI,
-            InfillStrategy::WB2,
-        ] {
-            let config = EgorConfig::default()
-                .xtypes(&to_xtypes(&array![[-2., 2.], [-2., 2.], [-2., 2.]]))
-                .infill_strategy(strategy.clone())
-                .check()
-                .unwrap();
-            let solver: EgorSolver<GpMixtureParams<f64>, Cstr> = EgorSolver::new(config);
-            // without then with constraint models (probability of feasibility weighting)
-            for cstrs in [&cstr_models[..0], &cstr_models[..]] {
-                let value = |x: &[f64]| {
-                    solver.eval_cstr_infill_obj(
-                        x,
-                        &obj_model,
-                        cstrs,
-                        &cstr_tols,
-                        fmin,
-                        None,
-                        None,
-                        1.,
-                        1.,
-                        true,
-                        sigma_weight,
-                    )
-                };
-                let grad = solver.eval_cstr_infill_obj_grad(
-                    &x,
-                    &obj_model,
-                    cstrs,
-                    &cstr_tols,
-                    fmin,
-                    None,
-                    None,
-                    1.,
-                    1.,
-                    true,
-                    sigma_weight,
-                );
-                let e = 1e-6;
-                for k in 0..3 {
-                    let (mut xp, mut xm) = (x, x);
-                    xp[k] += e;
-                    xm[k] -= e;
-                    let fdiff = (value(&xp) - value(&xm)) / (2. * e);
-                    approx::assert_abs_diff_eq!(
-                        grad[k],
-                        fdiff,
-                        epsilon = 1e-2 * fdiff.abs() + 1e-6
-                    );
-                }
-                println!("{strategy:?} with {} cstr: {grad:?} ok", cstrs.len());
-            }
-        }
-    }
-
-    #[test]
-    fn test_cstr_infill_obj_gradient_without_feasible_point() {
-        // Constrained infill criterion without constraint models (e.g. function constraints
-        // only) while no feasible point is found: the value is the neutral one, constant,
-        // hence a null gradient
-        let obj_model = cstr_model();
-        let x = [0.3, -1.1, 0.7];
-        let (pred, _) = obj_model.predict_valvar(&array![x]).unwrap();
-        for strategy in [
-            InfillStrategy::EI,
-            InfillStrategy::LogEI,
-            InfillStrategy::WB2,
-        ] {
-            let config = EgorConfig::default()
-                .xtypes(&to_xtypes(&array![[-2., 2.], [-2., 2.], [-2., 2.]]))
-                .infill_strategy(strategy.clone())
-                .check()
-                .unwrap();
-            let solver: EgorSolver<GpMixtureParams<f64>, Cstr> = EgorSolver::new(config);
-            let value = |x: &[f64]| {
-                solver.eval_cstr_infill_obj(
-                    x,
-                    &obj_model,
-                    &[],
-                    &array![],
-                    pred[0],
-                    None,
-                    None,
-                    1.,
-                    1.,
-                    false,
-                    1.,
-                )
-            };
-            let grad = solver.eval_cstr_infill_obj_grad(
-                &x,
-                &obj_model,
-                &[],
-                &array![],
-                pred[0],
-                None,
-                None,
-                1.,
-                1.,
-                false,
-                1.,
-            );
-            assert_eq!(value(&x), value(&[-1.5, 0.2, 1.9]), "{strategy:?}");
-            assert_eq!(grad, vec![0.; 3], "{strategy:?}");
-        }
-    }
-
-    #[test]
-    fn test_infeasible_infill_obj_matches_composition() {
-        assert_eq!(neutral_infill_val(InfillComposition::Linear), -1.0);
-        assert_eq!(neutral_infill_val(InfillComposition::Log), 0.0);
-    }
-
-    #[test]
-    fn test_neutral_infill_matches_composition() {
-        let (linear_value, linear_grad) = neutral_infill(InfillComposition::Linear, 3);
-        assert_eq!(linear_value, -1.0);
-        assert_eq!(linear_grad, Array1::<f64>::zeros(3));
-
-        let (log_value, log_grad) = neutral_infill(InfillComposition::Log, 2);
-        assert_eq!(log_value, 0.0);
-        assert_eq!(log_grad, Array1::<f64>::zeros(2));
     }
 }
