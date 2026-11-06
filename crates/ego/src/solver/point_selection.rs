@@ -1,6 +1,7 @@
 //! Selection of the next points to evaluate in a global EGO step: surrogates training,
 //! infill criterion optimization for each point of a batch, and portfolio of GP variance weights.
 
+use crate::errors::Result;
 use crate::moo::criterion::MooCriterion;
 use crate::moo::ehvi::EhviCriterion;
 use crate::moo::eim::EimCriterion;
@@ -139,7 +140,9 @@ where
             fcstrs: cstr_funcs,
             fcstr_specs,
         };
-        let candidates = self.select_candidates(&inputs, &mut surrogates, rng);
+        let candidates = self
+            .select_candidates(&inputs, &mut surrogates, rng)
+            .expect("GP training failure");
         std::iter::zip(clusterings, surrogates.clusterings).for_each(|(dst, src)| *dst = src);
         std::iter::zip(theta_inits, surrogates.theta_inits).for_each(|(dst, src)| *dst = src);
         *models = surrogates.models;
@@ -160,7 +163,7 @@ where
         inputs: &SelectionInputs<impl CstrFn>,
         surrogates: &mut SurrogateSet,
         rng: &mut Xoshiro256Plus,
-    ) -> Candidates {
+    ) -> Result<Candidates> {
         let sigma_weights: &[f64] = if self.config.runtime_flags.use_gp_var_portfolio
             && self.config.qei_config.batch == 1
         {
@@ -193,7 +196,7 @@ where
                         concatenate![Axis(0), y_data.to_owned(), batch.points.y.to_owned()],
                     )
                 };
-                self.train_for_point(inputs, surrogates, &xt, &yt, i, j == 0);
+                self.train_for_point(inputs, surrogates, &xt, &yt, i, j == 0)?;
 
                 if inputs.iter == 0
                     && i == 0
@@ -222,10 +225,10 @@ where
                 portfolio.iter().map(|v| v.x[[0, 0]]).collect::<Vec<_>>()
             );
             // Use portfolio strategy: Pick one point from portfolio
-            select_from_portfolio(portfolio)
+            Ok(select_from_portfolio(portfolio))
         } else {
             // Fallback to default returning one or several points (in case of qEI strategy)
-            portfolio.remove(0)
+            Ok(portfolio.remove(0))
         }
     }
 
@@ -239,7 +242,7 @@ where
         yt: &Array2<f64>,
         i: usize,
         first_weight: bool,
-    ) {
+    ) -> Result<()> {
         log::debug!("activity: {:?}", inputs.activity);
         let do_clustering: DataClustering = ((inputs.init && i == 0) || inputs.recluster).into();
 
@@ -263,7 +266,7 @@ where
             theta: optimize_theta.into(),
             actives: inputs.activity,
         };
-        self.update_surrogates(surrogates, xt, yt, spec);
+        self.update_surrogates(surrogates, xt, yt, spec)
     }
 
     /// Failed points of the initial DOE with output values penalized by `models`

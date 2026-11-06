@@ -900,7 +900,8 @@ impl From<egobox_ego::TerminationStatus> for ExitStatus {
                 TerminationReason::SolverExit(val) if val == OBJECTIVE_FUNCTION_ERROR => {
                     ExitStatus::ObjectiveFunctionError
                 }
-                TerminationReason::SolverExit(_) => unreachable!("Unexpected solver exit reason"),
+                // e.g. GP training error, see logs for details
+                TerminationReason::SolverExit(_) => ExitStatus::UnexpectedExit,
                 TerminationReason::Interrupt => ExitStatus::Interrupt,
             },
             TerminationStatus::NotTerminated => ExitStatus::UnexpectedExit,

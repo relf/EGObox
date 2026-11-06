@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 use crate::errors::{EgoError, Result};
 use crate::moo::scalarization::compromise_index;
 use crate::solver::coego;
+use crate::solver::egor_solver::exit_on_training_failure;
 use crate::solver::point_selection::SelectionInputs;
 use crate::solver::surrogate_set::{DataClustering, SurrogateSet, ThetaOptimization, TrainSpec};
 use crate::utils::{find_best_result_index_from, is_feasible_at, usable_data};
@@ -134,7 +135,9 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
             fcstrs: &fcstrs,
             fcstr_specs,
         };
-        self.select_candidates(&inputs, &mut surrogates, &mut rng).x
+        self.select_candidates(&inputs, &mut surrogates, &mut rng)
+            .expect("GP training failure")
+            .x
     }
 
     /// Given an evaluated doe (x, y) data, return the index of the best evaluated point,
@@ -209,6 +212,9 @@ const MIN_POINTS_DIM_FACTOR: usize = 2;
 /// theta optimization: a large z-score means the current hyperparameters no
 /// longer explain the data well.
 const ZSCORE_THETA_OPTIM_THRESHOLD: f64 = 1.0;
+
+/// Trained surrogate models with their theta hyperparameters (one row per expert)
+type TrainedModels = (Vec<Box<dyn MixtureGpSurrogate>>, Vec<Array2<f64>>);
 
 impl<SB, C> EgorSolver<SB, C>
 where
@@ -318,7 +324,7 @@ where
         spec: TrainSpec,
         clustering: Option<&Clustering>,
         theta_inits: Option<&Array2<f64>>,
-    ) -> (Box<dyn MixtureGpSurrogate>, Array2<f64>) {
+    ) -> Result<(Box<dyn MixtureGpSurrogate>, Array2<f64>)> {
         let mut builder = self.configured_builder(
             self.config.gp.n_clusters.clone(),
             self.config.gp.recombination,
@@ -408,9 +414,7 @@ where
                     if i == 0 {
                         info!("{model_name} clustering and training...");
                     }
-                    let gp = builder
-                        .train(xt.view(), yt.view())
-                        .expect("GP training failure");
+                    let gp = builder.train(xt.view(), yt.view())?;
 
                     if i == 0 {
                         info!(
@@ -462,9 +466,7 @@ where
 
                     builder.set_theta_tunings(&theta_tunings);
 
-                    builder
-                        .train_on_clusters(xt.view(), yt.view(), clustering)
-                        .expect("GP training failure")
+                    builder.train_on_clusters(xt.view(), yt.view(), clustering)?
                 }
             };
 
@@ -486,7 +488,7 @@ where
             }
             model = Some(gp)
         }
-        (model.expect("Surrogate model is trained"), best_theta_inits)
+        Ok((model.expect("Surrogate model is trained"), best_theta_inits))
     }
 
     /// Viability surrogate trained on `x_train` (safe points) and `x_fail` (failed points),
@@ -667,14 +669,17 @@ where
         c_data: &Array2<f64>,
         cstr_tol: &Array1<f64>,
     ) -> Option<(usize, bool)> {
-        self.refresh_models(
+        if let Err(err) = self.refresh_models(
             surrogates,
             x_data,
             y_data,
             activity,
             DataClustering::Regenerate,
             0,
-        );
+        ) {
+            log::warn!("GP training failure ({err:?}), observed values used instead of estimates");
+            return None;
+        }
         let y_est = Self::estimate_values(&surrogates.models, x_data, y_data, &[])?;
         let best_index = find_best_result_index(&y_est, c_data, cstr_tol);
         let feasibility =
@@ -795,18 +800,21 @@ where
         yt: &Array2<f64>,
         spec: TrainSpec,
         surrogates: &SurrogateSet,
-    ) -> (Vec<Box<dyn MixtureGpSurrogate>>, Vec<Array2<f64>>) {
-        let models_and_inits = (0..self.config.n_surrogates()).into_par_iter().map(|k| {
-            self.make_clustered_surrogate(
-                &self.model_name(k),
-                xt,
-                &yt.slice(s![.., k]).to_owned(),
-                spec,
-                surrogates.clusterings[k].as_ref(),
-                surrogates.theta_inits[k].as_ref(),
-            )
-        });
-        models_and_inits.unzip()
+    ) -> Result<TrainedModels> {
+        let models_and_inits = (0..self.config.n_surrogates())
+            .into_par_iter()
+            .map(|k| {
+                self.make_clustered_surrogate(
+                    &self.model_name(k),
+                    xt,
+                    &yt.slice(s![.., k]).to_owned(),
+                    spec,
+                    surrogates.clusterings[k].as_ref(),
+                    surrogates.theta_inits[k].as_ref(),
+                )
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(models_and_inits.into_iter().unzip())
     }
 
     /// Train only primary constraint columns and derive transformed ones
@@ -818,7 +826,7 @@ where
         yt: &Array2<f64>,
         spec: TrainSpec,
         surrogates: &SurrogateSet,
-    ) -> (Vec<Box<dyn MixtureGpSurrogate>>, Vec<Array2<f64>>) {
+    ) -> Result<TrainedModels> {
         let primary_indices: Vec<usize> = mapping
             .iter()
             .enumerate()
@@ -836,10 +844,10 @@ where
                         spec,
                         surrogates.clusterings[k].as_ref(),
                         surrogates.theta_inits[k].as_ref(),
-                    );
-                    (k, model, inits)
+                    )?;
+                    Ok((k, model, inits))
                 })
-                .collect();
+                .collect::<Result<_>>()?;
 
         let mut models: Vec<Option<Box<dyn MixtureGpSurrogate>>> =
             (0..mapping.len()).map(|_| None).collect();
@@ -864,10 +872,10 @@ where
             }
         }
 
-        (
+        Ok((
             models.into_iter().map(|o| o.unwrap()).collect(),
             inits.into_iter().map(|o| o.unwrap()).collect(),
-        )
+        ))
     }
 
     /// This function is the main EGO algorithm iteration:
@@ -983,7 +991,7 @@ where
                 fcstrs,
                 fcstr_specs,
             };
-            let candidates = self.select_candidates(&inputs, &mut surrogates, &mut rng);
+            let candidates = self.select_candidates(&inputs, &mut surrogates, &mut rng)?;
 
             if let Some(models) = persisted_models {
                 surrogates.models = models;
@@ -1085,14 +1093,16 @@ where
             // `must_optimize_theta` for the full-retrain-vs-fast-path decision.
             let do_clustering: DataClustering = (init || recluster).into();
             let point_index = state.get_iter() as usize * self.config.qei_config.batch;
-            self.refresh_models(
+            if let Err(err) = self.refresh_models(
                 &mut surrogates,
                 &x_data,
                 &y_data,
                 &state.coego.activity,
                 do_clustering,
                 point_index,
-            );
+            ) {
+                new_state = exit_on_training_failure(err, new_state);
+            }
         }
         Ok(surrogates.put(new_state))
     }
@@ -1225,7 +1235,7 @@ where
         xt: &Array2<f64>,
         yt: &Array2<f64>,
         spec: TrainSpec,
-    ) -> Vec<Option<Array2<f64>>> {
+    ) -> Result<Vec<Option<Array2<f64>>>> {
         let mapping = self
             .config
             .cstr_specs
@@ -1233,13 +1243,13 @@ where
             .map(|s| output_mapping(self.config.n_obj_models(), s));
 
         let (models_new, inits) = if let Some(ref mapping) = mapping {
-            self.train_with_mapping(mapping, xt, yt, spec, surrogates)
+            self.train_with_mapping(mapping, xt, yt, spec, surrogates)?
         } else {
-            self.train_all_columns(xt, yt, spec, surrogates)
+            self.train_all_columns(xt, yt, spec, surrogates)?
         };
 
         surrogates.models = models_new;
-        inits.into_iter().map(Some).collect()
+        Ok(inits.into_iter().map(Some).collect())
     }
 
     /// Check whether the point(s) about to be added trigger the z-score guard:
@@ -1335,7 +1345,7 @@ where
         actives: &Array2<usize>,
         do_clustering: DataClustering,
         point_index: usize,
-    ) {
+    ) -> Result<()> {
         let dim = self.config.gp.kpls_dim.unwrap_or(x_data.ncols());
         let optimize_theta: ThetaOptimization = self
             .must_optimize_theta(do_clustering, x_data.nrows(), dim, point_index)
@@ -1345,7 +1355,7 @@ where
             theta: optimize_theta,
             actives,
         };
-        self.update_surrogates(surrogates, x_data, y_data, spec);
+        self.update_surrogates(surrogates, x_data, y_data, spec)
     }
 
     /// Train `surrogates` models on `(xt, yt)` as specified by `spec`, then sync their
@@ -1359,7 +1369,7 @@ where
         xt: &Array2<f64>,
         yt: &Array2<f64>,
         spec: TrainSpec,
-    ) {
+    ) -> Result<()> {
         let inits = if surrogates.is_up_to_date(spec.clustering, xt.nrows()) {
             debug!("Surrogates already up to date with {} points", xt.nrows());
             vec![None; surrogates.models.len()]
@@ -1370,9 +1380,10 @@ where
                 spec.clustering,
                 spec.theta
             );
-            self.update_models(surrogates, xt, yt, spec)
+            self.update_models(surrogates, xt, yt, spec)?
         };
         surrogates.sync(&inits);
+        Ok(())
     }
 
     /// Update the surrogate models with new data.
@@ -1388,7 +1399,7 @@ where
         xt: &Array2<f64>,
         yt: &Array2<f64>,
         spec: TrainSpec,
-    ) -> Vec<Option<Array2<f64>>> {
+    ) -> Result<Vec<Option<Array2<f64>>>> {
         if spec.clustering == DataClustering::Regenerate || spec.theta == ThetaOptimization::Enabled
         {
             // Slow path: retrain from scratch
@@ -1413,7 +1424,8 @@ where
             let mut update_failed = false;
             let old_models: Vec<Box<dyn MixtureGpSurrogate>> = std::mem::take(models);
             let mut results = Vec::with_capacity(old_models.len());
-            for (k, model) in old_models.into_iter().enumerate() {
+            let mut old_models = old_models.into_iter().enumerate();
+            for (k, model) in old_models.by_ref() {
                 let (xt_model, _yt_model) = model.training_data();
                 let n_old = xt_model.nrows();
                 let n_new = xt.nrows();
@@ -1435,9 +1447,11 @@ where
                     results.push(model);
                 }
             }
+            // models not updated yet are kept, should retraining fail
+            results.extend(old_models.map(|(_, model)| model));
+            *models = results;
             if !update_failed {
-                *models = results;
-                return vec![None; models.len()];
+                return Ok(vec![None; models.len()]);
             }
         }
 

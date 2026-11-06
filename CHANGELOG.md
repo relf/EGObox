@@ -85,6 +85,11 @@
 * Fix constrained infill criterion gradient (`cstr_infill`) when there is no constraint surrogate (function
   constraints only) and no feasible point yet: the criterion value is a constant, while its gradient was the
   unconstrained criterion one. It is null now by @relf in <https://github.com/relf/EGObox/pull/550>
+* Fix `Egor` panicking with "GP training failure" in long runs: once the optimum is found, infill points
+  accumulate next to it until the GP correlation matrix is numerically singular. The optimization now stops
+  with the best point found and the new termination reason `SolverExit(GP_TRAINING_ERROR)`
+  (`ExitStatus.UNEXPECTED_EXIT` in Python), a warning naming the failure
+  by @relf in <https://github.com/relf/EGObox/pull/552>
 
 ## Version 1.0.0 - 12/10/2026
 

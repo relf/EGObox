@@ -118,6 +118,9 @@ use std::time::Instant;
 pub const DEFAULT_CSTR_TOL: f64 = 1e-4;
 /// Termination reason when the objective function returns an error.
 pub const OBJECTIVE_FUNCTION_ERROR: &str = "Objective function error";
+/// Termination reason when a surrogate model cannot be trained (e.g. numerically singular
+/// GP correlation matrix once infill points pile up next to the found optimum).
+pub const GP_TRAINING_ERROR: &str = "GP training error";
 
 /// EGO solver implementing the `basin::Solver` trait used by [`crate::Egor`]
 /// to benefit from basin executor features (checkpointing, observers, interruption).
@@ -142,6 +145,13 @@ pub fn to_xtypes(xlimits: &ArrayBase<impl Data<Elem = f64>, Ix2>) -> Vec<XType> 
     let mut xtypes: Vec<XType> = vec![];
     Zip::from(xlimits.rows()).for_each(|limits| xtypes.push(XType::Float(limits[0], limits[1])));
     xtypes
+}
+
+/// Terminate `state` after a GP training failure: typically, once the optimum is found,
+/// infill points accumulate next to it until the GP correlation matrix is singular
+pub(crate) fn exit_on_training_failure(err: EgoError, state: EgorState<f64>) -> EgorState<f64> {
+    log::warn!("GP training failure ({err:?}): optimization stopped with the best point found");
+    state.terminate_with(TerminationReason::SolverExit(GP_TRAINING_ERROR.to_string()))
 }
 
 /// Terminate with the `fallback` state when the objective function failed
@@ -462,6 +472,8 @@ where
             Err(EgoError::NoMorePointToAddError(state)) => {
                 Ok(state.terminate_with(TerminationReason::SolverConverged))
             }
+            // models trained before evaluating any new point
+            Err(err @ EgoError::MoeError(_)) => Ok(exit_on_training_failure(err, state)),
             result => exit_on_objective_error(result, state),
         }
     }
@@ -492,14 +504,17 @@ where
                 .as_ref()
                 .ok_or_else(|| EgoError::InternalError("EgorSolver: No data!".to_string()))?;
             let point_index = local_state.get_iter() as usize * self.config.qei_config.batch;
-            self.refresh_models(
+            if let Err(err) = self.refresh_models(
                 &mut surrogates,
                 x_data,
                 y_data,
                 &local_state.coego.activity,
                 DataClustering::Fixed,
                 point_index,
-            );
+            ) {
+                let state = surrogates.put(local_state);
+                return Ok(exit_on_training_failure(err, state));
+            }
         }
         // Models are moved along the local step, kept out of the state meanwhile
         let models = std::mem::take(&mut surrogates.models);
