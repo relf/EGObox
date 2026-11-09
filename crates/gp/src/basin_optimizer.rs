@@ -4,8 +4,11 @@
 #![allow(missing_docs)]
 
 use basin::{
-    Cobyla, CobylaState, ConstraintJacobian, CostFunction, DenseMatrix, FoldedConstraints,
-    Gradient, NonlinearConstraints, Slsqp, SlsqpState, State, TerminationReason,
+    BoxBounds, Cobyla, ConstraintDescription, ConstraintJacobian, ConstraintSet,
+    ConstraintSolveError, ConvergenceTest, CostFunction, DenseMatrix, Gradient,
+    NoLinearConstraints, NoNonlinearBlock, NonlinearBlock, NonlinearBlocks,
+    NonlinearInequalityValues, SelectedFirstOrderState, SelectedState, Slsqp, State,
+    Termination,
 };
 use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
@@ -32,6 +35,9 @@ enum EvaluationError {
     Budget,
     NonFinite,
 }
+
+/// Constrained solvers wrap callback errors with constraint validation errors.
+type SolveError = ConstraintSolveError<EvaluationError>;
 
 type Objective<'a> = dyn Fn(&[f64], Option<&mut [f64]>) -> f64 + 'a;
 type Constraint<'a> = dyn Fn(usize, &[f64], Option<&mut [f64]>) -> f64 + 'a;
@@ -142,31 +148,50 @@ impl Gradient for &Problem<'_> {
     }
 }
 
-impl NonlinearConstraints for &Problem<'_> {
-    type Matrix = DenseMatrix;
-    fn num_nonlinear_constraints(&self) -> usize {
-        self.settings.n_constraints
+type BoxedInequalities = ConstraintSet<
+    BoxBounds<Vec<f64>>,
+    NoLinearConstraints,
+    NonlinearBlocks<NoNonlinearBlock, NonlinearBlock>,
+>;
+
+impl basin::Constraints for &Problem<'_> {
+    type Set = BoxedInequalities;
+    fn constraints(&self) -> <Self::Set as ConstraintDescription>::Borrowed<'_> {
+        // Both solvers handle the box natively (COBYLA folds it into its
+        // constraint vector); a zero-count nonlinear block skips callbacks.
+        ConstraintSet::new()
+            .with_bounds(BoxBounds::new(Some(&self.lower), Some(&self.upper)))
+            .with_nonlinear_inequalities(self.settings.n_constraints)
     }
-    fn nonlinear_constraints(&self, x: &Vec<f64>) -> Result<Vec<f64>, Self::Error> {
+}
+
+impl NonlinearInequalityValues for &Problem<'_> {
+    type Param = Vec<f64>;
+    type Values = Vec<f64>;
+    type Error = EvaluationError;
+    fn nonlinear_inequalities(
+        &self,
+        x: &Vec<f64>,
+    ) -> Result<Vec<f64>, ConstraintSolveError<Self::Error>> {
         let x = self.callback_point(x);
         let values: Vec<_> = (0..self.settings.n_constraints)
             .map(|i| (self.constraint)(i, &x, None))
             .collect();
         if values.iter().any(|value| !value.is_finite()) {
-            return Err(EvaluationError::NonFinite);
+            return Err(EvaluationError::NonFinite.into());
         }
         Ok(values)
-    }
-    fn lower(&self) -> Option<&Vec<f64>> {
-        Some(&self.lower)
-    }
-    fn upper(&self) -> Option<&Vec<f64>> {
-        Some(&self.upper)
     }
 }
 
 impl ConstraintJacobian for &Problem<'_> {
-    fn constraint_jacobian(&self, x: &Vec<f64>) -> Result<DenseMatrix, Self::Error> {
+    type Param = Vec<f64>;
+    type Jacobian = DenseMatrix;
+    type Error = EvaluationError;
+    fn constraint_jacobian(
+        &self,
+        x: &Vec<f64>,
+    ) -> Result<DenseMatrix, ConstraintSolveError<Self::Error>> {
         let bounded = self.callback_point(x);
         let mut values = vec![0.; self.settings.n_constraints * x.len()];
         for (i, row) in values.chunks_mut(x.len()).enumerate() {
@@ -178,7 +203,7 @@ impl ConstraintJacobian for &Problem<'_> {
             }
         }
         if values.iter().any(|value| !value.is_finite()) {
-            return Err(EvaluationError::NonFinite);
+            return Err(EvaluationError::NonFinite.into());
         }
         Ok(DenseMatrix::from_row_slice(
             self.settings.n_constraints,
@@ -192,25 +217,44 @@ fn cost_stop<S: State<Param = Vec<f64>, Float = f64>>(
     problem: &Problem<'_>,
     previous: &mut Option<f64>,
     state: &S,
-) -> Option<TerminationReason> {
+) -> Option<Termination> {
     let current = state.cost();
     if !current.is_finite() || !problem.feasible(state.param()) {
         // Objective progress cannot be compared across infeasible stages.
         *previous = None;
         return None;
     }
-    let stop = previous.is_some_and(|cost| {
+    let stop = previous.and_then(|cost| {
         // Like the default COBYLA backend, require strict improvement so a
         // repeated incumbent does not prevent refinement at a smaller radius.
-        (matches!(problem.algorithm, Algorithm::Slsqp) || current < cost)
-            && ((problem.settings.ftol_abs > 0.
-                && (cost - current).abs() < problem.settings.ftol_abs)
-                || (problem.settings.ftol_rel > 0.
-                    && (cost - current).abs()
-                        < problem.settings.ftol_rel * (cost.abs() + current.abs()) / 2.))
+        if !(matches!(problem.algorithm, Algorithm::Slsqp) || current < cost) {
+            return None;
+        }
+        let change = (cost - current).abs();
+        let (ftol_abs, ftol_rel) = (problem.settings.ftol_abs, problem.settings.ftol_rel);
+        let scale = (cost.abs() + current.abs()) / 2.;
+        if ftol_abs > 0. && change < ftol_abs {
+            Some(Termination::upper_bound(
+                ConvergenceTest::AbsoluteCostChange,
+                change,
+                ftol_abs,
+                ftol_abs,
+                None,
+            ))
+        } else if ftol_rel > 0. && change < ftol_rel * scale {
+            Some(Termination::upper_bound(
+                ConvergenceTest::RelativeCostChange,
+                change,
+                ftol_rel * scale,
+                ftol_rel,
+                Some(scale),
+            ))
+        } else {
+            None
+        }
     });
     *previous = Some(current);
-    stop.then_some(TerminationReason::CostTolerance)
+    stop
 }
 
 pub fn minimize(
@@ -232,13 +276,12 @@ pub fn minimize(
     let xinit = problem.bounded(settings.xinit).into_owned();
     let outcome = match algorithm {
         Algorithm::Cobyla => {
-            let solver = Cobyla::new()
+            let mut solver = Cobyla::new()
                 .with_initial_radius(settings.initial_radius)
                 .with_final_radius(1e-6);
-            let mut wrapped = basin::Problem::new(FoldedConstraints::new(&problem));
-            let mut solver = solver;
+            let mut wrapped = basin::Problem::new(&problem);
             let mut control = basin::RunControl::new().max_iter(u64::MAX);
-            let state = CobylaState::new(xinit);
+            let state = SelectedState::new(xinit);
             let mut radius = None;
             run(
                 &problem,
@@ -246,13 +289,16 @@ pub fn minimize(
                 &mut solver,
                 state,
                 &mut control,
-                |state: &CobylaState<Vec<f64>>| {
+                |solver: &Cobyla<Vec<f64>>, _: &SelectedState<Vec<f64>>| {
                     // Small improvements can precede exploration of a flat
                     // region. Compare completed radius stages, not individual
                     // steps; initialization only starts the first stage.
+                    let Some(rho) = solver.rho() else {
+                        return false;
+                    };
                     radius
-                        .replace(state.rho())
-                        .is_some_and(|previous| state.rho() < previous)
+                        .replace(rho)
+                        .is_some_and(|previous| rho < previous)
                 },
             )
         }
@@ -262,14 +308,14 @@ pub fn minimize(
             // absolute accuracy floor would stop small acquisition values early.
             let mut solver = Slsqp::new().with_absolute_accuracy_tolerance(0.0);
             let mut control = basin::RunControl::new().max_iter(u64::MAX);
-            let state = SlsqpState::new(xinit);
+            let state = SelectedFirstOrderState::new(xinit);
             run(
                 &problem,
                 &mut wrapped,
                 &mut solver,
                 state,
                 &mut control,
-                |_| true,
+                |_, _| true,
             )
         }
     };
@@ -286,8 +332,8 @@ pub fn minimize(
     }
     let stopped_normally = match outcome {
         Ok((_, _, reason)) => !reason.is_failure(),
-        Err(EvaluationError::Budget) => true,
-        Err(EvaluationError::NonFinite) => false,
+        Err(ConstraintSolveError::Evaluation(EvaluationError::Budget)) => true,
+        Err(_) => false,
     };
     if stopped_normally {
         problem
@@ -308,11 +354,11 @@ fn run<P, S, So, Check>(
     state: S,
     control: &mut basin::RunControl<S>,
     checkpoint: Check,
-) -> Result<(Vec<f64>, f64, TerminationReason), EvaluationError>
+) -> Result<(Vec<f64>, f64, Termination), SolveError>
 where
     S: State<Param = Vec<f64>, Float = f64> + basin::CountsMirror,
-    So: basin::Solver<P, S, Error = EvaluationError>,
-    Check: FnMut(&S) -> bool,
+    So: basin::Solver<P, S, Error = SolveError>,
+    Check: FnMut(&So, &S) -> bool,
 {
     // An observer cannot stop a borrowed run. A solver adapter lets the native
     // executor own counting and iteration while retaining local stop history.
@@ -325,10 +371,10 @@ where
     impl<P, S, So, Check> basin::Solver<P, S> for WithTolerance<'_, '_, So, Check>
     where
         S: State<Param = Vec<f64>, Float = f64>,
-        So: basin::Solver<P, S, Error = EvaluationError>,
-        Check: FnMut(&S) -> bool,
+        So: basin::Solver<P, S, Error = SolveError>,
+        Check: FnMut(&So, &S) -> bool,
     {
-        type Error = EvaluationError;
+        type Error = SolveError;
         fn init(&mut self, p: &mut basin::Problem<P>, s: S) -> Result<S, Self::Error> {
             self.solver.init(p, s)
         }
@@ -336,12 +382,19 @@ where
             &mut self,
             p: &mut basin::Problem<P>,
             s: S,
-        ) -> Result<(S, Option<TerminationReason>), Self::Error> {
+        ) -> Result<basin::SolverStep<S>, Self::Error> {
             self.solver.next_iter(p, s)
         }
-        fn check_convergence(&mut self, p: &basin::Problem<P>, s: &S) -> Option<TerminationReason> {
+        fn reset_convergence(&mut self) {
+            self.previous = None;
+            self.solver.reset_convergence();
+        }
+        fn should_check_iterate_change(&self) -> bool {
+            self.solver.should_check_iterate_change()
+        }
+        fn check_convergence(&mut self, p: &basin::Problem<P>, s: &S) -> Option<Termination> {
             self.solver.check_convergence(p, s).or_else(|| {
-                if (self.checkpoint)(s) {
+                if (self.checkpoint)(self.solver, s) {
                     cost_stop(self.problem, &mut self.previous, s)
                 } else {
                     None
@@ -360,7 +413,7 @@ where
     Ok((
         result.state.param().clone(),
         result.state.cost(),
-        result.reason,
+        result.report.termination,
     ))
 }
 

@@ -5,7 +5,7 @@ use crate::{
     CHECKPOINT_FILE, Constraints, CstrFn, EgoError, EgorSolver, EgorState, HotStartMode, ObjFn,
     ProblemFunc, SurrogateBuilder, TerminationReason as EgorReason, TerminationStatus,
 };
-use basin::{CountsMirror, EvalCounts, Executor, State, TerminationReason};
+use basin::{ApplicationStop, CountsMirror, EvalCounts, Executor, State, Termination};
 use log::info;
 use ndarray::{Array1, Array2, Axis, concatenate};
 use ndarray_npy::write_npy;
@@ -110,13 +110,22 @@ where
         &mut self,
         problem: &mut basin::Problem<P>,
         mut state: BasinState,
-    ) -> Result<(BasinState, Option<TerminationReason>), Self::Error> {
+    ) -> Result<basin::SolverStep<BasinState>, Self::Error> {
         state.inner = self.next_state(problem, state.inner)?;
         // EGO's clean stops consume an iteration under its existing contract.
         // Publish that iteration, then let the execution hook read its status.
-        Ok((state, None))
+        Ok(basin::SolverStep::completed(state))
     }
 }
+
+// Application stop codes raised by the execution hook and mapped back to
+// Egor termination reasons once the basin executor returns.
+const STOP_INTERRUPT: &str = "egor.interrupt";
+const STOP_OBSERVER_ERROR: &str = "egor.observer_error";
+const STOP_TIMEOUT: &str = "egor.timeout";
+const STOP_SOLVER: &str = "egor.solver";
+const STOP_MAX_ITERS: &str = "egor.max_iters";
+const STOP_TARGET_COST: &str = "egor.target_cost";
 
 // The optimization observer collects best costs ans params
 // during the optimization execution allowing to get optimization history
@@ -320,28 +329,27 @@ where
     let errors = observer_error.clone();
     let timeout = config.timeout.map(web_time::Duration::from_secs_f64);
     let mut exec = exec.max_iter(u64::MAX).stop_when(move |state| {
-        if interrupted() {
-            return Some(TerminationReason::Cancelled);
-        }
-        if errors.borrow().is_some() {
-            return Some(TerminationReason::UserRequested);
-        }
-        // Timeout boundary includes initialization in the clock.
-        if state.inner.iter > start_iter && timeout.is_some_and(|limit| started.elapsed() > limit) {
-            return Some(TerminationReason::MaxTime);
-        }
-        if state.inner.terminated() {
-            return Some(TerminationReason::UserRequested);
-        }
-        if state.inner.iter >= state.inner.max_iters {
-            return Some(TerminationReason::MaxIter);
-        }
-        if state.inner.target_cost > f64::NEG_INFINITY
+        let stop = if interrupted() {
+            STOP_INTERRUPT
+        } else if errors.borrow().is_some() {
+            STOP_OBSERVER_ERROR
+        } else if state.inner.iter > start_iter
+            && timeout.is_some_and(|limit| started.elapsed() > limit)
+        {
+            // Timeout boundary includes initialization in the clock.
+            STOP_TIMEOUT
+        } else if state.inner.terminated() {
+            STOP_SOLVER
+        } else if state.inner.iter >= state.inner.max_iters {
+            STOP_MAX_ITERS
+        } else if state.inner.target_cost > f64::NEG_INFINITY
             && state.best_cost() <= state.inner.target_cost
         {
-            return Some(TerminationReason::TargetCost);
-        }
-        None
+            STOP_TARGET_COST
+        } else {
+            return None;
+        };
+        Some(ApplicationStop::new(stop))
     });
     let writer_status = if checkpoint {
         std::fs::create_dir_all(path.parent().expect("checkpoint directory"))?;
@@ -370,15 +378,23 @@ where
     }
     let mut state = result.state.inner;
     state.time = Some(started.elapsed());
-    let reason = match result.reason {
-        TerminationReason::MaxIter => EgorReason::MaxItersReached,
-        TerminationReason::TargetCost => EgorReason::TargetCostReached,
-        TerminationReason::MaxTime => EgorReason::Timeout,
-        TerminationReason::Cancelled => EgorReason::Interrupt,
-        TerminationReason::UserRequested if state.terminated() => return Ok(state),
-        reason => {
+    let reason = match &result.report.termination {
+        Termination::Application(stop) => match stop.code.as_str() {
+            STOP_MAX_ITERS => EgorReason::MaxItersReached,
+            STOP_TARGET_COST => EgorReason::TargetCostReached,
+            STOP_TIMEOUT => EgorReason::Timeout,
+            STOP_INTERRUPT => EgorReason::Interrupt,
+            STOP_SOLVER if state.terminated() => return Ok(state),
+            _ => {
+                return Err(EgoError::InternalError(format!(
+                    "unexpected basin executor stop: {:?}",
+                    result.report
+                )));
+            }
+        },
+        termination => {
             return Err(EgoError::InternalError(format!(
-                "unexpected basin executor stop: {reason:?}"
+                "unexpected basin executor stop: {termination:?}"
             )));
         }
     };
