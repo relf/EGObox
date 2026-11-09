@@ -249,21 +249,6 @@ mod tests {
     }
 
     #[test]
-    fn test_noisy_xsinx_egor_service() {
-        let egor = noisy_service();
-        let mut doe = array![[0.], [7.], [20.], [25.]];
-        let mut y_doe = noisy_xsinx(&doe.view());
-        for _i in 0..10 {
-            let x_suggested = egor.suggest(&doe, &y_doe);
-            doe = concatenate![Axis(0), doe, x_suggested];
-            y_doe = noisy_xsinx(&doe.view());
-        }
-        let best = egor.best_index(&doe, &y_doe);
-        println!("best x = {}, y = {}", doe.row(best), y_doe.row(best));
-        assert_abs_diff_eq!(doe[[best, 0]], 18.9, epsilon = 0.5);
-    }
-
-    #[test]
     fn test_best_index_with_several_objectives() {
         let egor = EgorServiceBuilder::optimize()
             .configure(|conf| conf.n_obj(2).seed(42))

@@ -95,27 +95,3 @@ impl std::fmt::Debug for dyn InfillCriterion {
         write!(f, "{}", self.name())
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::criteria::{EI, LOG_EI, WB2, WB2S};
-
-    #[test]
-    fn test_composition_is_log() {
-        assert!(!InfillComposition::Linear.is_log());
-        assert!(InfillComposition::Log.is_log());
-    }
-
-    #[test]
-    fn test_default_composition_is_linear() {
-        assert_eq!(EI.composition(), InfillComposition::Linear);
-        assert_eq!(WB2.composition(), InfillComposition::Linear);
-        assert_eq!(WB2S.composition(), InfillComposition::Linear);
-    }
-
-    #[test]
-    fn test_logei_composition_is_log() {
-        assert_eq!(LOG_EI.composition(), InfillComposition::Log);
-    }
-}

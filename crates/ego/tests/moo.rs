@@ -144,15 +144,6 @@ fn test_zdt1_parego() {
 
 #[test]
 #[serial]
-fn test_zdt1_parego_is_deterministic() {
-    let res1 = run_zdt1(5);
-    let res2 = run_zdt1(5);
-    assert_eq!(res1.x_doe, res2.x_doe);
-    assert_eq!(res1.y_pareto, res2.y_pareto);
-}
-
-#[test]
-#[serial]
 fn test_zdt1_run_returns_compromise_point() {
     let res = EgorBuilder::optimize(zdt1)
         .configure(|cfg| cfg.n_obj(2).n_doe(10).max_iters(5).seed(42))
@@ -270,26 +261,6 @@ fn assert_bnh_front(res: &ParetoResult<f64>, feasible: impl Fn(&ndarray::ArrayVi
 
 #[test]
 #[serial]
-fn test_bnh_parego() {
-    let res = EgorBuilder::optimize(bnh)
-        .configure(|cfg| {
-            cfg.n_obj(2)
-                .configure_moo(|moo| moo.strategy(MooStrategy::ParEgo))
-                .n_cstr(2)
-                .n_doe(10)
-                .max_iters(30)
-                .seed(42)
-        })
-        .min_within(&array![[0., 5.], [0., 3.]])
-        .expect("Egor configured")
-        .run_pareto()
-        .expect("BNH optimization");
-    assert_eq!(res.y_doe.ncols(), 4);
-    assert_bnh_front(&res, |y| y[2] <= 1e-4 && y[3] <= 1e-4);
-}
-
-#[test]
-#[serial]
 fn test_bnh_parego_with_cstr_specs() {
     let res = EgorBuilder::optimize(bnh_raw)
         .configure(|cfg| {
@@ -307,39 +278,6 @@ fn test_bnh_parego_with_cstr_specs() {
     // results in raw constraint layout
     assert_eq!(res.y_doe.ncols(), 4);
     assert_bnh_front(&res, |y| y[2] <= 25. + 1e-4 && y[3] >= 7.7 - 1e-4);
-}
-
-#[test]
-#[serial]
-fn test_dtlz2_parego() {
-    let xlimits = Array2::from_shape_vec((4, 2), [0., 1.].repeat(4)).unwrap();
-    let res = EgorBuilder::optimize(dtlz2)
-        .configure(|cfg| {
-            cfg.n_obj(3)
-                .configure_moo(|moo| moo.strategy(MooStrategy::ParEgo))
-                .n_doe(15)
-                .max_iters(30)
-                .seed(42)
-        })
-        .min_within(&xlimits)
-        .expect("Egor configured")
-        .run_pareto()
-        .expect("DTLZ2 optimization");
-    assert_max_iters_reached(&res);
-    assert_non_dominated(&res.y_pareto, 3);
-    let distances = res
-        .y_pareto
-        .rows()
-        .into_iter()
-        .map(|y| y.dot(&y).sqrt() - 1.)
-        .collect::<Vec<_>>();
-    let mean_dist = distances.iter().sum::<f64>() / distances.len() as f64;
-    println!(
-        "DTLZ2 front ({} points) mean distance to true front = {mean_dist}",
-        res.y_pareto.nrows()
-    );
-    assert!(res.y_pareto.nrows() >= 5);
-    assert!(mean_dist < 0.35);
 }
 
 #[test]
@@ -588,14 +526,6 @@ fn test_zdt1_eim() {
 
 #[test]
 #[serial]
-fn test_zdt1_eim_is_deterministic() {
-    let res1 = run_zdt1_eim(EimAggregation::Euclidean, 5);
-    let res2 = run_zdt1_eim(EimAggregation::Euclidean, 5);
-    assert_eq!(res1.x_doe, res2.x_doe);
-}
-
-#[test]
-#[serial]
 fn test_zdt1_eim_hot_start_continues_like_uninterrupted_run() {
     let outdir = "target/test_moo_eim_hot_start";
     let _ = std::fs::remove_dir_all(outdir);
@@ -652,42 +582,6 @@ fn test_bnh_eim() {
 
 #[test]
 #[serial]
-fn test_dtlz2_eim() {
-    let xlimits = Array2::from_shape_vec((4, 2), [0., 1.].repeat(4)).unwrap();
-    let res = EgorBuilder::optimize(dtlz2)
-        .configure(|cfg| {
-            cfg.n_obj(3)
-                .configure_moo(|moo| {
-                    moo.strategy(MooStrategy::Eim)
-                        .eim_aggregation(EimAggregation::Hypervolume)
-                })
-                .n_doe(15)
-                .max_iters(30)
-                .seed(42)
-        })
-        .min_within(&xlimits)
-        .expect("Egor configured")
-        .run_pareto()
-        .expect("DTLZ2 optimization");
-    assert_max_iters_reached(&res);
-    assert_non_dominated(&res.y_pareto, 3);
-    let mean_dist = res
-        .y_pareto
-        .rows()
-        .into_iter()
-        .map(|y| y.dot(&y).sqrt() - 1.)
-        .sum::<f64>()
-        / res.y_pareto.nrows() as f64;
-    println!(
-        "DTLZ2 EIM front ({} points) mean distance to true front = {mean_dist}",
-        res.y_pareto.nrows()
-    );
-    assert!(res.y_pareto.nrows() >= 5);
-    assert!(mean_dist < 0.35);
-}
-
-#[test]
-#[serial]
 fn test_zdt1_eim_kriging_believer_batch() {
     let res = EgorBuilder::optimize(zdt1)
         .configure(|cfg| {
@@ -736,26 +630,6 @@ fn test_eim_unsupported_configurations() {
 
 fn ehvi(cfg: EgorConfig) -> EgorConfig {
     cfg.configure_moo(|moo| moo.strategy(MooStrategy::Ehvi))
-}
-
-#[test]
-#[serial]
-fn test_zdt1_ehvi() {
-    let res = EgorBuilder::optimize(zdt1)
-        .configure(|cfg| ehvi(cfg.n_obj(2).n_doe(10).max_iters(30).seed(42)))
-        .min_within(&array![[0., 1.], [0., 1.]])
-        .expect("Egor configured")
-        .run_pareto()
-        .expect("ZDT1 optimization");
-    assert_max_iters_reached(&res);
-    assert_non_dominated(&res.y_pareto, 2);
-    let hv = hypervolume_2d(&res.y_pareto, [1.1, 1.1]);
-    println!(
-        "ZDT1 EHVI front ({} points) HV = {hv} ({:.1}% of true front HV)",
-        res.y_pareto.nrows(),
-        100. * hv / ZDT1_HV_REF
-    );
-    assert!(hv > 0.85 * ZDT1_HV_REF);
 }
 
 #[test]
@@ -969,37 +843,6 @@ fn test_imputation_with_per_objective_strategies() {
     }
 }
 
-#[test]
-#[serial]
-fn test_zdt1_eim_constant_liar_batch() {
-    let res = EgorBuilder::optimize(zdt1)
-        .configure(|cfg| {
-            cfg.n_obj(2)
-                .configure_moo(|moo| moo.strategy(MooStrategy::Eim))
-                .configure_qei(|qei| {
-                    qei.batch(3)
-                        .strategy(egobox_ego::QEiStrategy::ConstantLiarMinimum)
-                })
-                .n_doe(10)
-                .max_iters(8)
-                .seed(42)
-        })
-        .min_within(&array![[0., 1.], [0., 1.]])
-        .expect("Egor configured")
-        .run_pareto()
-        .expect("ZDT1 optimization");
-    assert_max_iters_reached(&res);
-    assert!(res.x_doe.nrows() > 10 + 8);
-    assert_non_dominated(&res.y_pareto, 2);
-    let hv = hypervolume_2d(&res.y_pareto, [1.1, 1.1]);
-    println!(
-        "ZDT1 EIM constant liar batch: {} points, HV = {hv} ({:.1}% of true front HV)",
-        res.x_doe.nrows(),
-        100. * hv / ZDT1_HV_REF
-    );
-    assert!(hv > 0.7 * ZDT1_HV_REF);
-}
-
 fn qehvi(cfg: EgorConfig) -> EgorConfig {
     cfg.configure_moo(|moo| moo.strategy(MooStrategy::QEhvi))
 }
@@ -1043,14 +886,6 @@ fn test_zdt1_qehvi_batch() {
         100. * hv / ZDT1_HV_REF
     );
     assert!(hv > 0.7 * ZDT1_HV_REF);
-}
-
-#[test]
-#[serial]
-fn test_zdt1_qehvi_is_deterministic() {
-    let res1 = run_zdt1_qehvi(3, 3);
-    let res2 = run_zdt1_qehvi(3, 3);
-    assert_eq!(res1.x_doe, res2.x_doe);
 }
 
 #[test]

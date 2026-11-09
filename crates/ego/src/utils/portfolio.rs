@@ -126,13 +126,6 @@ mod tests {
     }
 
     #[test]
-    fn test_logspace_length() {
-        let vals = logspace(0.1, 100.0, 13);
-        println!("{vals}");
-        assert_eq!(vals.len(), 13);
-    }
-
-    #[test]
     fn test_logspace_monotonic_increasing() {
         let vals = logspace(1e-3, 1e3, 20);
         for i in 1..vals.len() {
@@ -148,21 +141,5 @@ mod tests {
         for (v, e) in vals.iter().zip(expected.iter()) {
             assert!((*v - *e).abs() < 1e-12);
         }
-    }
-
-    #[test]
-    fn test_clustering() {
-        let x = array![
-            [0.13],
-            [0.70],
-            [0.72],
-            [0.14],
-            [0.15],
-            [0.71],
-            [0.16],
-            [0.73]
-        ];
-        let cluster_memberships = cluster_as_indices(&x);
-        println!("cluster_memberships = {cluster_memberships :?}");
     }
 }

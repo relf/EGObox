@@ -68,7 +68,6 @@ criterion.workspace = true
 approx.workspace = true
 argmin_testfunctions.workspace = true
 serial_test = "3.1.0"
-paste = "1.0"
 
 [[bench]]
 name = "ego"

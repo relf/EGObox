@@ -86,50 +86,22 @@ fn special_bounds(dim: usize, spec: CorrelationSpec) -> (f64, f64) {
 
 #[cfg(test)]
 mod tests {
-    use paste::paste;
-
     use super::*;
 
-    #[allow(unused_macros)]
-    macro_rules! test_theta_bounds {
-        ($dim:expr_2021, $corr:ident ) => {
-            paste! {
-
-                #[test]
-                fn [<test_theta_bounds_  $corr:snake _ $dim:snake>]() {
-                    let bounds = special_bounds($dim, CorrelationSpec::[< $corr:upper >]);
-                    println!("bounds({}) = {:?}", $dim, bounds);
-                    assert!(bounds.0 <= bounds.1);
-                }
+    #[test]
+    fn test_theta_bounds() {
+        let specs = [
+            CorrelationSpec::SQUAREDEXPONENTIAL,
+            CorrelationSpec::ABSOLUTEEXPONENTIAL,
+            CorrelationSpec::MATERN32,
+            CorrelationSpec::MATERN52,
+        ];
+        // 124: MOPTA08 dimension
+        for dim in [1, 10, 20, 50, 100, 124, 200] {
+            for spec in specs {
+                let bounds = special_bounds(dim, spec);
+                assert!(bounds.0 <= bounds.1, "{spec:?} in {dim}D: {bounds:?}");
             }
-        };
+        }
     }
-
-    test_theta_bounds!(1, SquaredExponential);
-    test_theta_bounds!(10, SquaredExponential);
-    test_theta_bounds!(20, SquaredExponential);
-    test_theta_bounds!(50, SquaredExponential);
-    test_theta_bounds!(100, SquaredExponential);
-    test_theta_bounds!(200, SquaredExponential);
-    test_theta_bounds!(1, AbsoluteExponential);
-    test_theta_bounds!(10, AbsoluteExponential);
-    test_theta_bounds!(20, AbsoluteExponential);
-    test_theta_bounds!(50, AbsoluteExponential);
-    test_theta_bounds!(100, AbsoluteExponential);
-    test_theta_bounds!(200, AbsoluteExponential);
-    test_theta_bounds!(1, Matern32);
-    test_theta_bounds!(10, Matern32);
-    test_theta_bounds!(20, Matern32);
-    test_theta_bounds!(50, Matern32);
-    test_theta_bounds!(100, Matern32);
-    test_theta_bounds!(200, Matern32);
-    test_theta_bounds!(1, Matern52);
-    test_theta_bounds!(10, Matern52);
-    test_theta_bounds!(20, Matern52);
-    test_theta_bounds!(50, Matern52);
-    test_theta_bounds!(100, Matern52);
-    test_theta_bounds!(200, Matern52);
-
-    // test for MOPTA08 124D
-    test_theta_bounds!(124, SquaredExponential);
 }

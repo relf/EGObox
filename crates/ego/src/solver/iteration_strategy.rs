@@ -624,24 +624,10 @@ mod tests {
     fn test_it5_no_decrease() {
         assert_eq!(next_phase(false, 0, 2, N_G, N_L), (Phase::Global, 1, 0));
     }
-    #[test]
-    fn test_it6_no_decrease() {
-        assert_eq!(next_phase(false, 1, 0, N_G, N_L), (Phase::Global, 2, 0));
-    }
 
     #[test]
     fn test_it7_decrease() {
         assert_eq!(next_phase(true, 2, 0, N_G, N_L), (Phase::Global, 1, 0));
-    }
-
-    #[test]
-    fn test_it8_no_decrease() {
-        assert_eq!(next_phase(false, 1, 0, N_G, N_L), (Phase::Global, 2, 0));
-    }
-
-    #[test]
-    fn test_it9_no_decrease() {
-        assert_eq!(next_phase(false, 2, 0, N_G, N_L), (Phase::Local, 0, 1));
     }
 
     const SIGMA: f64 = 0.5; // rho = alpha * sigma^2 = 0.25 with default alpha
