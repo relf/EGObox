@@ -209,7 +209,9 @@ fn g24_qei(name: &str, strategy: QEiStrategy, rel_tol: f64) {
 #[test]
 #[serial]
 fn snapshot_g24_qei_kb() {
-    g24_qei("g24_qei_kb", QEiStrategy::KrigingBeliever, 5e-4);
+    // The last batch depends on the CPU math code paths (up to ~1.5e-3 relative
+    // between machines with the basin SLSQP infill optimizer)
+    g24_qei("g24_qei_kb", QEiStrategy::KrigingBeliever, 5e-3);
 }
 
 #[test]
