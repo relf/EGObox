@@ -7,8 +7,7 @@ use basin::{
     BoxBounds, Cobyla, ConstraintDescription, ConstraintJacobian, ConstraintSet,
     ConstraintSolveError, ConvergenceTest, CostFunction, DenseMatrix, Gradient,
     NoLinearConstraints, NoNonlinearBlock, NonlinearBlock, NonlinearBlocks,
-    NonlinearInequalityValues, SelectedFirstOrderState, SelectedState, Slsqp, State,
-    Termination,
+    NonlinearInequalityValues, SelectedFirstOrderState, SelectedState, Slsqp, State, Termination,
 };
 use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
@@ -296,9 +295,7 @@ pub fn minimize(
                     let Some(rho) = solver.rho() else {
                         return false;
                     };
-                    radius
-                        .replace(rho)
-                        .is_some_and(|previous| rho < previous)
+                    radius.replace(rho).is_some_and(|previous| rho < previous)
                 },
             )
         }
