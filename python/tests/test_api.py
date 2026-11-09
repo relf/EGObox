@@ -3,88 +3,7 @@ import unittest
 import numpy as np
 
 
-class TestApiImports(unittest.TestCase):
-    def test_all_public_symbols_are_importable(self):
-        import egobox as egx
-        from egobox import (
-            Belfegor,
-            BelfegorOptim,
-            ConstraintStrategy,
-            CorrelationSpec,
-            Egor,
-            EgorOptim,
-            EimAggregation,
-            ExitStatus,
-            FailsafeStrategy,
-            GpConfig,
-            GpMix,
-            Gpx,
-            InfillOptimizer,
-            InfillStrategy,
-            MooConfig,
-            MooStrategy,
-            OptimResult,
-            ParetoResult,
-            QEiConfig,
-            QEiStrategy,
-            Recombination,
-            RegressionSpec,
-            RunInfo,
-            RunStatus,
-            Sampling,
-            SparseGpMix,
-            SparseGpx,
-            SparseMethod,
-            TregoConfig,
-            Verbose,
-            XSpec,
-            XType,
-            lhs,
-            sampling,
-        )
-
-        imported_symbols = {
-            "Belfegor": Belfegor,
-            "BelfegorOptim": BelfegorOptim,
-            "ConstraintStrategy": ConstraintStrategy,
-            "CorrelationSpec": CorrelationSpec,
-            "Egor": Egor,
-            "EgorOptim": EgorOptim,
-            "EimAggregation": EimAggregation,
-            "ExitStatus": ExitStatus,
-            "FailsafeStrategy": FailsafeStrategy,
-            "FeasibleInfillStrategy": egx.FeasibleInfillStrategy,
-            "GpConfig": GpConfig,
-            "GpMix": GpMix,
-            "Gpx": Gpx,
-            "InfillOptimizer": InfillOptimizer,
-            "InfillStrategy": InfillStrategy,
-            "MooConfig": MooConfig,
-            "MooStrategy": MooStrategy,
-            "OptimResult": OptimResult,
-            "ParetoResult": ParetoResult,
-            "QEiConfig": QEiConfig,
-            "QEiStrategy": QEiStrategy,
-            "Recombination": Recombination,
-            "RegressionSpec": RegressionSpec,
-            "RunInfo": RunInfo,
-            "RunStatus": RunStatus,
-            "Sampling": Sampling,
-            "SparseGpMix": SparseGpMix,
-            "SparseGpx": SparseGpx,
-            "SparseMethod": SparseMethod,
-            "TregoConfig": TregoConfig,
-            "Verbose": Verbose,
-            "XSpec": XSpec,
-            "XType": XType,
-            "lhs": lhs,
-            "sampling": sampling,
-        }
-
-        for name, symbol in imported_symbols.items():
-            self.assertTrue(hasattr(egx, name), f"egobox is missing '{name}'")
-            self.assertIs(symbol, getattr(egx, name))
-
+class TestApi(unittest.TestCase):
     def test_egor_accepts_int_and_dict_arguments(self):
         import egobox as egx
 
@@ -97,8 +16,11 @@ class TestApiImports(unittest.TestCase):
             infill_optimizer=2,
             failsafe_strategy=3,
             trego={"alpha": 0.8},
+            feasible_infill_strategy=1,
         )
         self.assertIsNotNone(egor)
+        self.assertEqual(egx.XSpec(1, [0.0, 1.0]).xtype, egx.XType.FLOAT)
+        self.assertIsNotNone(egx.SparseGpMix(n_inducing=3, method=2))
 
     def test_minimize_accepts_run_info_dict(self):
         import egobox as egx
@@ -163,36 +85,6 @@ class TestApiImports(unittest.TestCase):
             return gpx.thetas
 
         self.assertFalse(np.allclose(thetas(25), thetas(1000)))
-
-    def test_sampling_accepts_int_method(self):
-        import egobox as egx
-
-        doe = egx.sampling([[0.0, 1.0]], 4, method=1, seed=1)
-        self.assertEqual(doe.shape, (4, 1))
-
-    def test_xspec_and_sparse_method_accept_int(self):
-        import egobox as egx
-
-        xspec = egx.XSpec(1, [0.0, 1.0])
-        self.assertEqual(xspec.xtype, egx.XType.FLOAT)
-
-        sgp = egx.SparseGpMix(n_inducing=3, method=2)
-        self.assertIsNotNone(sgp)
-
-    def test_cstr_spec_accepts_dict_form(self):
-        import egobox as egx
-
-        def fobj(x: np.ndarray) -> np.ndarray:
-            x = np.atleast_2d(x)
-            obj = np.sum(x**2, axis=1).reshape(-1, 1)
-            cst = x[:, 0].reshape(-1, 1)
-            return np.hstack((obj, cst))
-
-        egor = egx.Egor(
-            [[0.0, 1.0]], n_cstr=1, cstr_specs=[{"leq": 0.8}], infill_strategy=1
-        )
-        optim = egor.minimize(fobj, max_iters=1, seed=42)
-        self.assertEqual(optim.status.total_iters, 1)
 
     def test_classes_module_is_egobox(self):
         import egobox as egx

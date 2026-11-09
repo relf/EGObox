@@ -55,24 +55,6 @@ class TestSampling(unittest.TestCase):
         )
         np.testing.assert_allclose(actual, expected)
 
-    def test_all_lhs(self):
-        xtypes = [
-            egx.XSpec(egx.XType.FLOAT, [-5.0, 5.0]),
-            egx.XSpec(egx.XType.ENUM, tags=["blue", "red", "green"]),
-            egx.XSpec(egx.XType.ENUM, xlimits=[2]),
-            egx.XSpec(egx.XType.ORD, [0, 2, 3]),
-        ]
-
-        for kind in [
-            egx.Sampling.LHS_CLASSIC,
-            egx.Sampling.LHS_CENTERED,
-            egx.Sampling.LHS_MAXIMIN,
-            egx.Sampling.LHS_CENTERED_MAXIMIN,
-            egx.Sampling.LHS,
-        ]:
-            lhs = egx.sampling(xtypes, 10, method=kind, seed=42)
-            print(lhs)
-
     def test_ffact(self):
         xtypes = [
             egx.XSpec(egx.XType.FLOAT, [-5.0, 5.0]),

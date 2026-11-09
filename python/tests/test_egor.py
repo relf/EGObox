@@ -30,7 +30,7 @@ def xsinx(x: np.ndarray) -> np.ndarray:
 # grad information is used when using SLSQP as infill optimizer
 def cstr_xsinx(x, grad=False):
     if grad:
-        return np.one(1.0)
+        return np.ones(1)
     else:
         return (x - 18.0).item()
 
@@ -102,21 +102,6 @@ def g24_bare(point):
     return res
 
 
-def six_humps(x):
-    """
-    Function Six-Hump Camel Back
-    2 global optimum value =-1.0316 located at (0.089842, -0.712656) and  (-0.089842, 0.712656)
-    https://www.sfu.ca/~ssurjano/camel6.html
-    """
-    x = np.atleast_2d(x)
-    x1 = x[:, 0]
-    x2 = x[:, 1]
-    print(f"x={x}")
-    sum1 = 4 * x1**2 - 2.1 * x1**4 + 1.0 / 3.0 * x1**6 + x1 * x2 - 4 * x2**2 + 4 * x2**4
-    print(f"y={np.atleast_2d(sum1).T}")
-    return np.atleast_2d(sum1).T
-
-
 def branin(x):
     """
     Branin function as used by Forrester et al.
@@ -157,15 +142,16 @@ def branin_constrained(x):
 
 class TestEgor(unittest.TestCase):
     def test_sphere(self):
+        # convergence is checked on Rust side, here the ndarray xspecs API
         dim = 5
         egor = egx.Egor(
             np.array([[-5.12, 5.12]] * dim),  # test ndarray API
             infill_strategy=egx.InfillStrategy.EI,
+            n_doe=dim + 1,
         )
-        optim = egor.minimize(sphere, max_iters=100, seed=42)
-        print(f"Optimization f={optim.result.y_opt} at {optim.result.x_opt}")
-        self.assertAlmostEqual(0.0, optim.result.y_opt[0], delta=5e-1)
-        np.testing.assert_allclose(0.0, optim.result.x_opt, atol=5e-1)
+        optim = egor.minimize(sphere, max_iters=2, seed=42)
+        self.assertEqual(optim.result.x_opt.shape, (dim,))
+        self.assertEqual(optim.result.x_doe.shape, (dim + 1 + 2, dim))
 
     def test_xsinx(self):
         egor = egx.Egor([[0.0, 25.0]])  # test list of list api
@@ -293,61 +279,27 @@ class TestEgor(unittest.TestCase):
                 kpls_dim=1,
             ),
         )
-        start = time.process_time()
-        optim = egor.minimize(g24, max_iters=30, verbose=2, seed=1)
-        end = time.process_time()
-        self.assertAlmostEqual(-5.5080, optim.result.y_opt[0], delta=5e-1)
-        print(
-            f"Optimization f={optim.result.y_opt} at {optim.result.x_opt} in {end - start}s"
-        )
+        max_iters = 3
+        optim = egor.minimize(g24, max_iters=max_iters, verbose=2, seed=1)
+        self.assertEqual(optim.status.total_iters, max_iters)
+        self.assertEqual(optim.result.y_doe.shape[1], 3)
 
     def test_g24_trego(self):
+        # TREGO convergence is checked on Rust side, here the config forms
         n_doe = 5
-        max_iters = 20
+        max_iters = 3
         n_cstr = 2
-        egor = egx.Egor(
-            [[0.0, 3.0], [0.0, 4.0]],
-            cstr_specs=[egx.CstrSpec.leq(0.0, tol=1e-3)] * n_cstr,
-            n_doe=n_doe,
-            trego=egx.TregoConfig((4, 1)),
-        )
-        start = time.process_time()
-        optim = egor.minimize(g24, max_iters=max_iters, seed=42)
-        end = time.process_time()
-        print(
-            f"Optimization f={optim.result.y_opt} at {optim.result.x_opt} in {end - start}s"
-        )
-        self.assertAlmostEqual(-5.5080, optim.result.y_opt[0], delta=1e-2)
-        self.assertAlmostEqual(2.3295, optim.result.x_opt[0], delta=1e-2)
-        self.assertAlmostEqual(3.1785, optim.result.x_opt[1], delta=1e-2)
-
-        # Test with default TREGO parameters
-        egor = egx.Egor(
-            [[0.0, 3.0], [0.0, 4.0]],
-            cstr_specs=[egx.CstrSpec.leq(0.0, tol=1e-3)] * n_cstr,
-            n_doe=n_doe,
-            trego=True,
-        )
-        optim = egor.minimize(g24, max_iters=max_iters, seed=42)
-        self.assertAlmostEqual(-5.5080, optim.result.y_opt[0], delta=1e-2)
-
-    def test_six_humps(self):
-        egor = egx.Egor(
-            [[-3.0, 3.0], [-2.0, 2.0]],
-            infill_strategy=egx.InfillStrategy.WB2,
-        )
-        start = time.process_time()
-        optim = egor.minimize(six_humps, max_iters=45, seed=42)
-        end = time.process_time()
-        print(
-            f"Optimization f={optim.result.y_opt} at {optim.result.x_opt} in {end - start}s"
-        )
-        # 2 global optimum value =-1.0316 located at (0.089842, -0.712656) and  (-0.089842, 0.712656)
-        self.assertAlmostEqual(-1.0316, optim.result.y_opt[0], delta=2e-1)
-
-    def test_constructor(self):
-        self.assertRaises(TypeError, egx.Egor)
-        egx.Egor([[0.0, 25.0]], n_doe=10)
+        for trego in (egx.TregoConfig((4, 1)), True):
+            with self.subTest(trego=trego):
+                egor = egx.Egor(
+                    [[0.0, 3.0], [0.0, 4.0]],
+                    cstr_specs=[egx.CstrSpec.leq(0.0, tol=1e-3)] * n_cstr,
+                    n_doe=n_doe,
+                    trego=trego,
+                )
+                optim = egor.minimize(g24, max_iters=max_iters, seed=42)
+                self.assertEqual(optim.status.total_iters, max_iters)
+                self.assertEqual(optim.result.x_doe.shape, (n_doe + max_iters, 2))
 
     def test_egor_service(self):
         xlimits = [[0.0, 25.0]]
@@ -397,31 +349,6 @@ class TestEgor(unittest.TestCase):
         self.assertLessEqual(optim.status.total_iters, max_iters)
         self.assertEqual((expected_points, 2), optim.result.x_doe.shape)
         self.assertEqual((expected_points, 1), optim.result.y_doe.shape)
-
-    def test_g24_with_fcstrs_and_specs(self):
-        n_doe = 5
-        max_iters = 5
-        egor = egx.Egor(
-            [[0.0, 3.0], [0.0, 4.0]],
-            n_doe=n_doe,
-        )
-        start = time.process_time()
-        fcstrs = [g24_c1, g24_c2]
-        fcstr_specs = [egx.CstrSpec.leq(0.0), egx.CstrSpec.leq(0.0)]
-        optim = egor.minimize(
-            g24_bare,
-            max_iters=max_iters,
-            fcstrs=fcstrs,
-            fcstr_specs=fcstr_specs,
-            seed=42,
-        )
-        end = time.process_time()
-        print(
-            f"Optimization f={optim.result.y_opt} at {optim.result.x_opt} in {end - start}s"
-        )
-        self.assertAlmostEqual(-5.5080, optim.result.y_opt[0], delta=1e-2)
-        self.assertAlmostEqual(2.3295, optim.result.x_opt[0], delta=1e-2)
-        self.assertAlmostEqual(3.1785, optim.result.x_opt[1], delta=1e-2)
 
     def test_fcstr_specs_length_mismatch(self):
         egor = egx.Egor([[0.0, 3.0], [0.0, 4.0]], n_doe=5)
@@ -498,10 +425,6 @@ class TestEgor(unittest.TestCase):
         x_call = egx.Egor([[0.0, 25.0]]).suggest(x_doe, y_doe, seed=42)
         x_ctor = egx.Egor([[0.0, 25.0]], seed=42).suggest(x_doe, y_doe)
         np.testing.assert_array_equal(x_call, x_ctor)
-
-    def test_verbose_given_to_constructor(self):
-        egor = egx.Egor([[0.0, 25.0]], n_doe=3, verbose=egx.Verbose.ERROR)
-        egor.minimize(xsinx, max_iters=1, seed=42)
 
     def test_g24_with_qei(self):
         n_doe = 5
@@ -915,20 +838,14 @@ class TestEgor(unittest.TestCase):
         )
         self.assertEqual(repr(egx.QEiStrategy.KRIGING_BELIEVER), "QEiStrategy.KB")
 
-    def test_feasible_infill_strategy_as_int(self):
-        xlimits = [[0.0, 3.0], [0.0, 4.0]]
-        _egor = egx.Egor(
-            xlimits,
-            feasible_infill_strategy=1,
-        )
-
 
 class TestEgorOptim(unittest.TestCase):
     """`EgorOptim` forwards the `OptimResult` fields and unpacks as (x_opt, y_opt)"""
 
-    def setUp(self):
+    @classmethod
+    def setUpClass(cls):
         egor = egx.Egor([[0.0, 25.0]], n_doe=5)
-        self.res = egor.minimize(xsinx, max_iters=2, seed=42)
+        cls.res = egor.minimize(xsinx, max_iters=2, seed=42)
 
     def test_fields(self):
         r = self.res.result

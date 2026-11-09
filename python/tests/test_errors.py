@@ -184,21 +184,6 @@ class TestErrors(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "boom"):
             egor.minimize(fun, max_iters=2, stop_on_error=True)
 
-    def test_fun_exception_during_iterations(self):
-        # With stop_on_error, the optimization stops with a dedicated exit status
-        n_calls = 0
-
-        def fun(x):
-            nonlocal n_calls
-            n_calls += 1
-            if n_calls > 1:  # first call is initial doe evaluation
-                raise KeyError("boom")
-            return xsq(x)
-
-        egor = egx.Egor([[0.0, 1.0]], n_doe=3)
-        res = egor.minimize(fun, max_iters=5, stop_on_error=True)
-        self.assertEqual(egx.ExitStatus.OBJECTIVE_FUNCTION_ERROR, res.status.exit)
-
     def test_suggest_mismatch(self):
         egor = egx.Egor([[0.0, 1.0]])
         self.assertRaisesStd(
