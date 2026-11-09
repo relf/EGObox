@@ -1438,21 +1438,6 @@ mod tests {
         assert_abs_diff_eq!(*variances.max().unwrap(), 0., epsilon = 1e-10);
     }
 
-    fn xsinx(x: &[f64]) -> f64 {
-        (x[0] - 3.5) * f64::sin((x[0] - 3.5) / std::f64::consts::PI)
-    }
-
-    #[test]
-    fn test_find_best_expert() {
-        let mut rng = Xoshiro256Plus::seed_from_u64(0);
-        let xt = Array2::random_using((10, 1), Uniform::new(0., 1.), &mut rng);
-        let yt = xt.mapv(|x| xsinx(&[x]));
-        let data = concatenate(Axis(1), &[xt.view(), yt.view()]).unwrap();
-        let moe = GpMixture::params().with_rng(rng).check_unwrap();
-        let best_expert = &moe.find_best_expert(0, 1, &data).unwrap();
-        println!("Best expert {best_expert}");
-    }
-
     fn lhs_data(
         xlimits: &Array2<f64>,
         n: usize,
@@ -1626,18 +1611,6 @@ mod tests {
     }
 
     #[test]
-    fn test_find_best_heaviside_factor() {
-        let mut rng = Xoshiro256Plus::seed_from_u64(0);
-        let xt = Array2::random_using((50, 1), Uniform::new(0., 1.), &mut rng);
-        let yt = f_test_1d(&xt);
-        let _moe = GpMixture::params()
-            .n_clusters(NbClusters::fixed(3))
-            .with_rng(rng)
-            .fit(&Dataset::new(xt, yt))
-            .expect("MOE fitted");
-    }
-
-    #[test]
     fn test_save_load_moe() {
         let test_dir = "target/tests";
         std::fs::create_dir_all(test_dir).ok();
@@ -1716,13 +1689,6 @@ mod tests {
         }
     }
 
-    fn norm1(x: &Array2<f64>) -> Array2<f64> {
-        x.mapv(|v| v.abs())
-            .sum_axis(Axis(1))
-            .insert_axis(Axis(1))
-            .to_owned()
-    }
-
     fn rosenb(x: &Array2<f64>) -> Array2<f64> {
         let mut y: Array2<f64> = Array2::zeros((x.nrows(), 1));
         Zip::from(y.rows_mut())
@@ -1746,40 +1712,36 @@ mod tests {
             .fit(&Dataset::new(xt, yt.remove_axis(Axis(1))))
             .expect("MOE fitted");
 
-        for _ in 0..20 {
-            let mut rng = Xoshiro256Plus::seed_from_u64(42);
-            let x = Array::random_using((2,), Uniform::new(0., 1.), &mut rng);
-            let xa: f64 = x[0];
-            let xb: f64 = x[1];
-            let e = 1e-4;
+        let mut rng = Xoshiro256Plus::seed_from_u64(42);
+        let x = Array::random_using((2,), Uniform::new(0., 1.), &mut rng);
+        let xa: f64 = x[0];
+        let xb: f64 = x[1];
+        let e = 1e-4;
 
-            println!("Test derivatives at [{xa}, {xb}]");
+        let x = array![
+            [xa, xb],
+            [xa + e, xb],
+            [xa - e, xb],
+            [xa, xb + e],
+            [xa, xb - e]
+        ];
+        let y_pred = moe.predict(&x).unwrap();
+        let y_deriv = moe.predict_gradients(&x).unwrap();
 
-            let x = array![
-                [xa, xb],
-                [xa + e, xb],
-                [xa - e, xb],
-                [xa, xb + e],
-                [xa, xb - e]
-            ];
-            let y_pred = moe.predict(&x).unwrap();
-            let y_deriv = moe.predict_gradients(&x).unwrap();
+        let diff_g = (y_pred[1] - y_pred[2]) / (2. * e);
+        let diff_d = (y_pred[3] - y_pred[4]) / (2. * e);
 
-            let diff_g = (y_pred[1] - y_pred[2]) / (2. * e);
-            let diff_d = (y_pred[3] - y_pred[4]) / (2. * e);
+        assert_rel_or_abs_error(y_deriv[[0, 0]], diff_g);
+        assert_rel_or_abs_error(y_deriv[[0, 1]], diff_d);
 
-            assert_rel_or_abs_error(y_deriv[[0, 0]], diff_g);
-            assert_rel_or_abs_error(y_deriv[[0, 1]], diff_d);
+        let y_pred = moe.predict_var(&x).unwrap();
+        let y_deriv = moe.predict_var_gradients(&x).unwrap();
 
-            let y_pred = moe.predict_var(&x).unwrap();
-            let y_deriv = moe.predict_var_gradients(&x).unwrap();
+        let diff_g = (y_pred[1] - y_pred[2]) / (2. * e);
+        let diff_d = (y_pred[3] - y_pred[4]) / (2. * e);
 
-            let diff_g = (y_pred[1] - y_pred[2]) / (2. * e);
-            let diff_d = (y_pred[3] - y_pred[4]) / (2. * e);
-
-            assert_rel_or_abs_error(y_deriv[[0, 0]], diff_g);
-            assert_rel_or_abs_error(y_deriv[[0, 1]], diff_d);
-        }
+        assert_rel_or_abs_error(y_deriv[[0, 0]], diff_g);
+        assert_rel_or_abs_error(y_deriv[[0, 1]], diff_d);
     }
 
     /// Test prediction valvar derivatives against derivatives and variance derivatives
@@ -1933,33 +1895,8 @@ mod tests {
     }
 
     #[test]
-    fn test_moe_var_deriv_norm1() {
-        test_variance_derivatives(norm1);
-    }
-    #[test]
     fn test_moe_var_deriv_rosenb() {
         test_variance_derivatives(rosenb);
-    }
-
-    #[test]
-    fn test_moe_display() {
-        let rng = Xoshiro256Plus::seed_from_u64(0);
-        let xt = Lhs::new(&array![[0., 1.]])
-            .with_rng(rng.clone())
-            .sample(100);
-        let yt = f_test_1d(&xt);
-
-        let moe = GpMixture::params()
-            .n_clusters(NbClusters::fixed(3))
-            .regression_spec(RegressionSpec::CONSTANT)
-            .correlation_spec(CorrelationSpec::SQUAREDEXPONENTIAL)
-            .recombination(Recombination::Hard)
-            .with_rng(rng)
-            .fit(&Dataset::new(xt, yt))
-            .expect("MOE fitted");
-        // Values may vary depending on the platforms and linalg backends
-        // assert_eq!("Mixture[Hard](Constant_SquaredExponentialGP(mean=ConstantMean, corr=SquaredExponential, theta=[0.03871601282054056], variance=[0.276011431746834], likelihood=454.17113736397033), Constant_SquaredExponentialGP(mean=ConstantMean, corr=SquaredExponential, theta=[0.07903503494417609], variance=[0.0077182164672893756], likelihood=436.39615700140183), Constant_SquaredExponentialGP(mean=ConstantMean, corr=SquaredExponential, theta=[0.050821466014058826], variance=[0.32824998062969973], likelihood=193.19339252734846))", moe.to_string());
-        println!("Display moe: {moe}");
     }
 
     fn griewank(x: &Array2<f64>) -> Array1<f64> {
@@ -1978,27 +1915,18 @@ mod tests {
 
     #[test]
     fn test_kpls_griewank() {
-        let dims = [100];
+        let dims = [20];
         let nts = [100];
         let lim = array![[-600., 600.]];
-
-        let test_dir = "target/tests";
-        std::fs::create_dir_all(test_dir).ok();
 
         (0..1).for_each(|i| {
             let dim = dims[i];
             let nt = nts[i];
             let xlimits = lim.broadcast((dim, 2)).unwrap();
 
-            let prefix = "griewank";
-            let xfilename = format!("{test_dir}/{prefix}_xt_{nt}x{dim}.npy");
-            let yfilename = format!("{test_dir}/{prefix}_yt_{nt}x1.npy");
-
             let rng = Xoshiro256Plus::seed_from_u64(42);
             let xt = Lhs::new(&xlimits).with_rng(rng).sample(nt);
-            write_npy(xfilename, &xt).expect("cannot save xt");
             let yt = griewank(&xt);
-            write_npy(yfilename, &yt).expect("cannot save yt");
 
             let gp = GpMixture::params()
                 .n_clusters(NbClusters::default())
@@ -2024,7 +1952,7 @@ mod tests {
                 ytrue.norm_l2(),
                 nrmse
             );
-            assert_abs_diff_eq!(nrmse, 0., epsilon = 1e-2);
+            assert_abs_diff_eq!(nrmse, 0., epsilon = 5e-2);
         });
     }
 

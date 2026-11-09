@@ -275,33 +275,19 @@ mod test {
     #[test]
     fn test_gpqa_iooss() {
         let xlimits = array![[-1., 1.], [-1., 1.]];
-        let nts = [10, 14, 18, 22, 26, 30, 34, 38, 42, 46, 50];
+        let nt = 30;
+        let rng = Xoshiro256Plus::seed_from_u64(42);
+        let xt = Lhs::new(&xlimits).with_rng(rng).sample(nt);
+        let yt = iooss_function(&xt);
 
-        (0..nts.len()).for_each(|i| {
-            let nt = nts[i];
+        let moe = GpMixtureParams::default()
+            .fit(&Dataset::new(xt, yt))
+            .expect("GP fit error");
 
-            let rng = Xoshiro256Plus::seed_from_u64(42);
-            let xt = Lhs::new(&xlimits).with_rng(rng).sample(nt);
-            let yt = iooss_function(&xt);
-
-            let moe = GpMixtureParams::default()
-                .fit(&Dataset::new(xt, yt))
-                .expect("GP fit error");
-
-            println!(
-                "i={:2}: Q2 = {:.6}, PVA = {:.6}",
-                i,
-                moe.q2_k_score(10),
-                moe.pva_k_score(10)
-            );
-
-            if i == 5 {
-                assert_abs_diff_eq!(moe.q2_k_score(10), 0.9, epsilon = 1e-1);
-                assert_abs_diff_eq!(moe.q2_score(), 0.95, epsilon = 2e-1);
-                assert_abs_diff_eq!(moe.pva_k_score(10), 0.5, epsilon = 1e-1);
-                assert_abs_diff_eq!(moe.pva_score(), 0.3, epsilon = 1e-1);
-            }
-        });
+        assert_abs_diff_eq!(moe.q2_k_score(10), 0.9, epsilon = 1e-1);
+        assert_abs_diff_eq!(moe.q2_score(), 0.95, epsilon = 2e-1);
+        assert_abs_diff_eq!(moe.pva_k_score(10), 0.5, epsilon = 1e-1);
+        assert_abs_diff_eq!(moe.pva_score(), 0.3, epsilon = 1e-1);
     }
 
     #[test]

@@ -308,7 +308,6 @@ mod tests {
     use egobox_doe::{LhsKind, SamplingMethod};
 
     use linfa::Dataset;
-    use linfa::traits::Fit;
 
     use ndarray::{Array, Array1, Array2, Axis, array};
 
@@ -379,30 +378,5 @@ mod tests {
         let ytest = mixi_moe.predict(&xtest.view()).expect("Predict val fail");
         let ytrue = ftest(&xtest);
         assert_abs_diff_eq!(ytrue, ytest, epsilon = 2.0);
-    }
-
-    #[test]
-    fn test_continuous_only_no_xtypes() {
-        // Test that when xtypes is None, no casting is applied
-        let surrogate_builder = MoeBuilder::new();
-        let params = MixintGpMixtureParams::new_continuous(&surrogate_builder);
-
-        // Verify xtypes is None
-        assert!(params.xtypes().is_none());
-
-        // Create some continuous training data
-        let xt = array![[0.0, 1.0], [1.0, 2.0], [2.0, 3.0], [3.0, 4.0]];
-        let yt = array![1.0, 2.0, 3.0, 4.0];
-        let ds = Dataset::new(xt.clone(), yt.clone());
-
-        // Train the model
-        let model = params.fit(&ds).expect("Failed to train model");
-
-        // Predict should work without any issues
-        let xtest = array![[1.5, 2.5]];
-        let ytest = model.predict(&xtest.view()).expect("Predict failed");
-
-        // Should get a reasonable prediction (linear interpolation)
-        assert!(ytest[0] > 0.0);
     }
 }

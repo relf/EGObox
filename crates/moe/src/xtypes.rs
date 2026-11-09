@@ -31,26 +31,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_discrete_with_float_only() {
-        let xtypes = vec![XType::Float(0.0, 1.0), XType::Float(-1.0, 1.0)];
-        assert!(!discrete(&xtypes));
-    }
-
-    #[test]
-    fn test_discrete_with_int() {
-        let xtypes = vec![XType::Float(0.0, 1.0), XType::Int(0, 10)];
-        assert!(discrete(&xtypes));
-    }
-
-    #[test]
-    fn test_discrete_with_ord() {
-        let xtypes = vec![XType::Ord(vec![1.0, 2.0, 3.0])];
-        assert!(discrete(&xtypes));
-    }
-
-    #[test]
-    fn test_discrete_with_enum() {
-        let xtypes = vec![XType::Float(0.0, 1.0), XType::Enum(3)];
-        assert!(discrete(&xtypes));
+    fn test_discrete() {
+        assert!(!discrete(&[
+            XType::Float(0.0, 1.0),
+            XType::Float(-1.0, 1.0)
+        ]));
+        assert!(discrete(&[XType::Float(0.0, 1.0), XType::Int(0, 10)]));
+        assert!(discrete(&[XType::Ord(vec![1.0, 2.0, 3.0])]));
+        assert!(discrete(&[XType::Float(0.0, 1.0), XType::Enum(3)]));
     }
 }

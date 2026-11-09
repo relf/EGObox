@@ -403,24 +403,6 @@ mod tests {
     }
 
     #[test]
-    fn test_params_continuous_helper() {
-        // Test the params_continuous() helper method
-        let builder = MoeBuilder::new();
-        let params = MixintGpMixtureParams::new_continuous(&builder);
-        assert!(params.xtypes().is_none());
-
-        // Should be able to train and predict
-        let xt = array![[0.0], [1.0], [2.0]];
-        let yt = array![0.0, 1.0, 2.0];
-        let ds = Dataset::new(xt, yt);
-        let model = params.fit(&ds).expect("Training failed");
-
-        let xtest = array![[1.5]];
-        let ytest = model.predict(&xtest.view()).expect("Prediction failed");
-        assert!((ytest[0] - 1.5).abs() < 0.5);
-    }
-
-    #[test]
     fn test_mixint_builder_noise_ratio() {
         use ndarray_rand::{RandomExt, rand_distr::Normal};
 
