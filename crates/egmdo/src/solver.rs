@@ -1405,28 +1405,37 @@ mod tests {
                 .zip([5, 4])
                 .all(|(n, n0)| *n >= n0)
         );
-        // The constraints of the acquisition by the mean MDA solve many more MDAs
-        let mean_mda = minimize(
-            &tp.problem,
-            &tp.disciplines,
-            EgmdoConfig {
-                acquisition_constraints: AcquisitionConstraints::MeanMda,
-                max_iters: 1,
-                ..config.clone()
-            },
-        )
-        .unwrap();
-        let pce_mean_gp = minimize(
-            &tp.problem,
-            &tp.disciplines,
-            EgmdoConfig {
-                max_iters: 1,
-                ..config.clone()
-            },
-        )
-        .unwrap();
-        check_counts(&mean_mda);
-        assert!(mean_mda.history[0].n_mdas > pce_mean_gp.history[0].n_mdas);
+        // The MDAs of the first acquisition and of the first enrichment request: without the
+        // constraints by the mean MDA, at most one for the tracking at the proposed point,
+        // 1 + n_MC for its PCEs and one per DoE_UQ point tried for enrichment; with them, the
+        // constraints of the acquisition optimization solve many more
+        let n_uq = 4 + 1;
+        let bound = 1 + (1 + n_mc) + n_uq;
+        let first_acquisition = |acquisition_constraints| {
+            let mut solver = EgmdoSolver::new(
+                tp.problem.clone(),
+                EgmdoConfig {
+                    acquisition_constraints,
+                    max_iters: 1,
+                    ..config.clone()
+                },
+            )
+            .unwrap();
+            let requests = solver.ask().unwrap().unwrap();
+            let outputs = requests
+                .iter()
+                .map(|r| tp.eval_discipline(r.discipline, &r.x))
+                .collect();
+            solver.tell(outputs).unwrap();
+            let n_init = solver.n_mdas();
+            assert!(n_init >= 4 * (1 + n_mc));
+            solver.ask().unwrap();
+            solver.n_mdas() - n_init
+        };
+        let n = first_acquisition(AcquisitionConstraints::PceMeanGp);
+        assert!(n <= bound, "{n} MDAs for at most {bound}");
+        let n = first_acquisition(AcquisitionConstraints::MeanMda);
+        assert!(n > bound, "{n} MDAs for more than {bound}");
         // Linearized random MDAs: one mean MDA per point of the initial DoE_UQ
         let linearized = minimize(
             &tp.problem,
