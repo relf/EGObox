@@ -49,6 +49,8 @@ jobs:
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
         with:
+          # dependency features differ without the Python bindings crate
+          prefix-key: v1-rust
           key: ${{ matrix.backend }}
           # first measurement on the PR, to be restricted to master before merge
           save-if: true
@@ -108,6 +110,8 @@ jobs:
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
         with:
+          # dependency features differ without the Python bindings crate
+          prefix-key: v1-rust
           # cache keys cannot contain commas
           key: ${{ contains(matrix.features, 'mkl') && 'mkl' || 'c-optim' }}
           # first measurement on the PR, to be restricted to master before merge
