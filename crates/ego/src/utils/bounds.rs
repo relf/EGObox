@@ -29,59 +29,55 @@ pub fn theta_bounds(
     }
 }
 
-/// Theta bounds
-#[allow(dead_code)]
+/// Theta bounds depending on the dimension and the kernels used.
+///
+/// Below 10 dimensions, the default bounds are used. Otherwise, the bounds of the
+/// lengthscale are derived from the distribution of distances between points of a
+/// uniform design in [0, 1]^dim and from the influence factors of the kernels,
+/// see <https://hal.science/hal-03812073v2/document>, p. 9.
+/// When several kernels are used, the widest factors are taken.
 fn special_bounds(dim: usize, spec: CorrelationSpec) -> (f64, f64) {
-    let (theta_inf, theta_sup) = (
-        ThetaTuning::<f64>::DEFAULT_BOUNDS.0,
-        ThetaTuning::<f64>::DEFAULT_BOUNDS.1,
-    );
-    let (theta_inf, theta_sup) = if spec.contains(CorrelationSpec::SQUAREDEXPONENTIAL) {
-        let influence: (f64, f64) = SquaredExponentialCorr::default().theta_influence_factors();
-        (theta_inf.min(influence.0), theta_sup.max(influence.1))
-    } else {
-        (theta_inf, theta_sup)
-    };
-    let (theta_inf, theta_sup) = if spec.contains(CorrelationSpec::ABSOLUTEEXPONENTIAL) {
-        let influence: (f64, f64) = AbsoluteExponentialCorr::default().theta_influence_factors();
-        (theta_inf.min(influence.0), theta_sup.max(influence.1))
-    } else {
-        (theta_inf, theta_sup)
-    };
-    let (theta_inf, theta_sup) = if spec.contains(CorrelationSpec::MATERN32) {
-        let influence: (f64, f64) = Matern32Corr::default().theta_influence_factors();
-        (theta_inf.min(influence.0), theta_sup.max(influence.1))
-    } else {
-        (theta_inf, theta_sup)
-    };
-    let (theta_inf, theta_sup) = if spec.contains(CorrelationSpec::MATERN32) {
-        let influence: (f64, f64) = Matern32Corr::default().theta_influence_factors();
-        (theta_inf.min(influence.0), theta_sup.max(influence.1))
-    } else {
-        (theta_inf, theta_sup)
-    };
-
     if dim < 10 {
-        (
-            ThetaTuning::<f64>::DEFAULT_BOUNDS.0,
-            ThetaTuning::<f64>::DEFAULT_BOUNDS.1,
-        )
-    } else {
-        let d = dim as f64;
-        let s = 1. / f64::sqrt(12.); // uniform design on [0, 1]^d standard deviation
-        let k = 9. / 5.; // uniform distribution kurtosis
-        let interval = 1.96 * f64::sqrt(2. * (k + 1.) * d);
-        let rmin = f64::sqrt(2. * d - interval);
-        let rmax = f64::sqrt(2. * d + interval);
-        //dbg!("rmin = {}, rmax={}", rmin, rmax);
-        let lmin = s * rmin * theta_inf;
-        let lmax = s * rmax * theta_sup;
-        //dbg!("lmin = {}, lmax={}", lmin, lmax);
-        let tlo = 1. / lmax;
-        let tup = 1. / lmin;
-        //dbg!("tlo = {}, tup={}", tlo, tup);
-        (tlo, tup)
+        return ThetaTuning::<f64>::DEFAULT_BOUNDS;
     }
+    let influence_factors: [(CorrelationSpec, (f64, f64)); 4] = [
+        (
+            CorrelationSpec::SQUAREDEXPONENTIAL,
+            SquaredExponentialCorr::default().theta_influence_factors(),
+        ),
+        (
+            CorrelationSpec::ABSOLUTEEXPONENTIAL,
+            AbsoluteExponentialCorr::default().theta_influence_factors(),
+        ),
+        (
+            CorrelationSpec::MATERN32,
+            Matern32Corr::default().theta_influence_factors(),
+        ),
+        (
+            CorrelationSpec::MATERN52,
+            Matern52Corr::default().theta_influence_factors(),
+        ),
+    ];
+    let (factor_inf, factor_sup) = influence_factors
+        .iter()
+        .filter(|(kernel, _)| spec.contains(*kernel))
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(inf, sup), (_, f)| {
+            (inf.min(f.0), sup.max(f.1))
+        });
+    if factor_inf > factor_sup {
+        // no kernel selected
+        return ThetaTuning::<f64>::DEFAULT_BOUNDS;
+    }
+
+    let d = dim as f64;
+    let s = 1. / f64::sqrt(12.); // uniform design on [0, 1]^d standard deviation
+    let k = 9. / 5.; // uniform distribution kurtosis
+    let interval = 1.96 * f64::sqrt(2. * (k + 1.) * d);
+    let rmin = f64::sqrt(2. * d - interval);
+    let rmax = f64::sqrt(2. * d + interval);
+    let lmin = s * rmin * factor_inf;
+    let lmax = s * rmax * factor_sup;
+    (1. / lmax, 1. / lmin)
 }
 
 #[cfg(test)]
