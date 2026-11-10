@@ -46,10 +46,14 @@ jobs:
       - name: Log active toolchain
         run: rustup show
 
-      - name: Setup Python
-        uses: actions/setup-python@v6
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
         with:
-          python-version: '3.12' 
+          # dependency features differ without the Python bindings crate
+          prefix-key: v1-rust
+          key: ${{ matrix.backend }}
+          # pull requests restore master caches but do not save their own
+          save-if: ${{ github.ref == 'refs/heads/master' }}
 
       - name: Run cargo test in release mode
         uses: actions-rs/cargo@v1
@@ -58,7 +62,7 @@ jobs:
           EGOBOX_REQUIRE_SNAPSHOTS: ${{ (matrix.os == 'ubuntu-latest' && matrix.backend == 'default' && matrix.toolchain == 'stable') && '1' || '0' }}
         with:
           command: test
-          args: --all --release ${{ matrix.backend == 'c-optim' && '--features c-cobyla,c-slsqp' || '' }}
+          args: --workspace --exclude egobox --release ${{ matrix.backend == 'c-optim' && '--features c-cobyla,c-slsqp' || '' }}
 
       # When the reference job fails, record the snapshot fixtures as computed by CI
       # (to be reviewed, then committed for the new or intentionally changed scenarios)
@@ -103,15 +107,20 @@ jobs:
       - name: Log active toolchain
         run: rustup show
 
-      - name: Setup Python
-        uses: actions/setup-python@v6
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
         with:
-          python-version: '3.12' 
+          # dependency features differ without the Python bindings crate
+          prefix-key: v1-rust
+          # cache keys cannot contain commas
+          key: ${{ contains(matrix.features, 'mkl') && 'mkl' || 'c-optim' }}
+          # pull requests restore master caches but do not save their own
+          save-if: ${{ github.ref == 'refs/heads/master' }}
 
       - name: Run cargo test in release mode
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --all --release --features ${{ matrix.features }}
+          args: --workspace --exclude egobox --release --features ${{ matrix.features }}
 
 

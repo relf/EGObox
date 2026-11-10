@@ -27,6 +27,13 @@ jobs:
           override: true
           components: rustfmt, clippy
 
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.features }}
+          # pull requests restore master caches but do not save their own
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+
       - name: Run cargo fmt
         uses: actions-rs/cargo@v1
         with:
