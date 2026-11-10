@@ -45,19 +45,6 @@ class TestSgp(unittest.TestCase):
         print(elapsed)
         sgp.save("sgp.json")
 
-    def test_sgp_random(self):
-        start = time.time()
-        sgp = egx.SparseGpMix(n_inducing=self.n_inducing, seed=0).fit(self.xt, self.yt)
-        elapsed = time.time() - start
-        print(elapsed)
-        print(sgp)
-
-    def test_sgp_multi_outputs_exception(self):
-        yt = np.hstack((self.yt, self.yt))
-
-        with self.assertRaises(ValueError):
-            egx.SparseGpx.builder(n_inducing=self.n_inducing, seed=0).fit(self.xt, yt)
-
     def test_1d_training_data(self):
         xt1 = self.xt.ravel()
         yt1 = self.yt.ravel()

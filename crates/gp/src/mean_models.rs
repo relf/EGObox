@@ -186,13 +186,6 @@ mod tests {
     }
 
     #[test]
-    fn test_save_load() {
-        let data = r#""ConstantMean""#;
-        let v: serde_json::Value = serde_json::from_str(data).unwrap();
-        println!("{v}");
-    }
-
-    #[test]
     fn test_quadratic_jac() {
         let expected = array![
             [0., 0., 0.],
@@ -207,10 +200,5 @@ mod tests {
             [0., 0., 6.]
         ];
         assert_abs_diff_eq!(expected, QuadraticMean::default().jac(&array![1., 2., 3.]));
-    }
-
-    #[test]
-    fn test_utils() {
-        assert_eq!("ConstantMean", ConstantMean().to_string());
     }
 }

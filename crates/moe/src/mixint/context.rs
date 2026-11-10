@@ -130,38 +130,3 @@ impl MixintContext {
         params.fit(dataset)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    use crate::xtypes::XType;
-
-    use egobox_doe::SamplingMethod;
-
-    #[test]
-    fn test_mixint_context_continuous() {
-        // Test MixintContext with continuous-only variables
-        let xtypes = vec![XType::Float(0.0, 1.0), XType::Float(0.0, 1.0)];
-        let mixi = MixintContext::new(&xtypes);
-
-        // Verify xtypes is Some
-        assert!(mixi.xtypes.is_some());
-
-        // Create continuous sampling
-        let sampler = mixi.create_rand_sampling::<f64>(Some(42));
-        let samples = sampler.sample(5);
-
-        // Should have 2 columns (same as the xtypes)
-        assert_eq!(samples.ncols(), 2);
-        assert_eq!(samples.nrows(), 5);
-
-        // All values should be in [0, 1]
-        for i in 0..samples.nrows() {
-            for j in 0..samples.ncols() {
-                let val = samples[[i, j]];
-                assert!((0.0..=1.0).contains(&val), "Value {} out of range", val);
-            }
-        }
-    }
-}

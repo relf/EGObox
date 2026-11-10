@@ -302,7 +302,6 @@ mod tests {
     use super::*;
     use approx::{assert_abs_diff_eq, assert_abs_diff_ne};
     use ndarray::{arr2, array};
-    use std::time::Instant;
 
     #[test]
     fn test_lhs() {
@@ -318,16 +317,6 @@ mod tests {
             .with_rng(Xoshiro256Plus::seed_from_u64(42))
             .sample(5);
         assert_abs_diff_eq!(expected, actual, epsilon = 1e-6);
-    }
-
-    #[test]
-    fn test_lhs_speed() {
-        let start = Instant::now();
-        let xlimits = arr2(&[[0., 1.], [0., 1.]]);
-        let n = 10;
-        let _actual = Lhs::new(&xlimits).sample(n);
-        let duration = start.elapsed();
-        println!("Time elapsed in optimized LHS is: {duration:?}");
     }
 
     #[test]
@@ -367,28 +356,6 @@ mod tests {
             .kind(LhsKind::CenteredMaximin)
             .sample(5);
         assert_abs_diff_eq!(expected, actual, epsilon = 1e-6);
-    }
-
-    #[test]
-    fn test_phip_swap() {
-        let xlimits = arr2(&[[0., 1.], [0., 1.]]);
-        let k = 1;
-        let phip = 7.290525742903316;
-        let mut p0 = array![
-            [0.45, 0.75],
-            [0.75, 0.95],
-            [0.05, 0.45],
-            [0.55, 0.15000000000000002],
-            [0.35000000000000003, 0.25],
-            [0.95, 0.8500000000000001],
-            [0.15000000000000002, 0.55],
-            [0.25, 0.05],
-            [0.8500000000000001, 0.35000000000000003],
-            [0.6500000000000001, 0.6500000000000001]
-        ];
-        let p = 10.;
-        let mut rng = Xoshiro256Plus::seed_from_u64(42);
-        let _res = Lhs::new(&xlimits)._phip_swap(&mut p0, k, phip, p, &mut rng);
     }
 
     #[test]

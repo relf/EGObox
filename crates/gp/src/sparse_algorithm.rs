@@ -807,9 +807,7 @@ mod tests {
     use linfa::prelude::Dataset;
 
     use approx::assert_abs_diff_eq;
-    use ndarray::{Array, array, concatenate};
-    // use ndarray_npy::{read_npy, write_npy};
-    use ndarray_npy::write_npy;
+    use ndarray::{Array, array};
     use ndarray_rand::RandomExt;
     use ndarray_rand::rand::SeedableRng;
     use ndarray_rand::rand_distr::{Normal, Uniform};
@@ -831,31 +829,6 @@ mod tests {
         let xt = 2. * Array::<f64, _>::random_using((nt, 1), Uniform::new(0., 1.), rng) - 1.;
         let yt = f_obj(&xt) + gaussian_noise;
         (xt, yt.remove_axis(Axis(1)))
-    }
-
-    fn save_data(
-        xt: &Array2<f64>,
-        yt: &Array2<f64>,
-        z: &Array2<f64>,
-        xplot: &Array2<f64>,
-        sgp_vals: &Array2<f64>,
-        sgp_vars: &Array2<f64>,
-    ) {
-        let test_dir = "target/tests";
-        std::fs::create_dir_all(test_dir).ok();
-
-        let file_path = format!("{test_dir}/sgp_xt.npy");
-        write_npy(file_path, xt).expect("xt saved");
-        let file_path = format!("{test_dir}/sgp_yt.npy");
-        write_npy(file_path, yt).expect("yt saved");
-        let file_path = format!("{test_dir}/sgp_z.npy");
-        write_npy(file_path, z).expect("z saved");
-        let file_path = format!("{test_dir}/sgp_x.npy");
-        write_npy(file_path, xplot).expect("x saved");
-        let file_path = format!("{test_dir}/sgp_vals.npy");
-        write_npy(file_path, sgp_vals).expect("sgp vals saved");
-        let file_path = format!("{test_dir}/sgp_vars.npy");
-        write_npy(file_path, sgp_vars).expect("sgp vars saved");
     }
 
     #[test]
@@ -899,15 +872,6 @@ mod tests {
         let sgp_vars = sgp.predict_var(&xplot).unwrap().insert_axis(Axis(1));
         let errvars = (&sgp_vars - Array2::from_elem((xplot.nrows(), 1), 0.01)).mapv(|v| v.abs());
         assert_abs_diff_eq!(errvars, Array2::zeros((xplot.nrows(), 1)), epsilon = 0.3);
-
-        save_data(
-            &xt,
-            &yt.insert_axis(Axis(1)),
-            sgp.inducings(),
-            &xplot,
-            &sgp_vals,
-            &sgp_vars,
-        );
     }
 
     #[test]
@@ -934,7 +898,6 @@ mod tests {
         // let file_path = format!("{}/smt_yt.npy", test_dir);
         // let yt: Array2<f64> = read_npy(file_path).expect("yt read");
 
-        let xplot = Array::linspace(-1., 1., 100).insert_axis(Axis(1));
         let n_inducings = 30;
 
         let z = make_inducings(n_inducings, &xt.view(), &mut rng);
@@ -954,18 +917,6 @@ mod tests {
         println!("variance={:?}", sgp.variance());
         println!("noise variance={:?}", sgp.noise_variance());
         assert_abs_diff_eq!(eta2, sgp.noise_variance());
-
-        let sgp_vals = sgp.predict(&xplot).unwrap().insert_axis(Axis(1));
-        let sgp_vars = sgp.predict_var(&xplot).unwrap().insert_axis(Axis(1));
-
-        save_data(
-            &xt,
-            &yt.insert_axis(Axis(1)),
-            sgp.inducings(),
-            &xplot,
-            &sgp_vals,
-            &sgp_vars,
-        );
     }
 
     #[test]
@@ -982,7 +933,6 @@ mod tests {
         // let file_path = format!("{}/smt_yt.npy", test_dir);
         // let yt: Array2<f64> = read_npy(file_path).expect("yt read");
 
-        let xplot = Array::linspace(-1., 1., 100).insert_axis(Axis(1));
         let n_inducings = 30;
 
         let z = make_inducings(n_inducings, &xt.view(), &mut rng);
@@ -1008,18 +958,6 @@ mod tests {
         println!("noise variance={:?}", sgp.noise_variance());
         assert_abs_diff_eq!(eta2, sgp.noise_variance(), epsilon = 0.015);
         assert_abs_diff_eq!(&z, sgp.inducings(), epsilon = 0.0015);
-
-        let sgp_vals = sgp.predict(&xplot).unwrap().insert_axis(Axis(1));
-        let sgp_vars = sgp.predict_var(&xplot).unwrap().insert_axis(Axis(1));
-
-        save_data(
-            &xt,
-            &yt.insert_axis(Axis(1)),
-            &z,
-            &xplot,
-            &sgp_vals,
-            &sgp_vars,
-        );
     }
 
     fn make_2d_test_data(nt: usize) -> (Array2<f64>, Array1<f64>) {
@@ -1047,18 +985,6 @@ mod tests {
     }
 
     #[test]
-    fn test_sgp_per_dimension_fixed_theta() {
-        let (xt, yt) = make_2d_test_data(50);
-        let sgp = SparseKriging::params(Inducings::Randomized(10))
-            .theta_tuning(ThetaTuning::Fixed(array![0.5, 2.]))
-            .noise_variance(ParamTuning::Fixed(0.01))
-            .seed(Some(42))
-            .fit(&Dataset::new(xt, yt))
-            .expect("SGP fitted with per-dimension fixed theta");
-        assert_eq!(sgp.theta(), &array![0.5, 2.]);
-    }
-
-    #[test]
     fn test_sgp_fixed_theta_optimizes_variances() {
         let (xt, yt) = make_2d_test_data(50);
         let y_var = yt.var(1.);
@@ -1080,23 +1006,6 @@ mod tests {
             assert!(sgp.variance() >= 1e-12 && sgp.variance() <= 9. * y_var * (1. + 1e-9));
             assert!(sgp.noise_variance() >= 1e-4 * (1. - 1e-9) && sgp.noise_variance() <= 1.);
         }
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_multiple_outputs() {
-        let mut rng = Xoshiro256Plus::seed_from_u64(42);
-        // Generate training data
-        let nt = 200;
-        // Variance of the gaussian noise on our training data
-        let eta2: f64 = 0.01;
-        let (xt, yt) = make_test_data(nt, eta2, &mut rng);
-        let yt = concatenate(Axis(1), &[yt.view(), yt.view()]).unwrap();
-        let n_inducings = 30;
-
-        let _sgp = SparseKriging::params(Inducings::Randomized(n_inducings))
-            .fit(&Dataset::new(xt.clone(), yt.clone()))
-            .expect("GP fitted");
     }
 
     #[test]

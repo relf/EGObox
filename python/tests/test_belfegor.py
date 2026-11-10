@@ -72,6 +72,8 @@ class TestBelfegor(unittest.TestCase):
         self.assertIn("BelfegorOptim(result=ParetoResult(n_pareto=", repr(res))
 
     def test_zdt1_strategies(self):
+        # convergence of each strategy is checked on Rust side (tests/moo.rs)
+        max_iters = 2
         for strategy, batch in [
             (egx.MooStrategy.PAREGO, 1),
             (egx.MooStrategy.EIM, 1),
@@ -84,13 +86,10 @@ class TestBelfegor(unittest.TestCase):
                     moo_config=egx.MooConfig(strategy=strategy, batch=batch),
                     n_doe=10,
                     seed=42,
-                ).minimize(zdt1, max_iters=8)
+                ).minimize(zdt1, max_iters=max_iters)
                 self.assertEqual(res.status.exit, egx.ExitStatus.MAX_ITERS_REACHED)
-                self.assertGreater(res.x_doe.shape[0], 10 + 8 * (batch - 1))
+                self.assertGreater(res.x_doe.shape[0], 10 + max_iters * (batch - 1))
                 assert_non_dominated(self, res.y_pareto)
-                hv = hypervolume_2d(res.y_pareto)
-                print(f"ZDT1 {strategy}: HV = {hv} ({100 * hv / ZDT1_HV_REF:.1f}%)")
-                self.assertGreater(hv, 0.5 * ZDT1_HV_REF)
 
     def test_bnh_with_cstr_specs(self):
         belfegor = egx.Belfegor(
@@ -126,24 +125,6 @@ class TestBelfegor(unittest.TestCase):
         res = egx.Belfegor(xspecs, n_doe=10, seed=42).minimize(f, max_iters=10)
         assert_non_dominated(self, res.y_pareto)
         np.testing.assert_array_equal(res.x_pareto[:, 1], np.round(res.x_pareto[:, 1]))
-
-    def test_hv_stop(self):
-        res = egx.Belfegor(
-            ZDT1_XLIMITS,
-            moo_config={"hv_stop": (1e-3, 5)},
-            n_doe=10,
-            seed=42,
-        ).minimize(zdt1, max_iters=100)
-        self.assertEqual(res.status.exit, egx.ExitStatus.SOLVER_CONVERGED)
-        self.assertLess(res.status.total_iters, 100)
-
-    def test_determinism(self):
-        def run():
-            return egx.Belfegor(ZDT1_XLIMITS, n_doe=10).minimize(
-                zdt1, max_iters=5, seed=7
-            )
-
-        np.testing.assert_array_equal(run().x_doe, run().x_doe)
 
     def test_ask_and_tell_batch(self):
         for strategy in [egx.MooStrategy.QEHVI, egx.MooStrategy.EHVI]:

@@ -103,7 +103,6 @@ mod tests {
 
     use approx::assert_abs_diff_eq;
     use ndarray::Array1;
-    use ndarray_npy::write_npy;
 
     use crate::utils::{d_log_ei_helper, log_ei_helper};
 
@@ -120,16 +119,8 @@ mod tests {
     #[test]
     fn test_d_log_ei() {
         let x = Array1::linspace(-10., 10., 100);
-        write_npy("logei_x.npy", &x).expect("save x");
-
-        let fx = x.mapv(log_ei_helper);
-        write_npy("logei_fx.npy", &fx).expect("save fx");
-
         let dfx = x.mapv(d_log_ei_helper);
-        write_npy("logei_dfx.npy", &dfx).expect("save dfx");
-
         let gradfx = x.mapv(|x| finite_diff_log_ei(x, 1e-6));
-        write_npy("logei_fdifffx.npy", &gradfx).expect("save dfx");
 
         assert_abs_diff_eq!(dfx, gradfx, epsilon = 1e-3);
     }

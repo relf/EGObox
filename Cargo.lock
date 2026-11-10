@@ -612,7 +612,6 @@ dependencies = [
  "ndarray-npy",
  "ndarray-rand",
  "ndarray-stats",
- "paste",
  "rand_xoshiro",
  "rawpointer",
  "rayon",

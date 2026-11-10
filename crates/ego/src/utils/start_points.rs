@@ -94,8 +94,6 @@ pub fn start_points(
 mod tests {
     use super::*;
     use ndarray::array;
-    use ndarray_rand::{RandomExt, rand::SeedableRng, rand_distr::Uniform};
-    use rand_xoshiro::Xoshiro256Plus;
 
     #[test]
     fn test_midpoint_between_two_distant_points() {
@@ -120,19 +118,6 @@ mod tests {
         let result = start_points(&x, &xl, &xu, None);
         println!("result={result}");
         assert!(result.nrows() >= 1);
-    }
-
-    #[test]
-    fn test_n_start() {
-        for n in 1..50 {
-            let mut rng = Xoshiro256Plus::seed_from_u64(42);
-            let xt = Array2::random_using((n, 2), Uniform::new(0., 1.), &mut rng);
-            let xl = array![0.0, 0.0];
-            let xu = array![1.0, 1.0];
-
-            let result = start_points(&xt, &xl, &xu, None);
-            println!("n={} n_start={}", n, result.len());
-        }
     }
 
     #[test]
