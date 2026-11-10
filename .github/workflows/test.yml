@@ -52,8 +52,8 @@ jobs:
           # dependency features differ without the Python bindings crate
           prefix-key: v1-rust
           key: ${{ matrix.backend }}
-          # first measurement on the PR, to be restricted to master before merge
-          save-if: true
+          # pull requests restore master caches but do not save their own
+          save-if: ${{ github.ref == 'refs/heads/master' }}
 
       - name: Run cargo test in release mode
         uses: actions-rs/cargo@v1
@@ -114,8 +114,8 @@ jobs:
           prefix-key: v1-rust
           # cache keys cannot contain commas
           key: ${{ contains(matrix.features, 'mkl') && 'mkl' || 'c-optim' }}
-          # first measurement on the PR, to be restricted to master before merge
-          save-if: true
+          # pull requests restore master caches but do not save their own
+          save-if: ${{ github.ref == 'refs/heads/master' }}
 
       - name: Run cargo test in release mode
         uses: actions-rs/cargo@v1

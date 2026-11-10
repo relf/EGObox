@@ -31,8 +31,8 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.features }}
-          # first measurement on the PR, to be restricted to master before merge
-          save-if: true
+          # pull requests restore master caches but do not save their own
+          save-if: ${{ github.ref == 'refs/heads/master' }}
 
       - name: Run cargo fmt
         uses: actions-rs/cargo@v1
