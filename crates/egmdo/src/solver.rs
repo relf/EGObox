@@ -242,9 +242,11 @@ pub struct IterationRecord {
     pub wb2_scale: Option<f64>,
     /// The number of KL modes
     pub n_modes: usize,
-    /// The number of enrichments of the disciplinary GPs
+    /// The number of enrichments of the disciplinary GPs in this iteration
     pub n_enrichments: usize,
-    /// The number of non-converged random MDAs over `DoE_UQ` after the iteration
+    /// The number of non-converged random MDAs among those of the PCEs of the `DoE_UQ`
+    /// points after the iteration: the PCEs being recomputed after each enrichment, this is
+    /// not a cumulative count
     pub n_failed_mdas: usize,
     /// The number of `DoE_UQ` points dropped because too few random MDAs converged (D32)
     pub n_dropped_points: usize,
@@ -256,6 +258,12 @@ pub struct IterationRecord {
     pub qoi_mean_mda: Option<Array1<f64>>,
     /// At `z_new`, the means of the quantities of interest PCEs (D40)
     pub qoi_pce_mean: Option<Array1<f64>>,
+    /// The number of true evaluations of each discipline since the start of the run, initial
+    /// designs of experiments included, at the end of the iteration
+    pub n_evaluations: Vec<usize>,
+    /// The number of MDAs solved on the disciplinary GPs since the start of the run, converged
+    /// or not, at the end of the iteration ([DisciplinaryModels::n_mdas])
+    pub n_mdas: usize,
 }
 
 /// The result of an EGMDO run
@@ -275,6 +283,9 @@ pub struct EgmdoResult {
     pub y_min: Array1<f64>,
     /// Number of true evaluations of each discipline
     pub n_evaluations: Vec<usize>,
+    /// Number of MDAs solved on the disciplinary GPs, converged or not
+    /// ([DisciplinaryModels::n_mdas])
+    pub n_mdas: usize,
     /// Per-iteration records
     pub history: Vec<IterationRecord>,
     /// The final disciplinary GPs
@@ -454,6 +465,12 @@ impl EgmdoSolver {
                     return Ok(Some(self.pending.clone()));
                 }
                 State::Iterate => {
+                    // The counts at the end of the previous iteration
+                    let (n_evaluations, n_mdas) = (self.n_evaluations(), self.n_mdas());
+                    if let Some(record) = self.history.last_mut() {
+                        record.n_evaluations = n_evaluations;
+                        record.n_mdas = n_mdas;
+                    }
                     if self.iter >= self.config.max_iters || self.budget_exhausted {
                         self.finalize()?;
                         self.state = State::Done;
@@ -567,6 +584,12 @@ impl EgmdoSolver {
         (0..self.problem.disciplines().len())
             .map(|i| self.models.as_ref().map_or(0, |m| m.n_evaluations(i)))
             .collect()
+    }
+
+    /// The number of MDAs solved on the disciplinary GPs so far, converged or not
+    /// ([DisciplinaryModels::n_mdas])
+    pub fn n_mdas(&self) -> usize {
+        self.models.as_ref().map_or(0, |m| m.n_mdas())
     }
 
     fn initial_requests(&mut self) -> Vec<EvaluationRequest> {
@@ -866,6 +889,8 @@ impl EgmdoSolver {
             qoi_gp,
             qoi_mean_mda,
             qoi_pce_mean,
+            n_evaluations: self.n_evaluations(),
+            n_mdas: self.n_mdas(),
         });
         Ok(())
     }
@@ -1026,6 +1051,7 @@ impl EgmdoSolver {
             z_star,
             y_min,
             n_evaluations: self.n_evaluations(),
+            n_mdas: self.n_mdas(),
             history: self.history.clone(),
             models: self.models.clone().expect("models"),
             doe_uq: self.doe_uq.clone(),
@@ -1343,6 +1369,80 @@ mod tests {
             seed: Some(seed),
             ..EgmdoConfig::default()
         }
+    }
+
+    /// The cumulative counts of the history are non-decreasing and end at the totals
+    fn check_counts(result: &EgmdoResult) {
+        for pair in result.history.windows(2) {
+            let (a, b) = (&pair[0], &pair[1]);
+            assert!(a.n_mdas <= b.n_mdas);
+            assert!(
+                a.n_evaluations
+                    .iter()
+                    .zip(&b.n_evaluations)
+                    .all(|(x, y)| x <= y)
+            );
+        }
+        let last = result.history.last().unwrap();
+        assert_eq!(last.n_evaluations, result.n_evaluations);
+        assert_eq!(last.n_mdas, result.n_mdas);
+        assert_eq!(result.n_mdas, result.models.n_mdas());
+    }
+
+    #[test]
+    fn test_counts() {
+        let tp = problems::toy_constrained();
+        let config = toy_constrained_config(0);
+        let n_mc = config.uq.n_mc(config.uq.basis(2).size());
+        let result = minimize(&tp.problem, &tp.disciplines, config.clone()).unwrap();
+        check_counts(&result);
+        // The initial DoE_UQ alone: one mean and n_MC random MDAs per point
+        assert!(result.history[0].n_mdas >= 4 * (1 + n_mc));
+        assert!(
+            result.history[0]
+                .n_evaluations
+                .iter()
+                .zip([5, 4])
+                .all(|(n, n0)| *n >= n0)
+        );
+        // The constraints of the acquisition by the mean MDA solve many more MDAs
+        let mean_mda = minimize(
+            &tp.problem,
+            &tp.disciplines,
+            EgmdoConfig {
+                acquisition_constraints: AcquisitionConstraints::MeanMda,
+                max_iters: 1,
+                ..config.clone()
+            },
+        )
+        .unwrap();
+        let pce_mean_gp = minimize(
+            &tp.problem,
+            &tp.disciplines,
+            EgmdoConfig {
+                max_iters: 1,
+                ..config.clone()
+            },
+        )
+        .unwrap();
+        check_counts(&mean_mda);
+        assert!(mean_mda.history[0].n_mdas > pce_mean_gp.history[0].n_mdas);
+        // Linearized random MDAs: one mean MDA per point of the initial DoE_UQ
+        let linearized = minimize(
+            &tp.problem,
+            &tp.disciplines,
+            EgmdoConfig {
+                max_iters: 0,
+                uq: UqSettings {
+                    random_mda: RandomMda::Linearized,
+                    ..UqSettings::default()
+                },
+                ..config
+            },
+        )
+        .unwrap();
+        assert!(linearized.history.is_empty());
+        assert_eq!(linearized.n_mdas, 4);
     }
 
     #[test]

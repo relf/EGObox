@@ -404,6 +404,13 @@ impl EgmdaSolver {
             .collect()
     }
 
+    /// The number of MDAs solved on the disciplinary GPs so far, converged or not: one per
+    /// analysis step, i.e. `n_enrichments + 1` per analyzed point
+    /// ([DisciplinaryModels::n_mdas])
+    pub fn n_mdas(&self) -> usize {
+        self.models.as_ref().map_or(0, |m| m.n_mdas())
+    }
+
     /// Analyzes design point `z` with the true disciplinary solvers `disciplines`, evaluating
     /// the initial designs of experiments of the disciplines first if needed
     pub fn analyze(
@@ -642,6 +649,11 @@ impl MdaFunction {
             .n_evaluations()
     }
 
+    /// The number of MDAs solved on the disciplinary GPs so far ([EgmdaSolver::n_mdas])
+    pub fn n_mdas(&self) -> usize {
+        self.solver.lock().expect("EGMDA solver lock").n_mdas()
+    }
+
     /// The enrichments so far
     pub fn history(&self) -> Vec<EnrichmentRecord> {
         self.solver
@@ -664,6 +676,9 @@ pub struct PointRecord {
     pub accepted: bool,
     /// The number of true evaluations of each discipline after the analysis
     pub n_evaluations: Vec<usize>,
+    /// The number of MDAs solved on the disciplinary GPs since the start of the run, after the
+    /// analysis ([EgmdaSolver::n_mdas])
+    pub n_mdas: usize,
 }
 
 /// The result of an optimization with EGMDA
@@ -684,6 +699,8 @@ pub struct EgmdaResult {
     pub y_doe: Array2<f64>,
     /// Number of true evaluations of each discipline
     pub n_evaluations: Vec<usize>,
+    /// Number of MDAs solved on the disciplinary GPs ([EgmdaSolver::n_mdas])
+    pub n_mdas: usize,
     /// Every analyzed design point, in order
     pub history: Vec<PointRecord>,
     /// Every enrichment of the disciplinary GPs, in order
@@ -819,6 +836,11 @@ impl EgmdaOptimizer {
         self.solver.n_evaluations()
     }
 
+    /// The number of MDAs solved on the disciplinary GPs so far ([EgmdaSolver::n_mdas])
+    pub fn n_mdas(&self) -> usize {
+        self.solver.n_mdas()
+    }
+
     /// The next design point to analyze with its iteration, or `None` when the optimization
     /// is finished
     fn next_point(&mut self) -> Result<Option<(usize, Array1<f64>)>> {
@@ -894,6 +916,7 @@ impl EgmdaOptimizer {
             analysis,
             accepted,
             n_evaluations: self.solver.n_evaluations(),
+            n_mdas: self.solver.n_mdas(),
         });
     }
 
@@ -940,6 +963,7 @@ impl EgmdaOptimizer {
             x_doe: self.x.clone(),
             y_doe: self.y.clone(),
             n_evaluations: self.solver.n_evaluations(),
+            n_mdas: self.solver.n_mdas(),
             history: self.history.clone(),
             enrichments: self.solver.history().to_vec(),
             models: self.solver.models().cloned().expect("models"),
@@ -1178,10 +1202,19 @@ mod tests {
         );
         assert_eq!(result.x_doe.nrows(), result.y_doe.nrows());
         assert_eq!(result.history.len(), 5 + 10);
-        assert_eq!(
-            result.n_evaluations,
-            result.history.last().unwrap().n_evaluations
-        );
+        let last = result.history.last().unwrap();
+        assert_eq!(result.n_evaluations, last.n_evaluations);
+        // One mean MDA per analysis step: n_enrichments + 1 per analyzed point
+        assert_eq!(result.n_mdas, last.n_mdas);
+        let steps: usize = result
+            .history
+            .iter()
+            .map(|p| p.analysis.n_enrichments + 1)
+            .sum();
+        assert_eq!(result.n_mdas, steps);
+        for pair in result.history.windows(2) {
+            assert!(pair[0].n_mdas < pair[1].n_mdas);
+        }
     }
 
     #[test]
@@ -1224,6 +1257,8 @@ mod tests {
         assert_eq!(asked.x_doe, result.x_doe);
         assert_eq!(asked.y_doe, result.y_doe);
         assert_eq!(asked.n_evaluations, result.n_evaluations);
+        assert_eq!(asked.n_mdas, result.n_mdas);
+        assert_eq!(asked.n_mdas, optimizer.n_mdas());
     }
 
     #[test]

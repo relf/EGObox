@@ -107,6 +107,10 @@ pub trait Couplings {
         y: &ArrayView2<f64>,
         rows: &[usize],
     ) -> Result<Array2<f64>>;
+
+    /// Called by [solve] with the number `n` of resolutions of a batch, before solving it;
+    /// does nothing by default
+    fn record_resolutions(&self, _n: usize) {}
 }
 
 /// The true disciplinary solvers
@@ -208,6 +212,11 @@ impl Couplings for SurrogateCouplings<'_> {
         self.problem
     }
 
+    /// Counts the resolutions in the disciplinary models ([DisciplinaryModels::n_mdas])
+    fn record_resolutions(&self, n: usize) {
+        self.models.record_mdas(n);
+    }
+
     fn update(
         &self,
         z: &ArrayView1<f64>,
@@ -255,6 +264,7 @@ pub fn solve(
             settings.relaxation, settings.retry_relaxations
         )));
     }
+    couplings.record_resolutions(y0.nrows());
     let mut y = y0.clone();
     let mut status = vec![MdaStatus::MaxIterations; y.nrows()];
     let all: Vec<usize> = (0..y.nrows()).collect();
@@ -405,6 +415,41 @@ mod tests {
         let change = |floors| relative_change(&old.view(), &new.view(), &floors);
         assert_abs_diff_eq!(change(array![1e-12, 1e-12]), 0.5);
         assert!(change(array![25e-6, 25e-6]) < 1e-6);
+    }
+
+    #[test]
+    fn test_mda_count() {
+        let tp = problems::toy();
+        let models = models(&tp, 10);
+        let z = array![-3.];
+        assert_eq!(models.n_mdas(), 0);
+        let y0 = Array2::from_elem((3, 2), 1.);
+        solve(
+            &SurrogateCouplings::mean(&tp.problem, &models),
+            &z.view(),
+            y0.clone(),
+            &tp.mda,
+        )
+        .unwrap();
+        assert_eq!(models.n_mdas(), 3);
+        // Failed resolutions count, once despite their retries (D33)
+        let settings = MdaSettings {
+            max_iters: 1,
+            ..MdaSettings::default()
+        };
+        let sol = solve_one(
+            &SurrogateCouplings::mean(&tp.problem, &models),
+            &z.view(),
+            &settings,
+        )
+        .unwrap();
+        assert!(!sol.1.is_converged());
+        assert_eq!(models.n_mdas(), 4);
+        // True MDAs are not counted
+        let truth = TrueCouplings::new(&tp.problem, &tp.disciplines).unwrap();
+        solve(&truth, &z.view(), y0, &tp.mda).unwrap();
+        assert_eq!(models.n_mdas(), 4);
+        assert_eq!(models.clone().n_mdas(), 4);
     }
 
     #[test]

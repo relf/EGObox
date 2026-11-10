@@ -304,9 +304,11 @@ Using the model (19), draw `n_sim` samples `Ξ^(s)` (paper: 100) and compute
 The result reports:
 
 - mean, standard deviation and coefficient of variation of each component of `Ẑ*` and of `Ŷ_min`, and the samples themselves (for histograms);
-- the number of true evaluations per discipline (initial DoE and added points);
-- per iteration: `z_new`, maximum EI, `M`, number of enrichments, number of non-converged random MDAs;
+- the number of true evaluations per discipline (initial DoE and added points), and the number of MDAs solved on the disciplinary GPs;
+- per iteration: `z_new`, maximum EI, `M`, number of enrichments in the iteration, number of non-converged random MDAs among those of the current `DoE_UQ` PCEs (recomputed after each enrichment, so not cumulative), and the cumulative counts of true evaluations per discipline and of MDAs solved at the end of the iteration (issue #545);
 - the final disciplinary GPs, `DoE_UQ`, PCE coefficients and KL-GPs, so the model (19) can be evaluated afterwards.
+
+An MDA solved on the disciplinary GPs counts once per resolution, converged or not, retries (D33) included: a `DoE_UQ` point costs one mean MDA and `n_MC` random MDAs (one with the linearized random MDA, D37), and the mean MDAs of the enrichments and of the acquisition constraints (D40) count too. True MDAs are not counted. With EGMDA (part III), each analysis step solves one mean MDA, i.e. `n_enrichments + 1` per analyzed point. These counts give the cost of a run on the same axis as a plain EGO loop.
 
 The paper considers a run converged when the relative error between `E[Ẑ*]` and the reference is below 5%. **Decision D17:** the relative error is `||E[Ẑ*] − z_ref|| / ||z_ref||` (Euclidean norm); several reference components are 0, so a per-component relative error is not usable.
 
@@ -482,7 +484,7 @@ Sources: the REMAL paper is used first, and Ghoreishi and Imani only for what it
 | 5 (D38) | `uq`, `kl`, `solver` | `predict_covariance`, `linfa-linalg` `eigh` | correlation matrices (unit diagonal, symmetric, PSD, larger for close points); correlation of the joint samples; Mehler covariance equals `Σ a_j a_jᵀ` for `ρ = 1` and the covariance of the joint samples; projected `ζ` equals the PCE form with shared variables; toy problem converges; `Perfect` bit-identical |
 | 6, 7 | `criteria` | multistart COBYLA of `egobox_gp::basin_optimizer`, as `Egor` | EI ≈ 0 at `DoE_UQ`, EI ≥ 0, determinism with fixed samples, `P_min` sums to 1, `cv` with negative and zero mean |
 | 7, 8, 9 | `solver` | — | Algorithm 1 stops when all candidates have `cv ≤ ε_cv`; one evaluation per discipline per enrichment; ask/tell sequence; reproducibility for a seed |
-| 10 | `solver`, `result` | — | statistics of `Ẑ*` and `Ŷ_min` on a problem with a known minimum |
+| 10 | `solver`, `result` | — | statistics of `Ẑ*` and `Ŷ_min` on a problem with a known minimum; cumulative counts of evaluations and MDAs non-decreasing and ending at the totals; MDA count per resolution, failed ones included, true MDAs excluded |
 | 11 | `problems` (tests and examples) | — | end-to-end runs and reference results |
 
 ## 15. Known limitations

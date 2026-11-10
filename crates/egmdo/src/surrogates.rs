@@ -15,6 +15,7 @@ use linfa::prelude::{Dataset, Fit};
 use ndarray::{Array1, Array2, ArrayBase, ArrayView1, Axis, Data, Ix2, array, concatenate};
 use ndarray_rand::rand::SeedableRng;
 use rand_xoshiro::Xoshiro256Plus;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// The distance, in inputs normalized by the discipline input bounds, under which
 /// a new training point is considered as a duplicate of an existing one (decision D14).
@@ -161,7 +162,6 @@ pub fn initial_doe(problem: &MdoProblem, i: usize, n: usize, seed: u64) -> Array
 }
 
 /// The GP surrogates of all disciplines, with their training data
-#[derive(Clone)]
 pub struct DisciplinaryModels {
     settings: GpSettings,
     /// Per discipline: training inputs `(n, input_dim)` and outputs `(n, output_dim)`
@@ -170,6 +170,21 @@ pub struct DisciplinaryModels {
     scales: Vec<Array1<f64>>,
     /// Per discipline: one GP per output
     gps: Vec<Vec<DisciplinaryGp>>,
+    /// Number of MDAs solved on these surrogates, counted by [crate::mda::solve] from
+    /// several threads
+    n_mdas: AtomicUsize,
+}
+
+impl Clone for DisciplinaryModels {
+    fn clone(&self) -> Self {
+        DisciplinaryModels {
+            settings: self.settings.clone(),
+            data: self.data.clone(),
+            scales: self.scales.clone(),
+            gps: self.gps.clone(),
+            n_mdas: AtomicUsize::new(self.n_mdas()),
+        }
+    }
 }
 
 impl DisciplinaryModels {
@@ -202,6 +217,7 @@ impl DisciplinaryModels {
             data,
             scales,
             gps: vec![],
+            n_mdas: AtomicUsize::new(0),
         };
         models.gps = (0..models.data.len())
             .map(|i| models.train(i))
@@ -215,6 +231,18 @@ impl DisciplinaryModels {
             .into_iter()
             .map(|yq| self.settings.train(x, &yq.to_owned()))
             .collect()
+    }
+
+    /// The number of MDA resolutions solved on these surrogates so far, converged or not: one
+    /// per state of a batch solved by [crate::mda::solve], a resolution retried with stronger
+    /// relaxation (decision D33) counting once
+    pub fn n_mdas(&self) -> usize {
+        self.n_mdas.load(Ordering::Relaxed)
+    }
+
+    /// Counts `n` MDA resolutions solved on these surrogates
+    pub(crate) fn record_mdas(&self, n: usize) {
+        self.n_mdas.fetch_add(n, Ordering::Relaxed);
     }
 
     /// Whether input `x` of discipline `i` is closer than [DUPLICATE_TOLERANCE] to one of its

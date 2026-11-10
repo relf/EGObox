@@ -1714,6 +1714,13 @@ class MdegorResult:
         Number of true evaluations of each discipline
         """
     @property
+    def n_mdas(self) -> builtins.int:
+        r"""
+        Number of multidisciplinary analyses solved on the disciplinary surrogates, converged or
+        not: one per resolution, e.g. one mean and n_mc random analyses per point of the
+        uncertainty quantification DoE with EGMDO, one per analysis step with EGMDA
+        """
+    @property
     def doe_uq(self) -> numpy.typing.NDArray[numpy.float64]:
         r"""
         Final design of experiments of the uncertainty quantification; with EGMDA, the points
@@ -1749,21 +1756,26 @@ class MdegorResult:
         r"""
         Per-iteration records.
         
-        With EGMDO, dicts with keys `z_new` (point added to the uncertainty quantification DoE,
-        or None), `criterion` (the criterion maximized: "ei", "wb2", "log_ei" or "feasibility"),
-        `max_criterion` (of the logarithm for "feasibility"), `wb2_scale`, `n_modes`,
-        `n_enrichments`, `n_failed_mdas`, `n_dropped_points`, and the quantities of interest
-        (objective, then constraints) at the proposed point: `qoi_gp` (objective model
-        expectation and GPs of the constraint means), `qoi_mean_mda` (multidisciplinary analysis
-        with the surrogate means, None if it does not converge) and `qoi_pce_mean` (means at
-        `z_new`, None if no point is added).
+        With EGMDO, one dict per iteration, with keys `z_new` (point added to the uncertainty
+        quantification DoE, or None), `criterion` (the criterion maximized: "ei", "wb2",
+        "log_ei" or "feasibility"), `max_criterion` (of the logarithm for "feasibility"),
+        `wb2_scale`, `n_modes`, `n_enrichments` (in this iteration), `n_failed_mdas`
+        (non-converged random analyses among those of the current uncertainty quantification
+        DoE, recomputed after each enrichment: not cumulative), `n_dropped_points`, the
+        quantities of interest (objective, then constraints) at the proposed point: `qoi_gp`
+        (objective model expectation and GPs of the constraint means), `qoi_mean_mda`
+        (multidisciplinary analysis with the surrogate means, None if it does not converge) and
+        `qoi_pce_mean` (means at `z_new`, None if no point is added), and the cumulative counts
+        at the end of the iteration since the start of the run: `n_evaluations` (of each
+        discipline, initial designs of experiments included) and `n_mdas` (see `n_mdas`).
         
         With EGMDA, one dict per analyzed point, with keys `iteration` (0 for the initial design
         of experiments), `z`, `y` (coupling variables of the analysis with the surrogate means),
         `qoi` (None if the analysis failed), `dispersion` (of the linearized coupling variables,
         NaN if it cannot be estimated), `n_enrichments`, `status` ("converged",
         "max_enrichments", "budget", "stalled" or "mda_failure"), `accepted` (whether the point
-        was given to `Egor`) and `n_evaluations` (of each discipline, after the analysis).
+        was given to `Egor`), and the cumulative counts after the analysis: `n_evaluations` (of
+        each discipline) and `n_mdas` (see `n_mdas`).
         """
     @property
     def enrichments(self) -> typing.Optional[builtins.list[dict]]:
