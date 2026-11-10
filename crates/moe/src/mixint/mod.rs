@@ -174,7 +174,10 @@ impl MixintGpMixtureValidParams {
     /// If xtypes is None, returns the input as-is without any transformation.
     /// If working in folded space, unfolds enum dimensions to one-hot masks.
     /// Then projects continuous values to valid discrete values.
-    fn cast_to_model_space<'a>(&self, x: &'a CowArray<'a, f64, Ix2>) -> CowArray<'a, f64, Ix2> {
+    fn cast_to_model_space<'a>(
+        &self,
+        x: &'a CowArray<'a, f64, Ix2>,
+    ) -> Result<CowArray<'a, f64, Ix2>> {
         cast_to_model_space(
             self.xtypes.as_deref(),
             self.work_in_folded_space,
@@ -188,7 +191,7 @@ impl MixintGpMixtureValidParams {
         yt: &ArrayBase<impl Data<Elem = f64>, Ix1>,
     ) -> Result<MixintGpMixture> {
         let cow_xt = CowArray::from(xt);
-        let xcast = self.cast_to_model_space(&cow_xt);
+        let xcast = self.cast_to_model_space(&cow_xt)?;
         let mixmoe = MixintGpMixture {
             moe: self
                 .gpmix_params
@@ -210,7 +213,7 @@ impl MixintGpMixtureValidParams {
         clustering: &Clustering,
     ) -> Result<MixintGpMixture> {
         let cow_xt = CowArray::from(xt);
-        let xcast = self.cast_to_model_space(&cow_xt);
+        let xcast = self.cast_to_model_space(&cow_xt)?;
         let mixmoe = MixintGpMixture {
             moe: self.gpmix_params.clone().check_ref()?.train_on_clusters(
                 &xcast,

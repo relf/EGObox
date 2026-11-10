@@ -13,7 +13,7 @@ use ndarray::{Array1, Array2, ArrayBase, ArrayView2, Axis, CowArray, Data, Ix1, 
 
 use serde::{Deserialize, Serialize};
 
-use super::space::cast_to_model_space;
+use super::space::{cast_to_model_space, fold_gradients};
 use super::{MixintGpMixtureParams, MixintGpMixtureValidParams};
 use crate::GpFileFormat;
 
@@ -65,36 +65,53 @@ impl MixintGpMixture {
     /// If xtypes is None, returns the input as-is without any transformation.
     /// If working in folded space, unfolds enum dimensions to one-hot masks.
     /// Then projects continuous values to valid discrete values.
-    fn cast_to_model_space<'a>(&self, x: &'a CowArray<'a, f64, Ix2>) -> CowArray<'a, f64, Ix2> {
+    fn cast_to_model_space<'a>(
+        &self,
+        x: &'a CowArray<'a, f64, Ix2>,
+    ) -> Result<CowArray<'a, f64, Ix2>> {
         cast_to_model_space(
             self.xtypes.as_deref(),
             self.work_in_folded_space,
             CowArray::from(x),
         )
     }
+
+    /// Gradients wrt the input variables: in folded space, one column per
+    /// variable (NaN for enum variables), otherwise as computed by the inner moe.
+    fn to_input_gradients(&self, grads: Array2<f64>) -> Array2<f64> {
+        match self.xtypes.as_deref() {
+            Some(xtypes) if self.work_in_folded_space => fold_gradients(xtypes, &grads),
+            _ => grads,
+        }
+    }
 }
 
 #[typetag::serde]
 impl GpSurrogate for MixintGpMixture {
+    /// Input and output dimensions; in folded space, one input per variable
     fn dims(&self) -> (usize, usize) {
-        self.moe.dims()
+        let (nx, ny) = self.moe.dims();
+        match self.xtypes.as_deref() {
+            Some(xtypes) if self.work_in_folded_space => (xtypes.len(), ny),
+            _ => (nx, ny),
+        }
     }
 
     fn predict(&self, x: &ArrayView2<f64>) -> Result<Array1<f64>> {
         let cow_x = CowArray::from(x);
-        let xcast = self.cast_to_model_space(&cow_x);
+        let xcast = self.cast_to_model_space(&cow_x)?;
         self.moe.predict(&xcast)
     }
 
     fn predict_var(&self, x: &ArrayView2<f64>) -> Result<Array1<f64>> {
         let cow_x = CowArray::from(x);
-        let xcast = self.cast_to_model_space(&cow_x);
+        let xcast = self.cast_to_model_space(&cow_x)?;
         self.moe.predict_var(&xcast)
     }
 
     fn predict_valvar(&self, x: &ArrayView2<f64>) -> Result<(Array1<f64>, Array1<f64>)> {
         let cow_x = CowArray::from(x);
-        let xcast = self.cast_to_model_space(&cow_x);
+        let xcast = self.cast_to_model_space(&cow_x)?;
         self.moe.predict_valvar(&xcast)
     }
 
@@ -150,7 +167,7 @@ impl MixintGpMixture {
             self.xtypes.as_deref(),
             self.work_in_folded_space,
             CowArray::from(x_new),
-        );
+        )?;
 
         // Update the underlying moe (consume self.moe)
         let updated_moe = self.moe.update(&xcast, y_new)?;
@@ -182,20 +199,28 @@ impl MixintGpMixture {
 impl GpSurrogateExt for MixintGpMixture {
     fn predict_gradients(&self, x: &ArrayView2<f64>) -> Result<Array2<f64>> {
         let cow_x = CowArray::from(x);
-        let xcast = self.cast_to_model_space(&cow_x);
-        self.moe.predict_gradients(&xcast)
+        let xcast = self.cast_to_model_space(&cow_x)?;
+        self.moe
+            .predict_gradients(&xcast)
+            .map(|g| self.to_input_gradients(g))
     }
 
     fn predict_var_gradients(&self, x: &ArrayView2<f64>) -> Result<Array2<f64>> {
         let cow_x = CowArray::from(x);
-        let xcast = self.cast_to_model_space(&cow_x);
-        self.moe.predict_var_gradients(&xcast)
+        let xcast = self.cast_to_model_space(&cow_x)?;
+        self.moe
+            .predict_var_gradients(&xcast)
+            .map(|g| self.to_input_gradients(g))
     }
 
     fn predict_valvar_gradients(&self, x: &ArrayView2<f64>) -> Result<(Array2<f64>, Array2<f64>)> {
         let cow_x = CowArray::from(x);
-        let xcast = self.cast_to_model_space(&cow_x);
-        self.moe.predict_valvar_gradients(&xcast)
+        let xcast = self.cast_to_model_space(&cow_x)?;
+        let (val_grads, var_grads) = self.moe.predict_valvar_gradients(&xcast)?;
+        Ok((
+            self.to_input_gradients(val_grads),
+            self.to_input_gradients(var_grads),
+        ))
     }
 
     fn predict_valvar_with_gradients(
@@ -203,19 +228,25 @@ impl GpSurrogateExt for MixintGpMixture {
         x: &ArrayView2<f64>,
     ) -> Result<(Array1<f64>, Array1<f64>, Array2<f64>, Array2<f64>)> {
         let cow_x = CowArray::from(x);
-        let xcast = self.cast_to_model_space(&cow_x);
-        self.moe.predict_valvar_with_gradients(&xcast)
+        let xcast = self.cast_to_model_space(&cow_x)?;
+        let (val, var, val_grads, var_grads) = self.moe.predict_valvar_with_gradients(&xcast)?;
+        Ok((
+            val,
+            var,
+            self.to_input_gradients(val_grads),
+            self.to_input_gradients(var_grads),
+        ))
     }
 
     fn sample(&self, x: &ArrayView2<f64>, n_traj: usize) -> Result<Array2<f64>> {
         let cow_x = CowArray::from(x);
-        let xcast = self.cast_to_model_space(&cow_x);
+        let xcast = self.cast_to_model_space(&cow_x)?;
         self.moe.sample(&xcast, n_traj)
     }
 
     fn predict_covariance(&self, x: &ArrayView2<f64>) -> Result<Array2<f64>> {
         let cow_x = CowArray::from(x);
-        let xcast = self.cast_to_model_space(&cow_x);
+        let xcast = self.cast_to_model_space(&cow_x)?;
         self.moe.predict_covariance(&xcast.view())
     }
 }
@@ -290,7 +321,7 @@ impl<D: Data<Elem = f64>> PredictInplace<ArrayBase<D, Ix2>, Array1<f64>> for Mix
             "The number of data points must match the number of output targets."
         );
 
-        let values = self.moe.predict(x).expect("MixintGpMixture prediction");
+        let values = GpSurrogate::predict(self, &x.view()).expect("MixintGpMixture prediction");
         *y = values;
     }
 
@@ -303,7 +334,7 @@ impl<D: Data<Elem = f64>> PredictInplace<ArrayBase<D, Ix2>, Array1<f64>> for Mix
 mod tests {
     use crate::mixint::*;
     use crate::xtypes::XType;
-    use crate::{CorrelationSpec, GpSurrogate};
+    use crate::{CorrelationSpec, GpSurrogate, GpSurrogateExt};
     use approx::assert_abs_diff_eq;
     use egobox_doe::{LhsKind, SamplingMethod};
 
@@ -378,5 +409,43 @@ mod tests {
         let ytest = mixi_moe.predict(&xtest.view()).expect("Predict val fail");
         let ytrue = ftest(&xtest);
         assert_abs_diff_eq!(ytrue, ytest, epsilon = 2.0);
+    }
+
+    #[test]
+    fn test_mixint_moe_folded_space() {
+        // one column per variable, the enum given by its category index
+        let xtypes = [XType::Enum(3), XType::Float(0., 1.)];
+        let xt = array![
+            [0., 0.1],
+            [1., 0.2],
+            [2., 0.3],
+            [0., 0.6],
+            [1., 0.7],
+            [2., 0.8],
+            [0., 0.9],
+            [1., 0.4]
+        ];
+        let yt: Array1<f64> = xt.column(0).to_owned() + xt.column(1).mapv(|v: f64| (6. * v).sin());
+        let mut params = MixintGpMixture::params(Some(&xtypes));
+        params.work_in_folded_space(true);
+        let moe = params
+            .check()
+            .unwrap()
+            .fit(&Dataset::new(xt.clone(), yt.clone()))
+            .expect("fit in folded space");
+
+        assert_eq!(moe.dims(), (2, 1));
+        assert_abs_diff_eq!(moe.predict(&xt.view()).unwrap(), yt, epsilon = 1e-6);
+        let grads = moe.predict_gradients(&xt.view()).unwrap();
+        assert_eq!(grads.dim(), (8, 2));
+        assert!(grads.column(0).iter().all(|g| g.is_nan()));
+        assert!(grads.column(1).iter().all(|g| g.is_finite()));
+
+        for bad in [3., -1., 0.5] {
+            let err = moe.predict(&array![[bad, 0.5]].view()).unwrap_err();
+            assert!(err.to_string().contains("category indices"), "{err}");
+        }
+        let err = moe.predict(&array![[0., 0.5, 1.]].view()).unwrap_err();
+        assert!(err.to_string().contains("one per variable"), "{err}");
     }
 }

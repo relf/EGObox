@@ -172,9 +172,54 @@ class TestGpMix(unittest.TestCase):
         print(f"gpx.theta = {self.gpx.thetas}")
         self.assertEqual(0.314, self.gpx.thetas.item())
 
-    @unittest.skip(
-        "Gpx fit panics with ENUM xspecs: GpMix.fit does not set work_in_folded_space"
-    )
+    def test_enum_variable(self):
+        """xt has one column per variable, an ENUM given by its category index (#558)"""
+        rng = np.random.default_rng(0)
+        x0 = rng.uniform(0.0, 1.0, 20)
+        category = rng.integers(0, 3, 20).astype(float)
+        yt = np.sin(6 * x0) + category
+        FLOAT = egx.XSpec(egx.XType.FLOAT, [0.0, 1.0])
+        ENUM = egx.XSpec(egx.XType.ENUM, tags=["a", "b", "c"])
+
+        for xspecs, xt in (
+            ([FLOAT, ENUM], np.column_stack([x0, category])),
+            ([ENUM, FLOAT], np.column_stack([category, x0])),
+            ([ENUM], category.reshape(-1, 1)),
+        ):
+            with self.subTest(n_vars=len(xspecs), enum_first=xspecs[0] is ENUM):
+                gpx = egx.Gpx.builder(xspecs=xspecs, seed=1).fit(xt, yt)
+                self.assertEqual(gpx.nx, len(xspecs))
+                self.assertEqual(gpx.predict(xt).shape, (20,))
+                grads = gpx.predict_gradients(xt[:3])
+                self.assertEqual(grads.shape, (3, len(xspecs)))
+                ienum = xspecs.index(ENUM)
+                self.assertTrue(np.isnan(grads[:, ienum]).all())
+                self.assertFalse(np.isnan(np.delete(grads, ienum, axis=1)).any())
+
+        gpx = egx.Gpx.builder(xspecs=[FLOAT, ENUM], seed=1).fit(
+            np.column_stack([x0, category]), yt
+        )
+        for bad in (3.0, -1.0, 0.5):
+            with self.subTest(bad=bad):
+                xbad = np.array([[0.5, bad]])
+                with self.assertRaisesRegex(ValueError, "category indices"):
+                    gpx.predict(xbad)
+                with self.assertRaisesRegex(ValueError, "category indices"):
+                    egx.Gpx.builder(xspecs=[FLOAT, ENUM]).fit(
+                        np.vstack([np.column_stack([x0, category]), xbad]),
+                        np.append(yt, 0.0),
+                    )
+
+        x = np.array([[0.2, 0.0], [0.7, 2.0]])
+        filename = "gpdump_enum.json"
+        gpx.save(filename)
+        try:
+            gpx2 = egx.Gpx.load(filename)
+        finally:
+            os.remove(filename)
+        self.assertEqual(gpx2.nx, 2)
+        np.testing.assert_allclose(gpx2.predict(x), gpx.predict(x), rtol=1e-6)
+
     def test_mixint_gp(self):
         xspecs = [
             egx.XSpec(egx.XType.FLOAT, [-10.0, 10.0]),
