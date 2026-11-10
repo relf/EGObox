@@ -27,6 +27,13 @@ jobs:
           override: true
           components: rustfmt, clippy
 
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.features }}
+          # first measurement on the PR, to be restricted to master before merge
+          save-if: true
+
       - name: Run cargo fmt
         uses: actions-rs/cargo@v1
         with:

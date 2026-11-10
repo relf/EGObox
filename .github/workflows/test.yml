@@ -46,6 +46,13 @@ jobs:
       - name: Log active toolchain
         run: rustup show
 
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.backend }}
+          # first measurement on the PR, to be restricted to master before merge
+          save-if: true
+
       - name: Setup Python
         uses: actions/setup-python@v6
         with:
@@ -102,6 +109,14 @@ jobs:
 
       - name: Log active toolchain
         run: rustup show
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          # cache keys cannot contain commas
+          key: ${{ contains(matrix.features, 'mkl') && 'mkl' || 'c-optim' }}
+          # first measurement on the PR, to be restricted to master before merge
+          save-if: true
 
       - name: Setup Python
         uses: actions/setup-python@v6
