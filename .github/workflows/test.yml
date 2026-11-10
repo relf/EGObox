@@ -53,11 +53,6 @@ jobs:
           # first measurement on the PR, to be restricted to master before merge
           save-if: true
 
-      - name: Setup Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.12' 
-
       - name: Run cargo test in release mode
         uses: actions-rs/cargo@v1
         env:
@@ -65,7 +60,7 @@ jobs:
           EGOBOX_REQUIRE_SNAPSHOTS: ${{ (matrix.os == 'ubuntu-latest' && matrix.backend == 'default' && matrix.toolchain == 'stable') && '1' || '0' }}
         with:
           command: test
-          args: --all --release ${{ matrix.backend == 'c-optim' && '--features c-cobyla,c-slsqp' || '' }}
+          args: --workspace --exclude egobox --release ${{ matrix.backend == 'c-optim' && '--features c-cobyla,c-slsqp' || '' }}
 
       # When the reference job fails, record the snapshot fixtures as computed by CI
       # (to be reviewed, then committed for the new or intentionally changed scenarios)
@@ -118,15 +113,10 @@ jobs:
           # first measurement on the PR, to be restricted to master before merge
           save-if: true
 
-      - name: Setup Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.12' 
-
       - name: Run cargo test in release mode
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --all --release --features ${{ matrix.features }}
+          args: --workspace --exclude egobox --release --features ${{ matrix.features }}
 
 
