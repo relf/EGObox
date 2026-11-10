@@ -57,6 +57,7 @@ fn run_egor(dim: usize, outdir: &String, num: usize) -> Result<OptimResult<f64>>
                 // .q_batch(10)
                 // .q_optmod(2)
                 // .qei_strategy(QEiStrategy::KrigingBeliever)
+                .seed(num as u64)
                 .n_start(90)
                 .outdir(outdir)
                 // .target(1e-2)

@@ -282,11 +282,7 @@ where
         } else {
             ThetaTuning::Full {
                 init: self.config.gp.theta_tuning.init().to_owned(),
-                bounds: crate::utils::theta_bounds(
-                    &self.config.gp.theta_tuning,
-                    dim,
-                    self.config.gp.correlation_spec,
-                ),
+                bounds: crate::utils::theta_bounds(&self.config.gp.theta_tuning, dim),
             }
         };
         builder.set_theta_tunings(&[theta_tuning]);
@@ -343,11 +339,7 @@ where
             inits
         };
 
-        let theta_bounds = crate::utils::theta_bounds(
-            &self.config.gp.theta_tuning,
-            dim,
-            self.config.gp.correlation_spec,
-        );
+        let theta_bounds = crate::utils::theta_bounds(&self.config.gp.theta_tuning, dim);
 
         let actives = if self.config.gp.kpls_dim.is_some() {
             // KPLS takes priority: use full theta optimization in PLS-reduced space
