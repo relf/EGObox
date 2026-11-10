@@ -1,5 +1,6 @@
 //! Conversions between the mixed-integer space and its continuous relaxation
 
+use crate::errors::{MoeError, Result};
 use crate::xtypes::XType;
 use linfa::Float;
 use ndarray::{Array, Array2, ArrayBase, Axis, CowArray, Data, DataMut, Ix2, Zip, s};
@@ -172,25 +173,78 @@ pub(super) fn cast_to_discrete_values_mut<F: Float>(
     });
 }
 
+/// Check that the columns of enum variables in folded space `x` hold category
+/// indices, i.e. integers in [0, n) for an enum with n categories.
+pub(super) fn check_enum_indices(
+    xtypes: &[XType],
+    x: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+) -> Result<()> {
+    if x.ncols() != xtypes.len() {
+        return Err(MoeError::InvalidValueError(format!(
+            "input should have {} columns (one per variable), got {}",
+            xtypes.len(),
+            x.ncols()
+        )));
+    }
+    for (i, xtype) in xtypes.iter().enumerate() {
+        if let XType::Enum(n) = xtype
+            && let Some(v) = x
+                .column(i)
+                .iter()
+                .find(|v| !(v.fract() == 0. && **v >= 0. && **v < *n as f64))
+        {
+            return Err(MoeError::InvalidValueError(format!(
+                "column {i} (enum with {n} categories) should hold category indices in [0, {n}), got {v}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Fold gradients computed in the unfolded space back to one column per variable.
+///
+/// An enum variable has no derivative with respect to its category index,
+/// so its column is set to NaN.
+pub(super) fn fold_gradients(xtypes: &[XType], grads: &Array2<f64>) -> Array2<f64> {
+    let mut folded = Array2::zeros((grads.nrows(), xtypes.len()));
+    let mut unfold_index = 0;
+    for (j, xtype) in xtypes.iter().enumerate() {
+        match xtype {
+            XType::Float(_, _) | XType::Int(_, _) | XType::Ord(_) => {
+                folded.column_mut(j).assign(&grads.column(unfold_index));
+                unfold_index += 1;
+            }
+            XType::Enum(v) => {
+                folded.column_mut(j).fill(f64::NAN);
+                unfold_index += v;
+            }
+        }
+    }
+    folded
+}
+
 /// Cast/unfold points from the mixed-integer ("public") space into the
 /// continuous, discrete-cast space the inner `moe` surrogate model is actually
 /// trained/updated on (unfolding enum dimensions when working in folded
 /// space, then rounding/snapping to the nearest assessable discrete value).
+///
+/// In folded space, enum columns are checked to hold category indices.
 pub(super) fn cast_to_model_space<'a>(
     xtypes: Option<&[XType]>,
     work_in_folded_space: bool,
     x: CowArray<'a, f64, Ix2>,
-) -> CowArray<'a, f64, Ix2> {
+) -> Result<CowArray<'a, f64, Ix2>> {
     if let Some(xtypes) = xtypes {
         let mut xcast = if work_in_folded_space {
+            check_enum_indices(xtypes, &x)?;
             CowArray::from(unfold_with_enum_mask(xtypes, &x.view()))
         } else {
             x
         };
         cast_to_discrete_values_mut(xtypes, &mut xcast);
-        CowArray::from(xcast)
+        Ok(xcast)
     } else {
-        x
+        Ok(x)
     }
 }
 

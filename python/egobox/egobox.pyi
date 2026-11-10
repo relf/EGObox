@@ -957,7 +957,8 @@ class GpMix:
         Parameters
         ----------
         xt : array[nsamples, nx] or array[nsamples] when nx == 1
-            input samples
+            input samples, one column per variable: an ENUM variable is given
+            by its category index, as returned by `egx.lhs(xspecs, n)`
         yt : array[nsamples] or array[nsamples, 1]
             output samples
         
@@ -1102,6 +1103,7 @@ class Gpx:
         array[nsamples, nx]
             the output derivatives wrt inputs at the nsamples x points.
             The ith column is the partial derivative wrt the ith component of x.
+            It is NaN for an ENUM variable, which has no derivative.
         """
     def predict_var_gradients(self, x: numpy.typing.NDArray[numpy.float64]) -> numpy.typing.NDArray[numpy.float64]:
         r"""
@@ -1117,6 +1119,7 @@ class Gpx:
         array[nsamples, nx]
             the variance derivatives wrt inputs at the nsamples x points.
             The ith column is the partial derivative wrt the ith component of x.
+            It is NaN for an ENUM variable, which has no derivative.
         """
     def sample(self, x: numpy.typing.NDArray[numpy.float64], n_traj: builtins.int) -> numpy.typing.NDArray[numpy.float64]:
         r"""

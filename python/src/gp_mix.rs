@@ -165,7 +165,8 @@ impl GpMix {
     /// Parameters
     /// ----------
     /// xt : array[nsamples, nx] or array[nsamples] when nx == 1
-    ///     input samples
+    ///     input samples, one column per variable: an ENUM variable is given
+    ///     by its category index, as returned by `egx.lhs(xspecs, n)`
     /// yt : array[nsamples] or array[nsamples, 1]
     ///     output samples
     ///
@@ -215,8 +216,11 @@ impl GpMix {
             vec![theta_tuning; 1] // used as default theta tuning for all experts
         };
 
+        // xt has one column per variable, enum variables given by their category index
+        let mut params = MixintGpMixture::params(self.xtypes.as_deref());
+        params.work_in_folded_space(true);
         let moe = py.detach(|| {
-            MixintGpMixture::params(self.xtypes.as_deref())
+            params
                 .n_clusters(n_clusters)
                 .recombination(recomb)
                 .regression_spec(self.gp_config.regression_spec())
@@ -410,6 +414,7 @@ impl Gpx {
     /// array[nsamples, nx]
     ///     the output derivatives wrt inputs at the nsamples x points.
     ///     The ith column is the partial derivative wrt the ith component of x.
+    ///     It is NaN for an ENUM variable, which has no derivative.
     ///
     fn predict_gradients<'py>(
         &self,
@@ -431,6 +436,7 @@ impl Gpx {
     /// array[nsamples, nx]
     ///     the variance derivatives wrt inputs at the nsamples x points.
     ///     The ith column is the partial derivative wrt the ith component of x.
+    ///     It is NaN for an ENUM variable, which has no derivative.
     ///
     fn predict_var_gradients<'py>(
         &self,
