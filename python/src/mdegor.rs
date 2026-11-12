@@ -225,6 +225,11 @@ pub(crate) struct MdegorResult {
     /// Number of true evaluations of each discipline
     #[pyo3(get)]
     n_evaluations: Vec<usize>,
+    /// Number of multidisciplinary analyses solved on the disciplinary surrogates, converged or
+    /// not: one per resolution, e.g. one mean and n_mc random analyses per point of the
+    /// uncertainty quantification DoE with EGMDO, one per analysis step with EGMDA
+    #[pyo3(get)]
+    n_mdas: usize,
     /// Final design of experiments of the uncertainty quantification; with EGMDA, the points
     /// analyzed and given to `Egor`
     #[pyo3(get)]
@@ -248,21 +253,26 @@ pub(crate) struct MdegorResult {
     disciplinary_doe: Vec<TrainingData>,
     /// Per-iteration records.
     ///
-    /// With EGMDO, dicts with keys `z_new` (point added to the uncertainty quantification DoE,
-    /// or None), `criterion` (the criterion maximized: "ei", "wb2", "log_ei" or "feasibility"),
-    /// `max_criterion` (of the logarithm for "feasibility"), `wb2_scale`, `n_modes`,
-    /// `n_enrichments`, `n_failed_mdas`, `n_dropped_points`, and the quantities of interest
-    /// (objective, then constraints) at the proposed point: `qoi_gp` (objective model
-    /// expectation and GPs of the constraint means), `qoi_mean_mda` (multidisciplinary analysis
-    /// with the surrogate means, None if it does not converge) and `qoi_pce_mean` (means at
-    /// `z_new`, None if no point is added).
+    /// With EGMDO, one dict per iteration, with keys `z_new` (point added to the uncertainty
+    /// quantification DoE, or None), `criterion` (the criterion maximized: "ei", "wb2",
+    /// "log_ei" or "feasibility"), `max_criterion` (of the logarithm for "feasibility"),
+    /// `wb2_scale`, `n_modes`, `n_enrichments` (in this iteration), `n_failed_mdas`
+    /// (non-converged random analyses among those of the current uncertainty quantification
+    /// DoE, recomputed after each enrichment: not cumulative), `n_dropped_points`, the
+    /// quantities of interest (objective, then constraints) at the proposed point: `qoi_gp`
+    /// (objective model expectation and GPs of the constraint means), `qoi_mean_mda`
+    /// (multidisciplinary analysis with the surrogate means, None if it does not converge) and
+    /// `qoi_pce_mean` (means at `z_new`, None if no point is added), and the cumulative counts
+    /// at the end of the iteration since the start of the run: `n_evaluations` (of each
+    /// discipline, initial designs of experiments included) and `n_mdas` (see `n_mdas`).
     ///
     /// With EGMDA, one dict per analyzed point, with keys `iteration` (0 for the initial design
     /// of experiments), `z`, `y` (coupling variables of the analysis with the surrogate means),
     /// `qoi` (None if the analysis failed), `dispersion` (of the linearized coupling variables,
     /// NaN if it cannot be estimated), `n_enrichments`, `status` ("converged",
     /// "max_enrichments", "budget", "stalled" or "mda_failure"), `accepted` (whether the point
-    /// was given to `Egor`) and `n_evaluations` (of each discipline, after the analysis).
+    /// was given to `Egor`), and the cumulative counts after the analysis: `n_evaluations` (of
+    /// each discipline) and `n_mdas` (see `n_mdas`).
     #[pyo3(get)]
     history: Vec<Py<PyDict>>,
     /// With EGMDA, every enrichment of the disciplinary surrogates: dicts with keys `z`,
@@ -296,6 +306,8 @@ impl MdegorResult {
                 d.set_item("n_enrichments", h.n_enrichments)?;
                 d.set_item("n_failed_mdas", h.n_failed_mdas)?;
                 d.set_item("n_dropped_points", h.n_dropped_points)?;
+                d.set_item("n_evaluations", h.n_evaluations.clone())?;
+                d.set_item("n_mdas", h.n_mdas)?;
                 for (key, qoi) in [
                     ("qoi_gp", &h.qoi_gp),
                     ("qoi_mean_mda", &h.qoi_mean_mda),
@@ -320,6 +332,7 @@ impl MdegorResult {
             z_star: Some(result.z_star.to_pyarray(py).unbind()),
             y_min: Some(result.y_min.to_pyarray(py).unbind()),
             n_evaluations: result.n_evaluations.clone(),
+            n_mdas: result.n_mdas,
             doe_uq: result.doe_uq.to_pyarray(py).unbind(),
             qoi_mean: result.qoi_mean().into_pyarray(py).unbind(),
             qoi_std: Some(result.qoi_std().into_pyarray(py).unbind()),
@@ -355,6 +368,7 @@ impl MdegorResult {
                 )?;
                 d.set_item("accepted", p.accepted)?;
                 d.set_item("n_evaluations", p.n_evaluations.clone())?;
+                d.set_item("n_mdas", p.n_mdas)?;
                 Ok(d.unbind())
             })
             .collect::<PyResult<_>>()?;
@@ -391,6 +405,7 @@ impl MdegorResult {
             z_star: None,
             y_min: None,
             n_evaluations: result.n_evaluations.clone(),
+            n_mdas: result.n_mdas,
             doe_uq: result.x_doe.to_pyarray(py).unbind(),
             qoi_mean: result.y_doe.to_pyarray(py).unbind(),
             qoi_std: None,

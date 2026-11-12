@@ -99,6 +99,18 @@ def toy_mdegor(qoi=toy_qoi, **kwargs) -> Mdegor:
     )
 
 
+def check_counts(test: unittest.TestCase, res) -> None:
+    """The cumulative counts of the history are non-decreasing and end at the totals"""
+    for a, b in zip(res.history, res.history[1:]):
+        test.assertLessEqual(a["n_mdas"], b["n_mdas"])
+        test.assertTrue(
+            all(x <= y for x, y in zip(a["n_evaluations"], b["n_evaluations"]))
+        )
+    test.assertEqual(res.history[-1]["n_evaluations"], res.n_evaluations)
+    test.assertEqual(res.history[-1]["n_mdas"], res.n_mdas)
+    test.assertGreater(res.n_mdas, 0)
+
+
 class TestMdegor(unittest.TestCase):
     def test_constrained_sellar(self):
         mdegor = sellar_mdegor(n_doe=[5, 5], method=EgmdoConfig(n_mc=200), seed=0)
@@ -132,8 +144,11 @@ class TestMdegor(unittest.TestCase):
                 "qoi_gp",
                 "qoi_mean_mda",
                 "qoi_pce_mean",
+                "n_evaluations",
+                "n_mdas",
             },
         )
+        check_counts(self, res)
         # The training data of each discipline are its true evaluations, in its inputs order
         for (x, y), n, d, fun in zip(
             res.disciplinary_doe,
@@ -477,6 +492,7 @@ class TestMdegor(unittest.TestCase):
                 "status",
                 "accepted",
                 "n_evaluations",
+                "n_mdas",
             },
         )
         self.assertEqual([h["iteration"] for h in res.history[:6]], [0] * 5 + [1])
@@ -493,6 +509,9 @@ class TestMdegor(unittest.TestCase):
             sum(len(e["disciplines"]) for e in res.enrichments),
             sum(res.n_evaluations) - 9,
         )
+        check_counts(self, res)
+        # One analysis with the surrogate means per analysis step
+        self.assertEqual(res.n_mdas, sum(h["n_enrichments"] + 1 for h in res.history))
         self.assertEqual(len(res.enrichments[0]["shares"]), 2)
 
     def test_egmda_constrained_sellar(self):
