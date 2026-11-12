@@ -66,6 +66,7 @@ fn run_egor(dim: usize, outdir: &String, num: usize) -> Result<OptimResult<f64>>
                 // for dim=10
                 //.coego(egobox_ego::CoegoStatus::Enabled(2))
                 .max_iters(max_iters)
+                .seed(num as u64)
                 .n_start(400)
                 .outdir(outdir)
         })

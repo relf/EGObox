@@ -47,6 +47,7 @@ fn run_egor(dim: usize, outdir: &String, num: usize) -> Result<OptimResult<f64>>
                 .infill_optimizer(InfillOptimizer::Slsqp)
                 .trego(true)
                 .max_iters(max_iters)
+                .seed(num as u64)
                 .n_start(300)
                 // .target(1e-2)
                 .outdir(outdir)
