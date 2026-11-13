@@ -858,7 +858,8 @@ class GpConfig:
         recombination : Recombination, optional
             How the experts predictions are recombined (default: Recombination.HARD)
         theta_init : list of float, optional
-            Initial guess for GP theta hyperparameters (default: None, 1e-1 for all components)
+            Initial guess for GP theta hyperparameters, clamped within theta bounds
+            (default: None, 1e-1 for all components)
         theta_bounds : list of [float, float], optional
             Search space of GP theta hyperparameters (default: None, [1e-2, 1e1] for all components)
         theta_n_start : int, optional

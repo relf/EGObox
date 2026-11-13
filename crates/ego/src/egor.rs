@@ -695,6 +695,38 @@ mod tests {
 
     #[test]
     #[serial]
+    fn test_gp_config_with_auto_clustering() {
+        // Same as test_gp_config: theta bounds have to be used
+        // when the number of clusters is automatically determined
+        let initial_doe = array![[0.], [7.], [25.]];
+        const LOWER_BOUND: f64 = 3.0;
+        let egor = EgorBuilder::optimize(xsinx)
+            .configure(|cfg| {
+                cfg.infill_strategy(InfillStrategy::EI)
+                    .configure_gp(|gp| {
+                        gp.theta_tuning(egobox_gp::ThetaTuning::Full {
+                            init: array![4.0],
+                            bounds: array![(LOWER_BOUND, 20.)],
+                        })
+                        .n_clusters(egobox_moe::NbClusters::Auto { max: Some(1) })
+                    })
+                    .max_iters(1)
+                    .doe(&initial_doe)
+            })
+            .min_within(&array![[0.0, 25.0]])
+            .expect("Egor should be configured");
+        let res = egor.run().expect("Egor should minimize xsinx");
+        assert_abs_diff_eq!(
+            res.state.surrogate.theta_inits.unwrap()[0]
+                .as_ref()
+                .unwrap(),
+            &array![[LOWER_BOUND]],
+            epsilon = 1e-12
+        );
+    }
+
+    #[test]
+    #[serial]
     fn test_xsinx_with_noise_ratio() {
         use ndarray_stats::QuantileExt;
 
