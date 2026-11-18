@@ -483,6 +483,8 @@ where
         };
         match pb.cost(&x) {
             Ok(y) => Ok(y),
+            // not a failed evaluation: the iteration is dropped
+            Err(crate::EgoError::Interrupted) => Err(crate::EgoError::Interrupted),
             Err(err) => {
                 warn!("Objective function evaluation failed at x = {x:?} with error: {err}");
                 if self.config.stop_on_error {

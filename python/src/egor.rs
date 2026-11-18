@@ -19,7 +19,9 @@ use crate::qei_config::*;
 use crate::trego_config::{TregoConfig, TregoConfigSpec};
 use crate::types::*;
 
-use egobox_ego::{CoegoStatus, EGO_DEFAULT_N_START, InfillObjData, find_best_result_index};
+use egobox_ego::{
+    CoegoStatus, EGO_DEFAULT_N_START, EgoError, InfillObjData, find_best_result_index,
+};
 use egobox_moe::to_continuous_space;
 use ndarray::{Array1, Array2, ArrayView2, Axis, concatenate};
 use numpy::{IntoPyArray, PyArray2, PyReadonlyArray2, PyReadonlyArrayDyn, ToPyArray};
@@ -28,6 +30,20 @@ use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyTuple};
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 use std::sync::Arc;
+
+/// Objective function given by a closure returning optimizer errors as is,
+/// so that it can return [`EgoError::Interrupted`] (a closure error is an objective error)
+#[derive(Clone)]
+struct ObjectiveFn<F>(F);
+
+impl<F> egobox_ego::ObjFn for ObjectiveFn<F>
+where
+    F: Fn(&ArrayView2<f64>) -> egobox_ego::Result<Array2<f64>> + Clone,
+{
+    fn eval(&self, x: &ArrayView2<f64>) -> egobox_ego::Result<Array2<f64>> {
+        (self.0)(x)
+    }
+}
 
 fn parse_trego_config(py: Python, value: Py<PyAny>) -> PyResult<TregoConfigSpec> {
     let value = value.bind(py);
@@ -380,9 +396,9 @@ impl Egor {
     /// -----
     /// Ctrl-C (KeyboardInterrupt) stops the optimization after the current iteration and the
     /// result obtained so far is returned with status.exit == ExitStatus.INTERRUPT, also when
-    /// Ctrl-C is pressed again meanwhile. KeyboardInterrupt is raised instead when there is no
-    /// result yet (e.g. Ctrl-C while `fun` evaluates the initial DOE). An objective evaluation
-    /// interrupted by Ctrl-C counts as a failed evaluation.
+    /// Ctrl-C is pressed again meanwhile. When Ctrl-C interrupts `fun`, the current iteration
+    /// is dropped instead (not counted as a failed evaluation, done again by a hot start), and
+    /// KeyboardInterrupt is raised when there is no result yet (initial DOE evaluation).
     /// Other exceptions raised by signal handlers (e.g. SystemExit from sys.exit()) stop the
     /// optimization the same way, then are raised. Within `fun` or `fcstrs`, this applies to
     /// exceptions which are not Exception subclasses, others being evaluation errors.
@@ -765,23 +781,23 @@ impl Egor {
                 .cstr_specs
                 .as_ref()
                 .map_or(self.n_cstr, |specs| specs.len());
-        let obj = |x: &ArrayView2<f64>| -> std::result::Result<Array2<f64>, String> {
+        let obj = ObjectiveFn(|x: &ArrayView2<f64>| -> egobox_ego::Result<Array2<f64>> {
             Python::attach(|py| {
                 let args = (x.to_owned().into_pyarray(py),);
                 let res = fun.bind(py).call1(args);
                 match res {
-                    // Interrupted evaluation: a failed one, the optimization stops afterwards
+                    // Interrupted evaluation: the current iteration is dropped
+                    // and the optimization stops
                     Err(e) if Interruption::is_interruption(py, &e) => {
                         log::warn!("Objective function evaluation interrupted");
-                        let msg = e.to_string();
                         interruption.record(py, e);
-                        Err(msg)
+                        Err(EgoError::Interrupted)
                     }
                     // Python exception in objective function is handled by the optimizer
                     // wrt stop_on_error and failsafe_strategy options
                     Err(e) => {
                         log::error!("Error during objective function evaluation: {:?}", e);
-                        Err(e.to_string())
+                        Err(EgoError::ObjectiveFunctionError(e.to_string()))
                     }
                     // Wrong returned value is a usage error which aborts the optimization
                     Ok(res) => match extract_obj_value(&res, x.nrows(), ny, n_obj) {
@@ -790,7 +806,7 @@ impl Egor {
                     },
                 }
             })
-        };
+        });
 
         let fcstrs = fcstrs
             .unwrap_or_default()

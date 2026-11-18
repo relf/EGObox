@@ -111,10 +111,22 @@ where
         problem: &mut basin::Problem<P>,
         mut state: BasinState,
     ) -> Result<basin::SolverStep<BasinState>, Self::Error> {
-        state.inner = self.next_state(problem, state.inner)?;
-        // EGO's clean stops consume an iteration under its existing contract.
-        // Publish that iteration, then let the execution hook read its status.
-        Ok(basin::SolverStep::completed(state))
+        let previous = state.inner.clone();
+        match self.next_state(problem, std::mem::replace(&mut state.inner, previous)) {
+            Ok(inner) => {
+                state.inner = inner;
+                // EGO's clean stops consume an iteration under its existing contract.
+                // Publish that iteration, then let the execution hook read its status.
+                Ok(basin::SolverStep::completed(state))
+            }
+            // Interrupted objective evaluation: the unfinished iteration is dropped, the
+            // previous one is published and checkpointed so that a hot start does it again
+            Err(EgoError::Interrupted) => Ok(basin::SolverStep::stopped(
+                state,
+                Termination::Application(ApplicationStop::new(STOP_INTERRUPT)),
+            )),
+            Err(err) => Err(err),
+        }
     }
 }
 
