@@ -263,11 +263,17 @@ impl Belfegor {
     ///
     /// Notes
     /// -----
-    /// Ctrl-C (KeyboardInterrupt) stops the optimization after the current iteration and the
-    /// result obtained so far is returned with status.exit == ExitStatus.INTERRUPT, also when
-    /// Ctrl-C is pressed again meanwhile. When Ctrl-C interrupts `fun`, the current iteration
-    /// is dropped instead (not counted as a failed evaluation, done again by a hot start), and
-    /// KeyboardInterrupt is raised when there is no result yet (initial DOE evaluation).
+    /// Ctrl-C (KeyboardInterrupt) stops the optimization and the result obtained so far is
+    /// returned with status.exit == ExitStatus.INTERRUPT, also when Ctrl-C is pressed again
+    /// meanwhile. Ctrl-C is acted on at once, also while surrogates are trained or the infill
+    /// criterion is optimized: an iteration interrupted before its point is evaluated is
+    /// dropped, and when interrupted while surrogates are updated with the evaluated point,
+    /// the update is done at the next iteration, so that a hot start goes on as if the
+    /// optimization had not been interrupted. When Ctrl-C interrupts `fun`, the current
+    /// iteration is dropped as well (not counted as a failed evaluation), and KeyboardInterrupt
+    /// is raised when there is no result yet (initial DOE evaluation). Called from another
+    /// thread than the main one, or with a custom SIGINT handler, Ctrl-C is acted on after the
+    /// current computation.
     /// Other exceptions raised by signal handlers (e.g. SystemExit from sys.exit()) stop the
     /// optimization the same way, then are raised. Within `fun` or `fcstrs`, this applies to
     /// exceptions which are not Exception subclasses, others being evaluation errors.
@@ -348,6 +354,12 @@ impl Belfegor {
     /// array[batch, nx]
     ///     suggested locations where to evaluate objectives and constraints
     ///     where batch is the batch size (moo_config.batch, 1 by default)
+    ///
+    /// Notes
+    /// -----
+    /// Ctrl-C (KeyboardInterrupt) stops the surrogate training and the infill optimization at
+    /// once, unless called from another thread than the main one or with a custom SIGINT
+    /// handler.
     ///
     #[pyo3(signature = (x_doe, y_doe, seed = None))]
     fn suggest(

@@ -12,10 +12,13 @@
 //!
 
 use crate::domain::*;
-use crate::errors::{CallbackError, Interruption, ego_err, install_panic_hook};
+use crate::errors::{
+    CallbackError, Interruption, ego_err, install_panic_hook, interruptible_ego_err,
+};
 use crate::gp_config::*;
 use crate::logging::init_logger;
 use crate::qei_config::*;
+use crate::sigint::SigintGuard;
 use crate::trego_config::{TregoConfig, TregoConfigSpec};
 use crate::types::*;
 
@@ -394,11 +397,17 @@ impl Egor {
     ///
     /// Notes
     /// -----
-    /// Ctrl-C (KeyboardInterrupt) stops the optimization after the current iteration and the
-    /// result obtained so far is returned with status.exit == ExitStatus.INTERRUPT, also when
-    /// Ctrl-C is pressed again meanwhile. When Ctrl-C interrupts `fun`, the current iteration
-    /// is dropped instead (not counted as a failed evaluation, done again by a hot start), and
-    /// KeyboardInterrupt is raised when there is no result yet (initial DOE evaluation).
+    /// Ctrl-C (KeyboardInterrupt) stops the optimization and the result obtained so far is
+    /// returned with status.exit == ExitStatus.INTERRUPT, also when Ctrl-C is pressed again
+    /// meanwhile. Ctrl-C is acted on at once, also while surrogates are trained or the infill
+    /// criterion is optimized: an iteration interrupted before its point is evaluated is
+    /// dropped, and when interrupted while surrogates are updated with the evaluated point,
+    /// the update is done at the next iteration, so that a hot start goes on as if the
+    /// optimization had not been interrupted. When Ctrl-C interrupts `fun`, the current
+    /// iteration is dropped as well (not counted as a failed evaluation), and KeyboardInterrupt
+    /// is raised when there is no result yet (initial DOE evaluation). Called from another
+    /// thread than the main one, or with a custom SIGINT handler, Ctrl-C is acted on after the
+    /// current computation.
     /// Other exceptions raised by signal handlers (e.g. SystemExit from sys.exit()) stop the
     /// optimization the same way, then are raised. Within `fun` or `fcstrs`, this applies to
     /// exceptions which are not Exception subclasses, others being evaluation errors.
@@ -484,6 +493,12 @@ impl Egor {
     /// array[batch, nx]
     ///     suggested locations where to evaluate objective and constraints
     ///     where batch is the qEI batch size (qei_config.batch, 1 by default)
+    ///
+    /// Notes
+    /// -----
+    /// Ctrl-C (KeyboardInterrupt) stops the surrogate training and the infill optimization at
+    /// once, unless called from another thread than the main one or with a custom SIGINT
+    /// handler.
     ///
     #[pyo3(signature = (x_doe, y_doe, seed = None))]
     fn suggest(
@@ -897,6 +912,12 @@ impl Egor {
 
         let interrupt = interruption.clone();
         let caller = std::thread::current().id();
+        // Ctrl-C seen at once by worker threads while the optimizer runs
+        let sigint = SigintGuard::install(py);
+        let ctrl_c = sigint
+            .as_ref()
+            .map(SigintGuard::cancellation)
+            .unwrap_or_default();
         let mixintegor = mixintegor
             .run_info(egobox_ego::RunInfo {
                 fname: py_run_info.fname.clone(),
@@ -905,12 +926,12 @@ impl Egor {
             // The check is called at iteration boundaries and between iteration phases on this
             // thread, where Python signal handlers are run (a pending SIGINT raises
             // KeyboardInterrupt), and often from worker threads during long computations, where
-            // only the interruption flag is read (no GIL)
+            // only the interruption flag and the Ctrl-C hook are read (no GIL)
             .interrupt_check(move || {
                 if std::thread::current().id() == caller {
                     Python::attach(|py| interrupt.check(py))
                 } else {
-                    interrupt.is_interrupted()
+                    interrupt.is_interrupted() || ctrl_c.is_cancelled()
                 }
             });
 
@@ -924,6 +945,7 @@ impl Egor {
                 }
             }))
         });
+        drop(sigint);
         let res = match res {
             Ok(res) => interruption.finish(py, res)?,
             // The optimizer was aborted: raise the recorded callback error if any
@@ -989,7 +1011,18 @@ impl Egor {
             .min_within_mixint_space(&self.xtypes)
             .map_err(ego_err)?;
 
+        // Ctrl-C stops the surrogate training and infill optimization at once
+        let sigint = SigintGuard::install(py);
+        let mixintegor = match sigint.as_ref() {
+            Some(sigint) => {
+                let ctrl_c = sigint.cancellation();
+                mixintegor.interrupt_check(move || ctrl_c.is_cancelled())
+            }
+            None => mixintegor,
+        };
         let x_suggested = py.detach(|| mixintegor.suggest(&x_doe, &y_doe));
+        drop(sigint);
+        let x_suggested = x_suggested.map_err(|e| interruptible_ego_err(py, e))?;
         Ok(x_suggested.to_pyarray(py).into())
     }
 

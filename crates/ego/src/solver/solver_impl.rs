@@ -67,7 +67,7 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
         &self,
         x_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
         y_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
-    ) -> Array2<f64> {
+    ) -> Result<Array2<f64>> {
         let (y_data_owned, cstr_tol) = self.service_data(y_data);
         let y_data = &y_data_owned;
         let mut rng = self.config.rng();
@@ -146,9 +146,18 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
             fcstrs: &fcstrs,
             fcstr_specs,
         };
-        self.select_candidates(&inputs, &mut surrogates, &mut rng)
-            .expect("GP training failure")
-            .x
+        let candidates = self
+            .select_candidates(&inputs, &mut surrogates, &mut rng)
+            .map_err(|err| {
+                if err.is_interruption() {
+                    EgoError::Interrupted
+                } else {
+                    err
+                }
+            })?;
+        // interrupted while optimizing the infill criterion
+        self.check_interrupted()?;
+        Ok(candidates.x)
     }
 
     /// Given an evaluated doe (x, y) data, return the index of the best evaluated point,

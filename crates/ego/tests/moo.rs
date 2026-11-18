@@ -474,7 +474,7 @@ fn test_solver_suggest_with_several_objectives() {
         ];
         for _ in 0..3 {
             let y = bnh(&x.view());
-            let x_new = solver.suggest(&x, &y);
+            let x_new = solver.suggest(&x, &y).expect("suggestion");
             assert_eq!(x_new.dim(), (1, 2));
             assert!(
                 Zip::from(x_new.row(0))
@@ -767,7 +767,7 @@ fn test_zdt1_ask_and_tell() {
             .sample(10);
         for _ in 0..15 {
             let y = zdt1(&x.view());
-            let x_new = egor.suggest(&x, &y);
+            let x_new = egor.suggest(&x, &y).expect("suggestion");
             x = ndarray::concatenate![Axis(0), x, x_new];
         }
         let y = zdt1(&x.view());

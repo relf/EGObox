@@ -43,6 +43,30 @@ pub(crate) fn ego_err(e: egobox_ego::EgoError) -> PyErr {
     }
 }
 
+/// Convert an optimizer error into a Python exception, raising the pending
+/// `KeyboardInterrupt` (thus consumed, not raised again afterwards) when interrupted
+pub(crate) fn interruptible_ego_err(py: Python, e: egobox_ego::EgoError) -> PyErr {
+    if e.is_interruption()
+        && let Err(err) = py.check_signals()
+    {
+        return err;
+    }
+    ego_err(e)
+}
+
+/// Convert a surrogate model training error into a Python exception, raising the pending
+/// `KeyboardInterrupt` (thus consumed, not raised again afterwards) when interrupted
+pub(crate) fn interruptible_moe_err(py: Python, e: egobox_moe::MoeError) -> PyErr {
+    if matches!(
+        e,
+        egobox_moe::MoeError::GpError(egobox_gp::GpError::Interrupted)
+    ) && let Err(err) = py.check_signals()
+    {
+        return err;
+    }
+    moe_err(e)
+}
+
 /// Convert a surrogate model error into a Python exception
 pub(crate) fn moe_err(e: egobox_moe::MoeError) -> PyErr {
     use egobox_moe::MoeError;

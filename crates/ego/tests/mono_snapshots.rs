@@ -542,7 +542,7 @@ fn snapshot_g24_suggest() {
     let mut x_doe = g24_doe(6);
     let mut y_doe = f_g24(&x_doe.view());
     for _ in 0..4 {
-        let x_new = egor.suggest(&x_doe, &y_doe);
+        let x_new = egor.suggest(&x_doe, &y_doe).expect("suggestion");
         let y_new = f_g24(&x_new.view());
         x_doe = concatenate![Axis(0), x_doe, x_new];
         y_doe = concatenate![Axis(0), y_doe, y_new];
@@ -565,7 +565,7 @@ fn snapshot_noisy_xsinx_suggest() {
     let mut x_doe = xsinx_doe(8);
     let mut y_doe = noisy_xsinx(&x_doe.view());
     for _ in 0..4 {
-        let x_new = egor.suggest(&x_doe, &y_doe);
+        let x_new = egor.suggest(&x_doe, &y_doe).expect("suggestion");
         let y_new = noisy_xsinx(&x_new.view());
         x_doe = concatenate![Axis(0), x_doe, x_new];
         y_doe = concatenate![Axis(0), y_doe, y_new];

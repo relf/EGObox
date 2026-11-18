@@ -4,9 +4,12 @@ elsewhere.
 Each case runs in a subprocess to isolate process-wide signal handling.
 """
 
+import os
 import subprocess
 import sys
 import textwrap
+
+import pytest
 
 PRELUDE = """
 import signal
@@ -37,14 +40,45 @@ def interrupting(fun, at_call):
 """
 
 
-def run_script(body):
-    script = PRELUDE + textwrap.dedent(body)
+# Ctrl-C acted on at once while Rust code runs (SIGINT hook): on Windows, raise_signal() calls
+# Python's handler directly, without going through the console control handlers
+PROMPT = pytest.mark.skipif(
+    sys.platform == "win32", reason="raise_signal bypasses the console handler"
+)
+
+CTRL_C_LATER = """
+signal_time = {}
+
+
+def ctrl_c_later(delay=0.5):
+    # Ctrl-C while the main thread runs Rust code
+    def send():
+        time.sleep(delay)
+        signal_time["t"] = time.perf_counter()
+        signal.raise_signal(signal.SIGINT)
+
+    threading.Thread(target=send, daemon=True).start()
+
+
+def since_signal():
+    return time.perf_counter() - signal_time["t"]
+"""
+
+# Training with many short optimization starts, on few threads as on CI runners: Ctrl-C is
+# acted on within a start even with optimizers which cannot be stopped during a start
+# (c-cobyla, c-slsqp features), while the whole training lasts several seconds
+FEW_THREADS = {**os.environ, "RAYON_NUM_THREADS": "2"}
+
+
+def run_script(body, env=None):
+    script = PRELUDE + CTRL_C_LATER + textwrap.dedent(body)
     proc = subprocess.run(
         [sys.executable, "-c", script],
         capture_output=True,
         text=True,
         timeout=300,
         check=False,
+        env=env,
     )
     assert proc.returncode == 0, (
         f"exit code {proc.returncode}\n{proc.stdout}\n{proc.stderr}"
@@ -274,3 +308,136 @@ def test_keyboard_interrupt_after_fit():
         """
     )
     assert "KEYBOARD INTERRUPT" in out
+
+
+@PROMPT
+def test_ctrl_c_stops_minimize_training_at_once():
+    # Ctrl-C while the surrogates are trained after the initial DOE: the iteration is dropped
+    out = run_script(
+        """
+        calls = 0
+
+        def fun(x):
+            global calls
+            calls += 1
+            if calls == 1:
+                ctrl_c_later()
+            return np.sum(np.sin(6.0 * x), axis=1, keepdims=True)
+
+        # training of about 4s after the initial DOE (stopped after it without the hook)
+        gp_config = egx.GpConfig(theta_n_start=1500)
+        res = egx.Egor([[0.0, 1.0]] * 4, n_doe=100, gp_config=gp_config).minimize(
+            fun, max_iters=10, seed=42
+        )
+        print("EXIT", res.status.exit, res.status.total_iters, calls, since_signal() < 1.0)
+        """,
+        env=FEW_THREADS,
+    )
+    assert "EXIT ExitStatus.INTERRUPT 0 1 True" in out
+
+
+@PROMPT
+def test_ctrl_c_interrupts_fit_at_once():
+    out = run_script(
+        """
+        x = egx.lhs(np.array([[0.0, 1.0]] * 4), 100, seed=1)
+        y = np.sum(np.sin(6.0 * x), axis=1)
+        # fits of about 4s
+        for model in (
+            egx.GpMix(theta_n_start=1500, seed=1),
+            egx.SparseGpMix(n_inducing=20, theta_n_start=3000, seed=1),
+        ):
+            ctrl_c_later()
+            try:
+                model.fit(x, y)
+                print("NO INTERRUPT")
+            except KeyboardInterrupt:
+                print("KEYBOARD INTERRUPT", since_signal() < 2.0)
+        """,
+        env=FEW_THREADS,
+    )
+    assert out.count("KEYBOARD INTERRUPT True") == 2
+
+
+@PROMPT
+def test_ctrl_c_interrupts_suggest_at_once():
+    out = run_script(
+        """
+        # suggestion of about 4s
+        x = egx.lhs(np.array([[0.0, 1.0]] * 4), 100, seed=1)
+        y = np.sum(np.sin(6.0 * x), axis=1, keepdims=True)
+        gp_config = egx.GpConfig(theta_n_start=1500)
+        ctrl_c_later()
+        try:
+            egx.Egor([[0.0, 1.0]] * 4, gp_config=gp_config, seed=42).suggest(x, y)
+            print("NO INTERRUPT")
+        except KeyboardInterrupt:
+            print("KEYBOARD INTERRUPT", since_signal() < 2.0)
+        try:
+            time.sleep(0.3)
+            print("NO LATE INTERRUPT")
+        except KeyboardInterrupt:
+            print("LATE INTERRUPT")
+        """,
+        env=FEW_THREADS,
+    )
+    assert "KEYBOARD INTERRUPT True" in out
+    assert "NO LATE INTERRUPT" in out
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX sigaction")
+def test_sigint_hook_installed_then_restored():
+    out = run_script(
+        """
+        import ctypes
+
+        libc = ctypes.CDLL(None)
+
+        def sigint_handler():
+            # address of the system SIGINT handler (first field of struct sigaction)
+            action = ctypes.create_string_buffer(512)
+            assert libc.sigaction(signal.SIGINT, None, action) == 0
+            return ctypes.c_void_p.from_buffer(action).value
+
+        python_handler = sigint_handler()
+        hooked = []
+
+        def fun(x):
+            hooked.append(sigint_handler() != python_handler)
+            return xsinx(x)
+
+        egx.Egor([[0.0, 25.0]]).minimize(fun, max_iters=2, seed=42)
+        egx.GpMix(seed=1).fit(np.array([[0.0], [1.0], [2.0]]), np.array([0.0, 1.0, 4.0]))
+        print("HOOKED", all(hooked), "RESTORED", sigint_handler() == python_handler)
+        try:
+            signal.raise_signal(signal.SIGINT)
+            time.sleep(0.1)
+            print("NO INTERRUPT")
+        except KeyboardInterrupt:
+            print("KEYBOARD INTERRUPT")
+        """
+    )
+    assert "HOOKED True RESTORED True" in out
+    assert "KEYBOARD INTERRUPT" in out
+
+
+def test_custom_sigint_handler_is_respected():
+    # a custom SIGINT handler which does not raise: the optimization is not interrupted
+    out = run_script(
+        """
+        received = []
+        signal.signal(signal.SIGINT, lambda signum, frame: received.append(signum))
+        calls = 0
+
+        def fun(x):
+            global calls
+            calls += 1
+            if calls == 1:
+                ctrl_c_later()
+            return np.sum(np.sin(6.0 * x), axis=1, keepdims=True)
+
+        res = egx.Egor([[0.0, 1.0]] * 4, n_doe=600).minimize(fun, max_iters=1, seed=42)
+        print("EXIT", res.status.exit, res.status.total_iters, len(received))
+        """
+    )
+    assert "EXIT ExitStatus.MAX_ITERS_REACHED 1 1" in out
