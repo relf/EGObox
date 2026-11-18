@@ -333,7 +333,7 @@ impl<O: ObjFn, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> E
             std::fs::create_dir_all(outdir)?;
             let filepath = std::path::Path::new(outdir).join(CONFIG_FILE);
             let json = serde_json::to_string(&self.solver.config)?;
-            std::fs::write(filepath, json)?;
+            crate::outputs::save_text(filepath, &json)?;
         }
 
         let state = crate::executor::run(

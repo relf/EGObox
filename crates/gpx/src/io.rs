@@ -6,9 +6,9 @@
 use anyhow::{Context, Result, anyhow, bail};
 use csv::ReaderBuilder;
 use ndarray::Array2;
-use ndarray_npy::{read_npy, write_npy};
-use std::fs::{self, File};
-use std::io::{BufRead, BufReader};
+use ndarray_npy::{WriteNpyExt, read_npy};
+use std::fs::File;
+use std::io::{BufRead, BufReader, Write};
 
 use crate::DataFormat;
 
@@ -311,7 +311,9 @@ fn write_predictions_table_csv(
         out.push('\n');
     }
 
-    fs::write(path, out).with_context(|| format!("cannot write output CSV {path}"))
+    // written through a temporary file: no truncated output when interrupted
+    egobox_moe::write_atomically(path, |file| file.write_all(out.as_bytes()))
+        .with_context(|| format!("cannot write output CSV {path}"))
 }
 
 fn write_predictions_table_npy(
@@ -358,7 +360,8 @@ fn write_predictions_table_npy(
 
     let out = Array2::from_shape_vec((x.nrows(), out_ncols), flat)
         .map_err(|e| anyhow!("cannot build prediction output matrix: {e}"))?;
-    write_npy(path, &out).with_context(|| format!("cannot write output NPY {path}"))
+    egobox_moe::write_atomically(path, |file| out.write_npy(file))
+        .with_context(|| format!("cannot write output NPY {path}"))
 }
 
 pub fn write_predictions_table_data(
