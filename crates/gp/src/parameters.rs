@@ -1,7 +1,7 @@
 use crate::correlation_models::CorrelationModel;
 use crate::errors::{GpError, Result};
 use crate::mean_models::RegressionModel;
-use crate::{GP_COBYLA_MAX_EVAL, GP_COBYLA_MIN_EVAL, GP_OPTIM_N_START};
+use crate::{Cancellation, GP_COBYLA_MAX_EVAL, GP_COBYLA_MIN_EVAL, GP_OPTIM_N_START};
 use linfa::{Float, ParamGuard};
 
 use ndarray::{Array1, array};
@@ -140,6 +140,9 @@ pub struct GpValidParams<F: Float, Mean: RegressionModel<F>, Corr: CorrelationMo
     /// gaussian noise on training outputs (no noise by default, i.e. interpolation)
     #[cfg_attr(feature = "serializable", serde(default = "no_noise_ratio"))]
     pub(crate) noise_ratio: ParamTuning<F>,
+    /// Request to stop the training early (run-time hook, not serialized)
+    #[cfg_attr(feature = "serializable", serde(skip))]
+    pub(crate) cancellation: Cancellation,
 }
 
 /// Default noise ratio tuning: no noise, the GP interpolates training outputs
@@ -160,6 +163,7 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> Default
             max_eval: GP_COBYLA_MAX_EVAL,
             nugget: F::cast(100.0) * F::epsilon(),
             noise_ratio: no_noise_ratio(),
+            cancellation: Cancellation::default(),
         }
     }
 }
@@ -203,6 +207,11 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GpValidParam
     /// Get the noise-to-signal ratio tuning
     pub fn noise_ratio(&self) -> &ParamTuning<F> {
         &self.noise_ratio
+    }
+
+    /// Get the request to stop the training early
+    pub fn cancellation(&self) -> &Cancellation {
+        &self.cancellation
     }
 }
 
@@ -330,6 +339,13 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GpParams<F, 
     /// The fitted noise variance is available with [`crate::GaussianProcess::noise_variance`].
     pub fn noise_ratio(mut self, noise_ratio: ParamTuning<F>) -> Self {
         self.0.noise_ratio = noise_ratio;
+        self
+    }
+
+    /// Set a request to stop the training early: once cancelled, the hyperparameters
+    /// optimization stops and the training fails with [`GpError::Interrupted`](crate::GpError::Interrupted)
+    pub fn cancellation(mut self, cancellation: Cancellation) -> Self {
+        self.0.cancellation = cancellation;
         self
     }
 }

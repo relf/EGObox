@@ -2,6 +2,7 @@
 use crate::algorithm::MIN_CLUSTER_POINTS;
 use crate::parameters::GpMixtureParams;
 use crate::{NbClusters, types::*};
+use egobox_gp::Cancellation;
 use log::debug; // , info};
 
 use linfa::Float;
@@ -66,6 +67,7 @@ fn clusters_have_enough_points(clusters: &[Array2<f64>]) -> bool {
 }
 
 /// Find the best number of cluster thanks to cross validation
+#[allow(clippy::too_many_arguments)]
 pub fn find_best_number_of_clusters<R: Rng + Clone>(
     x: &ArrayBase<impl Data<Elem = f64>, Ix2>,
     y: &ArrayBase<impl Data<Elem = f64>, Ix1>,
@@ -74,6 +76,7 @@ pub fn find_best_number_of_clusters<R: Rng + Clone>(
     regression_spec: RegressionSpec,
     correlation_spec: CorrelationSpec,
     rng: R,
+    cancellation: &Cancellation,
 ) -> (usize, Recombination<f64>) {
     let max_nb_clusters = if max_nb_clusters == 0 {
         (x.nrows() / 10) + 1
@@ -122,7 +125,7 @@ pub fn find_best_number_of_clusters<R: Rng + Clone>(
     );
 
     // Find error for each cluster
-    while i < max_nb_clusters && !stop {
+    while i < max_nb_clusters && !stop && !cancellation.is_cancelled() {
         debug!("###############################Try {} cluster(s)", i + 1);
 
         let mut h_errors: Vec<f64> = Vec::new();
@@ -167,6 +170,7 @@ pub fn find_best_number_of_clusters<R: Rng + Clone>(
                         .correlation_spec(correlation_spec)
                         .kpls_dim(kpls_dim)
                         .gmm(gmm.clone())
+                        .cancellation(cancellation.clone())
                         .fit(&train)
                     {
                         Ok(mixture) => {
@@ -317,6 +321,10 @@ pub fn find_best_number_of_clusters<R: Rng + Clone>(
 
         i += 1;
     }
+    // Cancelled: partial results are meaningless, the training is interrupted anyway
+    if cancellation.is_cancelled() {
+        return (1, Recombination::Smooth(None));
+    }
     // Early exit
     if nb_clusters_ok.is_empty() {
         // Selection fails even with one cluster
@@ -443,6 +451,7 @@ mod tests {
                 RegressionSpec::CONSTANT,
                 CorrelationSpec::SQUAREDEXPONENTIAL,
                 Xoshiro256Plus::seed_from_u64(42),
+                &egobox_gp::Cancellation::default(),
             );
             assert_eq!(n_clusters, 1, "{n} points");
         }
@@ -483,6 +492,7 @@ mod tests {
             RegressionSpec::ALL,
             CorrelationSpec::ALL,
             rng.clone(),
+            &egobox_gp::Cancellation::default(),
         );
         assert_eq!(3, nb_clusters);
 
@@ -518,6 +528,7 @@ mod tests {
             RegressionSpec::LINEAR,
             CorrelationSpec::ALL,
             rng,
+            &egobox_gp::Cancellation::default(),
         );
         let valid = FullFactorial::new(&array![[-1., 1.], [-1., 1.]]);
         let xvalid = valid.sample(100);

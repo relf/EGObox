@@ -22,6 +22,7 @@
 //! the infill criterion at each iteration.
 
 use crate::InfillObjData;
+use egobox_gp::Cancellation;
 use ndarray::{Array1, Array2, ArrayView1, arr1};
 
 use crate::types::UserFn;
@@ -51,6 +52,7 @@ pub(crate) struct Optimizer<'a> {
     xinit: Option<Array1<f64>>,
     ftol_abs: Option<f64>,
     ftol_rel: Option<f64>,
+    cancellation: Cancellation,
 }
 
 impl<'a> Optimizer<'a> {
@@ -72,7 +74,15 @@ impl<'a> Optimizer<'a> {
             xinit: None,
             ftol_abs: None,
             ftol_rel: None,
+            cancellation: Cancellation::default(),
         }
+    }
+
+    /// Stop the optimization early once cancelled (basin backends only,
+    /// the C backends run to completion)
+    pub fn cancellation(&mut self, cancellation: &Cancellation) -> &mut Self {
+        self.cancellation = cancellation.clone();
+        self
     }
 
     pub fn ftol_abs(&mut self, ftol_abs: f64) -> &mut Self {
@@ -147,6 +157,7 @@ impl<'a> Optimizer<'a> {
                 ftol_rel: self.ftol_rel.unwrap_or(0.),
                 initial_radius: 0.5,
                 bounded_evaluations: true,
+                cancellation: self.cancellation.clone(),
             },
         );
         (value, arr1(&point))

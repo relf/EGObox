@@ -346,13 +346,14 @@ fn interrupt_check_stops_repeated_runs() {
     for _ in 0..2 {
         let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let counter = calls.clone();
-        let result = EgorBuilder::optimize(xsinx)
+        let (objective, flag) = interrupted_in_objective(3);
+        let result = EgorBuilder::optimize(objective)
             .configure(|cfg| cfg.seed(42).max_iters(10))
             .min_within(&array![[0., 25.]])
             .unwrap()
-            // checked after initialization then after each iteration
             .interrupt_check(move || {
-                counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed) >= 2
+                counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                flag.load(std::sync::atomic::Ordering::Relaxed)
             })
             .run()
             .unwrap();
@@ -361,7 +362,203 @@ fn interrupt_check_stops_repeated_runs() {
             TerminationStatus::Terminated(TerminationReason::Interrupt)
         );
         assert_eq!(result.state.iter, 2);
-        assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 3);
+        // checked at iteration boundaries and during long computations
+        assert!(calls.load(std::sync::atomic::Ordering::Relaxed) >= 3);
+    }
+}
+
+/// xsinx objective setting the returned flag once the `call`-th evaluation is done
+/// (call 1 is the initial DOE)
+fn interrupted_in_objective(
+    call: usize,
+) -> (
+    impl Fn(&ArrayView2<f64>) -> Array2<f64> + Clone,
+    std::sync::Arc<std::sync::atomic::AtomicBool>,
+) {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    let calls = std::sync::Arc::new(AtomicUsize::new(0));
+    let flag = std::sync::Arc::new(AtomicBool::new(false));
+    let set = flag.clone();
+    let objective = move |x: &ArrayView2<f64>| {
+        let y = xsinx(x);
+        if calls.fetch_add(1, Ordering::Relaxed) + 1 == call {
+            set.store(true, Ordering::Relaxed);
+        }
+        y
+    };
+    (objective, flag)
+}
+
+/// Uninterrupted optimization of xsinx with the given number of iterations
+fn uninterrupted(trego: bool, max_iters: usize) -> egobox_ego::OptimResult<f64> {
+    EgorBuilder::optimize(xsinx)
+        .configure(|cfg| cfg.seed(42).trego(trego).max_iters(max_iters))
+        .min_within(&array![[0., 25.]])
+        .unwrap()
+        .run()
+        .unwrap()
+}
+
+#[test]
+fn interruption_after_evaluation_defers_models_update() {
+    use egobox_ego::HotStartMode;
+    for trego in [false, true] {
+        let dir = std::env::temp_dir().join(format!(
+            "egobox-deferred-update-{}-{trego}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let run = |obj, flag: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>| {
+            let egor = EgorBuilder::optimize(obj)
+                .configure(|cfg| {
+                    cfg.seed(42)
+                        .trego(trego)
+                        .max_iters(4)
+                        .hot_start(HotStartMode::Enabled)
+                        .outdir(dir.to_str().unwrap())
+                })
+                .min_within(&array![[0., 25.]])
+                .unwrap();
+            match flag {
+                Some(flag) => {
+                    egor.interrupt_check(move || flag.load(std::sync::atomic::Ordering::Relaxed))
+                }
+                None => egor,
+            }
+            .run()
+            .unwrap()
+        };
+        // interrupted while the models are updated with the point of iteration 2
+        let (objective, flag) = interrupted_in_objective(3);
+        let interrupted = run(objective, Some(flag));
+        assert_eq!(
+            interrupted.state.termination_status,
+            TerminationStatus::Terminated(TerminationReason::Interrupt)
+        );
+        assert_eq!(interrupted.state.iter, 2, "trego={trego}");
+        assert!(interrupted.state.surrogate.pending_update.is_some());
+        let expected = uninterrupted(trego, 2);
+        assert_eq!(interrupted.x_doe, expected.x_doe);
+        assert_eq!(interrupted.y_doe, expected.y_doe);
+
+        // the evaluated point is kept: the hot start goes on as if not interrupted
+        let (objective, _) = interrupted_in_objective(0);
+        let resumed = run(objective, None);
+        let expected = uninterrupted(trego, 4);
+        assert_eq!(resumed.state.iter, 4);
+        assert!(resumed.state.surrogate.pending_update.is_none());
+        assert_eq!(resumed.x_doe, expected.x_doe, "trego={trego}");
+        assert_eq!(resumed.y_doe, expected.y_doe);
+        assert_eq!(resumed.state.last_best_iter, expected.state.last_best_iter);
+        assert_eq!(resumed.state.counts, expected.state.counts);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+// Interruption in the infill optimization of iteration 2: function constraints are called
+// once on the point evaluated at iteration 1, then by the infill optimizer
+static INFILL_OBJ_CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static INFILL_CSTR_CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static INFILL_ARMED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static INFILL_FLAG: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn infill_objective(x: &ArrayView2<f64>) -> Array2<f64> {
+    INFILL_OBJ_CALLS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    xsinx(x)
+}
+
+fn infill_cstr(x: &[f64], g: Option<&mut [f64]>, _u: &mut egobox_ego::InfillObjData<f64>) -> f64 {
+    use std::sync::atomic::Ordering;
+    if INFILL_OBJ_CALLS.load(Ordering::SeqCst) == 2
+        && INFILL_CSTR_CALLS.fetch_add(1, Ordering::SeqCst) == 1
+        && INFILL_ARMED.load(Ordering::SeqCst)
+    {
+        INFILL_FLAG.store(true, Ordering::SeqCst);
+        #[cfg(unix)]
+        if std::env::var_os("EGOBOX_INTERRUPT_TEST_CHILD").is_some() {
+            raise(libc::SIGINT);
+        }
+    }
+    if let Some(g) = g {
+        g[0] = 1.;
+    }
+    x[0] - 30. // always satisfied
+}
+
+fn run_infill_interrupted(
+    armed: bool,
+    max_iters: usize,
+    hot_start: Option<&std::path::Path>,
+    with_check: bool,
+) -> egobox_ego::OptimResult<f64> {
+    use std::sync::atomic::Ordering;
+    INFILL_OBJ_CALLS.store(0, Ordering::SeqCst);
+    INFILL_CSTR_CALLS.store(0, Ordering::SeqCst);
+    INFILL_ARMED.store(armed, Ordering::SeqCst);
+    INFILL_FLAG.store(false, Ordering::SeqCst);
+    let cstr: egobox_ego::Cstr = infill_cstr;
+    let egor = EgorBuilder::optimize(infill_objective)
+        .subject_to(vec![cstr])
+        .configure(|cfg| {
+            let cfg = cfg.seed(42).max_iters(max_iters);
+            match hot_start {
+                Some(dir) => cfg
+                    .hot_start(egobox_ego::HotStartMode::Enabled)
+                    .outdir(dir.to_str().unwrap()),
+                None => cfg,
+            }
+        })
+        .min_within(&array![[0., 25.]])
+        .unwrap();
+    if with_check {
+        egor.interrupt_check(|| INFILL_FLAG.load(Ordering::SeqCst))
+    } else {
+        egor
+    }
+    .run()
+    .unwrap()
+}
+
+#[test]
+#[serial_test::serial(infill_interrupted)]
+fn interruption_before_evaluation_drops_iteration() {
+    let dir = std::env::temp_dir().join(format!("egobox-dropped-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let interrupted = run_infill_interrupted(true, 4, Some(&dir), true);
+    assert_eq!(
+        interrupted.state.termination_status,
+        TerminationStatus::Terminated(TerminationReason::Interrupt)
+    );
+    assert_eq!(interrupted.state.iter, 1);
+    assert!(interrupted.state.surrogate.pending_update.is_none());
+    let expected = run_infill_interrupted(false, 1, None, false);
+    assert_eq!(interrupted.x_doe, expected.x_doe);
+
+    // nothing evaluated is lost: the hot start goes on as if not interrupted
+    let resumed = run_infill_interrupted(false, 4, Some(&dir), false);
+    let expected = run_infill_interrupted(false, 4, None, false);
+    assert_eq!(resumed.state.iter, 4);
+    assert_eq!(resumed.x_doe, expected.x_doe);
+    assert_eq!(resumed.y_doe, expected.y_doe);
+    assert_eq!(resumed.state.last_best_iter, expected.state.last_best_iter);
+    assert_eq!(resumed.state.counts, expected.state.counts);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn signal_during_infill_optimization_drops_iteration() {
+    match in_child("signal_during_infill_optimization_drops_iteration") {
+        Some(output) => assert_success(&output),
+        None => {
+            // SIGINT raised by the function constraint, handled by the default handlers
+            let result = run_infill_interrupted(true, 4, None, false);
+            assert_eq!(
+                result.state.termination_status,
+                TerminationStatus::Terminated(TerminationReason::Interrupt)
+            );
+            assert_eq!(result.state.iter, 1);
+        }
     }
 }
 

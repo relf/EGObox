@@ -423,17 +423,25 @@ where
             let res = (0..x_start.nrows())
                 .into_par_iter()
                 .map(|i| {
+                    // interrupted: remaining starts skipped, the caller drops the result
+                    if self.cancellation.is_cancelled() {
+                        return (f64::INFINITY, Array::ones((xbounds.nrows(),)));
+                    }
                     Optimizer::new(algorithm, obj, cstrs, infill_data, xbounds)
                         .xinit(&x_start.row(i))
                         .max_eval((10 * x_start.len()).min(INFILL_MAX_EVAL_DEFAULT))
                         .ftol_rel(1e-4)
                         .ftol_abs(1e-4)
+                        .cancellation(&self.cancellation)
                         .minimize()
                 })
                 .reduce(
                     || (f64::INFINITY, Array::ones((xbounds.nrows(),))),
                     |a, b| if b.0 < a.0 { b } else { a },
                 );
+            if self.cancellation.is_cancelled() {
+                return None;
+            }
             if res.0.is_finite() {
                 return Some(res);
             }

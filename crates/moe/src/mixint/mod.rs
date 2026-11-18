@@ -277,6 +277,11 @@ impl SurrogateBuilder for MixintGpMixtureParams {
         self.0.gpmix_params.set_rng(rng);
     }
 
+    /// Sets a request to stop the training early
+    fn set_cancellation(&mut self, cancellation: egobox_gp::Cancellation) {
+        self.0.gpmix_params.set_cancellation(cancellation);
+    }
+
     fn train(
         &self,
         xt: ArrayView2<f64>,

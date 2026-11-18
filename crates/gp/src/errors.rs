@@ -38,4 +38,7 @@ pub enum GpError {
     /// When error dur to a bad value
     #[error("InvalidValue error: {0}")]
     InvalidValueError(String),
+    /// When the training is cancelled (see [`Cancellation`](crate::Cancellation))
+    #[error("Training interrupted")]
+    Interrupted,
 }

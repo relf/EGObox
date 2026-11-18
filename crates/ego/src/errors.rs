@@ -5,6 +5,20 @@ use crate::EgorState;
 /// A result type for EGO errors
 pub type Result<T> = std::result::Result<T, EgoError>;
 
+impl EgoError {
+    /// Whether the error is an interruption of the optimization: [`EgoError::Interrupted`]
+    /// or an interrupted surrogate training ([`egobox_gp::GpError::Interrupted`])
+    pub fn is_interruption(&self) -> bool {
+        use egobox_gp::GpError;
+        matches!(
+            self,
+            EgoError::Interrupted
+                | EgoError::GpError(GpError::Interrupted)
+                | EgoError::MoeError(egobox_moe::MoeError::GpError(GpError::Interrupted))
+        )
+    }
+}
+
 /// An error for efficient global optimization algorithm
 #[derive(Error, Debug)]
 pub enum EgoError {

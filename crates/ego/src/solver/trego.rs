@@ -20,9 +20,8 @@ use ndarray_rand::rand::{Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256Plus;
 use serde::{Serialize, de::DeserializeOwned};
 
-use super::egor_solver::exit_on_training_failure;
 use super::multistart::LocalLhsMultiStarter;
-use super::surrogate_set::{DataClustering, SurrogateSet};
+use super::surrogate_set::SurrogateSet;
 
 /// Overrides used to select the candidate point of a local step: the objective model
 /// (e.g. a local GP) and the solver, hence the infill criterion (e.g. posterior mean)
@@ -171,6 +170,8 @@ where
             multistarter,
             (xbest.to_owned(), ybest, cbest),
         );
+        // interrupted while optimizing: no point to evaluate, the iteration is dropped
+        self.check_interrupted()?;
 
         let mut new_state = new_state.infill_value(-infill_obj);
         info!(
@@ -253,16 +254,14 @@ where
             // (fast incremental update unless full retraining is required)
             let mut surrogates = SurrogateSet::take(&mut new_state)?;
             let point_index = state.get_iter() as usize * self.config.qei_config.batch;
-            if let Err(err) = self.refresh_models(
+            new_state = self.update_after_evaluation(
                 &mut surrogates,
-                &x_data,
-                &y_data,
+                (&x_data, &y_data),
                 &state.coego.activity,
-                DataClustering::Fixed,
+                false,
                 point_index,
-            ) {
-                new_state = exit_on_training_failure(err, new_state);
-            }
+                new_state,
+            );
             new_state = surrogates.put(new_state);
         }
 

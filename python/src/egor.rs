@@ -896,13 +896,23 @@ impl Egor {
         };
 
         let interrupt = interruption.clone();
+        let caller = std::thread::current().id();
         let mixintegor = mixintegor
             .run_info(egobox_ego::RunInfo {
                 fname: py_run_info.fname.clone(),
                 num: py_run_info.num,
             })
-            // run Python signal handlers: a pending SIGINT raises KeyboardInterrupt
-            .interrupt_check(move || Python::attach(|py| interrupt.check(py)));
+            // The check is called at iteration boundaries and between iteration phases on this
+            // thread, where Python signal handlers are run (a pending SIGINT raises
+            // KeyboardInterrupt), and often from worker threads during long computations, where
+            // only the interruption flag is read (no GIL)
+            .interrupt_check(move || {
+                if std::thread::current().id() == caller {
+                    Python::attach(|py| interrupt.check(py))
+                } else {
+                    interrupt.is_interrupted()
+                }
+            });
 
         let pareto = moo.is_some();
         let res = py.detach(|| {

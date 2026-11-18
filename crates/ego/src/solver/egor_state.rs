@@ -107,6 +107,23 @@ pub struct SurrogateState<F: Float> {
     /// best (failed points with imputed values, non finite values) are NaN.
     #[serde(default)]
     pub y_estimate: Option<Array2<F>>,
+    /// Update of the models with the last evaluated points, interrupted (see
+    /// [`Egor::interrupt_check`](crate::Egor::interrupt_check)) and done at the next iteration
+    #[serde(default)]
+    pub pending_update: Option<PendingUpdate>,
+}
+
+/// Update of the surrogate models with the evaluated points of an iteration, interrupted while
+/// the models were trained: the models are those of the previous iteration and the update is
+/// done first at the next iteration, with the same settings, as if it had not been interrupted
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PendingUpdate {
+    /// Whether the data are clustered again
+    pub(crate) regenerate_clustering: bool,
+    /// Index of the first evaluated point, deciding hyperparameters optimization
+    pub(crate) point_index: usize,
+    /// Active components of the iteration (CoEGO)
+    pub(crate) activity: Array2<usize>,
 }
 
 impl<F: Float> Default for SurrogateState<F> {
@@ -122,6 +139,7 @@ impl<F: Float> Default for SurrogateState<F> {
             infill_value: F::infinity(),
             models: Vec::new(),
             y_estimate: None,
+            pending_update: None,
         }
     }
 }
@@ -139,6 +157,7 @@ impl<F: Float> Clone for SurrogateState<F> {
             infill_value: self.infill_value,
             models: self.models.to_vec(),
             y_estimate: self.y_estimate.clone(),
+            pending_update: self.pending_update.clone(),
         }
     }
 }
@@ -156,6 +175,7 @@ impl<F: Float> std::fmt::Debug for SurrogateState<F> {
         s.field("infill_value", &self.infill_value);
         s.field("models", &"...");
         s.field("y_estimate", &self.y_estimate);
+        s.field("pending_update", &self.pending_update);
         s.finish()
     }
 }

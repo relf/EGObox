@@ -570,7 +570,12 @@ impl<F: Float, Corr: CorrelationModel<F>, D: Data<Elem = F> + Sync>
                 bounded_evaluations: true,
                 ..CobylaParams::default()
             },
+            self.cancellation(),
         );
+        // a cancelled optimization gives meaningless hyperparameters
+        if self.cancellation().is_cancelled() {
+            return Err(GpError::Interrupted);
+        }
         let opt_params = opt_params.1.mapv(|v| F::cast(base.powf(v)));
 
         let opt_theta = if is_theta_fixed {
@@ -804,6 +809,20 @@ fn make_inducings<F: Float>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_cancelled_sgp_fit_is_interrupted() {
+        let mut rng = Xoshiro256Plus::seed_from_u64(42);
+        let (xt, yt) = make_test_data(50, 0.01, &mut rng);
+        let res = SparseGaussianProcess::<f64, SquaredExponentialCorr>::params(
+            SquaredExponentialCorr::default(),
+            Inducings::Randomized(10),
+        )
+        .seed(Some(42))
+        .cancellation(crate::Cancellation::new(|| true))
+        .fit(&Dataset::new(xt, yt));
+        assert!(matches!(res, Err(GpError::Interrupted)));
+    }
     use linfa::prelude::Dataset;
 
     use approx::assert_abs_diff_eq;

@@ -38,7 +38,7 @@ pub(crate) fn ego_err(e: egobox_ego::EgoError) -> PyErr {
         EgoError::IoError(_) | EgoError::ReadNpyError(_) | EgoError::WriteNpyError(_) => {
             PyOSError::new_err(msg)
         }
-        EgoError::Interrupted => PyKeyboardInterrupt::new_err(msg),
+        _ if e.is_interruption() => PyKeyboardInterrupt::new_err(msg),
         _ => PyRuntimeError::new_err(msg),
     }
 }
@@ -49,6 +49,7 @@ pub(crate) fn moe_err(e: egobox_moe::MoeError) -> PyErr {
     let msg = error_chain(&e);
     match e {
         MoeError::LoadIoError(_) => PyOSError::new_err(msg),
+        MoeError::GpError(egobox_gp::GpError::Interrupted) => PyKeyboardInterrupt::new_err(msg),
         MoeError::LoadError(_)
         | MoeError::LoadBinaryError(_)
         | MoeError::SaveJsonError(_)
@@ -235,6 +236,11 @@ impl Interruption {
         {
             *slot = Some(err);
         }
+    }
+
+    /// Whether the optimization is interrupted, without running Python signal handlers
+    pub(crate) fn is_interrupted(&self) -> bool {
+        self.interrupted.load(Ordering::Relaxed)
     }
 
     /// Run the Python signal handlers, recording the exception raised if any

@@ -7,7 +7,7 @@ use crate::{
     Clustering, CorrelationSpec, MixtureGpSurrogate, NbClusters, Recombination, RegressionSpec,
     XType, errors::Result,
 };
-use egobox_gp::{ParamTuning, ThetaTuning};
+use egobox_gp::{Cancellation, ParamTuning, ThetaTuning};
 use ndarray::{ArrayView1, ArrayView2};
 use rand_xoshiro::Xoshiro256Plus;
 
@@ -44,6 +44,11 @@ pub trait SurrogateBuilder: Clone + Sync {
     /// Sets the random generator used during training (e.g. clustering), for reproducibility.
     /// Default implementation ignores it.
     fn set_rng(&mut self, _rng: Xoshiro256Plus) {}
+
+    /// Sets a request to stop the training early: once cancelled, the training fails with
+    /// [`GpError::Interrupted`](egobox_gp::GpError::Interrupted) (wrapped in
+    /// [`MoeError::GpError`](crate::MoeError::GpError)). Default implementation ignores it.
+    fn set_cancellation(&mut self, _cancellation: Cancellation) {}
 
     /// Train the surrogate with given training dataset (x, y)
     fn train(
@@ -120,6 +125,11 @@ impl SurrogateBuilder for GpMixtureParams<f64> {
     /// Sets the random generator used during training (e.g. clustering)
     fn set_rng(&mut self, rng: Xoshiro256Plus) {
         *self = self.clone().with_rng(rng);
+    }
+
+    /// Sets a request to stop the training early
+    fn set_cancellation(&mut self, cancellation: Cancellation) {
+        *self = self.clone().cancellation(cancellation);
     }
 
     fn train(

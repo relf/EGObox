@@ -1,3 +1,4 @@
+use crate::Cancellation;
 use crate::errors::{GpError, Result};
 use egobox_doe::{Lhs, SamplingMethod};
 use linfa_pls::PlsRegression;
@@ -146,12 +147,15 @@ pub(crate) fn prepare_multistart<F: Float>(
 }
 
 /// Minimize `objfn` with COBYLA started in parallel from each row of `inits` (log10 scale)
-/// within `bounds`, returns the best value and parameters, (inf, ones) when all fail
+/// within `bounds`, returns the best value and parameters, (inf, ones) when all fail.
+/// Once `cancellation` is requested, starts not begun yet are skipped (and running ones stop
+/// early with the basin backend): the caller has to discard the result.
 pub(crate) fn multistart_minimize<ObjF, F>(
     objfn: ObjF,
     inits: &Array2<F>,
     bounds: &[(F, F)],
     cobyla: CobylaParams,
+    cancellation: &Cancellation,
 ) -> (f64, Array1<f64>)
 where
     ObjF: Fn(&[f64], Option<&mut [f64]>, &mut ()) -> f64 + Sync,
@@ -161,7 +165,19 @@ where
     let now = Instant::now();
     let opt = (0..inits.nrows())
         .into_par_iter()
-        .map(|i| optimize_params(&objfn, &inits.row(i).to_owned(), bounds, cobyla))
+        .map(|i| {
+            if cancellation.is_cancelled() {
+                (f64::INFINITY, Array::ones((inits.ncols(),)))
+            } else {
+                optimize_params(
+                    &objfn,
+                    &inits.row(i).to_owned(),
+                    bounds,
+                    cobyla,
+                    cancellation,
+                )
+            }
+        })
         .reduce(
             || (f64::INFINITY, Array::ones((inits.ncols(),))),
             |a, b| if b.0 < a.0 { b } else { a },
@@ -177,6 +193,8 @@ pub(crate) fn optimize_params<ObjF, F>(
     param0: &Array1<F>,
     bounds: &[(F, F)],
     cobyla: CobylaParams,
+    // the C COBYLA cannot be stopped: only starts not begun yet are skipped
+    _cancellation: &Cancellation,
 ) -> (f64, Array1<f64>)
 where
     ObjF: Fn(&[f64], Option<&mut [f64]>, &mut ()) -> f64,
@@ -234,6 +252,7 @@ pub(crate) fn optimize_params<ObjF, F>(
     param0: &Array1<F>,
     bounds: &[(F, F)],
     cobyla: CobylaParams,
+    cancellation: &Cancellation,
 ) -> (f64, Array1<f64>)
 where
     ObjF: Fn(&[f64], Option<&mut [f64]>, &mut ()) -> f64,
@@ -258,6 +277,7 @@ where
             ftol_rel: cobyla.ftol_rel,
             initial_radius: cobyla.rhobeg,
             bounded_evaluations: cobyla.bounded_evaluations,
+            cancellation: cancellation.clone(),
         },
     );
     (value, arr1(&params))

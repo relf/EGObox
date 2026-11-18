@@ -3,6 +3,7 @@
 //! This module is an implementation detail shared by the EGObox crates.
 #![allow(missing_docs)]
 
+use crate::Cancellation;
 use basin::{
     BoxBounds, Cobyla, ConstraintDescription, ConstraintJacobian, ConstraintSet,
     ConstraintSolveError, ConvergenceTest, CostFunction, DenseMatrix, Gradient,
@@ -27,6 +28,20 @@ pub struct Settings<'a> {
     pub ftol_rel: f64,
     pub initial_radius: f64,
     pub bounded_evaluations: bool,
+    /// Request to stop the optimization early, checked after each iteration
+    pub cancellation: Cancellation,
+}
+
+/// Run controls stopping the optimization once `cancellation` is requested
+fn controls<S: basin::State>(cancellation: &Cancellation) -> basin::RunControl<S> {
+    let cancellation = cancellation.clone();
+    basin::RunControl::new()
+        .max_iter(u64::MAX)
+        .stop_when(move |_: &S| {
+            cancellation
+                .is_cancelled()
+                .then(|| basin::ApplicationStop::new("cancelled"))
+        })
 }
 
 #[derive(Debug)]
@@ -279,7 +294,7 @@ pub fn minimize(
                 .with_initial_radius(settings.initial_radius)
                 .with_final_radius(1e-6);
             let mut wrapped = basin::Problem::new(&problem);
-            let mut control = basin::RunControl::new().max_iter(u64::MAX);
+            let mut control = controls(&settings.cancellation);
             let state = SelectedState::new(xinit);
             let mut radius = None;
             run(
@@ -304,7 +319,7 @@ pub fn minimize(
             // EGObox supplies objective-change tolerances. An additional native
             // absolute accuracy floor would stop small acquisition values early.
             let mut solver = Slsqp::new().with_absolute_accuracy_tolerance(0.0);
-            let mut control = basin::RunControl::new().max_iter(u64::MAX);
+            let mut control = controls(&settings.cancellation);
             let state = SelectedFirstOrderState::new(xinit);
             run(
                 &problem,
@@ -418,6 +433,35 @@ where
 mod tests {
     use super::*;
 
+    #[test]
+    fn cancellation_stops_both_solvers() {
+        for algorithm in [Algorithm::Cobyla, Algorithm::Slsqp] {
+            let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let counter = calls.clone();
+            let objective = |x: &[f64], g: Option<&mut [f64]>| {
+                counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if let Some(g) = g {
+                    g[0] = 2. * (x[0] - 0.3);
+                    g[1] = 2. * (x[1] + 0.2);
+                }
+                (x[0] - 0.3).powi(2) + (x[1] + 0.2).powi(2)
+            };
+            let check = calls.clone();
+            let bounds = [(-1., 1.), (-1., 1.)];
+            let settings = Settings {
+                max_evals: 1000,
+                // cancelled once a few evaluations are done
+                cancellation: Cancellation::new(move || {
+                    check.load(std::sync::atomic::Ordering::Relaxed) >= 5
+                }),
+                ..settings(&[0.9, 0.9], &bounds)
+            };
+            minimize(algorithm, &objective, &|_, _, _| unreachable!(), settings);
+            let calls = calls.load(std::sync::atomic::Ordering::Relaxed);
+            assert!(calls < 20, "{algorithm:?}: {calls} evaluations");
+        }
+    }
+
     fn settings<'a>(xinit: &'a [f64], bounds: &'a [(f64, f64)]) -> Settings<'a> {
         Settings {
             xinit,
@@ -428,6 +472,7 @@ mod tests {
             ftol_rel: 1e-10,
             initial_radius: 0.5,
             bounded_evaluations: true,
+            cancellation: Cancellation::default(),
         }
     }
 
