@@ -4,6 +4,7 @@ elsewhere.
 Each case runs in a subprocess to isolate process-wide signal handling.
 """
 
+import os
 import subprocess
 import sys
 import textwrap
@@ -63,8 +64,13 @@ def since_signal():
     return time.perf_counter() - signal_time["t"]
 """
 
+# Training with many short optimization starts, on few threads as on CI runners: Ctrl-C is
+# acted on within a start even with optimizers which cannot be stopped during a start
+# (c-cobyla, c-slsqp features), while the whole training lasts several seconds
+FEW_THREADS = {**os.environ, "RAYON_NUM_THREADS": "2"}
 
-def run_script(body):
+
+def run_script(body, env=None):
     script = PRELUDE + CTRL_C_LATER + textwrap.dedent(body)
     proc = subprocess.run(
         [sys.executable, "-c", script],
@@ -72,6 +78,7 @@ def run_script(body):
         text=True,
         timeout=300,
         check=False,
+        env=env,
     )
     assert proc.returncode == 0, (
         f"exit code {proc.returncode}\n{proc.stdout}\n{proc.stderr}"
@@ -317,10 +324,14 @@ def test_ctrl_c_stops_minimize_training_at_once():
                 ctrl_c_later()
             return np.sum(np.sin(6.0 * x), axis=1, keepdims=True)
 
-        # training of about 3s after the initial DOE (stopped after it without the hook)
-        res = egx.Egor([[0.0, 1.0]] * 4, n_doe=1000).minimize(fun, max_iters=10, seed=42)
+        # training of about 4s after the initial DOE (stopped after it without the hook)
+        gp_config = egx.GpConfig(theta_n_start=1500)
+        res = egx.Egor([[0.0, 1.0]] * 4, n_doe=100, gp_config=gp_config).minimize(
+            fun, max_iters=10, seed=42
+        )
         print("EXIT", res.status.exit, res.status.total_iters, calls, since_signal() < 1.0)
-        """
+        """,
+        env=FEW_THREADS,
     )
     assert "EXIT ExitStatus.INTERRUPT 0 1 True" in out
 
@@ -329,14 +340,12 @@ def test_ctrl_c_stops_minimize_training_at_once():
 def test_ctrl_c_interrupts_fit_at_once():
     out = run_script(
         """
-        def data(n):
-            x = egx.lhs(np.array([[0.0, 1.0]] * 4), n, seed=1)
-            return x, np.sum(np.sin(6.0 * x), axis=1)
-
-        # about 7s and 8s fits
-        for model, (x, y) in (
-            (egx.GpMix(seed=1), data(1200)),
-            (egx.SparseGpMix(n_inducing=400, seed=1), data(3000)),
+        x = egx.lhs(np.array([[0.0, 1.0]] * 4), 100, seed=1)
+        y = np.sum(np.sin(6.0 * x), axis=1)
+        # fits of about 4s
+        for model in (
+            egx.GpMix(theta_n_start=1500, seed=1),
+            egx.SparseGpMix(n_inducing=20, theta_n_start=3000, seed=1),
         ):
             ctrl_c_later()
             try:
@@ -344,7 +353,8 @@ def test_ctrl_c_interrupts_fit_at_once():
                 print("NO INTERRUPT")
             except KeyboardInterrupt:
                 print("KEYBOARD INTERRUPT", since_signal() < 2.0)
-        """
+        """,
+        env=FEW_THREADS,
     )
     assert out.count("KEYBOARD INTERRUPT True") == 2
 
@@ -353,12 +363,13 @@ def test_ctrl_c_interrupts_fit_at_once():
 def test_ctrl_c_interrupts_suggest_at_once():
     out = run_script(
         """
-        # about 4s suggestion
-        x = egx.lhs(np.array([[0.0, 1.0]] * 4), 1000, seed=1)
+        # suggestion of about 4s
+        x = egx.lhs(np.array([[0.0, 1.0]] * 4), 100, seed=1)
         y = np.sum(np.sin(6.0 * x), axis=1, keepdims=True)
+        gp_config = egx.GpConfig(theta_n_start=1500)
         ctrl_c_later()
         try:
-            egx.Egor([[0.0, 1.0]] * 4, seed=42).suggest(x, y)
+            egx.Egor([[0.0, 1.0]] * 4, gp_config=gp_config, seed=42).suggest(x, y)
             print("NO INTERRUPT")
         except KeyboardInterrupt:
             print("KEYBOARD INTERRUPT", since_signal() < 2.0)
@@ -367,7 +378,8 @@ def test_ctrl_c_interrupts_suggest_at_once():
             print("NO LATE INTERRUPT")
         except KeyboardInterrupt:
             print("LATE INTERRUPT")
-        """
+        """,
+        env=FEW_THREADS,
     )
     assert "KEYBOARD INTERRUPT True" in out
     assert "NO LATE INTERRUPT" in out
