@@ -14,8 +14,9 @@ use egobox_moe::as_continuous_limits;
 
 use basin::{CostFunction, Problem};
 
+use crate::PendingUpdate;
 use egobox_doe::{Lhs, LhsKind};
-use egobox_gp::{ParamTuning, ThetaTuning};
+use egobox_gp::{Cancellation, ParamTuning, ThetaTuning};
 
 use egobox_moe::AffinedSurrogate;
 use egobox_moe::{Clustering, CorrelationSpec, MixtureGpSurrogate, NbClusters, RegressionSpec};
@@ -44,7 +45,17 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
             config,
             xlimits: as_continuous_limits(&xtypes),
             surrogate_builder,
+            cancellation: Cancellation::default(),
             phantom: PhantomData,
+        }
+    }
+
+    /// [`EgoError::Interrupted`] when the optimization is interrupted
+    pub(crate) fn check_interrupted(&self) -> Result<()> {
+        if self.cancellation.is_cancelled() {
+            Err(EgoError::Interrupted)
+        } else {
+            Ok(())
         }
     }
 
@@ -263,6 +274,7 @@ where
         builder.set_recombination(recombination);
         builder.set_optim_params(self.config.gp.n_start, self.config.gp.max_eval);
         builder.set_noise_ratio(self.config.gp.noise_ratio.clone());
+        builder.set_cancellation(self.cancellation.clone());
         builder
     }
 
@@ -984,6 +996,9 @@ where
                 fcstr_specs,
             };
             let candidates = self.select_candidates(&inputs, &mut surrogates, &mut rng)?;
+            // interrupted while selecting (models training, infill optimization):
+            // no point to evaluate, the iteration is dropped
+            self.check_interrupted()?;
 
             if let Some(models) = persisted_models {
                 surrogates.models = models;
@@ -1083,20 +1098,106 @@ where
             // models (never the virtual/Kriging-believer values used only for
             // the batch search above, see `persisted_models`): see
             // `must_optimize_theta` for the full-retrain-vs-fast-path decision.
-            let do_clustering: DataClustering = (init || recluster).into();
             let point_index = state.get_iter() as usize * self.config.qei_config.batch;
-            if let Err(err) = self.refresh_models(
+            new_state = self.update_after_evaluation(
                 &mut surrogates,
-                &x_data,
-                &y_data,
+                (&x_data, &y_data),
                 &state.coego.activity,
-                do_clustering,
+                init || recluster,
                 point_index,
-            ) {
-                new_state = exit_on_training_failure(err, new_state);
-            }
+                new_state,
+            );
         }
         Ok(surrogates.put(new_state))
+    }
+
+    /// Update the persisted models with the evaluated points (see [`Self::refresh_models`])
+    /// and return the state of the iteration.
+    ///
+    /// When interrupted, the evaluated points are kept: the previous models are restored and
+    /// the update is pending (done first at the next iteration, see [`PendingUpdate`]), so
+    /// that the optimization goes on exactly as if not interrupted. With noisy values the
+    /// update is not interrupted, as the best point of the iteration is estimated from the
+    /// updated models.
+    pub(crate) fn update_after_evaluation(
+        &self,
+        surrogates: &mut SurrogateSet,
+        (x_data, y_data): (&Array2<f64>, &Array2<f64>),
+        activity: &Array2<usize>,
+        regenerate_clustering: bool,
+        point_index: usize,
+        mut new_state: EgorState<f64>,
+    ) -> EgorState<f64> {
+        let uninterruptible;
+        let solver = if self.has_noisy_values() {
+            uninterruptible = EgorSolver {
+                cancellation: Cancellation::default(),
+                ..self.clone()
+            };
+            &uninterruptible
+        } else {
+            self
+        };
+        let previous = (
+            surrogates.clusterings.clone(),
+            surrogates.theta_inits.clone(),
+            surrogates.models.clone(),
+        );
+        match solver.refresh_models(
+            surrogates,
+            x_data,
+            y_data,
+            activity,
+            regenerate_clustering.into(),
+            point_index,
+        ) {
+            Ok(()) => new_state,
+            Err(err) if err.is_interruption() => {
+                info!(
+                    "Interrupted while updating the models: update deferred to the next iteration"
+                );
+                (
+                    surrogates.clusterings,
+                    surrogates.theta_inits,
+                    surrogates.models,
+                ) = previous;
+                new_state.surrogate.pending_update = Some(PendingUpdate {
+                    regenerate_clustering,
+                    point_index,
+                    activity: activity.clone(),
+                });
+                new_state
+            }
+            Err(err) => exit_on_training_failure(err, new_state),
+        }
+    }
+
+    /// Do the models update interrupted at the previous iteration, if any (see
+    /// [`PendingUpdate`]). Interrupted again, the update stays pending and the iteration is
+    /// dropped ([`EgoError::Interrupted`]).
+    pub(crate) fn apply_pending_update(&self, mut state: EgorState<f64>) -> Result<EgorState<f64>> {
+        let Some(pending) = state.surrogate.pending_update.take() else {
+            return Ok(state);
+        };
+        let (x_data, y_data, _) = state
+            .surrogate
+            .data
+            .clone()
+            .ok_or_else(|| EgoError::InternalError("EgorSolver: No data!".to_string()))?;
+        info!("Update the models interrupted at the previous iteration...");
+        let mut surrogates = SurrogateSet::take(&mut state)?;
+        match self.refresh_models(
+            &mut surrogates,
+            &x_data,
+            &y_data,
+            &pending.activity,
+            pending.regenerate_clustering.into(),
+            pending.point_index,
+        ) {
+            Ok(()) => Ok(surrogates.put(state)),
+            Err(err) if err.is_interruption() => Err(EgoError::Interrupted),
+            Err(err) => Ok(exit_on_training_failure(err, surrogates.put(state))),
+        }
     }
 
     /// Log accepted (`usable_indices`) and rejected points among selected ones `x_dat`

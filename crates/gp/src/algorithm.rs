@@ -974,7 +974,12 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>, D: Data<Elem
                     maxeval: (10 * params_inits.ncols()).clamp(GP_COBYLA_MIN_EVAL, self.max_eval()),
                     ..CobylaParams::default()
                 },
+                self.cancellation(),
             );
+            // a cancelled optimization gives meaningless hyperparameters
+            if self.cancellation().is_cancelled() {
+                return Err(GpError::Interrupted);
+            }
             let opt_params = opt_params.1.mapv(|v| F::cast(base.powf(v)));
             let opt_noise = if noise_bounds.is_some() {
                 opt_params[n_theta]
@@ -1157,6 +1162,26 @@ pub(crate) fn sample<F: Float>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_cancelled_fit_is_interrupted() {
+        let xt = arr2(&[[0.0], [5.0], [10.0], [15.0], [18.0], [20.0], [25.0]]);
+        let yt = arr1(&[0.0, 1.0, 1.5, 0.9, 1.0, 0.5, 0.2]);
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = calls.clone();
+        let res = GaussianProcess::<f64, ConstantMean, SquaredExponentialCorr>::params(
+            ConstantMean::default(),
+            SquaredExponentialCorr::default(),
+        )
+        .cancellation(crate::Cancellation::new(move || {
+            counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            true
+        }))
+        .fit(&Dataset::new(xt, yt));
+        assert!(matches!(res, Err(GpError::Interrupted)));
+        // checked before each start, no optimization run
+        assert!(calls.load(std::sync::atomic::Ordering::Relaxed) > 0);
+    }
     use approx::{assert_abs_diff_eq, assert_abs_diff_ne};
     use argmin_testfunctions::rosenbrock;
     use egobox_doe::{Lhs, LhsKind, SamplingMethod};

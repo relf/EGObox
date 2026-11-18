@@ -40,6 +40,7 @@ fn criterion_benchmark(c: &mut Criterion) {
                 RegressionSpec::ALL,
                 CorrelationSpec::ALL,
                 rng.clone(),
+                &egobox_gp::Cancellation::default(),
             )
         })
     });

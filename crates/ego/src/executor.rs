@@ -8,6 +8,7 @@ use crate::{
     ProblemFunc, SurrogateBuilder, TerminationReason as EgorReason, TerminationStatus,
 };
 use basin::{ApplicationStop, CountsMirror, EvalCounts, Executor, State, Termination};
+use egobox_gp::Cancellation;
 use log::info;
 use ndarray::{Array1, Array2, Axis, concatenate};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -267,7 +268,7 @@ impl basin::Observe<BasinState> for Observer {
 /// handling hot start, timeout, interruption and history observation.
 pub(crate) fn run<O, C, SB>(
     problem: ProblemFunc<O, C>,
-    solver: EgorSolver<SB, C>,
+    mut solver: EgorSolver<SB, C>,
     interrupt_check: Option<InterruptCheck>,
 ) -> crate::Result<EgorState<f64>>
 where
@@ -278,21 +279,26 @@ where
     use basin::{ExactCheckpoint, ExactCheckpointWriter, ObserverMode, read_exact_checkpoint};
     // Signal handlers installed for the duration of the run, unless a check is given
     let _signals = interrupt_check.is_none().then(crate::signals::install);
-    let interrupted: Box<dyn Fn() -> bool> = match interrupt_check {
-        Some(check) => Box::new(move || check()),
-        None => {
-            let interrupts = crate::signals::interrupts();
-            Box::new(move || {
-                let interrupted = crate::signals::interrupts() != interrupts;
-                if interrupted {
-                    log::warn!(
-                        "Optimization interrupted by {}",
-                        crate::signals::last_signal()
-                    );
-                }
-                interrupted
-            })
+    let signaled = interrupt_check.is_none();
+    let check: InterruptCheck = interrupt_check.unwrap_or_else(|| {
+        let interrupts = crate::signals::interrupts();
+        std::sync::Arc::new(move || crate::signals::interrupts() != interrupts)
+    });
+    // The check also cuts long computations short (training, infill optimization)
+    let cancellation = {
+        let check = check.clone();
+        Cancellation::new(move || check())
+    };
+    solver.cancellation = cancellation.clone();
+    let interrupted = move || {
+        let interrupted = check();
+        if interrupted && signaled {
+            log::warn!(
+                "Optimization interrupted by {}",
+                crate::signals::last_signal()
+            );
         }
+        interrupted
     };
     let config = solver.config.clone();
     let path = std::path::Path::new(config.outdir.as_deref().unwrap_or(".checkpoints"))
@@ -304,6 +310,7 @@ where
         let (mut solver, mut state, counts) = saved.into_parts();
         // Not saved in checkpoints, taken from the configuration of this run
         solver.config.feasibility_first = config.feasibility_first;
+        solver.cancellation = cancellation;
         if let HotStartMode::ExtendedIters(n) = config.hot_start {
             state.inner.max_iters = state.inner.max_iters.checked_add(n).ok_or_else(|| {
                 EgoError::InvalidConfigError("extended iteration budget overflows".into())

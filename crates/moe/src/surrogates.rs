@@ -2,8 +2,8 @@ use crate::errors::Result;
 use crate::persistence::{read_model, write_model};
 use crate::types::GpFileFormat;
 use egobox_gp::{
-    GaussianProcess, GpParams, ParamTuning, SgpParams, SparseGaussianProcess, SparseMethod,
-    ThetaTuning, correlation_models::*, mean_models::*,
+    Cancellation, GaussianProcess, GpParams, ParamTuning, SgpParams, SparseGaussianProcess,
+    SparseMethod, ThetaTuning, correlation_models::*, mean_models::*,
 };
 use linfa::prelude::{Dataset, Fit};
 use ndarray::{Array1, Array2, ArrayView2, Axis};
@@ -28,6 +28,9 @@ pub trait GpSurrogateParams {
     /// (see [GpParams::noise_ratio](egobox_gp::GpParams::noise_ratio)).
     /// Default is a no-op, used by sparse GPs which handle their own noise variance.
     fn noise_ratio(&mut self, _noise_ratio: ParamTuning<f64>) {}
+    /// Set a request to stop the training early
+    /// (see [GpParams::cancellation](egobox_gp::GpParams::cancellation))
+    fn cancellation(&mut self, cancellation: Cancellation);
     /// Train the surrogate
     fn train(&self, x: &ArrayView2<f64>, y: &ArrayView2<f64>) -> Result<Box<dyn FullGpSurrogate>>;
 }
@@ -163,6 +166,10 @@ macro_rules! declare_surrogate {
 
                 fn nugget(&mut self, nugget: f64) {
                     self.0 = self.0.clone().nugget(nugget);
+                }
+
+                fn cancellation(&mut self, cancellation: Cancellation) {
+                    self.0 = self.0.clone().cancellation(cancellation);
                 }
 
                 fn noise_ratio(&mut self, noise_ratio: ParamTuning<f64>) {
@@ -330,6 +337,10 @@ macro_rules! declare_sgp_surrogate {
 
                 fn nugget(&mut self, nugget: f64) {
                     self.0 = self.0.clone().nugget(nugget);
+                }
+
+                fn cancellation(&mut self, cancellation: Cancellation) {
+                    self.0 = self.0.clone().cancellation(cancellation);
                 }
 
                 fn train(

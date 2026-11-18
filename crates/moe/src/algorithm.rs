@@ -78,6 +78,7 @@ impl GpMixtureValidParams<f64> {
                     self.regression_spec(),
                     self.correlation_spec(),
                     self.rng(),
+                    self.cancellation(),
                 )
             }
             NbClusters::Fixed { nb: nb_clusters } => (nb_clusters, self.recombination()),
@@ -210,6 +211,7 @@ impl GpMixtureValidParams<f64> {
                             self.kpls_dim(),
                             self.noise_ratio(),
                             &mut dataset,
+                            self.cancellation(),
                         );
                         (expert, err)
                     })
@@ -237,6 +239,7 @@ impl GpMixtureValidParams<f64> {
                 expert_params.max_eval(self.max_eval());
                 expert_params.kpls_dim(self.kpls_dim());
                 expert_params.noise_ratio(self.noise_ratio().clone());
+                expert_params.cancellation(self.cancellation().clone());
                 if nc > 0 && self.theta_tunings().len() == 1 {
                     expert_params.theta_tuning(self.theta_tunings()[0].clone());
                 } else {
@@ -261,6 +264,7 @@ impl GpMixtureValidParams<f64> {
                 expert_params.n_start(self.n_start());
                 expert_params.kpls_dim(self.kpls_dim());
                 expert_params.theta_tuning(self.theta_tunings()[0].clone());
+                expert_params.cancellation(self.cancellation().clone());
                 debug!("Train best expert...");
                 expert_params.train(&xtrain.view(), &ytrain.view())
             }
@@ -1276,6 +1280,27 @@ mod tests {
                 }
             });
         y
+    }
+
+    #[test]
+    fn test_cancelled_moe_fit_is_interrupted() {
+        let mut rng = Xoshiro256Plus::seed_from_u64(0);
+        let xt = Array2::random_using((50, 1), Uniform::new(0., 1.), &mut rng);
+        let yt = f_test_1d(&xt.to_owned());
+        for n_clusters in [NbClusters::fixed(2), NbClusters::auto()] {
+            let res = GpMixture::params()
+                .n_clusters(n_clusters.clone())
+                .regression_spec(RegressionSpec::ALL)
+                .correlation_spec(CorrelationSpec::ALL)
+                .with_rng(rng.clone())
+                .cancellation(egobox_gp::Cancellation::new(|| true))
+                .fit(&Dataset::new(xt.clone(), yt.clone()));
+            assert!(
+                matches!(res, Err(MoeError::GpError(egobox_gp::GpError::Interrupted))),
+                "{n_clusters:?}: {:?}",
+                res.err()
+            );
+        }
     }
 
     #[test]

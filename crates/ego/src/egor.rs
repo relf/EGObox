@@ -469,15 +469,26 @@ impl<O: ObjFn, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> E
     ///
     /// By default, signal handlers are installed while a run executes and the previous ones are
     /// restored when it returns. Ctrl-C (SIGINT), SIGTERM, SIGHUP, SIGUSR1 or SIGUSR2 (Ctrl-C or
-    /// Ctrl-Break on Windows) then stops the optimization after the current iteration with
-    /// [TerminationReason::Interrupt](crate::TerminationReason), and a further signal terminates
+    /// Ctrl-Break on Windows) then interrupts the optimization, and a further signal terminates
     /// the process at once. For instance, SLURM `--signal=B:USR1@120` stops a run two minutes
     /// before the job time limit, its hot start checkpoint being saved. A signal which already
     /// has a handler, or is ignored (e.g. SIGHUP under `nohup`), is left alone.
     ///
-    /// When a check is given, no handler is installed: `check` is called after each
-    /// completed iteration and the optimization stops the same way when it returns true.
-    /// This lets an embedding application (e.g. a Python interpreter) keep its own signal handling.
+    /// When a check is given, no handler is installed and the optimization is interrupted when
+    /// `check` returns true. This lets an embedding application (e.g. a Python interpreter) keep
+    /// its own signal handling. `check` is called after initialization and after each iteration,
+    /// and also often during long computations (surrogate training, infill optimization),
+    /// possibly from several threads at once: it has to be cheap and thread-safe, typically a
+    /// load of an atomic flag, and to keep returning true once it did.
+    ///
+    /// The optimization stops with [TerminationReason::Interrupt](crate::TerminationReason)
+    /// and the result of the last completed iteration:
+    /// * interrupted before the evaluation of the new point(s) (training, infill optimization),
+    ///   the current iteration is dropped;
+    /// * interrupted while updating the models with the evaluated point(s), the iteration is
+    ///   completed but the update is deferred (see [`PendingUpdate`](crate::PendingUpdate)).
+    ///
+    /// In both cases, a hot start goes on exactly as if the optimization had not been interrupted.
     pub fn interrupt_check(mut self, check: impl Fn() -> bool + Send + Sync + 'static) -> Self {
         self.interrupt_check = Some(std::sync::Arc::new(check));
         self

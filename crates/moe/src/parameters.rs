@@ -2,13 +2,13 @@ use crate::errors::{MoeError, Result};
 use crate::gaussian_mixture::GaussianMixture;
 use crate::types::*;
 
-use egobox_gp::GP_COBYLA_MAX_EVAL;
 #[allow(unused_imports)]
 use egobox_gp::correlation_models::{
     AbsoluteExponentialCorr, Matern32Corr, Matern52Corr, SquaredExponentialCorr,
 };
 #[allow(unused_imports)]
 use egobox_gp::mean_models::{ConstantMean, LinearMean, QuadraticMean};
+use egobox_gp::{Cancellation, GP_COBYLA_MAX_EVAL};
 use linfa::{Float, ParamGuard};
 use linfa_clustering::GaussianMixtureModel;
 use ndarray::{Array1, Array2, Array3};
@@ -136,6 +136,9 @@ pub struct GpMixtureValidParams<F: Float> {
     gmx: Option<GaussianMixture<F>>,
     /// Random number generator
     rng: Xoshiro256Plus,
+    /// Request to stop the training early (run-time hook, not serialized)
+    #[serde(skip)]
+    cancellation: Cancellation,
 }
 
 impl<F: Float> Default for GpMixtureValidParams<F> {
@@ -154,6 +157,7 @@ impl<F: Float> Default for GpMixtureValidParams<F> {
             gmm: None,
             gmx: None,
             rng: Xoshiro256Plus::from_entropy(),
+            cancellation: Cancellation::default(),
         }
     }
 }
@@ -228,6 +232,11 @@ impl<F: Float> GpMixtureValidParams<F> {
     /// The random generator
     pub fn rng(&self) -> Xoshiro256Plus {
         self.rng.clone()
+    }
+
+    /// The request to stop the training early
+    pub fn cancellation(&self) -> &Cancellation {
+        &self.cancellation
     }
 }
 
@@ -326,6 +335,14 @@ impl<F: Float> GpMixtureParams<F> {
     /// Not used by sparse GP experts which handle their own noise variance.
     pub fn noise_ratio(mut self, noise_ratio: ParamTuning<F>) -> Self {
         self.0.noise_ratio = noise_ratio;
+        self
+    }
+
+    /// Sets a request to stop the training early: once cancelled, the experts training
+    /// stops and fails with [`GpError::Interrupted`](egobox_gp::GpError::Interrupted)
+    /// (wrapped in [`MoeError::GpError`](crate::MoeError::GpError))
+    pub fn cancellation(mut self, cancellation: Cancellation) -> Self {
+        self.0.cancellation = cancellation;
         self
     }
 

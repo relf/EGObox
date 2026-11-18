@@ -103,6 +103,7 @@ use crate::{EgoError, EgorState, ValidEgorConfig};
 use crate::types::*;
 
 use egobox_doe::{Lhs, SamplingMethod};
+use egobox_gp::Cancellation;
 use egobox_moe::MixintSampling;
 use log::{debug, info};
 use ndarray::{Array1, Array2, ArrayBase, Axis, Data, Ix2, Zip, concatenate, s};
@@ -136,6 +137,10 @@ pub struct EgorSolver<SB: SurrogateBuilder, C: CstrFn = Cstr> {
     /// functions, otherwise [mixture of expert](egobox_moe) is used
     /// Note: if specified takes precedence over individual settings
     pub(crate) surrogate_builder: SB,
+    /// Request to stop long computations early (run-time hook set by the executor, not saved
+    /// in checkpoints), see [`Egor::interrupt_check`](crate::Egor::interrupt_check)
+    #[serde(skip)]
+    pub(crate) cancellation: Cancellation,
     /// Phantom data for constraint function type
     pub phantom: PhantomData<C>,
 }
@@ -414,8 +419,12 @@ where
         );
         let now = Instant::now();
 
+        // Models update interrupted at the previous iteration, done first
+        let mut state = self.apply_pending_update(state)?;
+        if state.terminated() {
+            return Ok(state);
+        }
         // Use iteration strategy to determine global vs local step
-        let mut state = state;
         let mode = self
             .config
             .iteration_strategy
@@ -478,6 +487,8 @@ where
         state: EgorState<f64>,
     ) -> Result<EgorState<f64>> {
         match self.global_step(problem, state.clone()) {
+            // interrupted before evaluating any new point: the iteration is dropped
+            Err(err) if err.is_interruption() => Err(EgoError::Interrupted),
             Err(EgoError::NoMorePointToAddError(state)) => {
                 Ok(state.terminate_with(TerminationReason::SolverConverged))
             }
@@ -521,6 +532,9 @@ where
                 DataClustering::Fixed,
                 point_index,
             ) {
+                if err.is_interruption() {
+                    return Err(EgoError::Interrupted);
+                }
                 let state = surrogates.put(local_state);
                 return Ok(exit_on_training_failure(err, state));
             }
@@ -541,6 +555,8 @@ where
                 &y_data.column(0).select(Axis(0), &rows),
             )
         });
+        // interrupted while training the local model: the iteration is dropped
+        self.check_interrupted()?;
         // Optional posterior mean minimization instead of the infill criterion
         let mean_solver = local_step.local_mean.then(|| self.with_mean_criterion());
 

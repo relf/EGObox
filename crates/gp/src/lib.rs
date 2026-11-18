@@ -13,6 +13,7 @@
 #![warn(missing_docs)]
 #![warn(rustdoc::broken_intra_doc_links)]
 mod algorithm;
+mod cancellation;
 pub mod correlation_models;
 mod errors;
 mod linalg;
@@ -27,6 +28,7 @@ mod utils;
 mod optimization;
 
 pub use algorithm::*;
+pub use cancellation::Cancellation;
 pub use errors::*;
 pub use parameters::*;
 pub use sparse_algorithm::*;
