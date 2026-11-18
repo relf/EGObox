@@ -106,7 +106,7 @@ use egobox_doe::{Lhs, SamplingMethod};
 use egobox_moe::MixintSampling;
 use log::{debug, info};
 use ndarray::{Array1, Array2, ArrayBase, Axis, Data, Ix2, Zip, concatenate, s};
-use ndarray_npy::{read_npy, write_npy};
+use ndarray_npy::read_npy;
 use rand_xoshiro::Xoshiro256Plus;
 
 use crate::{TerminationReason, errors::Result};
@@ -379,7 +379,7 @@ where
             std::fs::create_dir_all(path)?;
             let filepath = std::path::Path::new(path).join(DOE_INITIAL_FILE);
             info!("Save initial doe shape {:?} in {:?}", doe.shape(), filepath);
-            write_npy(filepath, doe)?;
+            crate::outputs::save_npy(filepath, doe)?;
         }
         Ok(())
     }

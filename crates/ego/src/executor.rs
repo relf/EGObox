@@ -1,6 +1,8 @@
 //! Execution of the [`EgorSolver`] with the basin executor.
 
-use crate::outputs::{DOE_FILE, FAILED_POINTS_FILE, HISTORY_FILE, STATE_FILE_PREFIX};
+use crate::outputs::{
+    DOE_FILE, FAILED_POINTS_FILE, HISTORY_FILE, STATE_FILE_PREFIX, save_npy, save_text,
+};
 use crate::{
     CHECKPOINT_FILE, Constraints, CstrFn, EgoError, EgorSolver, EgorState, HotStartMode, ObjFn,
     ProblemFunc, SurrogateBuilder, TerminationReason as EgorReason, TerminationStatus,
@@ -8,7 +10,6 @@ use crate::{
 use basin::{ApplicationStop, CountsMirror, EvalCounts, Executor, State, Termination};
 use log::info;
 use ndarray::{Array1, Array2, Axis, concatenate};
-use ndarray_npy::write_npy;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -169,7 +170,7 @@ impl OptimizationObserver {
 
             let filepath = self.dir.join(DOE_FILE);
             info!(">>> Save doe shape {:?} in {:?}", doe.shape(), filepath);
-            write_npy(filepath, &doe)?;
+            save_npy(filepath, &doe)?;
 
             if let Some(failed_points) = state.surrogate.x_fail.as_ref() {
                 let filepath = self.dir.join(FAILED_POINTS_FILE);
@@ -178,7 +179,7 @@ impl OptimizationObserver {
                     failed_points.shape(),
                     filepath
                 );
-                write_npy(filepath, failed_points)?;
+                save_npy(filepath, failed_points)?;
             }
 
             if self.best_params.is_none() {
@@ -206,7 +207,7 @@ impl OptimizationObserver {
 
             let filepath = std::path::Path::new(&self.dir).join(HISTORY_FILE);
             info!(">>> Save history {:?} in {:?}", hist.shape(), filepath);
-            write_npy(filepath, &hist)?;
+            save_npy(filepath, &hist)?;
 
             // Save EgorState if EGOR_USE_STATE_RECORDING equals "WITH_ITER_STATE"
             if self.state_recording {
@@ -229,7 +230,7 @@ impl OptimizationObserver {
                     .and_then(|value| serde_json::to_string_pretty(&value));
                 match json {
                     Ok(json) => {
-                        if let Err(e) = std::fs::write(&state_filepath, json) {
+                        if let Err(e) = save_text(&state_filepath, &json) {
                             log::warn!("Failed to save EgorState to {:?}: {}", state_filepath, e);
                         } else {
                             log::debug!(">>> Saved EgorState to {:?}", state_filepath);
