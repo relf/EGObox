@@ -12,10 +12,6 @@ use ndarray_npy::write_npy;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::cell::RefCell;
 use std::path::PathBuf;
-use std::sync::{
-    OnceLock,
-    atomic::{AtomicU64, Ordering},
-};
 use web_time::Instant;
 
 /// Basin state wrapping [`EgorState`] with the best point bookkeeping
@@ -247,25 +243,8 @@ impl OptimizationObserver {
     }
 }
 
-static INTERRUPTS: AtomicU64 = AtomicU64::new(0);
-static SIGNAL_HANDLER: OnceLock<Result<(), String>> = OnceLock::new();
-
-fn install_signal_handler() -> crate::Result<()> {
-    SIGNAL_HANDLER
-        .get_or_init(|| {
-            match ctrlc::set_handler(|| {
-                INTERRUPTS.fetch_add(1, Ordering::Relaxed);
-            }) {
-                Ok(()) | Err(ctrlc::Error::MultipleHandlers) => Ok(()),
-                Err(error) => Err(error.to_string()),
-            }
-        })
-        .clone()
-        .map_err(EgoError::InternalError)
-}
-
 /// A function telling whether the optimization has to be interrupted,
-/// used instead of the process-wide signal handler (see [crate::Egor::interrupt_check])
+/// used instead of signal handling (see [crate::Egor::interrupt_check])
 pub(crate) type InterruptCheck = std::sync::Arc<dyn Fn() -> bool + Send + Sync>;
 
 struct Observer {
@@ -296,12 +275,22 @@ where
     SB: SurrogateBuilder + Serialize + DeserializeOwned,
 {
     use basin::{ExactCheckpoint, ExactCheckpointWriter, ObserverMode, read_exact_checkpoint};
+    // Signal handlers installed for the duration of the run, unless a check is given
+    let _signals = interrupt_check.is_none().then(crate::signals::install);
     let interrupted: Box<dyn Fn() -> bool> = match interrupt_check {
         Some(check) => Box::new(move || check()),
         None => {
-            install_signal_handler()?;
-            let interrupt = INTERRUPTS.load(Ordering::Relaxed);
-            Box::new(move || INTERRUPTS.load(Ordering::Relaxed) != interrupt)
+            let interrupts = crate::signals::interrupts();
+            Box::new(move || {
+                let interrupted = crate::signals::interrupts() != interrupts;
+                if interrupted {
+                    log::warn!(
+                        "Optimization interrupted by {}",
+                        crate::signals::last_signal()
+                    );
+                }
+                interrupted
+            })
         }
     };
     let config = solver.config.clone();
