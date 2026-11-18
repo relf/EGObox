@@ -137,6 +137,7 @@ where
             let pof = PofWeighting {
                 models: cstr_models,
                 tols: &cstr_tols_vec,
+                feasibility_first: self.config.feasibility_first,
             };
             let make_obj = |weighted: bool| {
                 let active = active.clone();

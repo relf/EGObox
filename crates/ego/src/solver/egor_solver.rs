@@ -95,7 +95,9 @@ use crate::outputs::{DOE_FILE, DOE_INITIAL_FILE};
 use crate::solver::iteration_strategy::IterationMode;
 use crate::solver::surrogate_set::{DataClustering, SurrogateSet};
 use crate::solver::trego::{LocalSearch, local_training_rows};
-use crate::utils::{EGOR_USE_GP_VAR_PORTFOLIO, EGOR_USE_STATE_RECORDING, filter_nans};
+use crate::utils::{
+    EGOR_USE_GP_VAR_PORTFOLIO, EGOR_USE_STATE_RECORDING, filter_nans, is_feasible_at,
+};
 use crate::{EgoError, EgorState, ValidEgorConfig};
 
 use crate::types::*;
@@ -248,6 +250,13 @@ where
         initial_state.surrogate.best_index = Some(best_index);
         initial_state.surrogate.prev_best_index = initial_state.surrogate.best_index;
         initial_state.last_best_iter = 0;
+        // A feasible point may already be in the initial DOE
+        initial_state.feasibility = is_feasible_at(
+            &y_data.row(best_index),
+            &c_data.row(best_index),
+            self.config.n_obj(),
+            &initial_state.doe.cstr_tol,
+        );
 
         // Initialize iteration strategy state (e.g., TREGO sigma)
         self.config

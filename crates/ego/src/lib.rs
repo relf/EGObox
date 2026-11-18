@@ -201,6 +201,16 @@
 //!     egor_config.cstr_infill(true);
 //! ```
 //!
+//!   While no feasible point is known, the criterion weighted by the probability of feasibility
+//!   is used by default. With `feasibility_first(true)`, only the probability of feasibility drives
+//!   the infill until a feasible point is found.
+//!
+//! ```no_run
+//! # use egobox_ego::{EgorConfig};
+//! # let egor_config = EgorConfig::default();
+//!     egor_config.cstr_infill(true).feasibility_first(true);
+//! ```
+//!
 //! * Constraints modeled with a surrogate can be used with their mean value or their upper trust bound
 //!   See \[[Priem2019](#Priem2019)\]
 //!

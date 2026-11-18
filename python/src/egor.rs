@@ -152,6 +152,10 @@ fn parse_run_info(py: Python, value: Py<PyAny>) -> PyResult<RunInfo> {
 /// verbose : Verbose or int, optional
 ///     Logging verbosity level used by `minimize()` and `suggest()` when `minimize()` is not given one.
 ///     See `minimize()` for the possible values.
+/// feasibility_first : bool
+///     With `cstr_infill`, while no feasible point is known, only the probability of feasibility
+///     drives the infill (feasibility-first). Default False: the infill criterion weighted by the
+///     probability of feasibility is used from the first iteration. No effect without `cstr_infill`.
 ///
 /// Returns
 /// -------
@@ -171,6 +175,7 @@ pub(crate) struct Egor {
     pub infill_strategy: InfillStrategy,
     pub feasible_infill_strategy: FeasibleInfillStrategy,
     pub cstr_infill: bool,
+    pub feasibility_first: bool,
     pub cstr_strategy: ConstraintStrategy,
     pub qei_config: QEiConfig,
     pub infill_optimizer: InfillOptimizer,
@@ -207,6 +212,7 @@ impl Egor {
         failsafe_strategy = FailsafeStrategy::Rejection,
         seed = None,
         verbose = None,
+        feasibility_first = false,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -237,6 +243,7 @@ impl Egor {
         seed: Option<u64>,
         #[gen_stub(override_type(type_repr = "Verbose | builtins.int | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
         verbose: Option<Py<PyAny>>,
+        feasibility_first: bool,
     ) -> PyResult<Self> {
         // Parse trego configuration: boolean or custom configuration
         let trego = match trego {
@@ -282,6 +289,7 @@ impl Egor {
             failsafe_strategy,
             seed,
             verbose,
+            feasibility_first,
         )
     }
 
@@ -668,6 +676,7 @@ impl Egor {
         failsafe_strategy: FailsafeStrategy,
         seed: Option<u64>,
         verbose: Option<Py<PyAny>>,
+        feasibility_first: bool,
     ) -> PyResult<Self> {
         let xtypes = parse(py, xspecs)?;
         let doe = initial_doe(&xtypes, x_doe, y_doe)?;
@@ -695,6 +704,7 @@ impl Egor {
             doe,
             infill_strategy,
             cstr_infill,
+            feasibility_first,
             cstr_strategy,
             feasible_infill_strategy,
             qei_config,
@@ -1081,6 +1091,7 @@ impl Egor {
             .infill_strategy(self.infill_strategy.into())
             .feasible_infill_strategy(self.feasible_infill_strategy.into())
             .cstr_infill(self.cstr_infill)
+            .feasibility_first(self.feasibility_first)
             .cstr_strategy(self.cstr_strategy.into())
             .configure_qei(|qei_config| {
                 qei_config
