@@ -351,3 +351,125 @@ fn feasible_initial_doe_disables_feasibility_first_search() {
     };
     assert_eq!(run(true).x_doe, run(false).x_doe);
 }
+
+/// xsinx objective returning `EgoError::Interrupted` at the given call (1 is the initial DOE)
+#[derive(Clone)]
+struct InterruptedAt {
+    call: usize,
+    calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl InterruptedAt {
+    fn new(call: usize) -> Self {
+        Self {
+            call,
+            calls: Default::default(),
+        }
+    }
+}
+
+impl egobox_ego::ObjFn for InterruptedAt {
+    fn eval(&self, x: &ArrayView2<f64>) -> egobox_ego::Result<Array2<f64>> {
+        let call = self
+            .calls
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            + 1;
+        if call == self.call {
+            Err(egobox_ego::EgoError::Interrupted)
+        } else {
+            Ok(xsinx(x))
+        }
+    }
+}
+
+#[test]
+fn interrupted_evaluation_drops_unfinished_iteration() {
+    let expected = EgorBuilder::optimize(xsinx)
+        .configure(|cfg| cfg.seed(42).max_iters(2))
+        .min_within(&array![[0., 25.]])
+        .unwrap()
+        .run()
+        .unwrap();
+    // initial DOE, iterations 1 and 2, then interrupted in iteration 3
+    let result = EgorBuilder::optimize(InterruptedAt::new(4))
+        .configure(|cfg| cfg.seed(42).max_iters(10))
+        .min_within(&array![[0., 25.]])
+        .unwrap()
+        .run()
+        .unwrap();
+    assert_eq!(
+        result.state.termination_status,
+        TerminationStatus::Terminated(TerminationReason::Interrupt)
+    );
+    assert_eq!(result.state.iter, 2);
+    assert_eq!(
+        result.state.surrogate.x_fail,
+        expected.state.surrogate.x_fail
+    );
+    assert_eq!(result.x_doe, expected.x_doe);
+    assert_eq!(result.y_doe, expected.y_doe);
+}
+
+#[test]
+fn interrupted_initial_doe_is_an_error() {
+    let result = EgorBuilder::optimize(InterruptedAt::new(1))
+        .configure(|cfg| cfg.seed(42).max_iters(10))
+        .min_within(&array![[0., 25.]])
+        .unwrap()
+        .run();
+    assert!(matches!(result, Err(egobox_ego::EgoError::Interrupted)));
+}
+
+#[test]
+fn hot_start_does_interrupted_iteration_again() {
+    use egobox_ego::HotStartMode;
+    let expected = EgorBuilder::optimize(xsinx)
+        .configure(|cfg| cfg.seed(42).max_iters(4))
+        .min_within(&array![[0., 25.]])
+        .unwrap()
+        .run()
+        .unwrap();
+    let run = |obj: InterruptedAt, dir: &std::path::Path| {
+        EgorBuilder::optimize(obj)
+            .configure(|cfg| {
+                cfg.seed(42)
+                    .max_iters(4)
+                    .hot_start(HotStartMode::Enabled)
+                    .outdir(dir.to_str().unwrap())
+            })
+            .min_within(&array![[0., 25.]])
+            .unwrap()
+            .run()
+            .unwrap()
+    };
+    // interrupted in iteration 1 (no checkpoint yet) and in iteration 2
+    for call in [2, 3] {
+        let dir =
+            std::env::temp_dir().join(format!("egobox-interrupted-{}-{call}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let interrupted = run(InterruptedAt::new(call), &dir);
+        assert_eq!(interrupted.state.iter, call as u64 - 2);
+        // no failed point saved (no file before the first completed iteration)
+        let failed = dir.join(egobox_ego::FAILED_POINTS_FILE);
+        if failed.exists() {
+            let x_fail: Array2<f64> = ndarray_npy::read_npy(failed).unwrap();
+            assert_eq!(x_fail.nrows(), 0);
+        }
+        // never interrupted again
+        let resumed = run(InterruptedAt::new(0), &dir);
+        assert_eq!(resumed.state.iter, 4);
+        assert_eq!(
+            resumed.state.surrogate.x_fail,
+            expected.state.surrogate.x_fail
+        );
+        assert_eq!(resumed.x_doe, expected.x_doe);
+        assert_eq!(resumed.y_doe, expected.y_doe);
+        assert_eq!(resumed.state.last_best_iter, expected.state.last_best_iter);
+        // the interrupted evaluation attempt is counted
+        assert_eq!(
+            resumed.state.counts["cost_count"],
+            expected.state.counts["cost_count"] + 1
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

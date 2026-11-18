@@ -38,6 +38,7 @@ pub(crate) fn ego_err(e: egobox_ego::EgoError) -> PyErr {
         EgoError::IoError(_) | EgoError::ReadNpyError(_) | EgoError::WriteNpyError(_) => {
             PyOSError::new_err(msg)
         }
+        EgoError::Interrupted => PyKeyboardInterrupt::new_err(msg),
         _ => PyRuntimeError::new_err(msg),
     }
 }

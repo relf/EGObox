@@ -189,9 +189,9 @@ class Belfegor:
         -----
         Ctrl-C (KeyboardInterrupt) stops the optimization after the current iteration and the
         result obtained so far is returned with status.exit == ExitStatus.INTERRUPT, also when
-        Ctrl-C is pressed again meanwhile. KeyboardInterrupt is raised instead when there is no
-        result yet (e.g. Ctrl-C while `fun` evaluates the initial DOE). An objective evaluation
-        interrupted by Ctrl-C counts as a failed evaluation.
+        Ctrl-C is pressed again meanwhile. When Ctrl-C interrupts `fun`, the current iteration
+        is dropped instead (not counted as a failed evaluation, done again by a hot start), and
+        KeyboardInterrupt is raised when there is no result yet (initial DOE evaluation).
         Other exceptions raised by signal handlers (e.g. SystemExit from sys.exit()) stop the
         optimization the same way, then are raised. Within `fun` or `fcstrs`, this applies to
         exceptions which are not Exception subclasses, others being evaluation errors.
@@ -587,9 +587,9 @@ class Egor:
         -----
         Ctrl-C (KeyboardInterrupt) stops the optimization after the current iteration and the
         result obtained so far is returned with status.exit == ExitStatus.INTERRUPT, also when
-        Ctrl-C is pressed again meanwhile. KeyboardInterrupt is raised instead when there is no
-        result yet (e.g. Ctrl-C while `fun` evaluates the initial DOE). An objective evaluation
-        interrupted by Ctrl-C counts as a failed evaluation.
+        Ctrl-C is pressed again meanwhile. When Ctrl-C interrupts `fun`, the current iteration
+        is dropped instead (not counted as a failed evaluation, done again by a hot start), and
+        KeyboardInterrupt is raised when there is no result yet (initial DOE evaluation).
         Other exceptions raised by signal handlers (e.g. SystemExit from sys.exit()) stop the
         optimization the same way, then are raised. Within `fun` or `fcstrs`, this applies to
         exceptions which are not Exception subclasses, others being evaluation errors.

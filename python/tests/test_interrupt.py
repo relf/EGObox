@@ -65,6 +65,35 @@ def test_interrupt_in_objective_after_fit():
     assert "EXIT ExitStatus.INTERRUPT True" in out
 
 
+def test_interrupted_iteration_done_again_by_hot_start(tmp_path):
+    # the iteration interrupted in the objective is dropped, not recorded as a failed point
+    out = run_script(
+        f"""
+        outdir = {str(tmp_path)!r}
+        expected = egx.Egor([[0.0, 25.0]]).minimize(xsinx, max_iters=4, seed=42)
+        res = egx.Egor([[0.0, 25.0]]).minimize(
+            interrupting(xsinx, at_call=3),
+            max_iters=4,
+            seed=42,
+            outdir=outdir,
+            hot_start=True,
+        )
+        print("EXIT", res.status.exit, res.status.total_iters)
+        print("FAILED", len(np.load(outdir + "/egor_failed_points.npy")))
+        resumed = egx.Egor([[0.0, 25.0]]).minimize(
+            xsinx, max_iters=4, seed=42, outdir=outdir, hot_start=True
+        )
+        print("RESUMED", resumed.status.total_iters)
+        print("SAME DOE", np.array_equal(resumed.x_doe, expected.x_doe))
+        """
+    )
+    # initial DOE, iteration 1, then interrupted in iteration 2
+    assert "EXIT ExitStatus.INTERRUPT 1" in out
+    assert "FAILED 0" in out
+    assert "RESUMED 4" in out
+    assert "SAME DOE True" in out
+
+
 def test_repeated_interrupted_runs():
     out = run_script(
         """

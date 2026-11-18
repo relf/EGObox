@@ -17,6 +17,13 @@ pub enum EgoError {
     /// When the objective function fails and optimization is configured to stop
     #[error("Objective function error: {0}")]
     ObjectiveFunctionError(String),
+    /// When the optimization is interrupted: returned by an [`ObjFn`](crate::ObjFn) implementation,
+    /// it stops the optimization cleanly. The unfinished iteration is dropped (not saved in a hot
+    /// start checkpoint, so that it is done again when resuming) and the result is the last
+    /// completed iteration with [`TerminationReason::Interrupt`](crate::TerminationReason).
+    /// Returned while the initial DOE is evaluated, the optimization fails with this error.
+    #[error("Optimization interrupted")]
+    Interrupted,
     /// When an invalid value is encountered
     #[error("Value error: {0}")]
     InvalidValue(String),
