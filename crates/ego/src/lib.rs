@@ -466,6 +466,7 @@ pub mod criteria;
 mod egor;
 mod errors;
 mod executor;
+mod signals;
 mod solver;
 mod types;
 

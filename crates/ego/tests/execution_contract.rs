@@ -188,50 +188,156 @@ fn corrupt_checkpoint_returns_an_error() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+/// Run the test `name` in a child process to isolate process-wide signal handling from the
+/// other integration tests: the output of the child, or `None` within the child which runs
+/// the test body
+#[cfg(unix)]
+fn in_child(name: &str) -> Option<std::process::Output> {
+    if std::env::var_os("EGOBOX_INTERRUPT_TEST_CHILD").is_some() {
+        return None;
+    }
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", name, "--nocapture"])
+        .env("EGOBOX_INTERRUPT_TEST_CHILD", "1")
+        .output()
+        .unwrap();
+    Some(output)
+}
+
+/// Send `sig` to the calling thread: its handler runs before returning
+#[cfg(unix)]
+fn raise(sig: libc::c_int) {
+    assert_eq!(unsafe { libc::raise(sig) }, 0);
+}
+
+/// Run xsinx optimization sending `sig` (`n` times) at the given objective call
+#[cfg(unix)]
+fn run_signaled(sig: libc::c_int, n: usize, call: usize) -> egobox_ego::OptimResult<f64> {
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    EgorBuilder::optimize(move |x: &ArrayView2<f64>| {
+        if calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1 == call {
+            (0..n).for_each(|_| raise(sig));
+        }
+        xsinx(x)
+    })
+    .configure(|cfg| cfg.seed(42).max_iters(3))
+    .min_within(&array![[0., 25.]])
+    .unwrap()
+    .run()
+    .unwrap()
+}
+
+#[cfg(unix)]
+fn assert_success(output: &std::process::Output) {
+    assert!(
+        output.status.success(),
+        "{:?}\n{}\n{}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn interruption_works_for_repeated_runs() {
-    if std::env::var_os("EGOBOX_INTERRUPT_TEST_CHILD").is_some() {
-        for _ in 0..2 {
-            let result = EgorBuilder::optimize(|x: &ArrayView2<f64>| {
-                assert!(
-                    std::process::Command::new("kill")
-                        .args(["-INT", &std::process::id().to_string()])
-                        .status()
-                        .unwrap()
-                        .success()
+    match in_child("interruption_works_for_repeated_runs") {
+        Some(output) => assert_success(&output),
+        None => {
+            for _ in 0..2 {
+                // interrupted while evaluating the initial DOE: stops after initialization
+                let result = run_signaled(libc::SIGINT, 1, 1);
+                assert_eq!(
+                    result.state.termination_status,
+                    TerminationStatus::Terminated(TerminationReason::Interrupt)
                 );
-                // The signal handler runs on ctrlc's background thread.
-                std::thread::sleep(std::time::Duration::from_millis(20));
-                xsinx(x)
-            })
-            .configure(|cfg| cfg.seed(42).max_iters(3))
-            .min_within(&array![[0., 25.]])
-            .unwrap()
-            .run()
-            .unwrap();
+                assert_eq!(result.state.iter, 0);
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn termination_signals_stop_run_gracefully() {
+    match in_child("termination_signals_stop_run_gracefully") {
+        Some(output) => assert_success(&output),
+        None => {
+            for sig in [libc::SIGTERM, libc::SIGHUP, libc::SIGUSR1, libc::SIGUSR2] {
+                let result = run_signaled(sig, 1, 2);
+                assert_eq!(
+                    result.state.termination_status,
+                    TerminationStatus::Terminated(TerminationReason::Interrupt),
+                    "signal {sig}"
+                );
+                assert_eq!(result.state.iter, 1);
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn signal_handlers_are_restored_after_run() {
+    use std::os::unix::process::ExitStatusExt;
+    match in_child("signal_handlers_are_restored_after_run") {
+        Some(output) => {
+            // Ctrl-C after the run terminates the process as usual
+            assert_eq!(output.status.signal(), Some(libc::SIGINT), "{output:?}");
+            assert!(String::from_utf8_lossy(&output.stdout).contains("RUN DONE"));
+            assert!(!String::from_utf8_lossy(&output.stdout).contains("ALIVE"));
+        }
+        None => {
+            run_signaled(libc::SIGINT, 0, 0);
+            println!("RUN DONE");
+            raise(libc::SIGINT);
+            println!("ALIVE");
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn second_signal_terminates() {
+    use std::os::unix::process::ExitStatusExt;
+    match in_child("second_signal_terminates") {
+        Some(output) => {
+            assert_eq!(output.status.signal(), Some(libc::SIGINT), "{output:?}");
+            assert!(!String::from_utf8_lossy(&output.stdout).contains("RETURNED"));
+        }
+        None => {
+            run_signaled(libc::SIGINT, 2, 2);
+            println!("RETURNED");
+        }
+    }
+}
+
+#[cfg(unix)]
+static HOST_SIGNALS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+#[cfg(unix)]
+extern "C" fn host_handler(_: libc::c_int) {
+    HOST_SIGNALS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[cfg(unix)]
+#[test]
+fn host_signal_handler_is_kept() {
+    match in_child("host_signal_handler_is_kept") {
+        Some(output) => assert_success(&output),
+        None => {
+            let handler = host_handler as extern "C" fn(libc::c_int) as libc::sighandler_t;
+            unsafe { libc::signal(libc::SIGINT, handler) };
+            let result = run_signaled(libc::SIGINT, 1, 2);
+            // handled by the host only: the optimization is not interrupted
             assert_eq!(
                 result.state.termination_status,
-                TerminationStatus::Terminated(TerminationReason::Interrupt)
+                TerminationStatus::Terminated(TerminationReason::MaxItersReached)
             );
-            assert_eq!(result.state.iter, 0);
+            assert_eq!(HOST_SIGNALS.load(std::sync::atomic::Ordering::Relaxed), 1);
+            raise(libc::SIGINT);
+            assert_eq!(HOST_SIGNALS.load(std::sync::atomic::Ordering::Relaxed), 2);
         }
-    } else {
-        // Isolate process-wide signal handlers from the other integration tests.
-        let output = std::process::Command::new(std::env::current_exe().unwrap())
-            .args([
-                "--exact",
-                "interruption_works_for_repeated_runs",
-                "--nocapture",
-            ])
-            .env("EGOBOX_INTERRUPT_TEST_CHILD", "1")
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stdout)
-        );
     }
 }
 

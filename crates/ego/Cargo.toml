@@ -23,7 +23,6 @@ blas = ["ndarray-linalg", "linfa/ndarray-linalg", "linfa-pls/blas"]
 
 [dependencies]
 basin = { workspace = true, features = ["serde"] }
-ctrlc = { workspace = true }
 egobox-doe = { version = "0.35.2", path = "../doe", features = [
     "serializable",
 ] }
@@ -62,6 +61,15 @@ serde = { version = "1", features = ["derive", "rc"] }
 serde_json.workspace = true
 typetag = { version = "0.2" }
 dyn-clonable = { version = "0.9" }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_Console",
+] }
 
 [dev-dependencies]
 criterion.workspace = true

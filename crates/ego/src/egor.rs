@@ -465,10 +465,16 @@ impl<O: ObjFn, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> E
     }
 
     /// Interrupt the optimization when the given `check` returns true,
-    /// instead of on Ctrl-C (SIGINT).
+    /// instead of on Ctrl-C and termination signals.
     ///
-    /// By default, a process-wide Ctrl-C handler is installed at the first run, and Ctrl-C
-    /// stops the optimization with [TerminationReason::Interrupt](crate::TerminationReason).
+    /// By default, signal handlers are installed while a run executes and the previous ones are
+    /// restored when it returns. Ctrl-C (SIGINT), SIGTERM, SIGHUP, SIGUSR1 or SIGUSR2 (Ctrl-C or
+    /// Ctrl-Break on Windows) then stops the optimization after the current iteration with
+    /// [TerminationReason::Interrupt](crate::TerminationReason), and a further signal terminates
+    /// the process at once. For instance, SLURM `--signal=B:USR1@120` stops a run two minutes
+    /// before the job time limit, its hot start checkpoint being saved. A signal which already
+    /// has a handler, or is ignored (e.g. SIGHUP under `nohup`), is left alone.
+    ///
     /// When a check is given, no handler is installed: `check` is called after each
     /// completed iteration and the optimization stops the same way when it returns true.
     /// This lets an embedding application (e.g. a Python interpreter) keep its own signal handling.
