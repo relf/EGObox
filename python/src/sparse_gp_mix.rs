@@ -9,8 +9,9 @@
 //!
 //! See the [tutorial notebook](https://github.com/relf/egobox/notebooks/Sgp_Tutorial.ipynb) for usage.
 //!
-use crate::errors::{gp_file_format, moe_err, moe_file_err, training_data};
+use crate::errors::{gp_file_format, interruptible_moe_err, moe_file_err, training_data};
 use crate::gp_config::{seeded_rng, theta_tuning, validate_corr_spec, validate_theta};
+use crate::sigint::SigintGuard;
 use crate::surrogate_api;
 use crate::{logging::init_logger, types::*};
 use egobox_moe::{GpMixture, GpSurrogate, GpType, Inducings};
@@ -137,6 +138,11 @@ impl SparseGpMix {
     /// SparseGpx
     ///     the fitted sparse Gaussian process
     ///
+    /// Notes
+    /// -----
+    /// Ctrl-C (KeyboardInterrupt) stops the training at once, unless called from another
+    /// thread than the main one or with a custom SIGINT handler.
+    ///
     fn fit(
         &mut self,
         py: Python,
@@ -166,8 +172,15 @@ impl SparseGpMix {
             self.theta_bounds.as_ref(),
         )];
 
+        // Ctrl-C stops the training at once
+        let sigint = SigintGuard::install(py);
+        let cancellation = sigint
+            .as_ref()
+            .map(SigintGuard::cancellation)
+            .unwrap_or_default();
         let sgp = py.detach(|| {
             GpMixture::params()
+                .cancellation(cancellation)
                 .gp_type(GpType::SparseGp {
                     sparse_method: self.method.into(),
                     inducings,
@@ -181,7 +194,10 @@ impl SparseGpMix {
                 .with_rng(rng)
                 .fit(&dataset)
         });
-        Ok(SparseGpx(Box::new(sgp.map_err(moe_err)?)))
+        drop(sigint);
+        Ok(SparseGpx(Box::new(
+            sgp.map_err(|e| interruptible_moe_err(py, e))?,
+        )))
     }
 }
 

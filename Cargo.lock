@@ -515,6 +515,7 @@ dependencies = [
  "egobox-gpx",
  "egobox-moe",
  "env_logger",
+ "libc",
  "linfa",
  "log",
  "ndarray 0.16.1",
@@ -525,6 +526,7 @@ dependencies = [
  "rand_xoshiro",
  "serde",
  "serde_json",
+ "windows-sys",
 ]
 
 [[package]]

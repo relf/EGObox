@@ -9,8 +9,11 @@
 //!
 //! See the [tutorial notebook](https://github.com/relf/egobox/notebooks/Gpx_Tutorial.ipynb) for usage.
 //!
-use crate::errors::{gp_file_format, input_x, moe_err, moe_file_err, output_y, training_data};
+use crate::errors::{
+    gp_file_format, input_x, interruptible_moe_err, moe_err, moe_file_err, output_y, training_data,
+};
 use crate::logging::init_logger;
+use crate::sigint::SigintGuard;
 use crate::surrogate_api;
 use crate::types::*;
 use crate::{domain::parse, gp_config::GpConfig, gp_config::seeded_rng};
@@ -175,6 +178,11 @@ impl GpMix {
     /// Gpx
     ///     the fitted Gaussian process mixture
     ///
+    /// Notes
+    /// -----
+    /// Ctrl-C (KeyboardInterrupt) stops the training at once, unless called from another
+    /// thread than the main one or with a custom SIGINT handler.
+    ///
     fn fit(
         &mut self,
         py: Python,
@@ -219,8 +227,15 @@ impl GpMix {
         // xt has one column per variable, enum variables given by their category index
         let mut params = MixintGpMixture::params(self.xtypes.as_deref());
         params.work_in_folded_space(true);
+        // Ctrl-C stops the training at once
+        let sigint = SigintGuard::install(py);
+        let cancellation = sigint
+            .as_ref()
+            .map(SigintGuard::cancellation)
+            .unwrap_or_default();
         let moe = py.detach(|| {
             params
+                .cancellation(cancellation)
                 .n_clusters(n_clusters)
                 .recombination(recomb)
                 .regression_spec(self.gp_config.regression_spec())
@@ -232,8 +247,9 @@ impl GpMix {
                 .with_rng(rng)
                 .fit(&dataset)
         });
+        drop(sigint);
 
-        Ok(Gpx(moe.map_err(moe_err)?))
+        Ok(Gpx(moe.map_err(|e| interruptible_moe_err(py, e))?))
     }
 }
 

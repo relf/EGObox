@@ -155,6 +155,14 @@ impl MixintGpMixtureParams {
         self
     }
 
+    /// Sets a request to stop the training early: once cancelled, the training fails with
+    /// [`GpError::Interrupted`](egobox_gp::GpError::Interrupted) (wrapped in
+    /// [`MoeError::GpError`](crate::MoeError::GpError))
+    pub fn cancellation(mut self, cancellation: egobox_gp::Cancellation) -> Self {
+        self.0.gpmix_params = self.0.gpmix_params.cancellation(cancellation);
+        self
+    }
+
     /// Sets the noise-to-signal ratio tuning of full GP experts
     pub fn noise_ratio(mut self, noise_ratio: ParamTuning<f64>) -> Self {
         self.0.gpmix_params = self.0.gpmix_params.noise_ratio(noise_ratio);
