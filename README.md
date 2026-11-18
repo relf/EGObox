@@ -277,10 +277,6 @@ Journal of Global Optimization 88.2 (2024): 327-357
 Lisa Pretsch et al. (2025).
 [Bayesian optimization of cooperative components for multi-stage aero-structural compressor blade design](https://www.researchgate.net/publication/391492598_Bayesian_optimization_of_cooperative_components_for_multi-stage_aero-structural_compressor_blade_design). Struct Multidisc Optim 68, 84 (2025)
 
-Appriou, T., Rullière, D. & Gaudrie, D, (2024)
-[Combination of optimization-free kriging models for high-dimensional problems](https://doi.org/10.1007/s00180-023-01424-7),
-Comput Stat 39, 3049–3071 (2024).
-
 S. Ament, S. Daulton, D. Eriksson, M. Balandat, E. Bakshy, (2023).
 [Unexpected improvements to expected improvement for bayesian optimization](https://arxiv.org/pdf/2310.20708),
 Advances in Neural Information Processing Systems, 2023

@@ -1,75 +1,84 @@
 use egobox_gp::ThetaTuning;
 use ndarray::Array1;
 
-pub fn theta_bounds(tuning: &ThetaTuning<f64>, dim: usize) -> Array1<(f64, f64)> {
-    if let Some(bounds) = tuning.bounds() {
-        if bounds.len() == 1 {
-            // If bounds is a single value, use it for all dimensions
-
-            let b = if bounds[0] == ThetaTuning::<f64>::DEFAULT_BOUNDS {
-                // Use bounds which depends on dim instead of constant default
-                special_bounds(dim)
-            } else {
-                // Use given default
-                bounds[0]
-            };
-            Array1::from_elem(1, b)
-        } else {
-            // If bounds is a vector, use it as is
-            bounds.clone()
-        }
-    } else {
-        // Use bounds which depends on dim instead of constant default
-        Array1::from_elem(1, special_bounds(dim))
-    }
+/// Theta bounds used by Egor to fit GPs: the bounds of the given `tuning`, either a
+/// single pair for all components or one pair per component, or
+/// [`ThetaTuning::DEFAULT_BOUNDS`] when the tuning has none.
+///
+/// The bounds do not depend on the dimension of the problem: dimension-dependent
+/// default bounds did not improve optimization results compared to the default ones,
+/// see <https://github.com/relf/EGObox/pull/560> and <https://github.com/relf/EGObox/pull/562>.
+pub fn theta_bounds(tuning: &ThetaTuning<f64>) -> Array1<(f64, f64)> {
+    tuning
+        .bounds()
+        .cloned()
+        .unwrap_or_else(|| Array1::from_elem(1, ThetaTuning::<f64>::DEFAULT_BOUNDS))
 }
 
-/// Theta bounds depending on the dimension.
-///
-/// Below 10 dimensions, the default bounds are used. Otherwise, the lengthscale
-/// bounds are derived from the typical distances between points of a uniform design
-/// in [0, 1]^dim, following eq. (16) of Appriou, Rullière, Gaudrie, "Combination of
-/// Optimization-free Kriging Models for High-Dimensional Problems" (Computational
-/// Statistics, 2024), <https://hal.science/hal-03812073v2/document>.
-///
-/// The default bounds play the role of the kernel influence factors of the paper.
-/// The per-kernel factors (`CorrelationModel::theta_influence_factors`) are not used:
-/// benchmarks gave mixed results (better on Rosenbrock, worse on Michalewicz),
-/// see <https://github.com/relf/EGObox/pull/560>.
-fn special_bounds(dim: usize) -> (f64, f64) {
-    let (factor_inf, factor_sup) = ThetaTuning::<f64>::DEFAULT_BOUNDS;
-    if dim < 10 {
-        return (factor_inf, factor_sup);
-    }
-    let d = dim as f64;
-    let s = 1. / f64::sqrt(12.); // uniform design on [0, 1]^d standard deviation
-    let k = 9. / 5.; // uniform distribution kurtosis
-    let interval = 1.96 * f64::sqrt(2. * (k + 1.) * d);
-    let rmin = f64::sqrt(2. * d - interval);
-    let rmax = f64::sqrt(2. * d + interval);
-    let lmin = s * rmin * factor_inf;
-    let lmax = s * rmax * factor_sup;
-    (1. / lmax, 1. / lmin)
+/// Clamp the initial theta `init` within `bounds`. Each of them is given either as a
+/// single value for all components or as one value per component.
+pub fn clamp_theta_init(init: &Array1<f64>, bounds: &Array1<(f64, f64)>) -> Array1<f64> {
+    let n = init.len().max(bounds.len());
+    assert!(
+        (init.len() == 1 || init.len() == n) && (bounds.len() == 1 || bounds.len() == n),
+        "theta init (size {}) and bounds (size {}) are not compatible",
+        init.len(),
+        bounds.len()
+    );
+    Array1::from_shape_fn(n, |i| {
+        let v = init[i.min(init.len() - 1)];
+        let (lo, up) = bounds[i.min(bounds.len() - 1)];
+        v.clamp(lo, up)
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use approx::assert_abs_diff_eq;
+    use ndarray::array;
 
     #[test]
     fn test_theta_bounds() {
-        assert_eq!(special_bounds(9), ThetaTuning::<f64>::DEFAULT_BOUNDS);
-        // 124: MOPTA08 dimension
-        for dim in [1, 10, 20, 50, 100, 124, 200] {
-            let bounds = special_bounds(dim);
-            assert!(bounds.0 <= bounds.1, "{dim}D: {bounds:?}");
-        }
-        let (lo, hi) = special_bounds(10);
-        assert_abs_diff_eq!(lo, 0.0588, epsilon = 1e-4);
-        assert_abs_diff_eq!(hi, 150.01, epsilon = 1e-2);
-        let (lo, hi) = special_bounds(20);
-        assert_abs_diff_eq!(lo, 0.0444, epsilon = 1e-4);
-        assert_abs_diff_eq!(hi, 78.94, epsilon = 1e-2);
+        let default = array![ThetaTuning::<f64>::DEFAULT_BOUNDS];
+        assert_eq!(theta_bounds(&ThetaTuning::default()), default);
+        assert_eq!(
+            theta_bounds(&ThetaTuning::Fixed(array![1.])),
+            default,
+            "no bounds"
+        );
+        let given = array![(0.1, 5.)];
+        let tuning = ThetaTuning::Full {
+            init: array![1.],
+            bounds: given.clone(),
+        };
+        assert_eq!(theta_bounds(&tuning), given);
+        let given = array![(0.1, 5.), (1., 20.)];
+        let tuning = ThetaTuning::Partial {
+            init: array![1., 1.],
+            bounds: given.clone(),
+            active: vec![0],
+        };
+        assert_eq!(theta_bounds(&tuning), given);
+    }
+
+    #[test]
+    fn test_clamp_theta_init() {
+        let init = array![0.01, 0.5, 20.];
+        assert_eq!(
+            clamp_theta_init(&init, &array![(0.1, 10.)]),
+            array![0.1, 0.5, 10.]
+        );
+        assert_eq!(
+            clamp_theta_init(&init, &array![(0.1, 1.), (0.6, 1.), (1., 30.)]),
+            array![0.1, 0.6, 20.]
+        );
+        assert_eq!(
+            clamp_theta_init(&array![0.1], &array![(0.2, 1.), (0.01, 1.)]),
+            array![0.2, 0.1]
+        );
+        assert_eq!(
+            clamp_theta_init(&array![0.1], &array![(0.2, 1.)]),
+            array![0.2]
+        );
     }
 }

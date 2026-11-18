@@ -170,6 +170,8 @@ impl GpConfig {
     }
 
     /// Sets the parameter tuning hint of the autocorrelation model
+    ///
+    /// When theta is optimized, the initial theta is clamped within the bounds.
     pub fn theta_tuning(mut self, theta_tuning: ThetaTuning<f64>) -> Self {
         self.theta_tuning = theta_tuning;
         self

@@ -276,13 +276,13 @@ where
     ) -> Option<Box<dyn MixtureGpSurrogate>> {
         let mut builder =
             self.configured_builder(NbClusters::Fixed { nb: 1 }, egobox_moe::Recombination::Hard);
-        let dim = self.config.gp.kpls_dim.unwrap_or(xt.ncols());
         let theta_tuning = if self.config.gp.theta_tuning.is_fixed() {
             self.config.gp.theta_tuning.clone()
         } else {
+            let bounds = crate::utils::theta_bounds(&self.config.gp.theta_tuning);
             ThetaTuning::Full {
-                init: self.config.gp.theta_tuning.init().to_owned(),
-                bounds: crate::utils::theta_bounds(&self.config.gp.theta_tuning, dim),
+                init: crate::utils::clamp_theta_init(self.config.gp.theta_tuning.init(), &bounds),
+                bounds,
             }
         };
         builder.set_theta_tunings(&[theta_tuning]);
@@ -339,7 +339,7 @@ where
             inits
         };
 
-        let theta_bounds = crate::utils::theta_bounds(&self.config.gp.theta_tuning, dim);
+        let theta_bounds = crate::utils::theta_bounds(&self.config.gp.theta_tuning);
 
         let actives = if self.config.gp.kpls_dim.is_some() {
             // KPLS takes priority: use full theta optimization in PLS-reduced space
@@ -360,6 +360,21 @@ where
                                     "Automated clustering not available with cooperative activity strategy"
                                 )
                             }
+                            // The number of clusters is not known yet: a single tuning,
+                            // used for all clusters, from the configured initial theta
+                            let theta_tuning = match spec.theta {
+                                ThetaOptimization::Enabled => ThetaTuning::Full {
+                                    init: crate::utils::clamp_theta_init(
+                                        self.config.gp.theta_tuning.init(),
+                                        &theta_bounds,
+                                    ),
+                                    bounds: theta_bounds.to_owned(),
+                                },
+                                ThetaOptimization::Disabled => {
+                                    self.config.gp.theta_tuning.to_fixed()
+                                }
+                            };
+                            builder.set_theta_tunings(&[theta_tuning]);
                         }
                         NbClusters::Fixed { nb: _ } => {
                             let theta_tunings = match spec.theta {
@@ -371,7 +386,10 @@ where
                                         best_theta_inits
                                             .outer_iter()
                                             .map(|init| ThetaTuning::Full {
-                                                init: init.to_owned(),
+                                                init: crate::utils::clamp_theta_init(
+                                                    &init.to_owned(),
+                                                    &theta_bounds,
+                                                ),
                                                 bounds: theta_bounds.to_owned(),
                                             })
                                             .collect::<Vec<_>>()
@@ -379,7 +397,10 @@ where
                                         best_theta_inits
                                             .outer_iter()
                                             .map(|init| ThetaTuning::Partial {
-                                                init: init.to_owned(),
+                                                init: crate::utils::clamp_theta_init(
+                                                    &init.to_owned(),
+                                                    &theta_bounds,
+                                                ),
                                                 bounds: theta_bounds.to_owned(),
                                                 active: coego::strip(&active.to_vec(), init.len()),
                                             })
@@ -427,7 +448,10 @@ where
                             let mut inits = best_theta_inits
                                 .outer_iter()
                                 .map(|init| ThetaTuning::Full {
-                                    init: init.to_owned(),
+                                    init: crate::utils::clamp_theta_init(
+                                        &init.to_owned(),
+                                        &theta_bounds,
+                                    ),
                                     bounds: theta_bounds.to_owned(),
                                 })
                                 .collect::<Vec<_>>();

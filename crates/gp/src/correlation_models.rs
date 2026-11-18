@@ -97,12 +97,6 @@ pub trait CorrelationModel<F: Float>: Clone + Copy + Default + fmt::Display + Sy
         theta: &ArrayBase<impl Data<Elem = F>, Ix1>,
         weights: &ArrayBase<impl Data<Elem = F>, Ix2>,
     ) -> (Array2<F>, Array2<F>);
-
-    /// Returns the theta influence factors for the correlation model.
-    /// See <https://hal.science/hal-03812073v2/document>
-    fn theta_influence_factors(&self) -> (F, F) {
-        (F::one(), F::one())
-    }
 }
 
 /// Squared exponential correlation models
@@ -200,10 +194,6 @@ impl<F: Float> CorrelationModel<F> for SquaredExponentialCorr {
         };
         let jr = d * &neg_theta_w_sq * &r;
         (r, jr)
-    }
-
-    fn theta_influence_factors(&self) -> (F, F) {
-        (F::cast(0.29), F::cast(1.96))
     }
 }
 
@@ -309,10 +299,6 @@ impl<F: Float> CorrelationModel<F> for AbsoluteExponentialCorr {
         };
         let jr = &(d.mapv(|v| v.signum()) * &neg_theta_w) * &r;
         (r, jr)
-    }
-
-    fn theta_influence_factors(&self) -> (F, F) {
-        (F::cast(0.15), F::cast(3.76))
     }
 }
 
@@ -420,10 +406,6 @@ impl<F: Float> CorrelationModel<F> for Matern32Corr {
         let r = self.rval_from_distances(&d, theta, weights);
         let jr = self._jac_from_r(&d, &r, theta, weights);
         (r, jr)
-    }
-
-    fn theta_influence_factors(&self) -> (F, F) {
-        (F::cast(0.21), F::cast(2.74))
     }
 }
 
@@ -557,10 +539,6 @@ impl<F: Float> CorrelationModel<F> for Matern52Corr {
         let r = self.rval_from_distances(&d, theta, weights);
         let jr = self._jac_from_r(&d, &r, theta, weights);
         (r, jr)
-    }
-
-    fn theta_influence_factors(&self) -> (F, F) {
-        (F::cast(0.23), F::cast(2.44))
     }
 }
 
