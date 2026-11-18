@@ -367,6 +367,12 @@ pub struct ValidEgorConfig {
     pub(crate) seed: Option<u64>,
     /// Constrained infill criterion activation
     pub(crate) cstr_infill: bool,
+    /// With `cstr_infill`, only the probability of feasibility drives the infill
+    /// until a feasible point is found.
+    /// Not serialized so that hot start checkpoints keep their layout: a resumed run
+    /// takes it from its own configuration.
+    #[serde(skip)]
+    pub(crate) feasibility_first: bool,
     /// Constraints criterion
     pub(crate) cstr_strategy: ConstraintStrategy,
     /// Feasibility Enhanced criterion
@@ -409,6 +415,7 @@ impl Default for ValidEgorConfig {
             xtypes: vec![],
             seed: None,
             cstr_infill: false,
+            feasibility_first: false,
             cstr_strategy: ConstraintStrategy::MeanConstraint,
             feasibility_infill: FeasibleInfillStrategy::None,
             failsafe_strategy: FailsafeStrategy::Rejection,
@@ -808,6 +815,22 @@ impl EgorConfig {
     /// Activate constrained infill criterion
     pub fn cstr_infill(mut self, activated: bool) -> Self {
         self.0.cstr_infill = activated;
+        self
+    }
+
+    /// Sets how the constrained infill criterion (see [`EgorConfig::cstr_infill`]) searches
+    /// while no feasible point is known yet.
+    ///
+    /// * `false` (default): the infill criterion weighted by the probability of feasibility
+    ///   of the constraint surrogates is used from the first iteration.
+    /// * `true`: only the probability of feasibility drives the infill until a feasible point
+    ///   is found, then the weighted infill criterion is used. It may help when finding
+    ///   a feasible point is the hard part of the problem, at the cost of a slower decrease
+    ///   of the objective.
+    ///
+    /// Has no effect when `cstr_infill` is not activated.
+    pub fn feasibility_first(mut self, enabled: bool) -> Self {
+        self.0.feasibility_first = enabled;
         self
     }
 

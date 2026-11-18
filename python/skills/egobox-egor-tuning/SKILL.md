@@ -68,6 +68,10 @@ If optimization stagnates:
 - `Egor(cstr_tol=...)` was removed in 1.0.0, give a `tol` to each `CstrSpec` instead
 - Prefer a narrow band `CstrSpec.between(-eps, eps)` to `CstrSpec.eq(0.0)` for equality constraints
 - Keep `cstr_infill=True`, in particular when no initial DOE point is feasible
+- With `cstr_infill=True`, the criterion weighted by the probability of feasibility is used from the
+  first iteration (default). `feasibility_first=True` searches with the probability of feasibility
+  alone until a feasible point is found: it finds one sooner but improves the objective more slowly,
+  so use it only when finding a feasible point is the hard part
 - Use `InfillOptimizer.SLSQP` when constraints are expected to be active at the optimum
 
 ### Failures
