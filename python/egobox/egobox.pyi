@@ -188,8 +188,13 @@ class Belfegor:
         Notes
         -----
         Ctrl-C (KeyboardInterrupt) stops the optimization after the current iteration and the
-        result obtained so far is returned with status.exit == ExitStatus.INTERRUPT.
-        An objective evaluation interrupted by Ctrl-C counts as a failed evaluation.
+        result obtained so far is returned with status.exit == ExitStatus.INTERRUPT, also when
+        Ctrl-C is pressed again meanwhile. KeyboardInterrupt is raised instead when there is no
+        result yet (e.g. Ctrl-C while `fun` evaluates the initial DOE). An objective evaluation
+        interrupted by Ctrl-C counts as a failed evaluation.
+        Other exceptions raised by signal handlers (e.g. SystemExit from sys.exit()) stop the
+        optimization the same way, then are raised. Within `fun` or `fcstrs`, this applies to
+        exceptions which are not Exception subclasses, others being evaluation errors.
         """
     def suggest(self, x_doe: numpy.typing.NDArray[numpy.float64], y_doe: numpy.typing.NDArray[numpy.float64], seed: typing.Optional[builtins.int] = None) -> numpy.typing.NDArray[numpy.float64]:
         r"""
@@ -581,8 +586,13 @@ class Egor:
         Notes
         -----
         Ctrl-C (KeyboardInterrupt) stops the optimization after the current iteration and the
-        result obtained so far is returned with status.exit == ExitStatus.INTERRUPT.
-        An objective evaluation interrupted by Ctrl-C counts as a failed evaluation.
+        result obtained so far is returned with status.exit == ExitStatus.INTERRUPT, also when
+        Ctrl-C is pressed again meanwhile. KeyboardInterrupt is raised instead when there is no
+        result yet (e.g. Ctrl-C while `fun` evaluates the initial DOE). An objective evaluation
+        interrupted by Ctrl-C counts as a failed evaluation.
+        Other exceptions raised by signal handlers (e.g. SystemExit from sys.exit()) stop the
+        optimization the same way, then are raised. Within `fun` or `fcstrs`, this applies to
+        exceptions which are not Exception subclasses, others being evaluation errors.
         """
     def suggest(self, x_doe: numpy.typing.NDArray[numpy.float64], y_doe: numpy.typing.NDArray[numpy.float64], seed: typing.Optional[builtins.int] = None) -> numpy.typing.NDArray[numpy.float64]:
         r"""
@@ -1984,7 +1994,7 @@ class ExitStatus(enum.Enum):
     """
     INTERRUPT = ...
     r"""
-    Algorithm manually interrupted with SIGINT (Ctrl+C), SIGTERM or SIGHUP
+    Algorithm interrupted with Ctrl-C (KeyboardInterrupt)
     """
     SOLVER_CONVERGED = ...
     r"""

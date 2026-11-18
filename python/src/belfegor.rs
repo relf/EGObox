@@ -264,8 +264,13 @@ impl Belfegor {
     /// Notes
     /// -----
     /// Ctrl-C (KeyboardInterrupt) stops the optimization after the current iteration and the
-    /// result obtained so far is returned with status.exit == ExitStatus.INTERRUPT.
-    /// An objective evaluation interrupted by Ctrl-C counts as a failed evaluation.
+    /// result obtained so far is returned with status.exit == ExitStatus.INTERRUPT, also when
+    /// Ctrl-C is pressed again meanwhile. KeyboardInterrupt is raised instead when there is no
+    /// result yet (e.g. Ctrl-C while `fun` evaluates the initial DOE). An objective evaluation
+    /// interrupted by Ctrl-C counts as a failed evaluation.
+    /// Other exceptions raised by signal handlers (e.g. SystemExit from sys.exit()) stop the
+    /// optimization the same way, then are raised. Within `fun` or `fcstrs`, this applies to
+    /// exceptions which are not Exception subclasses, others being evaluation errors.
     ///
     #[pyo3(signature = (fun, fcstrs=None, fcstr_specs=None, max_iters = 20, run_info = None, outdir = None, warm_start = false, hot_start = None, seed = None, timeout = None, verbose = None, stop_on_error = false))]
     #[allow(clippy::too_many_arguments)]

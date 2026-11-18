@@ -12,7 +12,7 @@
 //!
 
 use crate::domain::*;
-use crate::errors::{CallbackError, ego_err, install_panic_hook};
+use crate::errors::{CallbackError, Interruption, ego_err, install_panic_hook};
 use crate::gp_config::*;
 use crate::logging::init_logger;
 use crate::qei_config::*;
@@ -23,12 +23,11 @@ use egobox_ego::{CoegoStatus, EGO_DEFAULT_N_START, InfillObjData, find_best_resu
 use egobox_moe::to_continuous_space;
 use ndarray::{Array1, Array2, ArrayView2, Axis, concatenate};
 use numpy::{IntoPyArray, PyArray2, PyReadonlyArray2, PyReadonlyArrayDyn, ToPyArray};
-use pyo3::exceptions::{PyKeyboardInterrupt, PyTypeError, PyValueError};
+use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyTuple};
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 
 fn parse_trego_config(py: Python, value: Py<PyAny>) -> PyResult<TregoConfigSpec> {
     let value = value.bind(py);
@@ -380,8 +379,13 @@ impl Egor {
     /// Notes
     /// -----
     /// Ctrl-C (KeyboardInterrupt) stops the optimization after the current iteration and the
-    /// result obtained so far is returned with status.exit == ExitStatus.INTERRUPT.
-    /// An objective evaluation interrupted by Ctrl-C counts as a failed evaluation.
+    /// result obtained so far is returned with status.exit == ExitStatus.INTERRUPT, also when
+    /// Ctrl-C is pressed again meanwhile. KeyboardInterrupt is raised instead when there is no
+    /// result yet (e.g. Ctrl-C while `fun` evaluates the initial DOE). An objective evaluation
+    /// interrupted by Ctrl-C counts as a failed evaluation.
+    /// Other exceptions raised by signal handlers (e.g. SystemExit from sys.exit()) stop the
+    /// optimization the same way, then are raised. Within `fun` or `fcstrs`, this applies to
+    /// exceptions which are not Exception subclasses, others being evaluation errors.
     ///
     #[pyo3(signature = (fun, fcstrs=None, fcstr_specs=None, max_iters = 20, run_info = None, outdir = None, warm_start = false, hot_start = None, seed = None, timeout = None, verbose = None, stop_on_error = false))]
     #[allow(clippy::too_many_arguments)]
@@ -750,17 +754,10 @@ impl Egor {
         let callback_error = &callback_error;
         install_panic_hook();
 
-        // Ctrl-C is handled by Python: a KeyboardInterrupt raised within a user callback,
-        // or a SIGINT received while the optimizer runs, stops the optimization
-        // after the current iteration (see `interrupt_check` below)
-        let interrupted = Arc::new(AtomicBool::new(false));
-        let is_interrupt = |py: Python, e: &PyErr| {
-            let interrupt = e.is_instance_of::<PyKeyboardInterrupt>(py);
-            if interrupt {
-                interrupted.store(true, AtomicOrdering::Relaxed);
-            }
-            interrupt
-        };
+        // Ctrl-C and signals are handled by Python: Ctrl-C (KeyboardInterrupt) or an exception
+        // raised by a signal handler, within a user callback or while the optimizer runs (see
+        // `interrupt_check` below), stops the optimization after the current iteration
+        let interruption = Arc::new(Interruption::default());
 
         let n_obj = moo.map_or(1, |moo| moo.n_obj);
         let ny = n_obj
@@ -774,9 +771,11 @@ impl Egor {
                 let res = fun.bind(py).call1(args);
                 match res {
                     // Interrupted evaluation: a failed one, the optimization stops afterwards
-                    Err(e) if is_interrupt(py, &e) => {
+                    Err(e) if Interruption::is_interruption(py, &e) => {
                         log::warn!("Objective function evaluation interrupted");
-                        Err(e.to_string())
+                        let msg = e.to_string();
+                        interruption.record(py, e);
+                        Err(msg)
                     }
                     // Python exception in objective function is handled by the optimizer
                     // wrt stop_on_error and failsafe_strategy options
@@ -823,7 +822,8 @@ impl Egor {
                         // the optimization stops after the current iteration
                         let call = |grad: bool| {
                             cstr.call(py, x, grad).or_else(|e| {
-                                if is_interrupt(py, &e) {
+                                if Interruption::is_interruption(py, &e) {
+                                    interruption.record(py, e);
                                     cstr.call(py, x, grad)
                                 } else {
                                     Err(e)
@@ -879,17 +879,14 @@ impl Egor {
             RunInfo::default()
         };
 
-        let interrupted_check = interrupted.clone();
+        let interrupt = interruption.clone();
         let mixintegor = mixintegor
             .run_info(egobox_ego::RunInfo {
                 fname: py_run_info.fname.clone(),
                 num: py_run_info.num,
             })
             // run Python signal handlers: a pending SIGINT raises KeyboardInterrupt
-            .interrupt_check(move || {
-                interrupted_check.load(AtomicOrdering::Relaxed)
-                    || Python::attach(|py| py.check_signals().is_err())
-            });
+            .interrupt_check(move || Python::attach(|py| interrupt.check(py)));
 
         let pareto = moo.is_some();
         let res = py.detach(|| {
@@ -902,7 +899,7 @@ impl Egor {
             }))
         });
         let res = match res {
-            Ok(res) => res.map_err(ego_err)?,
+            Ok(res) => interruption.finish(py, res)?,
             // The optimizer was aborted: raise the recorded callback error if any
             // (the panic payload may have been rewrapped when crossing threads)
             Err(payload) => match callback_error.take() {
