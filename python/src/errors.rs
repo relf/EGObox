@@ -5,10 +5,13 @@
 //! which is raised as `pyo3_runtime.PanicException` (a `BaseException` subclass).
 use std::error::Error;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, Once};
 
 use ndarray::{Array1, Array2, ArrayView1, ArrayView2, ArrayViewD, Axis, Ix1, Ix2};
-use pyo3::exceptions::{PyOSError, PyRuntimeError, PyTypeError, PyValueError};
+use pyo3::exceptions::{
+    PyException, PyKeyboardInterrupt, PyOSError, PyRuntimeError, PyTypeError, PyValueError,
+};
 use pyo3::prelude::*;
 
 /// Format an error message including its chain of sources
@@ -197,6 +200,64 @@ impl CallbackError {
     /// Retrieve the recorded error if any
     pub(crate) fn take(&self) -> Option<PyErr> {
         self.0.lock().ok().and_then(|mut slot| slot.take())
+    }
+}
+
+/// Interruption of an optimization from Python: Ctrl-C (`KeyboardInterrupt`) or any other
+/// exception raised by a signal handler, or an exception raised by a user callback which is
+/// not an `Exception` subclass (e.g. `SystemExit`).
+///
+/// The optimizer stops after the current iteration, then [`Interruption::finish`] gives the
+/// result obtained so far on Ctrl-C, while any other exception is raised.
+#[derive(Default)]
+pub(crate) struct Interruption {
+    interrupted: AtomicBool,
+    error: Mutex<Option<PyErr>>,
+}
+
+impl Interruption {
+    /// Whether an error raised by a user callback interrupts the optimization instead of
+    /// being an evaluation error: `KeyboardInterrupt`, `SystemExit`, ... are not `Exception`s
+    pub(crate) fn is_interruption(py: Python, err: &PyErr) -> bool {
+        !err.is_instance_of::<PyException>(py)
+    }
+
+    /// Record the exception interrupting the optimization: the first one is kept,
+    /// unless it is a `KeyboardInterrupt` and `err` is not, as `err` has to be raised then
+    pub(crate) fn record(&self, py: Python, err: PyErr) {
+        self.interrupted.store(true, Ordering::Relaxed);
+        if let Ok(mut slot) = self.error.lock()
+            && slot.as_ref().is_none_or(|first| {
+                first.is_instance_of::<PyKeyboardInterrupt>(py)
+                    && !err.is_instance_of::<PyKeyboardInterrupt>(py)
+            })
+        {
+            *slot = Some(err);
+        }
+    }
+
+    /// Run the Python signal handlers, recording the exception raised if any
+    /// (`KeyboardInterrupt` on Ctrl-C), and tell whether the optimization is interrupted.
+    /// Signals are handled even when already interrupted: a pending one (e.g. Ctrl-C pressed
+    /// again) would otherwise raise once the optimization is over, its result being lost.
+    pub(crate) fn check(&self, py: Python) -> bool {
+        if let Err(err) = py.check_signals() {
+            self.record(py, err);
+        }
+        self.interrupted.load(Ordering::Relaxed)
+    }
+
+    /// Outcome of an optimization run once the optimizer returned, given the signals received
+    /// until then: when interrupted by Ctrl-C, the result obtained so far (`KeyboardInterrupt`
+    /// is raised when there is none, e.g. while the initial DOE was evaluated), otherwise the
+    /// exception which interrupted the optimization is raised.
+    pub(crate) fn finish<T>(&self, py: Python, res: egobox_ego::Result<T>) -> PyResult<T> {
+        self.check(py);
+        match (self.error.lock().ok().and_then(|mut slot| slot.take()), res) {
+            (Some(err), Ok(res)) if err.is_instance_of::<PyKeyboardInterrupt>(py) => Ok(res),
+            (Some(err), _) => Err(err),
+            (None, res) => res.map_err(ego_err),
+        }
     }
 }
 

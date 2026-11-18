@@ -876,7 +876,7 @@ pub(crate) enum ExitStatus {
     MaxItersReached = 1,
     /// Reached target cost function value
     TargetCostReached = 2,
-    /// Algorithm manually interrupted with SIGINT (Ctrl+C), SIGTERM or SIGHUP
+    /// Algorithm interrupted with Ctrl-C (KeyboardInterrupt)
     Interrupt = 3,
     /// Algorithm picked the same point twice. We consider it is converged.
     SolverConverged = 4,
