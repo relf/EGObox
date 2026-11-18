@@ -278,3 +278,76 @@ fn current_param_and_cost_are_an_evaluated_point() {
     // evaluated value, not the surrogate prediction
     assert_eq!(result.y_doe.row(index), cost);
 }
+
+/// xsinx with a constraint feasible only in [20, 21], away from the initial DOE
+fn xsinx_cstr(x: &ArrayView2<f64>) -> Array2<f64> {
+    let c = (x - 20.) * (x - 21.);
+    ndarray::concatenate![ndarray::Axis(1), xsinx(x), c]
+}
+
+#[test]
+fn checkpoint_continuation_uses_run_feasibility_first() {
+    use egobox_ego::HotStartMode;
+    let dir = std::env::temp_dir().join(format!("egobox-basin-ff-{}", std::process::id()));
+    let run = |iters, feasibility_first, mode, save| {
+        EgorBuilder::optimize(xsinx_cstr)
+            .configure(|cfg| {
+                let cfg = cfg
+                    .n_cstr(1)
+                    .doe(&array![[0.], [7.], [12.]])
+                    .cstr_infill(true)
+                    .feasibility_first(feasibility_first)
+                    .seed(42)
+                    .max_iters(iters)
+                    .hot_start(mode);
+                if save {
+                    cfg.outdir(dir.to_str().unwrap())
+                } else {
+                    cfg
+                }
+            })
+            .min_within(&array![[0., 25.]])
+            .unwrap()
+            .run()
+            .unwrap()
+    };
+    let expected = run(4, true, HotStartMode::Disabled, false);
+
+    // feasibility_first is not saved in the checkpoint: the resumed run uses its own setting
+    let _ = std::fs::remove_dir_all(&dir);
+    run(1, true, HotStartMode::Enabled, true);
+    let resumed = run(99, true, HotStartMode::ExtendedIters(3), true);
+    assert_eq!(resumed.state.iter, 4);
+    assert_eq!(resumed.x_doe, expected.x_doe);
+    assert_eq!(resumed.y_doe, expected.y_doe);
+
+    // the setting matters after resumption
+    let _ = std::fs::remove_dir_all(&dir);
+    run(1, true, HotStartMode::Enabled, true);
+    let switched = run(99, false, HotStartMode::ExtendedIters(3), true);
+    assert_eq!(switched.state.iter, 4);
+    assert_ne!(switched.x_doe, expected.x_doe);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn feasible_initial_doe_disables_feasibility_first_search() {
+    // the initial DOE has a feasible point (x=20.5): the feasibility-first search,
+    // used only while no feasible point is known, never applies
+    let run = |feasibility_first| {
+        EgorBuilder::optimize(xsinx_cstr)
+            .configure(|cfg| {
+                cfg.n_cstr(1)
+                    .doe(&array![[0.], [7.], [20.5]])
+                    .cstr_infill(true)
+                    .feasibility_first(feasibility_first)
+                    .seed(42)
+                    .max_iters(2)
+            })
+            .min_within(&array![[0., 25.]])
+            .unwrap()
+            .run()
+            .unwrap()
+    };
+    assert_eq!(run(true).x_doe, run(false).x_doe);
+}

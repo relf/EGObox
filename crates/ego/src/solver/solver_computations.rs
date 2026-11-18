@@ -418,6 +418,7 @@ where
         let pof = PofWeighting {
             models: cstr_models,
             tols: &tols,
+            feasibility_first: self.config.feasibility_first,
         };
         let data = infill_obj_data(fmin, scale, scale_ic, feasibility, sigma_weight);
         infill_objective(&acquisition, Some(&pof), x, &data, false).0
@@ -445,6 +446,7 @@ where
         let pof = PofWeighting {
             models: cstr_models,
             tols: &tols,
+            feasibility_first: self.config.feasibility_first,
         };
         let data = infill_obj_data(fmin, scale, scale_ic, feasibility, sigma_weight);
         let (_, grad) = infill_objective(&acquisition, Some(&pof), x, &data, true);

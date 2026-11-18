@@ -374,6 +374,7 @@ rnd = egx.random(xlimits, n_samples=20, seed=42)  # Random
   (`theta_max_eval` its likelihood evaluations budget). The former `n_start` / `max_eval` names were removed in 1.0.0.
 - **Best point of a DOE**: `egor.best_result(x_doe, y_doe)` / `egor.best_index(y_doe)` (`get_result` / `get_result_index` were removed in 1.0.0).
 - **`cstr_infill` vs `feasible_infill_strategy`**: the former weights the criterion by the probability of feasibility of the `n_cstr` constraints, the latter (`EFI_P`, `EFI_FE`) by the probability of viability, i.e. of `fun` not failing. They are independent.
+- **`feasibility_first`** (default `False`, only with `cstr_infill=True`): when `True`, the probability of feasibility alone drives the infill until a feasible point is found, as in 0.38.0 to 1.0.1; when `False`, the criterion weighted by the probability of feasibility is used from the first iteration, as up to 0.37.
 - **`xtypes` vs `xlimits`**: pass a flat list of `[lo, hi]` for continuous-only; use `XSpec` objects for mixed-integer.
 - **Low `n_doe`**: default is `max(n_dims + 1, 5)`. For complex functions, use `n_doe = 3 * n_dims` or more.
 

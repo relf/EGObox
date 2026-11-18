@@ -80,10 +80,14 @@ pub(crate) struct PofWeighting<'a> {
     pub(crate) models: &'a [Box<dyn MixtureGpSurrogate>],
     /// Tolerances of the constraints, the ones of the models first
     pub(crate) tols: &'a [f64],
+    /// Whether only the probability of feasibility drives the search
+    /// while no feasible point is found (see `EgorConfig::feasibility_first`)
+    pub(crate) feasibility_first: bool,
 }
 
-/// Infill objective value when no feasible point is found yet: a neutral factor
-/// of the probability of feasibility, -1 for linear composition, 0 for log composition
+/// Infill objective value when no feasible point is found yet in feasibility-first mode:
+/// a neutral factor of the probability of feasibility, -1 for linear composition,
+/// 0 for log composition
 pub(crate) fn neutral_infill_val(composition: InfillComposition) -> f64 {
     if composition.is_log() { 0.0 } else { -1.0 }
 }
@@ -96,9 +100,9 @@ pub(crate) fn neutral_infill(composition: InfillComposition, dim: usize) -> (f64
 /// Infill objective to be minimized at `x`, and its gradient when `with_grad`:
 /// the opposite of the acquisition criterion scaled by `data.scale_infill_obj`,
 /// weighted by the probability of feasibility of the constraint surrogates when `pof` is given.
-/// With `pof`, while no feasible point is found (`data.feasibility` false),
-/// the criterion is replaced by a neutral value so that the probability of feasibility
-/// alone drives the search.
+/// With `pof` in feasibility-first mode, while no feasible point is found
+/// (`data.feasibility` false), the criterion is replaced by a neutral value so that
+/// the probability of feasibility alone drives the search.
 pub(crate) fn infill_objective(
     acquisition: &dyn Acquisition,
     pof: Option<&PofWeighting>,
@@ -107,7 +111,7 @@ pub(crate) fn infill_objective(
     with_grad: bool,
 ) -> (f64, Option<Array1<f64>>) {
     let composition = acquisition.composition();
-    let (mut obj, mut grad) = if pof.is_some() && !data.feasibility {
+    let (mut obj, mut grad) = if pof.is_some_and(|p| p.feasibility_first) && !data.feasibility {
         let (value, grad) = neutral_infill(composition, x.len());
         (value, with_grad.then_some(grad))
     } else if with_grad {
@@ -119,7 +123,7 @@ pub(crate) fn infill_objective(
     } else {
         (-acquisition.value(x, data) / data.scale_infill_obj, None)
     };
-    if let Some(PofWeighting { models, tols }) = pof {
+    if let Some(PofWeighting { models, tols, .. }) = pof {
         // gradient weighted only when there are models (null weighting gradient otherwise)
         let weight_grad = !models.is_empty();
         if composition.is_log() {
@@ -200,18 +204,24 @@ mod tests {
         let sigma_weight = 0.1;
         let fmin = pred[0] - sigma_weight * var[0].sqrt();
 
-        let with_models = PofWeighting {
+        let with_models = |feasibility_first| PofWeighting {
             models: cstr_models,
             tols: &tols,
+            feasibility_first,
         };
-        let without_models = PofWeighting {
+        let without_models = |feasibility_first| PofWeighting {
             models: &[],
             tols: &[],
+            feasibility_first,
         };
-        let weightings: [(&str, Option<&PofWeighting>); 3] = [
+        let (with_ff, with_cp) = (with_models(true), with_models(false));
+        let (without_ff, without_cp) = (without_models(true), without_models(false));
+        let weightings: [(&str, Option<&PofWeighting>); 5] = [
             ("plain", None),
-            ("PoF", Some(&with_models)),
-            ("PoF without models", Some(&without_models)),
+            ("PoF feasibility-first", Some(&with_ff)),
+            ("PoF", Some(&with_cp)),
+            ("PoF without models feasibility-first", Some(&without_ff)),
+            ("PoF without models", Some(&without_cp)),
         ];
         let criteria: [(&str, &dyn InfillCriterion); 3] =
             [("EI", &EI), ("LogEI", &LOG_EI), ("WB2S", &WB2S)];
@@ -262,6 +272,7 @@ mod tests {
         let pof = PofWeighting {
             models: &[],
             tols: &[],
+            feasibility_first: true,
         };
         let data = InfillObjData {
             fmin: 0.,
@@ -281,6 +292,45 @@ mod tests {
                 let (v, g) = infill_objective(&acquisition, Some(&pof), &[x], &data, true);
                 assert_eq!(v, neutral);
                 assert_eq!(g.unwrap(), array![0.]);
+            }
+        }
+    }
+
+    #[test]
+    fn test_pof_weighted_criterion_without_feasible_point() {
+        // default mode (not feasibility-first): while no feasible point is found,
+        // the criterion weighted by the probability of feasibility is used as when
+        // a feasible point is known
+        let (models, _) = models(3);
+        let (obj_model, cstr_models) = (&*models[0], &models[1..2]);
+        let tols = [1e-4];
+        let pof = PofWeighting {
+            models: cstr_models,
+            tols: &tols,
+            feasibility_first: false,
+        };
+        let data = |feasibility| InfillObjData {
+            fmin: 0.,
+            scale_infill_obj: 2.,
+            feasibility,
+            ..Default::default()
+        };
+        let criteria: [&dyn InfillCriterion; 3] = [&EI, &LOG_EI, &WB2S];
+        for criterion in criteria {
+            let acquisition = MonoAcquisition {
+                criterion,
+                obj_model,
+                viability_model: None,
+                alpha: None,
+            };
+            let neutral = neutral_infill_val(criterion.composition());
+            for x in [0.1, 0.62] {
+                let (v, g) = infill_objective(&acquisition, Some(&pof), &[x], &data(false), true);
+                let (v_feas, g_feas) =
+                    infill_objective(&acquisition, Some(&pof), &[x], &data(true), true);
+                assert_eq!(v, v_feas);
+                assert_eq!(g, g_feas);
+                assert_ne!(v, neutral);
             }
         }
     }

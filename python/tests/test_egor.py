@@ -239,6 +239,28 @@ class TestEgor(unittest.TestCase):
         self.assertGreaterEqual(n_doe + max_iters, optim.result.x_doe.shape[0])
         self.assertEqual(1 + n_cstr, optim.result.y_doe.shape[1])
 
+    def test_g24_cstr_infill(self):
+        # constrained infill criterion, with or without the feasibility-first search:
+        # a feasible point close to the optimum (-5.508) is found in both modes
+        n_cstr = 2
+        tol = 1e-3
+        for feasibility_first in [False, True]:
+            with self.subTest(feasibility_first=feasibility_first):
+                egor = egx.Egor(
+                    [[0.0, 3.0], [0.0, 4.0]],
+                    cstr_specs=[egx.CstrSpec.leq(0.0, tol=tol)] * n_cstr,
+                    n_doe=5,
+                    cstr_infill=True,
+                    feasibility_first=feasibility_first,
+                )
+                optim = egor.minimize(g24, max_iters=30, seed=42)
+                print(
+                    f"feasibility_first={feasibility_first}: "
+                    f"f={optim.result.y_opt} at {optim.result.x_opt}"
+                )
+                self.assertLess(optim.result.y_opt[0], -5.0)
+                self.assertTrue(np.all(optim.result.y_opt[1:] <= tol))
+
     def test_reinit(self):
         n_doe = 15
         egor = egx.Egor(

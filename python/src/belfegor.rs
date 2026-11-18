@@ -75,6 +75,10 @@ use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 ///     Random generator seed used by `minimize()` and `suggest()` when they are not given one.
 /// verbose : Verbose or int, optional
 ///     Logging verbosity level used by `minimize()` and `suggest()` when `minimize()` is not given one.
+/// feasibility_first : bool
+///     With `cstr_infill`, while no feasible point is known, only the probability of feasibility
+///     drives the infill (feasibility-first). Default False: the infill criterion weighted by the
+///     probability of feasibility is used from the first iteration. No effect without `cstr_infill`.
 ///
 /// Returns
 /// -------
@@ -112,6 +116,7 @@ impl Belfegor {
         failsafe_strategy = FailsafeStrategy::Rejection,
         seed = None,
         verbose = None,
+        feasibility_first = false,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -139,6 +144,7 @@ impl Belfegor {
         seed: Option<u64>,
         #[gen_stub(override_type(type_repr = "Verbose | builtins.int | None", imports = ("typing", "builtins")))]
         verbose: Option<Py<PyAny>>,
+        feasibility_first: bool,
     ) -> PyResult<Self> {
         if n_obj == 0 {
             return Err(PyValueError::new_err("n_obj should be at least 1"));
@@ -176,6 +182,7 @@ impl Belfegor {
             failsafe_strategy,
             seed,
             verbose,
+            feasibility_first,
         )?;
         let moo = MooSetup {
             n_obj,
