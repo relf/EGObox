@@ -124,7 +124,7 @@ This release stabilizes the Python API: the names deprecated in 0.38.0 are remov
 experimental multi-objective optimization: Rust `Egor` approximates the (constrained) Pareto front of several
 objectives, and the new Python `Belfegor` optimizer exposes it. Mono-objective optimization is unchanged,
 Rust API changes are additive (crates: `egobox-ego` 0.42.0, `egobox-moe` 0.36.2, `egobox-gp` 0.37.1).
-See [release notes](doc/release-notes-1.0.0.md) for details and the [multi-objective plan](doc/moo-plan.md)
+See [release notes](doc/release-notes-1.0.0.md) for details and the [multi-objective plan](https://github.com/relf/EGObox/blob/1.0.1/doc/moo-plan.md)
 for implementation notes.
 
 * **Breaking changes** (Python):

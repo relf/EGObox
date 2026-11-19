@@ -14,9 +14,9 @@ use crate::utils::select_from_portfolio;
 use crate::{EgorSolver, types::*};
 
 use egobox_doe::SamplingMethod;
-use egobox_moe::{Clustering, MixtureGpSurrogate};
+use egobox_moe::MixtureGpSurrogate;
 use log::{debug, info};
-use ndarray::{Array1, Array2, ArrayBase, ArrayView2, Axis, Data, Ix2, Zip, concatenate, s};
+use ndarray::{Array1, Array2, ArrayView2, Axis, Zip, concatenate, s};
 use ndarray_rand::rand::{Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256Plus;
 use serde::{Serialize, de::DeserializeOwned};
@@ -91,70 +91,6 @@ where
     SB: SurrogateBuilder + Serialize + DeserializeOwned,
     C: CstrFn,
 {
-    /// Returns next promising x points together with virtual (predicted) y values
-    /// from surrogate models (taking into account qei strategy if q_parallel)
-    /// infill criterion value is also returned
-    #[allow(clippy::too_many_arguments)]
-    #[allow(clippy::type_complexity)]
-    #[deprecated(
-        since = "0.43.0",
-        note = "internal to the EGO solver, use Egor or EgorService instead"
-    )]
-    pub fn select_next_points(
-        &self,
-        init: bool,
-        iter: u64,
-        recluster: bool,
-        clusterings: &mut [Option<Clustering>],
-        theta_inits: &mut [Option<Array2<f64>>],
-        models: &mut Vec<Box<dyn MixtureGpSurrogate>>,
-        activity: &Array2<usize>,
-        x_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
-        y_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
-        c_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
-        x_fail_points: Option<&Array2<f64>>,
-        cstr_tol: &Array1<f64>,
-        best_index: usize,
-        cstr_funcs: &[impl CstrFn],
-        fcstr_specs: Option<&[CstrSpec]>,
-        feasibility: bool,
-        rng: &mut Xoshiro256Plus,
-    ) -> (Array2<f64>, Array2<f64>, Array2<f64>, Array2<f64>, f64) {
-        let mut surrogates = SurrogateSet {
-            clusterings: clusterings.iter_mut().map(Option::take).collect(),
-            theta_inits: theta_inits.iter_mut().map(Option::take).collect(),
-            models: std::mem::take(models),
-        };
-        let inputs = SelectionInputs {
-            init,
-            iter,
-            recluster,
-            activity,
-            x_data: x_data.view(),
-            y_data: y_data.view(),
-            c_data: c_data.view(),
-            x_fail: x_fail_points,
-            cstr_tol,
-            best_index,
-            feasibility,
-            fcstrs: cstr_funcs,
-            fcstr_specs,
-        };
-        let candidates = self
-            .select_candidates(&inputs, &mut surrogates, rng)
-            .expect("GP training failure");
-        std::iter::zip(clusterings, surrogates.clusterings).for_each(|(dst, src)| *dst = src);
-        std::iter::zip(theta_inits, surrogates.theta_inits).for_each(|(dst, src)| *dst = src);
-        *models = surrogates.models;
-        (
-            candidates.x,
-            candidates.y,
-            candidates.c,
-            candidates.y_penalized,
-            candidates.infill_value,
-        )
-    }
-
     /// Returns next promising x points together with virtual (predicted) y values
     /// from `surrogates` (taking into account qei strategy if q_parallel)
     /// and the infill criterion value. `surrogates` are trained beforehand if needed.
