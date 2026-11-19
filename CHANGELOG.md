@@ -42,6 +42,10 @@ additive; breaking changes are Rust only (crates: `egobox-ego` 0.44.0, `egobox-m
 * **Deprecations**: the `c-cobyla` and `c-slsqp` features (C-ported NLopt optimizers) of `egobox-gp`,
   `egobox-moe`, `egobox-ego`, `egobox-gpx` and the Python package are deprecated and will be removed in the next
   breaking release. The Basin optimizers, used by default, need no feature
+* **Known issue** (Rust): `blas` on `egobox-moe` / `egobox-ego` does not enable `egobox-gp/blas`, so GP training
+  keeps the pure Rust backend (also enable `egobox-gp/blas`). Fixed in the next breaking release, which also
+  removes `MoeError::LinalgBlasError` and the `ndarray-linalg` features of these crates, see
+  <https://github.com/relf/EGObox/pull/577>
 * Interruption:
   * Python: Ctrl-C stops `minimize`, `GpMix.fit`, `SparseGpMix.fit` and `suggest` at once instead of after
     the GP training or infill optimization in progress by @relf in <https://github.com/relf/EGObox/pull/572>
