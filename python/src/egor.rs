@@ -16,6 +16,7 @@ use crate::errors::{
     CallbackError, Interruption, ego_err, install_panic_hook, interruptible_ego_err,
 };
 use crate::gp_config::*;
+use crate::interrupt_flag::{InterruptFlag, interruption};
 use crate::logging::init_logger;
 use crate::qei_config::*;
 use crate::sigint::SigintGuard;
@@ -381,6 +382,10 @@ impl Egor {
     /// stop_on_error : bool
     ///     If true, terminate optimization when the objective function raises an error.
     ///     Otherwise, the error is handled according to failsafe_strategy.
+    /// interrupt : InterruptFlag, optional
+    ///     the optimization is interrupted once this flag is set, from another thread or
+    ///     from within `fun`: the result obtained so far is returned with
+    ///     status.exit == ExitStatus.INTERRUPT (see Notes).
     ///
     /// Returns
     /// -------
@@ -408,11 +413,13 @@ impl Egor {
     /// is raised when there is no result yet (initial DOE evaluation). Called from another
     /// thread than the main one, or with a custom SIGINT handler, Ctrl-C is acted on after the
     /// current computation.
+    /// Setting the `interrupt` flag interrupts the optimization the same way, except that an
+    /// evaluation of `fun` in progress is not interrupted (`fun` may check the flag).
     /// Other exceptions raised by signal handlers (e.g. SystemExit from sys.exit()) stop the
     /// optimization the same way, then are raised. Within `fun` or `fcstrs`, this applies to
     /// exceptions which are not Exception subclasses, others being evaluation errors.
     ///
-    #[pyo3(signature = (fun, fcstrs=None, fcstr_specs=None, max_iters = 20, run_info = None, outdir = None, warm_start = false, hot_start = None, seed = None, timeout = None, verbose = None, stop_on_error = false))]
+    #[pyo3(signature = (fun, fcstrs=None, fcstr_specs=None, max_iters = 20, run_info = None, outdir = None, warm_start = false, hot_start = None, seed = None, timeout = None, verbose = None, stop_on_error = false, interrupt = None))]
     #[allow(clippy::too_many_arguments)]
     fn minimize(
         &self,
@@ -435,6 +442,7 @@ impl Egor {
         #[gen_stub(override_type(type_repr = "Verbose | builtins.int | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
         verbose: Option<Py<PyAny>>,
         stop_on_error: bool,
+        interrupt: Option<Py<InterruptFlag>>,
     ) -> PyResult<EgorOptim> {
         let (outcome, status) = self.optimize(
             py,
@@ -451,6 +459,7 @@ impl Egor {
             verbose,
             stop_on_error,
             None,
+            interrupt.as_ref().map(|flag| flag.get()),
         )?;
         let Outcome::Single(res) = outcome else {
             unreachable!("mono-objective optimization gives a single optimum")
@@ -487,6 +496,9 @@ impl Egor {
     /// seed : int >= 0, optional
     ///     Random generator seed to allow computation reproducibility.
     ///     When None, the seed given to the constructor (if any) is used.
+    /// interrupt : InterruptFlag, optional
+    ///     the suggestion is interrupted (Interrupted raised) once this flag is set,
+    ///     e.g. from another thread
     ///
     /// Returns
     /// -------
@@ -500,15 +512,23 @@ impl Egor {
     /// once, unless called from another thread than the main one or with a custom SIGINT
     /// handler.
     ///
-    #[pyo3(signature = (x_doe, y_doe, seed = None))]
+    #[pyo3(signature = (x_doe, y_doe, seed = None, interrupt = None))]
     fn suggest(
         &self,
         py: Python,
         x_doe: PyReadonlyArray2<f64>,
         y_doe: PyReadonlyArray2<f64>,
         seed: Option<u64>,
+        interrupt: Option<Py<InterruptFlag>>,
     ) -> PyResult<Py<PyArray2<f64>>> {
-        self.suggest_points(py, x_doe, y_doe, seed, None)
+        self.suggest_points(
+            py,
+            x_doe,
+            y_doe,
+            seed,
+            None,
+            interrupt.as_ref().map(|flag| flag.get()),
+        )
     }
 
     /// This function gives the best evaluation index given the outputs
@@ -771,6 +791,7 @@ impl Egor {
         verbose: Option<Py<PyAny>>,
         stop_on_error: bool,
         moo: Option<&MooSetup>,
+        flag: Option<&InterruptFlag>,
     ) -> PyResult<(Outcome, RunStatus)> {
         init_logger(
             py,
@@ -918,6 +939,8 @@ impl Egor {
             .as_ref()
             .map(SigintGuard::cancellation)
             .unwrap_or_default();
+        // set from another thread or from within the objective
+        let flag = flag.map(InterruptFlag::cancellation).unwrap_or_default();
         let mixintegor = mixintegor
             .run_info(egobox_ego::RunInfo {
                 fname: py_run_info.fname.clone(),
@@ -928,11 +951,12 @@ impl Egor {
             // KeyboardInterrupt), and often from worker threads during long computations, where
             // only the interruption flag and the Ctrl-C hook are read (no GIL)
             .interrupt_check(move || {
-                if std::thread::current().id() == caller {
-                    Python::attach(|py| interrupt.check(py))
-                } else {
-                    interrupt.is_interrupted() || ctrl_c.is_cancelled()
-                }
+                flag.is_cancelled()
+                    || if std::thread::current().id() == caller {
+                        Python::attach(|py| interrupt.check(py))
+                    } else {
+                        interrupt.is_interrupted() || ctrl_c.is_cancelled()
+                    }
             });
 
         let pareto = moo.is_some();
@@ -973,6 +997,7 @@ impl Egor {
         y_doe: PyReadonlyArray2<f64>,
         seed: Option<u64>,
         moo: Option<&MooSetup>,
+        flag: Option<&InterruptFlag>,
     ) -> PyResult<Py<PyArray2<f64>>> {
         init_logger(py, self.verbose.as_ref().map(|v| v.clone_ref(py)));
         let seed = seed.or(self.seed);
@@ -1013,16 +1038,11 @@ impl Egor {
 
         // Ctrl-C stops the surrogate training and infill optimization at once
         let sigint = SigintGuard::install(py);
-        let mixintegor = match sigint.as_ref() {
-            Some(sigint) => {
-                let ctrl_c = sigint.cancellation();
-                mixintegor.interrupt_check(move || ctrl_c.is_cancelled())
-            }
-            None => mixintegor,
-        };
+        let check = interruption(sigint.as_ref().map(SigintGuard::cancellation), flag);
+        let mixintegor = mixintegor.interrupt_check(move || check.is_cancelled());
         let x_suggested = py.detach(|| mixintegor.suggest(&x_doe, &y_doe));
         drop(sigint);
-        let x_suggested = x_suggested.map_err(|e| interruptible_ego_err(py, e))?;
+        let x_suggested = x_suggested.map_err(|e| interruptible_ego_err(py, e, flag))?;
         Ok(x_suggested.to_pyarray(py).into())
     }
 

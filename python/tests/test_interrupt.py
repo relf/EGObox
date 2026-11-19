@@ -441,3 +441,155 @@ def test_custom_sigint_handler_is_respected():
         """
     )
     assert "EXIT ExitStatus.MAX_ITERS_REACHED 1 1" in out
+
+
+# InterruptFlag: interruption from Python code (no signal, all platforms)
+
+
+def test_interrupt_flag():
+    import threading
+
+    import egobox as egx
+
+    flag = egx.InterruptFlag()
+    assert not flag.is_set()
+    assert repr(flag) == "InterruptFlag(set=False)"
+    thread = threading.Thread(target=flag.set)
+    thread.start()
+    thread.join()
+    assert flag.is_set()
+    flag.clear()
+    assert not flag.is_set()
+    assert issubclass(egx.Interrupted, Exception)
+
+
+def test_interrupt_flag_stops_minimize_from_another_thread():
+    # set while the surrogates are trained after the initial DOE: the iteration is dropped
+    out = run_script(
+        """
+        flag = egx.InterruptFlag()
+        calls = 0
+        set_time = {}
+
+        def set_later():
+            set_time["t"] = time.perf_counter()
+            flag.set()
+
+        def fun(x):
+            global calls
+            calls += 1
+            if calls == 1:
+                threading.Timer(0.5, set_later).start()
+            return np.sum(np.sin(6.0 * x), axis=1, keepdims=True)
+
+        gp_config = egx.GpConfig(theta_n_start=1500)
+        res = egx.Egor([[0.0, 1.0]] * 4, n_doe=100, gp_config=gp_config).minimize(
+            fun, max_iters=10, seed=42, interrupt=flag
+        )
+        delay = time.perf_counter() - set_time["t"]
+        print("EXIT", res.status.exit, res.status.total_iters, calls, delay < 1.0)
+        """,
+        env=FEW_THREADS,
+    )
+    assert "EXIT ExitStatus.INTERRUPT 0 1 True" in out
+
+
+def test_interrupt_flag_set_within_objective():
+    # the flag set when evaluating the point of iteration 2: this point is kept
+    import numpy as np
+
+    import egobox as egx
+
+    def xsinx(x):
+        return (x - 3.5) * np.sin((x - 3.5) / np.pi)
+
+    flag = egx.InterruptFlag()
+    calls = 0
+
+    def fun(x):
+        nonlocal calls
+        calls += 1
+        if calls == 3:  # initial DOE, iterations 1 and 2
+            flag.set()
+        return xsinx(x)
+
+    res = egx.Egor([[0.0, 25.0]]).minimize(fun, max_iters=10, seed=42, interrupt=flag)
+    assert res.status.exit == egx.ExitStatus.INTERRUPT
+    assert res.status.total_iters == 2
+    expected = egx.Egor([[0.0, 25.0]]).minimize(xsinx, max_iters=2, seed=42)
+    np.testing.assert_array_equal(res.x_doe, expected.x_doe)
+
+
+def test_interrupt_flag_already_set():
+    import numpy as np
+
+    import egobox as egx
+
+    flag = egx.InterruptFlag()
+    flag.set()
+    with pytest.raises(egx.Interrupted):
+        egx.GpMix(seed=1).fit(
+            np.array([[0.0], [1.0], [2.0]]), np.array([0.0, 1.0, 4.0]), interrupt=flag
+        )
+    # the initial DOE is evaluated, then the optimization stops
+    res = egx.Egor([[0.0, 25.0]]).minimize(
+        lambda x: (x - 3.5) * np.sin((x - 3.5) / np.pi),
+        max_iters=10,
+        seed=42,
+        interrupt=flag,
+    )
+    assert res.status.exit == egx.ExitStatus.INTERRUPT
+    assert res.status.total_iters == 0
+
+
+def test_interrupt_flag_stops_fit_and_suggest_from_another_thread():
+    out = run_script(
+        """
+        x = egx.lhs(np.array([[0.0, 1.0]] * 4), 100, seed=1)
+        y = np.sum(np.sin(6.0 * x), axis=1)
+        gp_config = egx.GpConfig(theta_n_start=1500)
+        egor = egx.Egor([[0.0, 1.0]] * 4, gp_config=gp_config, seed=42)
+        # calls of about 4s
+        for call in (
+            lambda flag: egx.GpMix(theta_n_start=1500, seed=1).fit(x, y, interrupt=flag),
+            lambda flag: egx.SparseGpMix(n_inducing=20, theta_n_start=3000, seed=1).fit(
+                x, y, interrupt=flag
+            ),
+            lambda flag: egor.suggest(x, y.reshape(-1, 1), interrupt=flag),
+        ):
+            flag = egx.InterruptFlag()
+            set_time = {}
+
+            def set_later():
+                set_time["t"] = time.perf_counter()
+                flag.set()
+
+            threading.Timer(0.5, set_later).start()
+            try:
+                call(flag)
+                print("NO INTERRUPT")
+            except egx.Interrupted:
+                print("INTERRUPTED", time.perf_counter() - set_time["t"] < 2.0)
+        """,
+        env=FEW_THREADS,
+    )
+    assert out.count("INTERRUPTED True") == 3
+
+
+@PROMPT
+def test_ctrl_c_with_interrupt_flag_raises_keyboard_interrupt():
+    # Ctrl-C keeps raising KeyboardInterrupt when an (unset) interrupt flag is given
+    out = run_script(
+        """
+        x = egx.lhs(np.array([[0.0, 1.0]] * 4), 100, seed=1)
+        y = np.sum(np.sin(6.0 * x), axis=1)
+        ctrl_c_later()
+        try:
+            egx.GpMix(theta_n_start=1500, seed=1).fit(x, y, interrupt=egx.InterruptFlag())
+            print("NO INTERRUPT")
+        except KeyboardInterrupt:
+            print("KEYBOARD INTERRUPT", since_signal() < 2.0)
+        """,
+        env=FEW_THREADS,
+    )
+    assert "KEYBOARD INTERRUPT True" in out

@@ -14,6 +14,8 @@ use pyo3::exceptions::{
 };
 use pyo3::prelude::*;
 
+use crate::interrupt_flag::InterruptFlag;
+
 /// Format an error message including its chain of sources
 fn error_chain(e: &dyn Error) -> String {
     let mut msg = e.to_string();
@@ -43,28 +45,52 @@ pub(crate) fn ego_err(e: egobox_ego::EgoError) -> PyErr {
     }
 }
 
-/// Convert an optimizer error into a Python exception, raising the pending
-/// `KeyboardInterrupt` (thus consumed, not raised again afterwards) when interrupted
-pub(crate) fn interruptible_ego_err(py: Python, e: egobox_ego::EgoError) -> PyErr {
-    if e.is_interruption()
-        && let Err(err) = py.check_signals()
-    {
-        return err;
+pyo3_stub_gen::create_exception!(
+    egobox,
+    Interrupted,
+    PyException,
+    "Raised by `fit` or `suggest` interrupted with an `InterruptFlag`"
+);
+
+/// Exception of an interrupted computation: the pending `KeyboardInterrupt` on Ctrl-C (thus
+/// consumed, not raised again afterwards), `Interrupted` when the interrupt flag is set
+fn interruption_err(py: Python, flag: Option<&InterruptFlag>) -> Option<PyErr> {
+    if let Err(err) = py.check_signals() {
+        Some(err)
+    } else if flag.is_some_and(InterruptFlag::is_interrupted) {
+        Some(Interrupted::new_err("interrupted by InterruptFlag"))
+    } else {
+        None
     }
-    ego_err(e)
 }
 
-/// Convert a surrogate model training error into a Python exception, raising the pending
-/// `KeyboardInterrupt` (thus consumed, not raised again afterwards) when interrupted
-pub(crate) fn interruptible_moe_err(py: Python, e: egobox_moe::MoeError) -> PyErr {
-    if matches!(
+/// Convert an optimizer error into a Python exception, raising the interruption exception
+/// when interrupted (see [`interruption_err`])
+pub(crate) fn interruptible_ego_err(
+    py: Python,
+    e: egobox_ego::EgoError,
+    flag: Option<&InterruptFlag>,
+) -> PyErr {
+    e.is_interruption()
+        .then(|| interruption_err(py, flag))
+        .flatten()
+        .unwrap_or_else(|| ego_err(e))
+}
+
+/// Convert a surrogate model training error into a Python exception, raising the
+/// interruption exception when interrupted (see [`interruption_err`])
+pub(crate) fn interruptible_moe_err(
+    py: Python,
+    e: egobox_moe::MoeError,
+    flag: Option<&InterruptFlag>,
+) -> PyErr {
+    matches!(
         e,
         egobox_moe::MoeError::GpError(egobox_gp::GpError::Interrupted)
-    ) && let Err(err) = py.check_signals()
-    {
-        return err;
-    }
-    moe_err(e)
+    )
+    .then(|| interruption_err(py, flag))
+    .flatten()
+    .unwrap_or_else(|| moe_err(e))
 }
 
 /// Convert a surrogate model error into a Python exception

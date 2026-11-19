@@ -13,6 +13,7 @@ mod trego_config;
 
 pub(crate) mod domain;
 pub(crate) mod errors;
+pub(crate) mod interrupt_flag;
 pub(crate) mod logging;
 pub(crate) mod sigint;
 pub(crate) mod types;
@@ -70,6 +71,8 @@ fn egobox(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<BelfegorOptim>()?;
     m.add_class::<Recombination>()?;
     m.add_class::<RunInfo>()?;
+    m.add_class::<interrupt_flag::InterruptFlag>()?;
+    m.add("Interrupted", m.py().get_type::<errors::Interrupted>())?;
     m.add_class::<RunStatus>()?;
     m.add_class::<ExitStatus>()?;
 

@@ -12,6 +12,7 @@
 use crate::errors::{
     gp_file_format, input_x, interruptible_moe_err, moe_err, moe_file_err, output_y, training_data,
 };
+use crate::interrupt_flag::{InterruptFlag, interruption};
 use crate::logging::init_logger;
 use crate::sigint::SigintGuard;
 use crate::surrogate_api;
@@ -172,6 +173,9 @@ impl GpMix {
     ///     by its category index, as returned by `egx.lhs(xspecs, n)`
     /// yt : array[nsamples] or array[nsamples, 1]
     ///     output samples
+    /// interrupt : InterruptFlag, optional
+    ///     the training is interrupted (Interrupted raised) once this flag is set,
+    ///     e.g. from another thread
     ///
     /// Returns
     /// -------
@@ -181,13 +185,16 @@ impl GpMix {
     /// Notes
     /// -----
     /// Ctrl-C (KeyboardInterrupt) stops the training at once, unless called from another
-    /// thread than the main one or with a custom SIGINT handler.
+    /// thread than the main one or with a custom SIGINT handler. The training is also
+    /// interrupted when the `interrupt` flag is set, raising Interrupted.
     ///
+    #[pyo3(signature = (xt, yt, interrupt = None))]
     fn fit(
         &mut self,
         py: Python,
         xt: PyReadonlyArrayDyn<f64>,
         yt: PyReadonlyArrayDyn<f64>,
+        interrupt: Option<Py<InterruptFlag>>,
     ) -> PyResult<Gpx> {
         self.gp_config.validate()?;
         let (xt, yt) = training_data(xt.as_array(), yt.as_array())?;
@@ -229,10 +236,9 @@ impl GpMix {
         params.work_in_folded_space(true);
         // Ctrl-C stops the training at once
         let sigint = SigintGuard::install(py);
-        let cancellation = sigint
-            .as_ref()
-            .map(SigintGuard::cancellation)
-            .unwrap_or_default();
+        let cancellation = sigint.as_ref().map(SigintGuard::cancellation);
+        let flag = interrupt.as_ref().map(|flag| flag.get());
+        let cancellation = interruption(cancellation, flag);
         let moe = py.detach(|| {
             params
                 .cancellation(cancellation)
@@ -249,7 +255,7 @@ impl GpMix {
         });
         drop(sigint);
 
-        Ok(Gpx(moe.map_err(|e| interruptible_moe_err(py, e))?))
+        Ok(Gpx(moe.map_err(|e| interruptible_moe_err(py, e, flag))?))
     }
 }
 
