@@ -1,7 +1,7 @@
 [package]
 name = "egobox-ego"
 authors.workspace = true
-version = "0.44.0"
+version = "0.45.0"
 license.workspace = true
 edition.workspace = true
 homepage.workspace = true
@@ -13,14 +13,6 @@ categories = ["algorithms", "mathematics", "science"]
 
 [features]
 default = []
-# Deprecated since 0.44.0, will be removed in the next breaking release:
-# use cobyla crate (C-ported NLopt COBYLA) instead of basin COBYLA
-# for infill optimization and GP hyperparameters training
-c-cobyla = ["dep:cobyla", "egobox-gp/c-cobyla", "egobox-moe/c-cobyla"]
-# Deprecated since 0.44.0, will be removed in the next breaking release:
-# use slsqp crate (C-ported NLopt SLSQP) instead of basin SLSQP for infill optimization
-c-slsqp = ["dep:slsqp"]
-
 blas = ["ndarray-linalg", "linfa/ndarray-linalg", "linfa-pls/blas"]
 
 [dependencies]
@@ -28,8 +20,8 @@ basin = { workspace = true, features = ["serde"] }
 egobox-doe = { version = "0.35.2", path = "../doe", features = [
     "serializable",
 ] }
-egobox-gp = { version = "0.38.0", path = "../gp", features = ["serializable"] }
-egobox-moe = { version = "0.38.0", path = "../moe" }
+egobox-gp = { version = "0.39.0", path = "../gp", features = ["serializable"] }
+egobox-moe = { version = "0.39.0", path = "../moe" }
 
 linfa.workspace = true
 linfa-linalg.workspace = true
@@ -43,8 +35,6 @@ ndarray-rand.workspace = true
 ndarray-npy.workspace = true
 rayon.workspace = true
 
-cobyla = { version = "1.0.4", optional = true }
-slsqp = { version = "1.0.1", optional = true }
 
 rand_xoshiro = { version = "0.6", features = ["serde1"] }
 bincode.workspace = true

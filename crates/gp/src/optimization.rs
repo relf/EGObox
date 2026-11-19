@@ -83,7 +83,6 @@ pub(crate) struct CobylaParams {
     pub rhobeg: f64,
     pub ftol_rel: f64,
     pub maxeval: usize,
-    #[cfg(not(feature = "c-cobyla"))]
     pub bounded_evaluations: bool,
 }
 
@@ -93,7 +92,6 @@ impl Default for CobylaParams {
             rhobeg: 0.5,
             ftol_rel: 1e-4,
             maxeval: 200,
-            #[cfg(not(feature = "c-cobyla"))]
             bounded_evaluations: false,
         }
     }
@@ -148,8 +146,8 @@ pub(crate) fn prepare_multistart<F: Float>(
 
 /// Minimize `objfn` with COBYLA started in parallel from each row of `inits` (log10 scale)
 /// within `bounds`, returns the best value and parameters, (inf, ones) when all fail.
-/// Once `cancellation` is requested, starts not begun yet are skipped (and running ones stop
-/// early with the basin backend): the caller has to discard the result.
+/// Once `cancellation` is requested, starts not begun yet are skipped and running ones stop
+/// early: the caller has to discard the result.
 pub(crate) fn multistart_minimize<ObjF, F>(
     objfn: ObjF,
     inits: &Array2<F>,
@@ -186,59 +184,6 @@ where
     opt
 }
 
-/// Optimize gp hyper parameters given an initial guess and bounds with cobyla
-#[cfg(feature = "c-cobyla")]
-pub(crate) fn optimize_params<ObjF, F>(
-    objfn: ObjF,
-    param0: &Array1<F>,
-    bounds: &[(F, F)],
-    cobyla: CobylaParams,
-    // the C COBYLA cannot be stopped: only starts not begun yet are skipped
-    _cancellation: &Cancellation,
-) -> (f64, Array1<f64>)
-where
-    ObjF: Fn(&[f64], Option<&mut [f64]>, &mut ()) -> f64,
-    F: Float,
-{
-    use cobyla::{Func, StopTols, minimize};
-
-    let cons: Vec<&dyn Func<()>> = vec![];
-    let param0 = param0.map(|v| into_f64(v)).into_raw_vec_and_offset().0;
-
-    let bounds: Vec<_> = bounds
-        .iter()
-        .map(|(lo, up)| (into_f64(lo), into_f64(up)))
-        .collect();
-
-    match minimize(
-        |x, u| objfn(x, None, u),
-        &param0,
-        &bounds,
-        &cons,
-        (),
-        cobyla.maxeval,
-        cobyla::RhoBeg::All(cobyla.rhobeg),
-        Some(StopTols {
-            ftol_rel: cobyla.ftol_rel,
-            ..StopTols::default()
-        }),
-    ) {
-        Ok((_, x_opt, fval)) => {
-            let params_opt = arr1(&x_opt);
-            let fval = if f64::is_nan(fval) {
-                f64::INFINITY
-            } else {
-                fval
-            };
-            (fval, params_opt)
-        }
-        Err((status, x_opt, _)) => {
-            log::warn!("ERROR Cobyla optimizer in GP status={status:?}");
-            (f64::INFINITY, arr1(&x_opt))
-        }
-    }
-}
-
 /// Conversion of a float value to f64, used by the f64 optimizers
 #[inline(always)]
 pub(crate) fn into_f64<F: Float>(v: &F) -> f64 {
@@ -246,7 +191,6 @@ pub(crate) fn into_f64<F: Float>(v: &F) -> f64 {
 }
 
 /// Optimize log10 GP hyperparameters using Basin's bounded COBYLA adapter.
-#[cfg(not(feature = "c-cobyla"))]
 pub(crate) fn optimize_params<ObjF, F>(
     objfn: ObjF,
     param0: &Array1<F>,

@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        backend: [default, c-optim]
+        backend: [default]
         toolchain:
           - stable
         os: 
@@ -28,9 +28,6 @@ jobs:
           - toolchain: 1.88.0  # test MSRV
             os: ubuntu-latest
             backend: default
-          - toolchain: 1.88.0
-            os: ubuntu-latest
-            backend: c-optim
 
     steps:
       - name: Checkout sources
@@ -62,7 +59,7 @@ jobs:
           EGOBOX_REQUIRE_SNAPSHOTS: ${{ (matrix.os == 'ubuntu-latest' && matrix.backend == 'default' && matrix.toolchain == 'stable') && '1' || '0' }}
         with:
           command: test
-          args: --workspace --exclude egobox --release ${{ matrix.backend == 'c-optim' && '--features c-cobyla,c-slsqp' || '' }}
+          args: --workspace --exclude egobox --release
 
       # When the Linux reference job or the Windows job fails, record the snapshot fixtures
       # as computed by CI (to be reviewed, then committed for the new or intentionally
@@ -88,7 +85,6 @@ jobs:
       matrix:
         features:
           - blas,linfa/intel-mkl-static
-          - c-cobyla,c-slsqp
         toolchain:
           - stable
         os: 
@@ -113,8 +109,7 @@ jobs:
         with:
           # dependency features differ without the Python bindings crate
           prefix-key: v1-rust
-          # cache keys cannot contain commas
-          key: ${{ contains(matrix.features, 'mkl') && 'mkl' || 'c-optim' }}
+          key: mkl
           # pull requests restore master caches but do not save their own
           save-if: ${{ github.ref == 'refs/heads/master' }}
 

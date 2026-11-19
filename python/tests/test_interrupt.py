@@ -64,9 +64,8 @@ def since_signal():
     return time.perf_counter() - signal_time["t"]
 """
 
-# Training with many short optimization starts, on few threads as on CI runners: Ctrl-C is
-# acted on within a start even with optimizers which cannot be stopped during a start
-# (c-cobyla, c-slsqp features), while the whole training lasts several seconds
+# Training with many short optimization starts, on few threads as on CI runners, while the
+# whole training lasts several seconds
 FEW_THREADS = {**os.environ, "RAYON_NUM_THREADS": "2"}
 
 
