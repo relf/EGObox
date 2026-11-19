@@ -1,5 +1,61 @@
 # Changes
 
+## Version 1.1.0 - 19/11/2026
+
+This release makes interruption reliable and prompt: Ctrl-C, termination signals and the new Python
+`InterruptFlag` stop `minimize`, `fit` and `suggest` at once, and keep a consistent result and hot start
+checkpoint. It also restores the constrained infill behaviour of 0.37.9 by default. The Python API changes are
+additive; breaking changes are Rust only (crates: `egobox-ego` 0.44.0, `egobox-moe` 0.38.0, `egobox-gp` 0.38.0,
+`egobox-gpx` 0.7.0). See [release notes](doc/release-notes-1.1.0.md) for details.
+
+* **Compatibility**: `Egor` hot start checkpoints saved by 1.0.1 or earlier no longer load (basin 3 checkpoint
+  format and new `SurrogateState::pending_update`). GP model files of 1.0.1 still load
+* **Behaviour change**: with `cstr_infill`, the infill criterion weighted by the probability of feasibility is
+  used from the first iteration again, as up to 0.37.9. `EgorConfig::feasibility_first(true)` (Python
+  `feasibility_first=True`) restores the 0.38.0 to 1.0.1 behaviour (probability of feasibility alone until a
+  feasible point is found) by @relf in <https://github.com/relf/EGObox/pull/564>
+* **Breaking changes** (Rust only):
+  * `egobox-ego` 0.44.0:
+    * The `EgorSolver` methods deprecated in 0.43.0 (`ego_step`, `trego_step`, `select_next_points`,
+      `refresh_infill_data`, `eval_obj`, `eval_*infill_obj*`, ...) are removed, use `Egor` or `EgorService`
+    * New `EgoError::Interrupted` variant by @relf in <https://github.com/relf/EGObox/pull/567>
+    * `EgorServiceApi::suggest()` returns a `Result` (interruption, GP training failure instead of a panic)
+      by @relf in <https://github.com/relf/EGObox/pull/572>
+  * `egobox-gp` 0.38.0: new `GpError::Interrupted` variant by @relf in <https://github.com/relf/EGObox/pull/571>
+  * `egobox-moe` 0.38.0: `find_best_number_of_clusters()` takes a `Cancellation` argument, and `GpError`
+    changes by @relf in <https://github.com/relf/EGObox/pull/571>
+  * `egobox-gpx` 0.7.0: exposes the `egobox-moe` 0.38 types
+* Interruption:
+  * Python: Ctrl-C stops `minimize`, `GpMix.fit`, `SparseGpMix.fit` and `suggest` at once instead of after
+    the GP training or infill optimization in progress by @relf in <https://github.com/relf/EGObox/pull/572>
+  * Python: new `egx.InterruptFlag` given as `interrupt=` to `minimize`, `suggest` and `fit`, to stop them
+    from another thread or from the objective. `fit` and `suggest` then raise the new `egx.Interrupted`
+    exception by @relf in <https://github.com/relf/EGObox/pull/573>
+  * GP training and infill optimization check the interruption (Ctrl-C, signals, `Egor::interrupt_check()`):
+    new `egobox_gp::Cancellation` in GP, sparse GP and mixture parameters,
+    `SurrogateBuilder::set_cancellation()`, `EgorServiceApi::interrupt_check()`. An iteration interrupted
+    before its point is evaluated is dropped; interrupted while the models are updated, the point is kept and
+    the update is done first on hot start (`SurrogateState::pending_update`)
+    by @relf in <https://github.com/relf/EGObox/pull/571>
+  * An evaluation interrupted in the objective drops the iteration instead of recording a failed point, so a
+    hot start does it again exactly by @relf in <https://github.com/relf/EGObox/pull/567>
+  * Rust: the signal handler is installed only while `Egor` runs (`ctrlc` dependency removed), a host handler
+    is left alone, SIGTERM, SIGHUP, SIGUSR1 and SIGUSR2 also stop a run on Unix (e.g. SLURM
+    `--signal=B:USR1@120`), and a second signal terminates the process
+    by @relf in <https://github.com/relf/EGObox/pull/568>
+  * Ctrl-C terminates the `gpx` command installed with the Python package at once
+    by @relf in <https://github.com/relf/EGObox/pull/569>
+* Output files and models are written to a temporary file renamed into place
+  (`egobox_moe::write_atomically()`): a killed process no longer leaves a truncated file
+  by @relf in <https://github.com/relf/EGObox/pull/570>
+* Upgrade basin to 3.3 by @relf in <https://github.com/relf/EGObox/pull/555>
+* Fix Python `minimize` interruption edge cases: result lost on a second Ctrl-C, `RuntimeError` instead of
+  `KeyboardInterrupt` during the initial DOE, `SystemExit` from a signal handler swallowed
+  by @relf in <https://github.com/relf/EGObox/pull/566>
+* Fix Python `Gpx.fit()` panicking with `ENUM` variables by @relf in <https://github.com/relf/EGObox/pull/559>
+* Internal: dead code removed from theta bounds (#562), test suite trimmed (#556), CI build cache (#557),
+  snapshot fixtures recorded in CI for Windows too (#565)
+
 ## Version 1.0.1 - 06/11/2026
 
 Bug-fix release. The Python API has no breaking change; breaking changes are Rust only (crates:
