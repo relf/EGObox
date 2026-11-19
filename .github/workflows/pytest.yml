@@ -24,10 +24,6 @@ jobs:
           - ubuntu-latest
           - windows-latest
           - macos-latest
-        include:
-          - python-version: "3.13"
-            os: ubuntu-latest
-            backend: c-optim
     env:
       UV_CACHE_DIR: /tmp/.uv-cache
       RUST_BACKTRACE: 1
@@ -62,7 +58,7 @@ jobs:
         with:
           working-directory: python
           command: develop
-          args: --release ${{ matrix.backend == 'c-optim' && '--features c-cobyla,c-slsqp' || '' }}
+          args: --release
 
       - name: Run linter and formatter
         working-directory: python

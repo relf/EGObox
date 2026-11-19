@@ -4,26 +4,11 @@ Basin is used by default everywhere: `egobox-ego` always runs its EGO solver
 with Basin's executor, optimizes the infill criterion with Basin's pure Rust
 COBYLA and SLSQP, and `egobox-gp` trains GP hyperparameters with Basin's COBYLA.
 
-The `c-cobyla` and `c-slsqp` features switch back, respectively, to the `cobyla`
-and `slsqp` crates (C-ported NLopt implementations). `c-cobyla` applies to both
-GP training and infill optimization:
-
-```sh
-cargo run --release -p egobox-ego --features c-cobyla,c-slsqp --example ackley
-cargo run --release -p egobox-gpx --features c-cobyla -- --help
-cd python
-maturin develop --release --features c-cobyla,c-slsqp
-```
-
-`c-cobyla` is available on `egobox-gp`, `egobox-moe`, `egobox-ego`,
-`egobox-gpx`, and the Python package; `c-slsqp` on `egobox-ego` and the Python
-package. Both are disabled by default.
-
-Both features are deprecated since EGObox 1.1.0 (`egobox-gp` 0.38.0,
-`egobox-moe` 0.38.0, `egobox-ego` 0.44.0, `egobox-gpx` 0.7.0) and will be removed
-in the next breaking release. Basin COBYLA gives the same results as the C one,
-and the C optimizers cannot be stopped during an optimization start: an
-interruption only skips the starts not begun yet.
+The `c-cobyla` and `c-slsqp` features, which switched back to the `cobyla` and
+`slsqp` crates (C-ported NLopt implementations), were deprecated in EGObox 1.1.0
+and are removed since `egobox-gp` 0.39.0, `egobox-moe` 0.39.0, `egobox-ego`
+0.45.0 and `egobox-gpx` 0.8.0. Basin COBYLA gives the same results as the C one,
+and only Basin optimizers can be stopped during an optimization start.
 
 ## Execution and compatibility
 
@@ -97,9 +82,10 @@ has a 30-iteration limit and a documented target in the example. Records include
 objective value, constraint violation, observations, iterations, exit reason, and
 wall-clock time.
 
+The C optimizer records were produced by the same example built with
+`--features c-cobyla,c-slsqp` on EGObox 1.1.0 or earlier. The Basin records:
+
 ```sh
-cargo build --release -p egobox-ego --features c-cobyla,c-slsqp --example backend_comparison
-RAYON_NUM_THREADS=2 target/release/examples/backend_comparison 10 > c-optimizers.jsonl
 cargo build --release -p egobox-ego --example backend_comparison
 RAYON_NUM_THREADS=2 target/release/examples/backend_comparison 10 > basin.jsonl
 ```
@@ -112,7 +98,7 @@ overhead while retaining the original numerical backends.
 
 For a comparison of GP fitting alone, use
 `cargo run --release -p egobox-gp --example gp_backend_comparison -- 10`
-and repeat with `--features c-cobyla`. This example trains on fixed seeded data
+(and `--features c-cobyla` with EGObox 1.1.0 or earlier). This example trains on fixed seeded data
 for one-dimensional `xsinx` and three-dimensional Griewank. It reports training
 time, likelihood, fitted hyperparameters, and validation RMSE. Prediction time is
 excluded from the fitting measurement.

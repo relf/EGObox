@@ -14,7 +14,6 @@ jobs:
       matrix:
         toolchain:
           - stable
-        features: [default, c-optim]
     steps:
       - name: Checkout sources
         uses: actions/checkout@v6
@@ -30,7 +29,7 @@ jobs:
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.features }}
+          key: default
           # pull requests restore master caches but do not save their own
           save-if: ${{ github.ref == 'refs/heads/master' }}
 
@@ -44,7 +43,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: --all-targets ${{ matrix.features == 'c-optim' && '--features c-cobyla,c-slsqp' || '' }} -- -D warnings
+          args: --all-targets -- -D warnings
 
   semver:
     name: semver-checks

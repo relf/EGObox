@@ -5,16 +5,13 @@
 //! ## Design
 //!
 //! [`Optimizer`] is a facade: it is configured once (objective, constraints, bounds,
-//! tolerances) and dispatches the minimization to the [`Algorithm`] implementation
-//! of the backend selected by the feature flags.
+//! tolerances) and dispatches the minimization to the [Basin](https://basin.rs) pure Rust
+//! implementation of the selected [`Algorithm`].
 //!
 //! ## Available Backends
 //!
 //! - [`Algorithm::Slsqp`] - Sequential Least Squares Programming (gradient-based)
 //! - [`Algorithm::Cobyla`] - Constrained Optimization BY Linear Approximations (derivative-free)
-//!
-//! Basin pure Rust implementations are used by default. The `c-cobyla` and `c-slsqp`
-//! features, deprecated since 0.44.0, select respectively the `cobyla` and `slsqp` crates instead.
 //!
 //! ## Usage
 //!
@@ -28,9 +25,6 @@ use ndarray::{Array1, Array2, ArrayView1, arr1};
 use crate::types::UserFn;
 pub(crate) trait OptFn<U>: UserFn<U> + Sync {}
 impl<T, U> OptFn<U> for T where T: UserFn<U> + Sync {}
-
-#[cfg(feature = "c-cobyla")]
-use cobyla::RhoBeg;
 
 #[derive(Copy, Clone, Debug)]
 pub enum Algorithm {
@@ -78,8 +72,7 @@ impl<'a> Optimizer<'a> {
         }
     }
 
-    /// Stop the optimization early once cancelled (basin backends only,
-    /// the C backends run to completion)
+    /// Stop the optimization early once cancelled
     pub fn cancellation(&mut self, cancellation: &Cancellation) -> &mut Self {
         self.cancellation = cancellation.clone();
         self
@@ -105,33 +98,16 @@ impl<'a> Optimizer<'a> {
         self
     }
 
-    /// Minimize the objective function subject to constraints with the selected algorithm.
-    /// Basin implementation is used unless `c-cobyla` (resp. `c-slsqp`) feature is enabled.
+    /// Minimize the objective function subject to constraints with the selected algorithm
     pub fn minimize(&self) -> (f64, Array1<f64>) {
+        use egobox_gp::basin_optimizer::{Algorithm as BasinAlgorithm, Settings, minimize};
+        use std::cell::RefCell;
+        let user_data = RefCell::new(self.user_data.clone());
+        let bounds: Vec<_> = self.bounds.outer_iter().map(|r| (r[0], r[1])).collect();
         let cstr_tol = self
             .cstr_tol
             .clone()
             .unwrap_or(Array1::zeros(self.cons.len()));
-        match self.algo {
-            #[cfg(feature = "c-cobyla")]
-            Algorithm::Cobyla => self.minimize_cobyla(&cstr_tol),
-            #[cfg(feature = "c-slsqp")]
-            Algorithm::Slsqp => self.minimize_slsqp(&cstr_tol),
-            #[allow(unreachable_patterns)]
-            algo => self.minimize_basin(algo, &cstr_tol),
-        }
-    }
-
-    fn bounds_vec(&self) -> Vec<(f64, f64)> {
-        self.bounds.outer_iter().map(|r| (r[0], r[1])).collect()
-    }
-
-    #[cfg_attr(all(feature = "c-cobyla", feature = "c-slsqp"), allow(dead_code))]
-    fn minimize_basin(&self, algo: Algorithm, cstr_tol: &Array1<f64>) -> (f64, Array1<f64>) {
-        use egobox_gp::basin_optimizer::{Algorithm as BasinAlgorithm, Settings, minimize};
-        use std::cell::RefCell;
-        let user_data = RefCell::new(self.user_data.clone());
-        let bounds = self.bounds_vec();
         let xinit = self.xinit.as_ref().expect("initial point").to_vec();
         let objective =
             |x: &[f64], g: Option<&mut [f64]>| (self.fun)(x, g, &mut user_data.borrow_mut());
@@ -140,7 +116,7 @@ impl<'a> Optimizer<'a> {
             let scale = data.scale_cstr.as_ref().expect("constraint scaling")[i];
             (self.cons[i])(x, g, &mut data) - cstr_tol[i] / scale
         };
-        let algorithm = match algo {
+        let algorithm = match self.algo {
             Algorithm::Cobyla => BasinAlgorithm::Cobyla,
             Algorithm::Slsqp => BasinAlgorithm::Slsqp,
         };
@@ -161,77 +137,6 @@ impl<'a> Optimizer<'a> {
             },
         );
         (value, arr1(&point))
-    }
-
-    #[cfg(feature = "c-cobyla")]
-    fn minimize_cobyla(&self, cstr_tol: &Array1<f64>) -> (f64, Array1<f64>) {
-        let xinit = self.xinit.clone().unwrap().to_vec();
-        let bounds = self.bounds_vec();
-        let cstrs: Vec<_> = self
-            .cons
-            .iter()
-            .enumerate()
-            .map(|(i, f)| {
-                let cstr_tol = cstr_tol[i];
-                move |x: &[f64], u: &mut InfillObjData<f64>| {
-                    let scale_cstr = u.scale_cstr.as_ref().expect("constraint scaling")[i];
-                    -(*f)(x, None, u) + cstr_tol / scale_cstr
-                }
-            })
-            .collect();
-        let res = cobyla::minimize(
-            |x: &[f64], u: &mut InfillObjData<f64>| (self.fun)(x, None, u),
-            &xinit,
-            &bounds,
-            &cstrs,
-            self.user_data.clone(),
-            self.max_eval,
-            RhoBeg::All(0.5),
-            Some(cobyla::StopTols {
-                ftol_rel: self.ftol_rel.unwrap_or(0.0),
-                ftol_abs: self.ftol_abs.unwrap_or(0.0),
-                ..cobyla::StopTols::default()
-            }),
-        );
-        match res {
-            Ok((_, x_opt, y_opt)) => (y_opt, arr1(&x_opt)),
-            Err((_, x_opt, _)) => (f64::INFINITY, arr1(&x_opt)),
-        }
-    }
-
-    #[cfg(feature = "c-slsqp")]
-    fn minimize_slsqp(&self, cstr_tol: &Array1<f64>) -> (f64, Array1<f64>) {
-        let xinit = self.xinit.clone().unwrap().to_vec();
-        let bounds = self.bounds_vec();
-        let cstrs: Vec<_> = self
-            .cons
-            .iter()
-            .enumerate()
-            .map(|(i, f)| {
-                let cstr_tol = cstr_tol[i];
-                move |x: &[f64], g: Option<&mut [f64]>, u: &mut InfillObjData<f64>| {
-                    let scale_cstr = u.scale_cstr.as_ref().expect("constraint scaling")[i];
-                    (*f)(x, g, u) - cstr_tol / scale_cstr
-                }
-            })
-            .collect();
-        let res = slsqp::minimize(
-            self.fun,
-            &xinit,
-            &bounds,
-            &cstrs,
-            self.user_data.clone(),
-            self.max_eval,
-            Some(slsqp::StopTols {
-                ftol_rel: self.ftol_rel.unwrap_or(0.0),
-                ftol_abs: self.ftol_abs.unwrap_or(0.0),
-                ..slsqp::StopTols::default()
-            }),
-        );
-        match res {
-            Ok((_, x_opt, y_opt)) => (y_opt, arr1(&x_opt)),
-            Err((_, x_opt, _)) => (f64::INFINITY, arr1(&x_opt)),
-        }
     }
 }
 
@@ -260,13 +165,7 @@ mod tests {
             }
             (x[0] - 1.) / scale
         };
-        // Check basin implementations only
-        let algorithms: &[Algorithm] = &[
-            #[cfg(not(feature = "c-cobyla"))]
-            Algorithm::Cobyla,
-            #[cfg(not(feature = "c-slsqp"))]
-            Algorithm::Slsqp,
-        ];
+        let algorithms: &[Algorithm] = &[Algorithm::Cobyla, Algorithm::Slsqp];
         for &algorithm in algorithms {
             let mut optimizer = Optimizer::new(
                 algorithm,

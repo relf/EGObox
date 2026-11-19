@@ -1,5 +1,12 @@
 # Changes
 
+## Unreleased
+
+* **Breaking changes** (Rust crates `egobox-gp` 0.39.0, `egobox-moe` 0.39.0, `egobox-ego` 0.45.0, `egobox-gpx`
+  0.8.0): the `c-cobyla` and `c-slsqp` features (C-ported NLopt optimizers), deprecated in 1.1.0, are removed
+  from these crates and from the Python package build. The Basin optimizers, used by default since 0.38.0, are
+  the only ones
+
 ## Version 1.1.0 - 19/11/2026
 
 This release makes interruption reliable and prompt: Ctrl-C, termination signals and the new Python

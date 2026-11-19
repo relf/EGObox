@@ -5,23 +5,13 @@
 //! ## Architecture
 //!
 //! The `Optimizer` facade runs the algorithm selected by the `Algorithm` enum
-//! (mapped from the `InfillOptimizer` configuration) with the backend selected
-//! by the feature flags below.
+//! (mapped from the `InfillOptimizer` configuration) with the [Basin](https://basin.rs)
+//! pure Rust implementations.
 //!
 //! ## Available Optimizers
 //!
 //! - **SLSQP** - Sequential Least Squares Programming (gradient-based, faster for differentiable criteria)
 //! - **COBYLA** - Constrained Optimization BY Linear Approximations (derivative-free, more robust)
-//!
-//! ## Feature Flags
-//!
-//! Basin pure Rust COBYLA and SLSQP implementations are used by default.
-//!
-//! - `c-cobyla` (deprecated): Use the `cobyla` crate (C-ported NLopt COBYLA) instead of Basin COBYLA
-//!   (also for GP hyperparameters training).
-//! - `c-slsqp` (deprecated): Use the `slsqp` crate (C-ported NLopt SLSQP) instead of Basin SLSQP.
-//!
-//! Both features are deprecated since 0.44.0 and will be removed in the next breaking release.
 
 mod optimizer;
 

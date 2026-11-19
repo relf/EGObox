@@ -329,12 +329,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cobyla"
-version = "1.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0461872f7e4e7216e1a770fbccc1b45a400247538d6b72be1a030b2427c64c4"
-
-[[package]]
 name = "colorchoice"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -548,7 +542,7 @@ dependencies = [
 
 [[package]]
 name = "egobox-ego"
-version = "0.44.0"
+version = "0.45.0"
 dependencies = [
  "anyhow",
  "approx",
@@ -556,7 +550,6 @@ dependencies = [
  "basin",
  "bincode",
  "clap",
- "cobyla",
  "criterion",
  "dyn-clonable",
  "egobox-doe",
@@ -582,7 +575,6 @@ dependencies = [
  "serde",
  "serde_json",
  "serial_test",
- "slsqp",
  "thiserror 2.0.20",
  "typetag",
  "web-time",
@@ -591,13 +583,12 @@ dependencies = [
 
 [[package]]
 name = "egobox-gp"
-version = "0.38.0"
+version = "0.39.0"
 dependencies = [
  "anyhow",
  "approx",
  "argmin_testfunctions",
  "basin",
- "cobyla",
  "criterion",
  "egobox-doe",
  "finitediff",
@@ -623,7 +614,7 @@ dependencies = [
 
 [[package]]
 name = "egobox-gpx"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "bincode",
@@ -639,7 +630,7 @@ dependencies = [
 
 [[package]]
 name = "egobox-moe"
-version = "0.38.0"
+version = "0.39.0"
 dependencies = [
  "approx",
  "argmin_testfunctions",
@@ -2391,12 +2382,6 @@ name = "slab"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
-
-[[package]]
-name = "slsqp"
-version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "efc936a3843a594a178e2e740be58a0bf23dfdca0fd3e5a02691e7f599edd22a"
 
 [[package]]
 name = "smallvec"

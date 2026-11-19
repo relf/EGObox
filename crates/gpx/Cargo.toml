@@ -1,6 +1,6 @@
 [package]
 name = "egobox-gpx"
-version = "0.7.0"
+version = "0.8.0"
 authors.workspace = true
 license.workspace = true
 edition.workspace = true
@@ -11,13 +11,8 @@ description = "GP surrogate executable for quality assessment, I/O specification
 keywords = ["machine-learning", "bayesian", "optimization"]
 categories = ["algorithms", "mathematics", "science"]
 
-[features]
-# Deprecated since 0.7.0, will be removed in the next breaking release:
-# use cobyla crate (C-ported NLopt COBYLA) instead of basin COBYLA
-c-cobyla = ["egobox-moe/c-cobyla"]
-
 [dependencies]
-egobox-moe = { version = "0.38", path = "../moe" }
+egobox-moe = { version = "0.39.0", path = "../moe" }
 anyhow.workspace = true
 clap.workspace = true
 rayon.workspace = true

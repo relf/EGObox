@@ -100,13 +100,11 @@ egobox-ego = { version = "0.x.y" }
 
 The table below presents the various features available depending on the subcrate
 
-| Name                  | doe  | gp   | moe  | ego  |
-| :-------------------- | :--- | :--- | :--- | :--- |
-| serializable          | ✔️    | ✔️    |      |      |
-| persistent            |      | ✔️    |      |      |
-| blas                  |      | ✔️    | ✔️    | ✔️    |
-| c-cobyla (deprecated) |      | ✔️    | ✔️    | ✔️    |
-| c-slsqp (deprecated)  |      |      |      | ✔️    |
+| Name         | doe  | gp   | moe  | ego  |
+| :----------- | :--- | :--- | :--- | :--- |
+| serializable | ✔️    | ✔️    |      |      |
+| persistent   |      | ✔️    |      |      |
+| blas         |      | ✔️    | ✔️    | ✔️    |
 
 Note: `moe` and `ego` models are always serializable and can be saved/loaded (json or binary format).
 
@@ -122,22 +120,12 @@ When selected, the save and load as a json file with [serde_json crate](https://
 
 When selected, the usage of BLAS/LAPACK backend is possible, see [below](#blaslapack-backend-optional) for more information.
 
-#### c-cobyla, c-slsqp (deprecated)
+#### Optimizers
 
-These features are deprecated since EGObox 1.1.0 (`egobox-gp` 0.38.0, `egobox-moe` 0.38.0, `egobox-ego` 0.44.0,
-`egobox-gpx` 0.7.0) and will be removed in the next breaking release. The Basin optimizers are used by default
-and need no feature: they are the tested and benchmarked backend, Basin COBYLA gives the same results as the C
-one, and only Basin optimizers can be interrupted (Ctrl-C, `InterruptFlag`) during an optimization start.
-
-By default, [Basin](https://basin.rs) pure Rust optimizers are used: COBYLA for GP hyperparameters
-training (`gp`, `moe`) and COBYLA/SLSQP for infill criterion optimization (`ego`), which also always
-uses Basin to execute the EGO loop.
-
-When selected, `c-cobyla` (resp. `c-slsqp`) uses the [cobyla](https://crates.io/crates/cobyla)
-(resp. [slsqp](https://crates.io/crates/slsqp)) crate, a C-ported NLopt implementation, instead of
-the Basin one. `c-cobyla` is also available on `egobox-gpx`, and both on the Python package. See
-[Basin integration](doc/basin.md) for build commands, checkpoint behavior, and
-reproducible comparisons.
+[Basin](https://basin.rs) pure Rust optimizers are used: COBYLA for GP hyperparameters training (`gp`, `moe`)
+and COBYLA/SLSQP for infill criterion optimization (`ego`), which also uses Basin to execute the EGO loop.
+The `c-cobyla` and `c-slsqp` features, which selected the C-ported NLopt optimizers instead, are removed since
+`egobox-gp` 0.39.0, `egobox-moe` 0.39.0, `egobox-ego` 0.45.0 and `egobox-gpx` 0.8.0. See [Basin integration](doc/basin.md) for checkpoint behavior and reproducible comparisons.
 
 ### Examples
 
