@@ -18,6 +18,7 @@ additive; breaking changes are Rust only (crates: `egobox-ego` 0.44.0, `egobox-m
   * `egobox-ego` 0.44.0:
     * The `EgorSolver` methods deprecated in 0.43.0 (`ego_step`, `trego_step`, `select_next_points`,
       `refresh_infill_data`, `eval_obj`, `eval_*infill_obj*`, ...) are removed, use `Egor` or `EgorService`
+      by @relf in <https://github.com/relf/EGObox/pull/574>
     * New `EgoError::Interrupted` variant by @relf in <https://github.com/relf/EGObox/pull/567>
     * `EgorServiceApi::suggest()` returns a `Result` (interruption, GP training failure instead of a panic)
       by @relf in <https://github.com/relf/EGObox/pull/572>
