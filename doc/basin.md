@@ -16,8 +16,14 @@ maturin develop --release --features c-cobyla,c-slsqp
 ```
 
 `c-cobyla` is available on `egobox-gp`, `egobox-moe`, `egobox-ego`,
-`egobox-gpx`, and the Python package; `c-slsqp` on `egobox-ego`, `egobox-gpx`,
-and the Python package. Both are disabled by default.
+`egobox-gpx`, and the Python package; `c-slsqp` on `egobox-ego` and the Python
+package. Both are disabled by default.
+
+Both features are deprecated since EGObox 1.1.0 (`egobox-gp` 0.38.0,
+`egobox-moe` 0.38.0, `egobox-ego` 0.44.0, `egobox-gpx` 0.7.0) and will be removed
+in the next breaking release. Basin COBYLA gives the same results as the C one,
+and the C optimizers cannot be stopped during an optimization start: an
+interruption only skips the starts not begun yet.
 
 ## Execution and compatibility
 

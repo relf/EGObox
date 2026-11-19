@@ -25,6 +25,9 @@ additive; breaking changes are Rust only (crates: `egobox-ego` 0.44.0, `egobox-m
   * `egobox-moe` 0.38.0: `find_best_number_of_clusters()` takes a `Cancellation` argument, and `GpError`
     changes by @relf in <https://github.com/relf/EGObox/pull/571>
   * `egobox-gpx` 0.7.0: exposes the `egobox-moe` 0.38 types
+* **Deprecations**: the `c-cobyla` and `c-slsqp` features (C-ported NLopt optimizers) of `egobox-gp`,
+  `egobox-moe`, `egobox-ego`, `egobox-gpx` and the Python package are deprecated and will be removed in the next
+  breaking release. The Basin optimizers, used by default, need no feature
 * Interruption:
   * Python: Ctrl-C stops `minimize`, `GpMix.fit`, `SparseGpMix.fit` and `suggest` at once instead of after
     the GP training or infill optimization in progress by @relf in <https://github.com/relf/EGObox/pull/572>

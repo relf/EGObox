@@ -18,7 +18,8 @@ categories = ["algorithms", "mathematics", "science"]
 
 [features]
 default = []
-# Use cobyla crate (C-ported NLopt COBYLA) instead of basin COBYLA for GP training
+# Deprecated since 0.38.0, will be removed in the next breaking release:
+# use cobyla crate (C-ported NLopt COBYLA) instead of basin COBYLA for GP training
 c-cobyla = ["egobox-gp/c-cobyla"]
 
 blas = ["ndarray-linalg", "linfa/ndarray-linalg", "linfa-pls/blas"]

@@ -65,6 +65,8 @@ Rust crates:
     0.38.0 to 1.0.1.
 * **`gpx` command** (#569): Ctrl-C terminates it at once. Before, it was ignored until the end of a fit, the
   model was written anyway, then a traceback was printed.
+* **Deprecated build features:** the `c-cobyla` and `c-slsqp` features, given to `maturin` when building
+  from source, are deprecated (see [Deprecations](#deprecations)). The wheels on PyPI do not use them.
 * **Fixes:**
   * `minimize` interruption (#566): a second Ctrl-C while the interrupted iteration ends lost the result;
     Ctrl-C during the initial DOE raised `RuntimeError` instead of `KeyboardInterrupt`; an exception raised
@@ -90,6 +92,19 @@ Rust crates:
 * `egobox-moe` 0.38.0: `find_best_number_of_clusters()` takes a `&Cancellation` argument; `GpError`
   changes (#571).
 * `egobox-gpx` 0.7.0: exposes the `egobox-moe` 0.38 types.
+
+### Deprecations
+
+The `c-cobyla` and `c-slsqp` features are deprecated and will be removed in the next breaking release. They
+select the C-ported NLopt optimizers (`cobyla` and `slsqp` crates) instead of the Basin ones, used by default
+since 0.38.0:
+- Basin is the backend that is tested and benchmarked, and Basin COBYLA gives the same results as the C one
+  (#555);
+- the C optimizers cannot be stopped during an optimization start: an interruption only skips the starts not
+  begun yet (#571).
+
+The features are on `egobox-gp`, `egobox-moe`, `egobox-ego` and `egobox-gpx` (`c-cobyla` only), and on the
+Python package. Build without them.
 
 ### Interruption
 

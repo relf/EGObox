@@ -12,7 +12,8 @@ keywords = ["machine-learning", "bayesian", "optimization"]
 categories = ["algorithms", "mathematics", "science"]
 
 [features]
-# Use cobyla crate (C-ported NLopt COBYLA) instead of basin COBYLA
+# Deprecated since 0.7.0, will be removed in the next breaking release:
+# use cobyla crate (C-ported NLopt COBYLA) instead of basin COBYLA
 c-cobyla = ["egobox-moe/c-cobyla"]
 
 [dependencies]
