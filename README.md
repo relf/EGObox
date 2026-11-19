@@ -119,6 +119,7 @@ When selected, the save and load as a json file with [serde_json crate](https://
 #### blas
 
 When selected, the usage of BLAS/LAPACK backend is possible, see [below](#blaslapack-backend-optional) for more information.
+On `moe` and `ego`, `blas` enables the feature on `gp`, where the GP linear algebra is computed.
 
 #### Optimizers
 

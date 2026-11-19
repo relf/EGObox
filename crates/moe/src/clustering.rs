@@ -417,11 +417,8 @@ mod tests {
     use crate::algorithm::GpMixture;
     use approx::assert_abs_diff_eq;
     use egobox_doe::{FullFactorial, Lhs, SamplingMethod};
-    #[cfg(not(feature = "blas"))]
     use linfa_linalg::norm::*;
     use ndarray::{Array1, Array2, Axis, Zip, array};
-    #[cfg(feature = "blas")]
-    use ndarray_linalg::Norm;
     //use ndarray_npy::write_npy;
     use ndarray_rand::rand::SeedableRng;
     use rand_xoshiro::Xoshiro256Plus;

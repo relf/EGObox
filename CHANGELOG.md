@@ -6,6 +6,12 @@
   0.8.0): the `c-cobyla` and `c-slsqp` features (C-ported NLopt optimizers), deprecated in 1.1.0, are removed
   from these crates and from the Python package build. The Basin optimizers, used by default since 0.38.0, are
   the only ones
+* `blas` feature confined to `egobox-gp` linear algebra:
+  * Fix: `blas` on `egobox-moe` and `egobox-ego` did not enable it on `egobox-gp`, so GP training used the pure
+    Rust backend unless `egobox-gp/blas` was also requested; it is now forwarded
+  * Breaking change (`egobox-moe` 0.39.0): `MoeError::LinalgBlasError` is removed, the Gaussian mixture uses
+    `linfa-linalg` with either backend. GP LAPACK errors are reported as `MoeError::GpError`
+  * `egobox-moe` and `egobox-ego` no longer depend on `ndarray-linalg`
 
 ## Version 1.1.0 - 19/11/2026
 

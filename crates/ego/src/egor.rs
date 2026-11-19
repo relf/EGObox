@@ -516,11 +516,7 @@ mod tests {
     use crate::{CoegoStatus, DOE_FILE, DOE_INITIAL_FILE, HISTORY_FILE, OBJECTIVE_FUNCTION_ERROR};
     use egobox_moe::{CorrelationSpec, RegressionSpec};
 
-    #[cfg(not(feature = "blas"))]
     use linfa_linalg::norm::*;
-
-    #[cfg(feature = "blas")]
-    use ndarray_linalg::Norm;
 
     use std::path::PathBuf;
 

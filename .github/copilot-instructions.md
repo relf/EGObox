@@ -25,7 +25,7 @@ The project extensively uses builder pattern for complex configurations:
 Features control optional dependencies and capabilities across crates:
 - `serializable`: Enable serde-based serialization (`doe`, `gp`; always enabled in `moe` and `ego`)
 - `persistent`: Enable JSON save/load in `gp` (implies serializable; always enabled in `moe` and `ego`)
-- `blas`: Optional BLAS/LAPACK backend via `ndarray-linalg` and Intel MKL for performance
+- `blas`: Optional BLAS/LAPACK backend via `ndarray-linalg` and Intel MKL for performance (defined in `gp`, forwarded by `moe` and `ego`)
 
 **Always specify features explicitly in dependencies** - most crates use `default-features = false` for linfa dependencies.
 
@@ -90,12 +90,11 @@ Enable via `cargo-extra-args = "--features linfa/intel-mkl-static"` in `python/p
 
 ## Code Conventions
 
-### Gaussian Process Training Returns Types
-GP training returns `GpSurrogate<F, D>` where `D` is dataset Lapack feature:
-- `WithLapack`: When `blas` feature enabled
-- `WithoutLapack`: Pure Rust implementation
-
-Use `#[cfg(feature = "blas")]` guards when dealing with these types.
+### Linear Algebra Backends
+The `blas` and pure Rust (`linfa-linalg`) backends differ only in `crates/gp/src/linalg.rs`
+(and the `GpError::LinalgBlasError` variant). GP code calls the helpers of this module
+(`cholesky`, `solve_triangular`, `qr`, `eigh`, ...); elsewhere use `linfa_linalg` directly
+(e.g. `use linfa_linalg::norm::*;`) and do not add `#[cfg(feature = "blas")]` guards.
 
 ### Error Handling
 - Custom error types via `thiserror` in each crate (`errors.rs`)

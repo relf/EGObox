@@ -17,10 +17,7 @@ use ndarray::{Axis, Ix1};
 use paste::paste;
 use std::fmt;
 
-#[cfg(not(feature = "blas"))]
 use linfa_linalg::norm::*;
-#[cfg(feature = "blas")]
-use ndarray_linalg::Norm;
 
 /// Regression model of an expert
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

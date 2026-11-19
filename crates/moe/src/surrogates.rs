@@ -523,11 +523,8 @@ mod tests {
     use super::*;
     use approx::assert_abs_diff_eq;
     use egobox_doe::{Lhs, SamplingMethod};
-    #[cfg(not(feature = "blas"))]
     use linfa_linalg::norm::*;
     use ndarray::array;
-    #[cfg(feature = "blas")]
-    use ndarray_linalg::Norm;
     use ndarray_stats::DeviationExt;
 
     fn xsinx(x: &Array2<f64>) -> Array1<f64> {
