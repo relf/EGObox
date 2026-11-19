@@ -14,7 +14,7 @@
 //! - [`Algorithm::Cobyla`] - Constrained Optimization BY Linear Approximations (derivative-free)
 //!
 //! Basin pure Rust implementations are used by default. The `c-cobyla` and `c-slsqp`
-//! features select respectively the `cobyla` and `slsqp` crates instead.
+//! features, deprecated since 0.44.0, select respectively the `cobyla` and `slsqp` crates instead.
 //!
 //! ## Usage
 //!

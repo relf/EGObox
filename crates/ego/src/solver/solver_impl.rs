@@ -82,7 +82,7 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorSolver<
         let activity = FullActivity.generate_activity(x_data.ncols(), &mut rng);
 
         // With ParEGO, surrogates are trained on the scalarized view [s | cstrs] of the data
-        // (see `ego_step`). Weights change from one call to the next as the number of data
+        // (see `global_step`). Weights change from one call to the next as the number of data
         // points grows.
         let n_obj = self.config.n_obj();
         let y_view;
@@ -251,15 +251,6 @@ where
         } else {
             format!("Objective[{}]", k + 1)
         }
-    }
-
-    /// Whether we have to recluster the data
-    #[deprecated(
-        since = "0.43.0",
-        note = "internal to the EGO solver, use Egor or EgorService instead"
-    )]
-    pub fn have_to_recluster(&self, added: usize, prev_added: usize) -> bool {
-        self.needs_reclustering(added, prev_added)
     }
 
     /// Whether we have to recluster the data
@@ -529,20 +520,6 @@ where
 
     /// Train GP model for viability surrogate (binary classification)
     /// given training data and surrogate builder
-    #[deprecated(
-        since = "0.43.0",
-        note = "internal to the EGO solver, use Egor or EgorService instead"
-    )]
-    pub fn make_viability_surrogate(
-        &self,
-        x_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
-        x_fail: &ArrayBase<impl Data<Elem = f64>, Ix2>,
-    ) -> Box<dyn MixtureGpSurrogate> {
-        self.train_viability_surrogate(x_data, x_fail)
-    }
-
-    /// Train GP model for viability surrogate (binary classification)
-    /// given training data and surrogate builder
     pub(crate) fn train_viability_surrogate(
         &self,
         x_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
@@ -754,23 +731,6 @@ where
     }
 
     /// Refresh infill data used to optimize infill criterion
-    #[deprecated(
-        since = "0.43.0",
-        note = "internal to the EGO solver, use Egor or EgorService instead"
-    )]
-    pub fn refresh_infill_data<
-        O: CostFunction<Param = Array2<f64>, Output = Array2<f64>, Error = crate::EgoError>
-            + Constraints<C>,
-    >(
-        &self,
-        problem: &mut Problem<O>,
-        state: &mut EgorState<f64>,
-        models: &[Box<dyn egobox_moe::MixtureGpSurrogate>],
-    ) -> InfillObjData<f64> {
-        self.local_infill_data(problem, state, models)
-    }
-
-    /// Refresh infill data used to optimize infill criterion
     pub(crate) fn local_infill_data<
         O: CostFunction<Param = Array2<f64>, Output = Array2<f64>, Error = crate::EgoError>
             + Constraints<C>,
@@ -889,25 +849,6 @@ where
             models.into_iter().map(|o| o.unwrap()).collect(),
             inits.into_iter().map(|o| o.unwrap()).collect(),
         ))
-    }
-
-    /// This function is the main EGO algorithm iteration:
-    /// * Train surrogates
-    /// * Find next promising location(s) of optimum
-    /// * Update state: Evaluate true function, update doe and optimum
-    #[deprecated(
-        since = "0.43.0",
-        note = "internal to the EGO solver, use Egor or EgorService instead"
-    )]
-    pub fn ego_step<
-        O: CostFunction<Param = Array2<f64>, Output = Array2<f64>, Error = crate::EgoError>
-            + Constraints<C>,
-    >(
-        &mut self,
-        problem: &mut Problem<O>,
-        state: EgorState<f64>,
-    ) -> Result<EgorState<f64>> {
-        self.global_step(problem, state)
     }
 
     /// This function is the main EGO algorithm iteration:

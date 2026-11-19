@@ -14,7 +14,8 @@ categories = ["algorithms", "mathematics", "science"]
 [features]
 
 default = []
-# Use cobyla crate (C-ported NLopt COBYLA) instead of basin COBYLA for GP hyperparameters training
+# Deprecated since 0.38.0, will be removed in the next breaking release:
+# use cobyla crate (C-ported NLopt COBYLA) instead of basin COBYLA for GP hyperparameters training
 c-cobyla = ["dep:cobyla"]
 
 serializable = ["serde", "typetag", "linfa/serde", "rand_xoshiro/serde1"]

@@ -5,7 +5,7 @@ use egobox_moe::{XType, to_discrete_space};
 use crate::utils::{compute_cstr_scales, pofs, update_data};
 use crate::{EgorSolver, solver::coego};
 
-use super::acquisition::{MonoAcquisition, PofWeighting, infill_objective};
+use super::acquisition::{MonoAcquisition, infill_objective};
 
 use basin::{CostFunction, Problem};
 
@@ -123,18 +123,6 @@ where
     }
 
     /// Mean prediction of a constraint surrogate model scaled by scale_cstr
-    #[deprecated(since = "0.43.0", note = "internal to the EGO solver")]
-    pub fn mean_cstr(
-        cstr_model: &dyn MixtureGpSurrogate,
-        x: &[f64],
-        gradient: Option<&mut [f64]>,
-        scale_cstr: f64,
-        active: &[usize],
-    ) -> f64 {
-        Self::scaled_mean_cstr(cstr_model, x, gradient, scale_cstr, active)
-    }
-
-    /// Mean prediction of a constraint surrogate model scaled by scale_cstr
     pub(crate) fn scaled_mean_cstr(
         cstr_model: &dyn MixtureGpSurrogate,
         x: &[f64],
@@ -153,19 +141,6 @@ where
             grad[..].copy_from_slice(&coego::get_active_grad(&grd, active));
         }
         cstr_model.predict(&x.view()).unwrap()[0] / scale_cstr
-    }
-
-    /// Upper trust bound prediction of a constraint surrogate model scaled by scale_cstr
-    /// with a doubt factor CSTR_DOUBT
-    #[deprecated(since = "0.43.0", note = "internal to the EGO solver")]
-    pub fn upper_trust_bound_cstr(
-        cstr_model: &dyn MixtureGpSurrogate,
-        x: &[f64],
-        gradient: Option<&mut [f64]>,
-        scale_cstr: f64,
-        active: &[usize],
-    ) -> f64 {
-        Self::scaled_upper_trust_bound_cstr(cstr_model, x, gradient, scale_cstr, active)
     }
 
     /// Upper trust bound prediction of a constraint surrogate model scaled by scale_cstr
@@ -375,96 +350,6 @@ where
         }
     }
 
-    /// Compute gradient of infill criterion objective expected to be minimized
-    /// meaning infill criterion objective is negative infill criterion
-    #[allow(clippy::too_many_arguments)]
-    #[deprecated(since = "0.43.0", note = "internal to the EGO solver")]
-    pub fn eval_grad_infill_obj(
-        &self,
-        x: &[f64],
-        obj_model: &dyn MixtureGpSurrogate,
-        fmin: f64,
-        viability_model: Option<&dyn MixtureGpSurrogate>,
-        alpha: Option<f64>,
-        scale: f64,
-        scale_ic: f64,
-    ) -> Vec<f64> {
-        let acquisition = self.mono_acquisition(obj_model, viability_model, alpha);
-        let data = infill_obj_data(fmin, scale, scale_ic, true, 1.0);
-        let (_, grad) = infill_objective(&acquisition, None, x, &data, true);
-        grad.expect("infill objective gradient").to_vec()
-    }
-
-    /// Compute infill criterion objective with constraints handling
-    /// expected to be minimized meaning infill criterion objective is negative infill criterion
-    #[allow(clippy::too_many_arguments)]
-    #[deprecated(since = "0.43.0", note = "internal to the EGO solver")]
-    pub fn eval_infill_obj_with_cstrs(
-        &self,
-        x: &[f64],
-        obj_model: &dyn MixtureGpSurrogate,
-        cstr_models: &[Box<dyn MixtureGpSurrogate>],
-        cstr_tols: &Array1<f64>,
-        fmin: f64,
-        viability_model: Option<&dyn MixtureGpSurrogate>,
-        alpha: Option<f64>,
-        scale: f64,
-        scale_ic: f64,
-        feasibility: bool,
-        sigma_weight: f64,
-    ) -> f64 {
-        let acquisition = self.mono_acquisition(obj_model, viability_model, alpha);
-        let tols = cstr_tols.to_vec();
-        let pof = PofWeighting {
-            models: cstr_models,
-            tols: &tols,
-            feasibility_first: self.config.feasibility_first,
-        };
-        let data = infill_obj_data(fmin, scale, scale_ic, feasibility, sigma_weight);
-        infill_objective(&acquisition, Some(&pof), x, &data, false).0
-    }
-
-    /// Compute gradient of infill criterion objective with constraints handling
-    #[allow(clippy::too_many_arguments)]
-    #[deprecated(since = "0.43.0", note = "internal to the EGO solver")]
-    pub fn eval_grad_infill_obj_with_cstrs(
-        &self,
-        x: &[f64],
-        obj_model: &dyn MixtureGpSurrogate,
-        cstr_models: &[Box<dyn MixtureGpSurrogate>],
-        cstr_tols: &Array1<f64>,
-        fmin: f64,
-        viability_model: Option<&dyn MixtureGpSurrogate>,
-        alpha: Option<f64>,
-        scale: f64,
-        scale_ic: f64,
-        feasibility: bool,
-        sigma_weight: f64,
-    ) -> Vec<f64> {
-        let acquisition = self.mono_acquisition(obj_model, viability_model, alpha);
-        let tols = cstr_tols.to_vec();
-        let pof = PofWeighting {
-            models: cstr_models,
-            tols: &tols,
-            feasibility_first: self.config.feasibility_first,
-        };
-        let data = infill_obj_data(fmin, scale, scale_ic, feasibility, sigma_weight);
-        let (_, grad) = infill_objective(&acquisition, Some(&pof), x, &data, true);
-        grad.expect("infill objective gradient").to_vec()
-    }
-
-    /// Evaluate the objective function at given x points
-    #[deprecated(since = "0.43.0", note = "internal to the EGO solver")]
-    pub fn eval_obj<
-        O: CostFunction<Param = Array2<f64>, Output = Array2<f64>, Error = crate::EgoError>,
-    >(
-        &self,
-        pb: &mut Problem<O>,
-        x: &Array2<f64>,
-    ) -> Result<Array2<f64>> {
-        self.evaluate_obj(pb, x)
-    }
-
     /// Evaluate the objective function at given x points
     pub(crate) fn evaluate_obj<
         O: CostFunction<Param = Array2<f64>, Output = Array2<f64>, Error = crate::EgoError>,
@@ -501,16 +386,6 @@ where
                 }
             }
         }
-    }
-
-    /// Evaluate the constraints given as function at given x points
-    #[deprecated(since = "0.43.0", note = "internal to the EGO solver")]
-    pub fn eval_fcstrs(
-        &self,
-        fcstrs: &[impl CstrFn],
-        x: &ArrayBase<impl Data<Elem = f64>, Ix2>,
-    ) -> Array2<f64> {
-        self.evaluate_fcstrs(fcstrs, x)
     }
 
     /// Evaluate the constraints given as function at given x points
@@ -593,17 +468,6 @@ where
                 }
             }
         }
-    }
-
-    /// Evaluate the constraints given as function at given x points
-    /// within the problem structure so that the function is taken from there
-    #[deprecated(since = "0.43.0", note = "internal to the EGO solver")]
-    pub fn eval_problem_fcstrs<O: Constraints<C>>(
-        &self,
-        pb: &Problem<O>,
-        x: &ArrayBase<impl Data<Elem = f64>, Ix2>,
-    ) -> Array2<f64> {
-        self.evaluate_problem_fcstrs(pb, x)
     }
 
     /// Evaluate the constraints given as function at given x points
