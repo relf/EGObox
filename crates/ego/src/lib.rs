@@ -57,9 +57,6 @@
 //! ```
 //! use ndarray::{array, Array2, ArrayView2};
 //! use linfa::ParamGuard;
-//! #[cfg(feature = "blas")]
-//! use ndarray_linalg::Norm;
-//! #[cfg(not(feature = "blas"))]
 //! use linfa_linalg::norm::*;
 //! use egobox_ego::{EgorBuilder, InfillStrategy, XType};
 //!

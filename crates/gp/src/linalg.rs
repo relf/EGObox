@@ -1,6 +1,7 @@
 //! Dense linear algebra used by the GP model computed either with the pure Rust
 //! `linfa-linalg` backend (default) or with LAPACK through `ndarray-linalg`
-//! (`blas` feature). This module is the only place where both backends differ.
+//! (`blas` feature). This module is the only place in the workspace where both backends
+//! differ: `egobox-moe` and `egobox-ego` only forward the `blas` feature to `egobox-gp`.
 
 use crate::errors::Result;
 use linfa::Float;

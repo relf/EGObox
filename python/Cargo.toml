@@ -17,7 +17,7 @@ doctest = false                 # do not doctest as doc uses Python style for Py
 [features]
 default = []
 serializable-gp = ["egobox-gp/serializable"]
-blas = ["ndarray/blas", "egobox-gp/blas", "egobox-moe/blas", "egobox-ego/blas"]
+blas = ["ndarray/blas", "egobox-ego/blas"]
 
 [dependencies]
 egobox-doe = { version = "0.35.2", path = "../crates/doe" }

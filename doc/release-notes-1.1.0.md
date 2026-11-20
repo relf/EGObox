@@ -106,6 +106,12 @@ since 0.38.0:
 The features are on `egobox-gp`, `egobox-moe`, `egobox-ego` and `egobox-gpx` (`c-cobyla` only), and on the
 Python package. Build without them.
 
+The `blas` feature of `egobox-moe` and `egobox-ego` does not enable `egobox-gp/blas`: GP training keeps the
+pure Rust backend unless `egobox-gp/blas` is enabled too. The next breaking release (#577):
+- forwards `blas` from `egobox-moe` and `egobox-ego` to `egobox-gp`, where the linear algebra backends differ;
+- removes `MoeError::LinalgBlasError` (GP LAPACK errors are reported as `MoeError::GpError`) and the
+  `ndarray-linalg` features of `egobox-moe` and `egobox-ego`.
+
 ### Interruption
 
 * **Signal handling** (#568): the `ctrlc` dependency is replaced by a handler installed only while

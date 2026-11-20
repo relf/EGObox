@@ -1186,11 +1186,8 @@ mod tests {
     use argmin_testfunctions::rosenbrock;
     use egobox_doe::{Lhs, LhsKind, SamplingMethod};
     use linfa::prelude::{Dataset, Predict};
-    #[cfg(not(feature = "blas"))]
     use linfa_linalg::norm::Norm;
     use ndarray::{Array, Zip, arr1, arr2, array};
-    #[cfg(feature = "blas")]
-    use ndarray_linalg::Norm;
     use ndarray_npy::write_npy;
     use ndarray_rand::RandomExt;
     use ndarray_rand::rand::SeedableRng;

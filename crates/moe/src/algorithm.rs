@@ -1240,11 +1240,8 @@ mod tests {
     use argmin_testfunctions::rosenbrock;
     use egobox_doe::{Lhs, SamplingMethod};
     use egobox_gp::ParamTuning;
-    #[cfg(not(feature = "blas"))]
     use linfa_linalg::norm::*;
     use ndarray::{Array, Array2, Zip, array};
-    #[cfg(feature = "blas")]
-    use ndarray_linalg::Norm;
     use ndarray_npy::write_npy;
     use ndarray_rand::RandomExt;
     use ndarray_rand::rand::SeedableRng;
