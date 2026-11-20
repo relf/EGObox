@@ -883,7 +883,7 @@ impl EgmdaOptimizer {
             })
             .min_within(self.problem.xlimits())
             .map_err(|e| EgmdoError::InvalidData(format!("Egor configuration: {e}")))?;
-        Ok(egor.suggest(&self.x, &y).row(0).to_owned())
+        Ok(egor.suggest(&self.x, &y)?.row(0).to_owned())
     }
 
     /// Records the finished analysis, and adds its point to the data of `Egor` if it

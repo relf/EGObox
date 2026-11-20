@@ -18,4 +18,7 @@ pub enum EgmdoError {
     /// When a disciplinary GP fails
     #[error(transparent)]
     GpError(#[from] egobox_gp::GpError),
+    /// When the `Egor` optimizer fails
+    #[error(transparent)]
+    EgoError(#[from] egobox_ego::EgoError),
 }

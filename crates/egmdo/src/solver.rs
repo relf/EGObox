@@ -1185,7 +1185,7 @@ mod tests {
         // as in the papers' robustness studies: with these small DoEs, about 85% of the runs
         // converge (17 of seeds 0..20). A run converges when E[Ẑ*] is within 5% of z*
         // (papers' criterion); its minimum value then carries a small model bias.
-        // The trajectories depend on the GP training backend (c-cobyla, blas).
+        // The trajectories depend on the GP training backend (blas).
         let tp = problems::toy();
         let mut summary = vec![];
         for seed in 0..10 {
@@ -1730,7 +1730,7 @@ mod tests {
         // A run converges when its estimated minimum is within 1% (papers' criterion), or when
         // its best point is the optimum: some samples of Ẑ* can fall in the mirrored basin
         // z1 ≈ -1.8 and bias the estimated minimum although the optimum was found.
-        // The trajectories depend on the GP training backend (c-cobyla, blas) and platform.
+        // The trajectories depend on the GP training backend (blas) and platform.
         let tp = problems::sellar_constrained();
         let mut summary = vec![];
         for seed in 0..8 {

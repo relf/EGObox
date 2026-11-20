@@ -454,6 +454,7 @@ pub fn multistart_minimize_constrained(
                     ftol_rel: 1e-8,
                     initial_radius: 0.5,
                     bounded_evaluations: true,
+                    cancellation: Default::default(),
                 },
             );
             let x = unscale(&x);
