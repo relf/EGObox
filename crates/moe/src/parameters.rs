@@ -17,7 +17,7 @@ use rand_xoshiro::Xoshiro256Plus;
 
 use serde::{Deserialize, Serialize};
 
-pub use egobox_gp::{Inducings, ParamTuning, SparseMethod, ThetaTuning};
+pub use egobox_gp::{Inducings, ParamTuning, SparseMethod, ThetaOptimizer, ThetaTuning};
 
 /// Number of clusters specification
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -130,6 +130,10 @@ pub struct GpMixtureValidParams<F: Float> {
     /// Noise-to-signal ratio tuning of full GP experts (no noise by default)
     #[serde(default = "no_noise_ratio")]
     noise_ratio: ParamTuning<F>,
+    /// Optimizer of the hyperparameters of full GP experts (COBYLA by default).
+    /// Training-only setting, not serialized so that saved models keep their layout
+    #[serde(skip)]
+    theta_optimizer: ThetaOptimizer,
     /// Gaussian Mixture model used to cluster
     gmm: Option<GaussianMixtureModel<F>>,
     /// GaussianMixture preset
@@ -154,6 +158,7 @@ impl<F: Float> Default for GpMixtureValidParams<F> {
             n_start: 10,
             max_eval: GP_COBYLA_MAX_EVAL,
             noise_ratio: no_noise_ratio(),
+            theta_optimizer: ThetaOptimizer::default(),
             gmm: None,
             gmx: None,
             rng: Xoshiro256Plus::from_entropy(),
@@ -216,6 +221,11 @@ impl<F: Float> GpMixtureValidParams<F> {
     /// The noise-to-signal ratio tuning of full GP experts
     pub fn noise_ratio(&self) -> &ParamTuning<F> {
         &self.noise_ratio
+    }
+
+    /// The optimizer of the hyperparameters of full GP experts
+    pub fn theta_optimizer(&self) -> ThetaOptimizer {
+        self.theta_optimizer
     }
 
     /// An optional gaussian mixture to be fitted to generate multivariate normal
@@ -335,6 +345,14 @@ impl<F: Float> GpMixtureParams<F> {
     /// Not used by sparse GP experts which handle their own noise variance.
     pub fn noise_ratio(mut self, noise_ratio: ParamTuning<F>) -> Self {
         self.0.noise_ratio = noise_ratio;
+        self
+    }
+
+    /// Sets the optimizer of the hyperparameters of full GP experts
+    /// (see [GpParams::theta_optimizer](egobox_gp::GpParams::theta_optimizer)).
+    /// Not used by sparse GP experts which are trained with COBYLA.
+    pub fn theta_optimizer(mut self, theta_optimizer: ThetaOptimizer) -> Self {
+        self.0.theta_optimizer = theta_optimizer;
         self
     }
 

@@ -85,6 +85,10 @@ use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 /// theta_max_eval : int >= 0, optional
 ///     Max number of likelihood evaluations of each GP hyperparameters optimization start (default is 50).
 ///     This is an upper limit: each start gets clamp(10 * nx, 25, theta_max_eval) evaluations.
+/// theta_optimizer : ThetaOptimizer, optional
+///     Optimizer of GP hyperparameters (default is ThetaOptimizer.COBYLA):
+///     * COBYLA: gradient-free optimizer
+///     * LBFGSB: gradient-based L-BFGS-B optimizer using the analytic gradient of the likelihood.
 /// seed : int >= 0, optional
 ///     Random generator seed to allow computation reproducibility.
 ///     Unlike `Egor` where seed is given to `minimize()`, it is given here at construction.
@@ -121,6 +125,7 @@ impl GpMix {
         theta_bounds=None,
         theta_n_start=EGO_GP_OPTIM_N_START,
         theta_max_eval=EGO_GP_OPTIM_MAX_EVAL,
+        theta_optimizer=ThetaOptimizer::Cobyla,
         seed=None,
         verbose=None,
     ))]
@@ -138,6 +143,7 @@ impl GpMix {
         theta_bounds: Option<Vec<Vec<f64>>>,
         theta_n_start: usize,
         theta_max_eval: usize,
+        theta_optimizer: ThetaOptimizer,
         seed: Option<u64>,
         #[gen_stub(override_type(type_repr = "Verbose | builtins.int | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
         verbose: Option<Py<PyAny>>,
@@ -158,6 +164,7 @@ impl GpMix {
                 theta_bounds,
                 theta_n_start,
                 theta_max_eval,
+                theta_optimizer,
             ),
             xtypes,
             seed,
@@ -250,6 +257,7 @@ impl GpMix {
                 .kpls_dim(self.gp_config.kpls_dim)
                 .n_start(n_start)
                 .max_eval(self.gp_config.theta_max_eval)
+                .theta_optimizer(self.gp_config.theta_optimizer.into())
                 .with_rng(rng)
                 .fit(&dataset)
         });
@@ -282,6 +290,7 @@ impl Gpx {
         theta_bounds=GpConfig::default().theta_bounds,
         theta_n_start=GpConfig::default().theta_n_start,
         theta_max_eval=GpConfig::default().theta_max_eval,
+        theta_optimizer=GpConfig::default().theta_optimizer,
         seed=None,
         verbose=None,
     ))]
@@ -299,6 +308,7 @@ impl Gpx {
         theta_bounds: Option<Vec<Vec<f64>>>,
         theta_n_start: usize,
         theta_max_eval: usize,
+        theta_optimizer: ThetaOptimizer,
         seed: Option<u64>,
         #[gen_stub(override_type(type_repr = "Verbose | builtins.int | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
         verbose: Option<Py<PyAny>>,
@@ -315,6 +325,7 @@ impl Gpx {
             theta_bounds,
             theta_n_start,
             theta_max_eval,
+            theta_optimizer,
             seed,
             verbose,
         )

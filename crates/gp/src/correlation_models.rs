@@ -103,6 +103,33 @@ pub trait CorrelationModel<F: Float>: Clone + Copy + Default + fmt::Display + Sy
     fn theta_influence_factors(&self) -> (F, F) {
         (F::one(), F::one())
     }
+
+    /// Whether [`CorrelationModel::log_rval_theta_grad_dot`] provides analytic derivatives
+    /// of the correlation wrt `theta`, required by gradient-based hyperparameters optimization
+    /// (see [`crate::ThetaOptimizer::Lbfgsb`]).
+    fn supports_theta_grad(&self) -> bool {
+        false
+    }
+
+    /// Compute `sum_p coefs_p * d(ln r_p)/d(theta)` where `r_p` is the correlation for the
+    /// pth row of `prepared` distances (as computed by [`CorrelationModel::rval_from_prepared_distances`]),
+    /// with:
+    ///
+    /// * `prepared` : distances (m x d) transformed by [`CorrelationModel::prepare_distances`]
+    /// * `theta`    : hyperparameters (h,)
+    /// * `weights`  : PLS weights (d x h)
+    /// * `coefs`    : weights of the sum (m,)
+    ///
+    /// Returns a (h,) vector or `None` when analytic derivatives are not available.
+    fn log_rval_theta_grad_dot(
+        &self,
+        _prepared: &ArrayBase<impl Data<Elem = F>, Ix2>,
+        _theta: &ArrayBase<impl Data<Elem = F>, Ix1>,
+        _weights: &ArrayBase<impl Data<Elem = F>, Ix2>,
+        _coefs: &ArrayBase<impl Data<Elem = F>, Ix1>,
+    ) -> Option<Array1<F>> {
+        None
+    }
 }
 
 /// Squared exponential correlation models
@@ -204,6 +231,23 @@ impl<F: Float> CorrelationModel<F> for SquaredExponentialCorr {
 
     fn theta_influence_factors(&self) -> (F, F) {
         (F::cast(0.29), F::cast(1.96))
+    }
+
+    fn supports_theta_grad(&self) -> bool {
+        true
+    }
+
+    /// d(ln r)/d(theta_l) = - theta_l * sum_j weight_j_l^2 * d_j^2
+    fn log_rval_theta_grad_dot(
+        &self,
+        d_sq: &ArrayBase<impl Data<Elem = F>, Ix2>,
+        theta: &ArrayBase<impl Data<Elem = F>, Ix1>,
+        weights: &ArrayBase<impl Data<Elem = F>, Ix2>,
+        coefs: &ArrayBase<impl Data<Elem = F>, Ix1>,
+    ) -> Option<Array1<F>> {
+        let d_sq_coefs = d_sq.t().dot(coefs);
+        let w_sq_d_sq_coefs = weights.mapv(|v| v * v).t().dot(&d_sq_coefs);
+        Some(-(theta * &w_sq_d_sq_coefs))
     }
 }
 
@@ -314,6 +358,64 @@ impl<F: Float> CorrelationModel<F> for AbsoluteExponentialCorr {
     fn theta_influence_factors(&self) -> (F, F) {
         (F::cast(0.15), F::cast(3.76))
     }
+
+    fn supports_theta_grad(&self) -> bool {
+        true
+    }
+
+    /// d(ln r)/d(theta_l) = - sum_j |weight_j_l * d_j|
+    fn log_rval_theta_grad_dot(
+        &self,
+        d_abs: &ArrayBase<impl Data<Elem = F>, Ix2>,
+        _theta: &ArrayBase<impl Data<Elem = F>, Ix1>,
+        weights: &ArrayBase<impl Data<Elem = F>, Ix2>,
+        coefs: &ArrayBase<impl Data<Elem = F>, Ix1>,
+    ) -> Option<Array1<F>> {
+        let d_abs_coefs = d_abs.t().dot(coefs);
+        Some(-weights.mapv(|v| v.abs()).t().dot(&d_abs_coefs))
+    }
+}
+
+/// Indices `l` and absolute values of the non-zero `weight_j_l` for each input dimension j
+/// (rows of weights): without PLS weights are the identity, each dimension has a single one.
+fn nonzero_abs_weights<F: Float>(
+    weights: &ArrayBase<impl Data<Elem = F>, Ix2>,
+) -> Vec<Vec<(usize, F)>> {
+    weights
+        .rows()
+        .into_iter()
+        .map(|w_j| {
+            w_j.iter()
+                .enumerate()
+                .filter(|(_, w)| **w != F::zero())
+                .map(|(l, w)| (l, w.abs()))
+                .collect()
+        })
+        .collect()
+}
+
+/// Compute `sum_i coefs_i * sum_j sum_l dlog_r(theta_l, |weight_j_l * d_i_j|)` for each theta_l
+/// where `dlog_r(theta, a)` is the derivative wrt theta of the log of a Matern factor
+fn matern_log_rval_theta_grad_dot<F: Float>(
+    distances: &ArrayBase<impl Data<Elem = F>, Ix2>,
+    theta: &ArrayBase<impl Data<Elem = F>, Ix1>,
+    weights: &ArrayBase<impl Data<Elem = F>, Ix2>,
+    coefs: &ArrayBase<impl Data<Elem = F>, Ix1>,
+    dlog_r: impl Fn(F, F) -> F,
+) -> Array1<F> {
+    let abs_w = nonzero_abs_weights(weights);
+    let mut grad = Array1::zeros(theta.len());
+    Zip::from(distances.rows())
+        .and(coefs)
+        .for_each(|d_i, &c_i| {
+            d_i.iter().zip(&abs_w).for_each(|(&d_ij, w_j)| {
+                let abs_d = d_ij.abs();
+                for &(l, w) in w_j {
+                    grad[l] += c_i * dlog_r(theta[l], w * abs_d);
+                }
+            });
+        });
+    grad
 }
 
 impl fmt::Display for AbsoluteExponentialCorr {
@@ -424,6 +526,30 @@ impl<F: Float> CorrelationModel<F> for Matern32Corr {
 
     fn theta_influence_factors(&self) -> (F, F) {
         (F::cast(0.21), F::cast(2.74))
+    }
+
+    fn supports_theta_grad(&self) -> bool {
+        true
+    }
+
+    /// d(ln r)/d(theta_l) = sum_j -3 * theta_l * a_j_l^2 / (1 + sqrt(3) * theta_l * a_j_l)
+    /// where a_j_l = |weight_j_l * d_j|
+    fn log_rval_theta_grad_dot(
+        &self,
+        d: &ArrayBase<impl Data<Elem = F>, Ix2>,
+        theta: &ArrayBase<impl Data<Elem = F>, Ix1>,
+        weights: &ArrayBase<impl Data<Elem = F>, Ix2>,
+        coefs: &ArrayBase<impl Data<Elem = F>, Ix1>,
+    ) -> Option<Array1<F>> {
+        let sqrt3 = F::cast(3.).sqrt();
+        let neg3 = F::cast(-3.);
+        Some(matern_log_rval_theta_grad_dot(
+            d,
+            theta,
+            weights,
+            coefs,
+            |t, a| neg3 * t * a * a / (F::one() + sqrt3 * t * a),
+        ))
     }
 }
 
@@ -561,6 +687,34 @@ impl<F: Float> CorrelationModel<F> for Matern52Corr {
 
     fn theta_influence_factors(&self) -> (F, F) {
         (F::cast(0.23), F::cast(2.44))
+    }
+
+    fn supports_theta_grad(&self) -> bool {
+        true
+    }
+
+    /// d(ln r)/d(theta_l) = sum_j -5/3 * theta_l * a_j_l^2 * (1 + sqrt(5) * u) / (1 + sqrt(5) * u + 5/3 * u^2)
+    /// where a_j_l = |weight_j_l * d_j| and u = theta_l * a_j_l
+    fn log_rval_theta_grad_dot(
+        &self,
+        d: &ArrayBase<impl Data<Elem = F>, Ix2>,
+        theta: &ArrayBase<impl Data<Elem = F>, Ix1>,
+        weights: &ArrayBase<impl Data<Elem = F>, Ix2>,
+        coefs: &ArrayBase<impl Data<Elem = F>, Ix1>,
+    ) -> Option<Array1<F>> {
+        let sqrt5 = F::cast(5.).sqrt();
+        let div5_3 = F::cast(5. / 3.);
+        Some(matern_log_rval_theta_grad_dot(
+            d,
+            theta,
+            weights,
+            coefs,
+            |t, a| {
+                let u = t * a;
+                -div5_3 * t * a * a * (F::one() + sqrt5 * u)
+                    / (F::one() + sqrt5 * u + div5_3 * u * u)
+            },
+        ))
     }
 }
 
@@ -748,6 +902,60 @@ mod tests {
     test_correlation!(AbsoluteExponential, true);
     test_correlation!(Matern32, true);
     test_correlation!(Matern52, true);
+
+    macro_rules! test_theta_grad {
+        ($corr:ident, $kpls:expr) => {
+            paste! {
+                #[test]
+                fn [<test_corr_ $corr:lower _kpls_ $kpls _theta_grad>]() {
+                    let xt = array![
+                        [0.1, -0.7, 0.4],
+                        [-0.5, 0.3, 0.9],
+                        [0.8, 0.6, -0.2],
+                        [-0.3, -0.9, -0.6],
+                        [0.4, 0.1, 0.7],
+                        [-0.8, 0.5, -0.1]
+                    ];
+                    let dm = DiffMatrix::new(&xt);
+                    let (theta, weights) = if $kpls {
+                        (array![0.7, 1.9], array![[0.6, -0.3], [-0.5, 0.8], [0.4, 0.2]])
+                    } else {
+                        (array![0.7, 1.9, 0.4], Array2::eye(3))
+                    };
+                    let coefs = Array1::linspace(-1., 2., dm.d.nrows());
+
+                    let corr = [< $corr Corr >]::default();
+                    assert!(<[< $corr Corr >] as CorrelationModel<f64>>::supports_theta_grad(&corr));
+                    let prepared = corr.prepare_distances(dm.d.clone());
+                    let grad = corr
+                        .log_rval_theta_grad_dot(&prepared, &theta, &weights, &coefs)
+                        .unwrap();
+
+                    let sum_log_r = |theta: &Array1<f64>| {
+                        let r = corr.rval_from_prepared_distances(&prepared, theta, &weights);
+                        (r.column(0).mapv(f64::ln) * &coefs).sum()
+                    };
+                    let e = 1e-6;
+                    for l in 0..theta.len() {
+                        let (mut tp, mut tm) = (theta.clone(), theta.clone());
+                        tp[l] += e;
+                        tm[l] -= e;
+                        let fdiff = (sum_log_r(&tp) - sum_log_r(&tm)) / (2. * e);
+                        assert_abs_diff_eq!(grad[l], fdiff, epsilon = 1e-6 * (1. + fdiff.abs()));
+                    }
+                }
+            }
+        };
+    }
+
+    test_theta_grad!(SquaredExponential, false);
+    test_theta_grad!(AbsoluteExponential, false);
+    test_theta_grad!(Matern32, false);
+    test_theta_grad!(Matern52, false);
+    test_theta_grad!(SquaredExponential, true);
+    test_theta_grad!(AbsoluteExponential, true);
+    test_theta_grad!(Matern32, true);
+    test_theta_grad!(Matern52, true);
 
     #[test]
     fn test_matern52_2d() {

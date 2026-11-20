@@ -2,10 +2,10 @@ use crate::errors::{GpError, Result};
 use crate::linalg::{UPLO, cholesky, eigh, qr, singular_values, solve_triangular, tri_solve};
 use crate::mean_models::*;
 use crate::optimization::{
-    CobylaParams, broadcast_bounds, broadcast_theta0, check_kpls_dim, into_f64,
+    Algorithm, OptimParams, broadcast_bounds, broadcast_theta0, check_kpls_dim, into_f64,
     multistart_minimize, pls_rotation, prepare_multistart,
 };
-use crate::parameters::{GpParams, GpValidParams};
+use crate::parameters::{GpParams, GpValidParams, ThetaOptimizer};
 use crate::utils::{DiffMatrix, NormalizedData, check_training_size, pairwise_differences};
 use crate::{ParamTuning, ThetaTuning, correlation_models::*};
 
@@ -925,7 +925,22 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>, D: Data<Elem
             (Array1::zeros(0), noise0)
         } else {
             let base: f64 = 10.;
-            let objfn = |x: &[f64], _gradient: Option<&mut [f64]>, _params: &mut ()| -> f64 {
+            let algorithm = match self.theta_optimizer() {
+                ThetaOptimizer::Cobyla => Algorithm::Cobyla,
+                ThetaOptimizer::Lbfgsb if n_theta == 0 || self.corr().supports_theta_grad() => {
+                    Algorithm::Lbfgsb
+                }
+                ThetaOptimizer::Lbfgsb => {
+                    log::info!(
+                        "{} correlation model has no derivatives wrt theta: COBYLA is used instead of L-BFGS-B",
+                        self.corr()
+                    );
+                    Algorithm::Cobyla
+                }
+            };
+            let ystd2 = ytrain.std[0] * ytrain.std[0];
+            // Opposite of the likelihood and its gradient when requested (L-BFGS-B)
+            let objfn = |x: &[f64], gradient: Option<&mut [f64]>, _params: &mut ()| -> f64 {
                 let mut theta = theta_base.to_owned();
                 std::iter::zip(&active, &x[..n_theta])
                     .for_each(|(&i, xi)| theta[i] = F::cast(base.powf(*xi)));
@@ -943,17 +958,34 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>, D: Data<Elem
                 let rxx =
                     self.corr()
                         .rval_from_prepared_distances(&prepared_distances, &theta, &w_star);
-                match reduced_likelihood(
+                let Ok((lkh, inner_params)) = reduced_likelihood(
                     &fx,
-                    rxx,
+                    rxx.view(),
                     &x_distances,
                     &ytrain,
                     self.nugget(),
                     noise_ratio,
-                ) {
-                    Ok(r) => -into_f64(&r.0),
-                    Err(_) => f64::INFINITY,
+                ) else {
+                    return f64::INFINITY;
+                };
+                if let Some(gradient) = gradient {
+                    let Some(grad) = reduced_likelihood_gradient(
+                        self.corr(),
+                        &x_distances,
+                        &prepared_distances,
+                        &rxx,
+                        &theta,
+                        &w_star,
+                        &inner_params,
+                        inner_params.sigma2 / ystd2,
+                        &active,
+                        noise_bounds.map(|_| noise_ratio),
+                    ) else {
+                        return f64::INFINITY;
+                    };
+                    std::iter::zip(gradient.iter_mut(), &grad).for_each(|(g, v)| *g = -into_f64(v));
                 }
+                -into_f64(&lkh)
             };
 
             // Optimization parameters: [theta_active..., [noise_ratio]] (log10 scale)
@@ -970,9 +1002,10 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>, D: Data<Elem
                 objfn,
                 &params_inits,
                 &bounds,
-                CobylaParams {
+                OptimParams {
+                    algorithm,
                     maxeval: (10 * params_inits.ncols()).clamp(GP_COBYLA_MIN_EVAL, self.max_eval()),
-                    ..CobylaParams::default()
+                    ..OptimParams::default()
                 },
                 self.cancellation(),
             );
@@ -1085,6 +1118,62 @@ fn reduced_likelihood<F: Float>(
     let yt = solve_triangular(&r_chol, ytrain.data.to_owned(), UPLO::Lower)?;
 
     gls_params(r_chol, ft, ft_qr, yt, ytrain.std[0])
+}
+
+/// Compute the gradient of the reduced likelihood wrt log10 of the optimized hyperparameters:
+/// the `active` theta components, then the noise ratio when `noise_ratio` is given (optimized).
+/// corr: correlation model providing derivatives wrt theta,
+/// x_distances: pairs of x samples (only indices and number of samples are used),
+/// prepared: distances between x samples prepared by `corr`,
+/// rxx: correlation factors of the pairs (given theta and w_star),
+/// inner_params: internal params computed by [reduced_likelihood] with rxx,
+/// sigma2: process variance estimated on normalized output training values.
+/// Returns None when the correlation model does not provide derivatives wrt theta.
+///
+/// With R the correlation matrix, gamma = R^-1 (y - F beta) and Psi = gamma gamma^t / sigma2 - R^-1,
+/// d(reduced_likelihood)/d(log10 p) = p tr(Psi dR/dp) for any hyperparameter p
+/// as beta and sigma2 derivatives vanish at their optimal values.
+#[allow(clippy::too_many_arguments)]
+fn reduced_likelihood_gradient<F: Float>(
+    corr: &impl CorrelationModel<F>,
+    x_distances: &DiffMatrix<F>,
+    prepared: &ArrayBase<impl Data<Elem = F>, Ix2>,
+    rxx: &ArrayBase<impl Data<Elem = F>, Ix2>,
+    theta: &ArrayBase<impl Data<Elem = F>, Ix1>,
+    w_star: &ArrayBase<impl Data<Elem = F>, Ix2>,
+    inner_params: &GpInnerParams<F>,
+    sigma2: F,
+    active: &[usize],
+    noise_ratio: Option<F>,
+) -> Option<Array1<F>> {
+    // R^-1 = Rc^-t . Rc^-1
+    let r_chol_inv = solve_triangular(
+        &inner_params.r_chol,
+        Array2::eye(x_distances.n_obs),
+        UPLO::Lower,
+    )
+    .ok()?;
+    let r_inv = r_chol_inv.t().dot(&r_chol_inv);
+    let gamma = inner_params.gamma.column(0);
+    let mut grad = Vec::with_capacity(active.len() + 1);
+    if !active.is_empty() {
+        // dR/dtheta_l is zero on the diagonal and equal to r_ij . dln(r_ij)/dtheta_l otherwise:
+        // tr(Psi dR/dtheta_l) = 2 sum_{i<j} Psi_ij r_ij dln(r_ij)/dtheta_l
+        let coefs = Zip::from(x_distances.d_indices.rows())
+            .and(rxx.column(0))
+            .map_collect(|ij, &r| {
+                (gamma[ij[0]] * gamma[ij[1]] / sigma2 - r_inv[[ij[0], ij[1]]]) * r
+            });
+        let dlog_r = corr.log_rval_theta_grad_dot(prepared, theta, w_star, &coefs)?;
+        let two = F::cast(2.);
+        grad.extend(active.iter().map(|&l| two * theta[l] * dlog_r[l]));
+    }
+    if let Some(noise_ratio) = noise_ratio {
+        // dR/d(noise_ratio) = I: tr(Psi) = gamma^t gamma / sigma2 - tr(R^-1)
+        let tr_psi = gamma.dot(&gamma) / sigma2 - r_inv.diag().sum();
+        grad.push(noise_ratio * tr_psi);
+    }
+    Some(Array1::from_vec(grad))
 }
 
 /// Generalized least squares estimation of the GP parameters and reduced likelihood given
@@ -2236,6 +2325,260 @@ mod tests {
             serde_json::from_value(value).unwrap();
         assert_eq!(loaded.noise_ratio(), 0.);
         assert_eq!(*loaded.params.noise_ratio(), ParamTuning::Fixed(0.));
+        assert_abs_diff_eq!(loaded.predict(&xt).unwrap(), gp.predict(&xt).unwrap());
+    }
+
+    macro_rules! test_reduced_likelihood_gradient {
+        ($regr:ident, $corr:ident, $case:ident) => {
+            paste! {
+                #[test]
+                fn [<test_reduced_likelihood_gradient_ $regr:snake _ $corr:snake _ $case>]() {
+                    let xlimits = array![[-3., 3.], [-3., 3.], [-3., 3.]];
+                    let xt = Lhs::new(&xlimits)
+                        .with_rng(Xoshiro256Plus::seed_from_u64(42))
+                        .sample(25);
+                    let yt = sin_mix(&xt).insert_axis(Axis(1));
+                    let xtrain = NormalizedData::new(&xt);
+                    let ytrain = NormalizedData::new(&yt);
+                    let x_distances = DiffMatrix::new(&xtrain.data);
+                    let fx = [<$regr Mean>]::default().coefs(&xtrain.data);
+                    let corr = [<$corr Corr>]::default();
+                    let prepared = corr.prepare_distances(x_distances.d.clone());
+                    let nugget = 100. * f64::EPSILON;
+                    let (theta, w_star, active, noise) = match stringify!($case) {
+                        "kpls" => (
+                            array![0.8, 1.7],
+                            array![[0.6, -0.3], [-0.5, 0.8], [0.4, 0.2]],
+                            vec![0, 1],
+                            None,
+                        ),
+                        "partial" => (array![0.8, 1.5, 0.4], Array2::eye(3), vec![0, 2], None),
+                        "noise" => (array![0.8, 1.5, 0.4], Array2::eye(3), vec![0, 1, 2], Some(1e-2)),
+                        _ => (array![0.8, 1.5, 0.4], Array2::eye(3), vec![0, 1, 2], None),
+                    };
+                    let noise_ratio = noise.unwrap_or(0.);
+                    let lkh = |theta: &Array1<f64>, noise_ratio: f64| {
+                        let rxx = corr.rval_from_prepared_distances(&prepared, theta, &w_star);
+                        reduced_likelihood(&fx, rxx, &x_distances, &ytrain, nugget, noise_ratio)
+                            .unwrap()
+                    };
+
+                    let rxx = corr.rval_from_prepared_distances(&prepared, &theta, &w_star);
+                    let (_, inner_params) = lkh(&theta, noise_ratio);
+                    let sigma2 = inner_params.sigma2 / (ytrain.std[0] * ytrain.std[0]);
+                    let grad = reduced_likelihood_gradient(
+                        &corr, &x_distances, &prepared, &rxx, &theta, &w_star, &inner_params,
+                        sigma2, &active, noise,
+                    )
+                    .unwrap();
+                    assert_eq!(grad.len(), active.len() + usize::from(noise.is_some()));
+
+                    // central finite differences wrt log10 of hyperparameters
+                    let e = 1e-6;
+                    let step = 10f64.powf(e);
+                    for (k, &l) in active.iter().enumerate() {
+                        let (mut tp, mut tm) = (theta.clone(), theta.clone());
+                        tp[l] *= step;
+                        tm[l] /= step;
+                        let fdiff = (lkh(&tp, noise_ratio).0 - lkh(&tm, noise_ratio).0) / (2. * e);
+                        assert_abs_diff_eq!(grad[k], fdiff, epsilon = 1e-5 * (1. + fdiff.abs()));
+                    }
+                    if noise.is_some() {
+                        let fdiff = (lkh(&theta, noise_ratio * step).0
+                            - lkh(&theta, noise_ratio / step).0)
+                            / (2. * e);
+                        assert_abs_diff_eq!(
+                            grad[active.len()],
+                            fdiff,
+                            epsilon = 1e-5 * (1. + fdiff.abs())
+                        );
+                    }
+                }
+            }
+        };
+    }
+
+    test_reduced_likelihood_gradient!(Constant, SquaredExponential, full);
+    test_reduced_likelihood_gradient!(Constant, AbsoluteExponential, full);
+    test_reduced_likelihood_gradient!(Constant, Matern32, full);
+    test_reduced_likelihood_gradient!(Constant, Matern52, full);
+    test_reduced_likelihood_gradient!(Linear, SquaredExponential, full);
+    test_reduced_likelihood_gradient!(Linear, Matern52, full);
+    test_reduced_likelihood_gradient!(Quadratic, SquaredExponential, full);
+    test_reduced_likelihood_gradient!(Quadratic, Matern32, full);
+    test_reduced_likelihood_gradient!(Constant, SquaredExponential, kpls);
+    test_reduced_likelihood_gradient!(Linear, Matern52, kpls);
+    test_reduced_likelihood_gradient!(Constant, Matern32, partial);
+    test_reduced_likelihood_gradient!(Quadratic, AbsoluteExponential, partial);
+    test_reduced_likelihood_gradient!(Constant, SquaredExponential, noise);
+    test_reduced_likelihood_gradient!(Linear, Matern52, noise);
+
+    #[test]
+    fn test_lbfgsb_theta_optimizer() {
+        for dim in [2, 5] {
+            let xlimits = array![[-3., 3.]].broadcast((dim, 2)).unwrap().to_owned();
+            let xt = Lhs::new(&xlimits)
+                .with_rng(Xoshiro256Plus::seed_from_u64(42))
+                .sample(12 * dim);
+            let yt = xt.map_axis(Axis(1), |x| {
+                x.iter()
+                    .enumerate()
+                    .map(|(i, &v): (usize, &f64)| (i as f64 + 1.).sqrt() * v.sin() + 0.1 * v * v)
+                    .sum::<f64>()
+            });
+            let fit = |theta_optimizer| {
+                GaussianProcess::<f64, ConstantMean, Matern52Corr>::params(
+                    ConstantMean::default(),
+                    Matern52Corr::default(),
+                )
+                .theta_optimizer(theta_optimizer)
+                .fit(&Dataset::new(xt.clone(), yt.clone()))
+                .expect("GP fitting")
+            };
+            let cobyla = fit(ThetaOptimizer::Cobyla);
+            let lbfgsb = fit(ThetaOptimizer::Lbfgsb);
+            println!(
+                "dim={dim}: likelihood cobyla={} lbfgsb={}",
+                cobyla.likelihood(),
+                lbfgsb.likelihood()
+            );
+            assert_eq!(lbfgsb.params.theta_optimizer(), ThetaOptimizer::Lbfgsb);
+            assert!(lbfgsb.likelihood() >= cobyla.likelihood() - 1e-3 * cobyla.likelihood().abs());
+            // interpolation of training data
+            let ypred = lbfgsb.predict(&xt).unwrap();
+            assert_abs_diff_eq!(ypred, yt, epsilon = 1e-4 * (1. + yt.mapv(f64::abs).sum()));
+        }
+    }
+
+    #[test]
+    fn test_lbfgsb_theta_optimizer_partial() {
+        let xlimits = array![[-3., 3.], [-3., 3.], [-3., 3.]];
+        let xt = Lhs::new(&xlimits)
+            .with_rng(Xoshiro256Plus::seed_from_u64(42))
+            .sample(30);
+        let yt = sin_mix(&xt);
+        let init = array![0.1, 0.5, 0.1];
+        let gp = GaussianProcess::<f64, ConstantMean, Matern52Corr>::params(
+            ConstantMean::default(),
+            Matern52Corr::default(),
+        )
+        .theta_tuning(ThetaTuning::Partial {
+            init: init.clone(),
+            bounds: array![(1e-2, 1e1)],
+            active: vec![0, 2],
+        })
+        .theta_optimizer(ThetaOptimizer::Lbfgsb)
+        .fit(&Dataset::new(xt.clone(), yt.clone()))
+        .expect("GP fitting");
+        // non active component is kept
+        assert_eq!(gp.theta()[1], init[1]);
+        assert!(gp.theta()[0] != init[0] || gp.theta()[2] != init[2]);
+        let ypred = gp.predict(&xt).unwrap();
+        assert_abs_diff_eq!(ypred, yt, epsilon = 1e-4 * (1. + yt.mapv(f64::abs).sum()));
+    }
+
+    #[test]
+    fn test_lbfgsb_with_noise_ratio() {
+        let noise_std = 0.1;
+        let (xt, yt) = noisy_sin(40, noise_std, 42);
+        let fit = |theta_optimizer| {
+            Kriging::params()
+                .noise_ratio(ParamTuning::Optimized {
+                    init: 1e-2,
+                    bounds: (1e-8, 10.),
+                })
+                .theta_optimizer(theta_optimizer)
+                .fit(&Dataset::new(xt.clone(), yt.clone()))
+                .expect("GP fitting")
+        };
+        let cobyla = fit(ThetaOptimizer::Cobyla);
+        let lbfgsb = fit(ThetaOptimizer::Lbfgsb);
+        println!(
+            "likelihood cobyla={} lbfgsb={}, noise variance cobyla={} lbfgsb={}",
+            cobyla.likelihood(),
+            lbfgsb.likelihood(),
+            cobyla.noise_variance(),
+            lbfgsb.noise_variance()
+        );
+        assert!(lbfgsb.likelihood() >= cobyla.likelihood() - 1e-3 * cobyla.likelihood().abs());
+        let noise_var = noise_std * noise_std;
+        assert!(
+            lbfgsb.noise_variance() > noise_var / 4. && lbfgsb.noise_variance() < 4. * noise_var,
+            "noise variance {} should be close to {noise_var}",
+            lbfgsb.noise_variance()
+        );
+    }
+
+    #[test]
+    fn test_lbfgsb_theta_optimizer_fallback() {
+        // correlation model without derivatives wrt theta falls back to COBYLA
+        #[derive(Clone, Copy, Debug, Default)]
+        struct NoThetaGradCorr(SquaredExponentialCorr);
+        impl fmt::Display for NoThetaGradCorr {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                write!(f, "NoThetaGrad")
+            }
+        }
+        impl CorrelationModel<f64> for NoThetaGradCorr {
+            fn rval_from_distances(
+                &self,
+                distances: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+                theta: &ArrayBase<impl Data<Elem = f64>, Ix1>,
+                weights: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+            ) -> Array2<f64> {
+                self.0.rval_from_distances(distances, theta, weights)
+            }
+            fn jac(
+                &self,
+                x: &ArrayBase<impl Data<Elem = f64>, Ix1>,
+                xtrain: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+                theta: &ArrayBase<impl Data<Elem = f64>, Ix1>,
+                weights: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+            ) -> Array2<f64> {
+                self.0.jac(x, xtrain, theta, weights)
+            }
+            fn rval_with_jac(
+                &self,
+                x: &ArrayBase<impl Data<Elem = f64>, Ix1>,
+                xtrain: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+                theta: &ArrayBase<impl Data<Elem = f64>, Ix1>,
+                weights: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+            ) -> (Array2<f64>, Array2<f64>) {
+                self.0.rval_with_jac(x, xtrain, theta, weights)
+            }
+        }
+
+        let xt = array![[0.0], [5.0], [10.0], [15.0], [18.0], [20.0], [25.0]];
+        let yt = array![0.0, 1.0, 1.5, 0.9, 1.0, -0.3, 0.2];
+        let fit = |theta_optimizer| {
+            GaussianProcess::<f64, ConstantMean, NoThetaGradCorr>::params(
+                ConstantMean::default(),
+                NoThetaGradCorr::default(),
+            )
+            .theta_optimizer(theta_optimizer)
+            .fit(&Dataset::new(xt.clone(), yt.clone()))
+            .expect("GP fitting")
+        };
+        assert_eq!(
+            fit(ThetaOptimizer::Lbfgsb).theta(),
+            fit(ThetaOptimizer::Cobyla).theta()
+        );
+    }
+
+    #[cfg(feature = "serializable")]
+    #[test]
+    fn test_theta_optimizer_not_serialized() {
+        let (xt, yt) = noisy_sin(20, 0.1, 0);
+        let gp = Kriging::params()
+            .theta_optimizer(ThetaOptimizer::Lbfgsb)
+            .fit(&Dataset::new(xt.clone(), yt))
+            .expect("GP fitting");
+        // Training-only setting: saved models keep their layout
+        let value = serde_json::to_value(&gp).unwrap();
+        assert!(value["params"].get("theta_optimizer").is_none());
+        let loaded: GaussianProcess<f64, ConstantMean, SquaredExponentialCorr> =
+            serde_json::from_value(value).unwrap();
+        assert_eq!(loaded.params.theta_optimizer(), ThetaOptimizer::Cobyla);
         assert_abs_diff_eq!(loaded.predict(&xt).unwrap(), gp.predict(&xt).unwrap());
     }
 }

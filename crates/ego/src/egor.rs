@@ -528,6 +528,9 @@ mod tests {
     static TRAININGS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     /// Trainings of [`FailingBuilder`] fail from this one on
     const FAILING_TRAINING: usize = 4;
+    /// Last GP hyperparameters optimizer set on a [`FailingBuilder`]
+    static THETA_OPTIMIZER: std::sync::Mutex<Option<egobox_gp::ThetaOptimizer>> =
+        std::sync::Mutex::new(None);
 
     /// GP mixture builder whose trainings fail from the `FAILING_TRAINING`-th one on,
     /// as when the GP correlation matrix is numerically singular
@@ -573,6 +576,10 @@ mod tests {
         }
         fn set_noise_ratio(&mut self, noise_ratio: egobox_gp::ParamTuning<f64>) {
             self.0.set_noise_ratio(noise_ratio)
+        }
+        fn set_theta_optimizer(&mut self, theta_optimizer: egobox_gp::ThetaOptimizer) {
+            *THETA_OPTIMIZER.lock().unwrap() = Some(theta_optimizer);
+            self.0.set_theta_optimizer(theta_optimizer)
         }
         fn set_rng(&mut self, rng: Xoshiro256Plus) {
             self.0.set_rng(rng)
@@ -820,6 +827,86 @@ mod tests {
             .configure(|cfg| cfg.configure_trego(|trego| trego.beta_uncertain(0.5)))
             .min_within(&array![[0.0, 25.0]]);
         assert!(matches!(res, Err(crate::EgoError::InvalidConfigError(_))));
+    }
+
+    #[test]
+    #[serial]
+    fn test_xsinx_with_lbfgsb_theta_optimizer() {
+        let initial_doe = array![[0.], [7.], [25.]];
+        let res = EgorBuilder::optimize(xsinx)
+            .configure(|cfg| {
+                cfg.configure_gp(|gp| gp.theta_optimizer(crate::ThetaOptimizer::Lbfgsb))
+                    .max_iters(20)
+                    .doe(&initial_doe)
+                    .seed(42)
+            })
+            .min_within(&array![[0.0, 25.0]])
+            .expect("Egor should be configured")
+            .run()
+            .expect("Egor should minimize xsinx");
+        println!("x_opt={} y_opt={}", res.x_opt, res.y_opt);
+        assert_abs_diff_eq!(array![18.9], res.x_opt, epsilon = 1e-1);
+    }
+
+    #[test]
+    #[serial]
+    fn test_theta_optimizer_given_to_surrogate_builder() {
+        for theta_optimizer in [crate::ThetaOptimizer::Lbfgsb, crate::ThetaOptimizer::Cobyla] {
+            TRAININGS.store(0, std::sync::atomic::Ordering::Relaxed);
+            *THETA_OPTIMIZER.lock().unwrap() = None;
+            EgorBuilder::optimize(xsinx)
+                .configure(|cfg| {
+                    cfg.configure_gp(|gp| gp.theta_optimizer(theta_optimizer))
+                        .max_iters(1)
+                        .seed(42)
+                })
+                .build::<FailingBuilder>(&to_xtypes(&array![[0., 25.]]))
+                .unwrap()
+                .run()
+                .unwrap();
+            assert_eq!(*THETA_OPTIMIZER.lock().unwrap(), Some(theta_optimizer));
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_hot_start_takes_theta_optimizer_from_its_configuration() {
+        let outdir = "target/test_hot_start_theta_optimizer";
+        let _ = std::fs::remove_dir_all(outdir);
+        let run = |theta_optimizer, hot_start| {
+            TRAININGS.store(0, std::sync::atomic::Ordering::Relaxed);
+            *THETA_OPTIMIZER.lock().unwrap() = None;
+            EgorBuilder::optimize(xsinx)
+                .configure(|cfg| {
+                    cfg.configure_gp(|gp| gp.theta_optimizer(theta_optimizer))
+                        .max_iters(1)
+                        .hot_start(hot_start)
+                        .outdir(outdir)
+                        .seed(42)
+                })
+                .build::<FailingBuilder>(&to_xtypes(&array![[0., 25.]]))
+                .unwrap()
+                .run()
+                .unwrap();
+            *THETA_OPTIMIZER.lock().unwrap()
+        };
+        let (cobyla, lbfgsb) = (crate::ThetaOptimizer::Cobyla, crate::ThetaOptimizer::Lbfgsb);
+        assert_eq!(run(cobyla, crate::HotStartMode::Enabled), Some(cobyla));
+        // resumed from the checkpoint saved by the previous run
+        assert_eq!(
+            run(lbfgsb, crate::HotStartMode::ExtendedIters(1)),
+            Some(lbfgsb)
+        );
+    }
+
+    #[test]
+    fn test_gp_config_theta_optimizer_not_serialized() {
+        // not saved in configuration files and checkpoints which keep their layout
+        let gp_config = crate::GpConfig::default().theta_optimizer(crate::ThetaOptimizer::Lbfgsb);
+        let value = serde_json::to_value(&gp_config).unwrap();
+        assert!(value.get("theta_optimizer").is_none());
+        let gp_config: crate::GpConfig = serde_json::from_value(value).unwrap();
+        assert_eq!(gp_config.theta_optimizer, crate::ThetaOptimizer::Cobyla);
     }
 
     #[test]

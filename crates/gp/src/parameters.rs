@@ -111,6 +111,23 @@ impl<F: Float> Default for ParamTuning<F> {
     }
 }
 
+/// Optimizer used to tune GP hyperparameters (theta and noise ratio) by maximizing
+/// the likelihood
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serializable", derive(Serialize, Deserialize))]
+pub enum ThetaOptimizer {
+    /// Gradient-free COBYLA optimizer
+    #[default]
+    Cobyla,
+    /// Gradient-based L-BFGS-B optimizer using the analytic gradient of the likelihood.
+    ///
+    /// It usually reaches a higher likelihood than COBYLA within the evaluations budget,
+    /// which does not always give a better prediction with few training points.
+    /// Falls back to COBYLA when the correlation model does not provide derivatives
+    /// wrt theta (see [`CorrelationModel::supports_theta_grad`]).
+    Lbfgsb,
+}
+
 /// A set of validated GP parameters.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(
@@ -140,6 +157,10 @@ pub struct GpValidParams<F: Float, Mean: RegressionModel<F>, Corr: CorrelationMo
     /// gaussian noise on training outputs (no noise by default, i.e. interpolation)
     #[cfg_attr(feature = "serializable", serde(default = "no_noise_ratio"))]
     pub(crate) noise_ratio: ParamTuning<F>,
+    /// Optimizer of the hyperparameters (COBYLA by default). Training-only setting,
+    /// not serialized so that saved models keep their layout (binary files included)
+    #[cfg_attr(feature = "serializable", serde(skip))]
+    pub(crate) theta_optimizer: ThetaOptimizer,
     /// Request to stop the training early (run-time hook, not serialized)
     #[cfg_attr(feature = "serializable", serde(skip))]
     pub(crate) cancellation: Cancellation,
@@ -163,6 +184,7 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> Default
             max_eval: GP_COBYLA_MAX_EVAL,
             nugget: F::cast(100.0) * F::epsilon(),
             noise_ratio: no_noise_ratio(),
+            theta_optimizer: ThetaOptimizer::default(),
             cancellation: Cancellation::default(),
         }
     }
@@ -207,6 +229,11 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GpValidParam
     /// Get the noise-to-signal ratio tuning
     pub fn noise_ratio(&self) -> &ParamTuning<F> {
         &self.noise_ratio
+    }
+
+    /// Get the optimizer of the hyperparameters
+    pub fn theta_optimizer(&self) -> ThetaOptimizer {
+        self.theta_optimizer
     }
 
     /// Get the request to stop the training early
@@ -339,6 +366,13 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GpParams<F, 
     /// The fitted noise variance is available with [`crate::GaussianProcess::noise_variance`].
     pub fn noise_ratio(mut self, noise_ratio: ParamTuning<F>) -> Self {
         self.0.noise_ratio = noise_ratio;
+        self
+    }
+
+    /// Set the optimizer of the hyperparameters (theta and noise ratio when optimized):
+    /// gradient-free COBYLA (default) or L-BFGS-B using the analytic gradient of the likelihood
+    pub fn theta_optimizer(mut self, theta_optimizer: ThetaOptimizer) -> Self {
+        self.0.theta_optimizer = theta_optimizer;
         self
     }
 

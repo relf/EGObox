@@ -1163,6 +1163,7 @@ impl Egor {
                     .theta_tuning(self.gp_config.theta_tuning())
                     .n_start(self.gp_config.theta_n_start)
                     .max_eval(self.gp_config.theta_max_eval)
+                    .theta_optimizer(self.gp_config.theta_optimizer.into())
             })
             .infill_strategy(self.infill_strategy.into())
             .feasible_infill_strategy(self.feasible_infill_strategy.into())

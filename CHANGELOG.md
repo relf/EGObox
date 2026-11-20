@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+* L-BFGS-B optimizer of GP hyperparameters: `ThetaOptimizer::Lbfgsb` (Python `ThetaOptimizer.LBFGSB`) maximizes
+  the likelihood wrt theta, and the noise ratio when estimated, with the L-BFGS-B solver of basin and the analytic
+  gradient of the likelihood (squared exponential, absolute exponential and Matern kernels). Opt-in, COBYLA remains
+  the default: `GpParams::theta_optimizer`, `GpMixtureParams::theta_optimizer`, `GpConfig::theta_optimizer`, Python
+  `GpConfig(theta_optimizer=...)` and `GpMix(theta_optimizer=...)`. Sparse GPs keep COBYLA. Training-only setting,
+  not saved with models nor in hot start checkpoints (a resumed run takes it from its own configuration): saved GP
+  model files and checkpoints are unchanged
 * **Breaking changes** (Rust crates `egobox-gp` 0.39.0, `egobox-moe` 0.39.0, `egobox-ego` 0.45.0, `egobox-gpx`
   0.8.0): the `c-cobyla` and `c-slsqp` features (C-ported NLopt optimizers), deprecated in 1.1.0, are removed
   from these crates and from the Python package build. The Basin optimizers, used by default since 0.38.0, are

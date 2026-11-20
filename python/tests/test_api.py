@@ -86,6 +86,27 @@ class TestApi(unittest.TestCase):
 
         self.assertFalse(np.allclose(thetas(25), thetas(1000)))
 
+    def test_theta_optimizer_arguments(self):
+        import egobox as egx
+
+        self.assertEqual(egx.GpConfig().theta_optimizer, egx.ThetaOptimizer.COBYLA)
+        cfg = egx.GpConfig(theta_optimizer=egx.ThetaOptimizer.LBFGSB)
+        self.assertEqual(cfg.theta_optimizer, egx.ThetaOptimizer.LBFGSB)
+        # integer and dict forms
+        self.assertEqual(
+            egx.GpConfig(theta_optimizer=1).theta_optimizer, egx.ThetaOptimizer.LBFGSB
+        )
+        with self.assertRaises(ValueError):
+            egx.GpConfig(theta_optimizer=2)
+
+        def fobj(x: np.ndarray) -> np.ndarray:
+            x = np.atleast_2d(x)
+            return np.sum((x - 0.3) ** 2, axis=1).reshape(-1, 1)
+
+        egor = egx.Egor([[0.0, 1.0]], gp_config={"theta_optimizer": 1})
+        optim = egor.minimize(fobj, max_iters=3, seed=42)
+        self.assertEqual(optim.status.exit, egx.ExitStatus.MAX_ITERS_REACHED)
+
     def test_classes_module_is_egobox(self):
         import egobox as egx
 
@@ -99,7 +120,8 @@ class TestApi(unittest.TestCase):
             repr(egx.GpConfig(n_clusters=2, theta_bounds=[[0.1, 1.0]])),
             "GpConfig(regr_spec=1, corr_spec=1, kpls_dim=None, n_clusters=2, "
             "recombination=Recombination.HARD, theta_init=None, "
-            "theta_bounds=[[0.1, 1.0]], theta_n_start=10, theta_max_eval=50)",
+            "theta_bounds=[[0.1, 1.0]], theta_n_start=10, theta_max_eval=50, "
+            "theta_optimizer=ThetaOptimizer.COBYLA)",
         )
         self.assertEqual(
             repr(egx.QEiConfig(batch=3)),

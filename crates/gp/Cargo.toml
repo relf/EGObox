@@ -67,3 +67,7 @@ harness = false
 [[bench]]
 name = "predict"
 harness = false
+
+[[bench]]
+name = "theta_optimizer"
+harness = false
