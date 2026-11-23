@@ -7,8 +7,9 @@ use crate::Cancellation;
 use basin::{
     BoxBounds, Cobyla, ConstraintDescription, ConstraintJacobian, ConstraintSet,
     ConstraintSolveError, ConvergenceTest, CostFunction, DenseMatrix, FirstOrderState, Gradient,
-    Lbfgsb, NoLinearConstraints, NoNonlinearBlock, NonlinearBlock, NonlinearBlocks,
-    NonlinearInequalityValues, SelectedFirstOrderState, SelectedState, Slsqp, State, Termination,
+    LineSearch, LineSearchBounds, LineSearchResult, MoreThuente, NoLinearConstraints,
+    NoNonlinearBlock, NonlinearBlock, NonlinearBlocks, NonlinearInequalityValues,
+    SelectedFirstOrderState, SelectedState, Slsqp, State, Termination,
 };
 use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
@@ -29,9 +30,64 @@ pub struct Settings<'a> {
     pub ftol_abs: f64,
     pub ftol_rel: f64,
     pub initial_radius: f64,
+    /// L-BFGS-B only: largest change of any parameter in one iteration (None: no limit)
+    pub max_step: Option<f64>,
     pub bounded_evaluations: bool,
     /// Request to stop the optimization early, checked after each iteration
     pub cancellation: Cancellation,
+}
+
+/// Moré–Thuente line search whose steps change each parameter by at most `max_step`.
+///
+/// Without curvature information, the first L-BFGS-B step goes to the generalized Cauchy
+/// point which may be far away, e.g. across the whole box. With a likelihood whose plateaus
+/// are flat (squared exponential correlation with large theta), such long steps end there.
+struct CappedMoreThuente {
+    inner: MoreThuente<f64>,
+    max_step: Option<f64>,
+}
+
+impl<P> LineSearch<P, Vec<f64>, f64> for CappedMoreThuente
+where
+    P: CostFunction<Param = Vec<f64>, Output = f64> + Gradient<Gradient = Vec<f64>>,
+{
+    type Error = P::Error;
+
+    fn reset(&mut self) {
+        <MoreThuente<f64> as LineSearch<P, Vec<f64>, f64>>::reset(&mut self.inner)
+    }
+
+    fn next(
+        &mut self,
+        problem: &mut basin::Problem<P>,
+        param: &Vec<f64>,
+        cost: f64,
+        gradient: &Vec<f64>,
+        direction: &Vec<f64>,
+    ) -> Result<f64, Self::Error> {
+        self.inner.next(problem, param, cost, gradient, direction)
+    }
+
+    fn next_with_bounds(
+        &mut self,
+        problem: &mut basin::Problem<P>,
+        param: &Vec<f64>,
+        cost: f64,
+        gradient: &Vec<f64>,
+        direction: &Vec<f64>,
+        bounds: LineSearchBounds<f64>,
+    ) -> Result<LineSearchResult<Vec<f64>, f64>, Self::Error> {
+        let largest = direction.iter().fold(0f64, |m, d| m.max(d.abs()));
+        let bounds = match self.max_step {
+            Some(max_step) if largest * bounds.max() > max_step => {
+                let max = max_step / largest;
+                LineSearchBounds::new(bounds.initial().min(max), max)
+            }
+            _ => bounds,
+        };
+        self.inner
+            .next_with_bounds(problem, param, cost, gradient, direction, bounds)
+    }
 }
 
 /// Run controls stopping the optimization once `cancellation` is requested
@@ -396,7 +452,12 @@ pub fn minimize(
             let mut wrapped = basin::Problem::new(BoxOnly(&problem));
             // Projected gradient tolerance of scipy L-BFGS-B (pgtol), EGObox supplies
             // the objective-change tolerances
-            let mut solver = Lbfgsb::new().with_absolute_projected_gradient_tolerance(1e-5);
+            let mut solver =
+                basin::Lbfgsb::<Vec<f64>, f64, _>::with_line_search(CappedMoreThuente {
+                    inner: MoreThuente::new(),
+                    max_step: settings.max_step,
+                })
+                .with_absolute_projected_gradient_tolerance(1e-5);
             let mut control = controls(&settings.cancellation);
             let state = FirstOrderState::new(xinit);
             run(
@@ -537,6 +598,48 @@ mod tests {
     }
 
     #[test]
+    fn lbfgsb_max_step_limits_parameter_changes() {
+        for max_step in [None, Some(0.5)] {
+            let points = RefCell::new(Vec::<Vec<f64>>::new());
+            let mut config = settings(&[-2.5, -2.5], &[(-3., 3.), (-3., 3.)]);
+            config.max_step = max_step;
+            let (value, x) = minimize(
+                Algorithm::Lbfgsb,
+                &|x, g| {
+                    points.borrow_mut().push(x.to_vec());
+                    if let Some(g) = g {
+                        g[0] = 2. * (x[0] - 2.5);
+                        g[1] = 8. * (x[1] - 2.5);
+                    }
+                    (x[0] - 2.5).powi(2) + 4. * (x[1] - 2.5).powi(2)
+                },
+                &|_, _, _| unreachable!(),
+                config,
+            );
+            assert!(value < 1e-8, "{max_step:?}: {value} at {x:?}");
+            // every trial is within max_step of an iterate, i.e. of a previous trial
+            let points = points.into_inner();
+            let largest_move = (1..points.len())
+                .map(|k| {
+                    points[..k]
+                        .iter()
+                        .map(|p| {
+                            p.iter()
+                                .zip(&points[k])
+                                .fold(0f64, |m, (a, b)| m.max((a - b).abs()))
+                        })
+                        .fold(f64::INFINITY, f64::min)
+                })
+                .fold(0f64, f64::max);
+            match max_step {
+                Some(max_step) => assert!(largest_move <= max_step + 1e-12, "{largest_move}"),
+                // the first step goes to the generalized Cauchy point on the bounds
+                None => assert!(largest_move > 1., "{largest_move}"),
+            }
+        }
+    }
+
+    #[test]
     fn cancellation_stops_all_solvers() {
         for algorithm in UNCONSTRAINED {
             let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -574,6 +677,7 @@ mod tests {
             ftol_abs: 1e-10,
             ftol_rel: 1e-10,
             initial_radius: 0.5,
+            max_step: None,
             bounded_evaluations: true,
             cancellation: Cancellation::default(),
         }

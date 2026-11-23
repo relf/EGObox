@@ -6,7 +6,10 @@
   the likelihood wrt theta, and the noise ratio when estimated, with the L-BFGS-B solver of basin and the analytic
   gradient of the likelihood (squared exponential, absolute exponential and Matern kernels). Opt-in, COBYLA remains
   the default: `GpParams::theta_optimizer`, `GpMixtureParams::theta_optimizer`, `GpConfig::theta_optimizer`, Python
-  `GpConfig(theta_optimizer=...)` and `GpMix(theta_optimizer=...)`. Sparse GPs keep COBYLA. Training-only setting,
+  `GpConfig(theta_optimizer=...)` and `GpMix(theta_optimizer=...)`. L-BFGS-B gets half of the COBYLA evaluations
+  budget, an evaluation also computing the gradient, and steps of at most half a decade per hyperparameter: it
+  trains in about the COBYLA time and reaches a likelihood at least as high on the `theta_optimizer` bench. Sparse
+  GPs keep COBYLA. Training-only setting,
   not saved with models nor in hot start checkpoints (a resumed run takes it from its own configuration): saved GP
   model files and checkpoints are unchanged
 * **Breaking changes** (Rust crates `egobox-gp` 0.39.0, `egobox-moe` 0.39.0, `egobox-ego` 0.45.0, `egobox-gpx`

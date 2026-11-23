@@ -121,11 +121,34 @@ pub enum ThetaOptimizer {
     Cobyla,
     /// Gradient-based L-BFGS-B optimizer using the analytic gradient of the likelihood.
     ///
-    /// It usually reaches a higher likelihood than COBYLA within the evaluations budget,
-    /// which does not always give a better prediction with few training points.
+    /// Its likelihood evaluations budget is the COBYLA one scaled by
+    /// [`ThetaOptimizer::max_eval_factor`], one evaluation also computing the gradient:
+    /// the training takes about the COBYLA time.
+    /// Its steps change each log10 hyperparameter by at most half a decade.
+    /// It usually reaches a higher likelihood than COBYLA, which does not always give a
+    /// better prediction with few training points.
     /// Falls back to COBYLA when the correlation model does not provide derivatives
     /// wrt theta (see [`CorrelationModel::supports_theta_grad`]).
     Lbfgsb,
+}
+
+impl ThetaOptimizer {
+    /// Factor applied to the COBYLA likelihood evaluations budget of an optimization start
+    /// (see [`GpParams::max_eval`]): 1 for COBYLA, 0.5 for L-BFGS-B whose evaluation also
+    /// computes the gradient (about 1.7 times the cost of a likelihood alone), so that
+    /// both optimizers take about the same time.
+    pub const fn max_eval_factor(self) -> f64 {
+        match self {
+            ThetaOptimizer::Cobyla => 1.0,
+            ThetaOptimizer::Lbfgsb => 0.5,
+        }
+    }
+
+    /// Likelihood evaluations budget of an optimization start given the COBYLA one,
+    /// scaled by [`ThetaOptimizer::max_eval_factor`] (at least one evaluation)
+    pub fn max_eval(self, cobyla_max_eval: usize) -> usize {
+        ((cobyla_max_eval as f64 * self.max_eval_factor()).ceil() as usize).max(1)
+    }
 }
 
 /// A set of validated GP parameters.
@@ -343,6 +366,10 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GpParams<F, 
     /// Set the max number of internal likelihood evaluations during one optimization
     /// Given max_eval has to be greater than [crate::GP_COBYLA_MIN_EVAL] otherwise
     /// max_eval is set to [crate::GP_COBYLA_MAX_EVAL].
+    ///
+    /// Each COBYLA start gets clamp(10 * n_params, [crate::GP_COBYLA_MIN_EVAL], max_eval)
+    /// evaluations, n_params being the number of optimized hyperparameters, scaled by
+    /// [`ThetaOptimizer::max_eval_factor`] for the other optimizers (see [`ThetaOptimizer::max_eval`]).
     pub fn max_eval(mut self, max_eval: usize) -> Self {
         self.0.max_eval = GP_COBYLA_MIN_EVAL.max(max_eval);
         self

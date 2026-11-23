@@ -403,8 +403,25 @@ fn matern_log_rval_theta_grad_dot<F: Float>(
     coefs: &ArrayBase<impl Data<Elem = F>, Ix1>,
     dlog_r: impl Fn(F, F) -> F,
 ) -> Array1<F> {
-    let abs_w = nonzero_abs_weights(weights);
     let mut grad = Array1::zeros(theta.len());
+    let identity = weights.nrows() == weights.ncols()
+        && weights
+            .indexed_iter()
+            .all(|((j, l), &w)| w == if j == l { F::one() } else { F::zero() });
+    if identity {
+        // Without PLS reduction theta_j applies to dimension j: element-wise updates
+        // over contiguous rows
+        Zip::from(distances.rows())
+            .and(coefs)
+            .for_each(|d_i, &c_i| {
+                Zip::from(&mut grad)
+                    .and(theta)
+                    .and(&d_i)
+                    .for_each(|g, &t, &d_ij| *g += c_i * dlog_r(t, d_ij.abs()));
+            });
+        return grad;
+    }
+    let abs_w = nonzero_abs_weights(weights);
     Zip::from(distances.rows())
         .and(coefs)
         .for_each(|d_i, &c_i| {

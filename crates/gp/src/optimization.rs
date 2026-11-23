@@ -86,6 +86,8 @@ pub(crate) struct OptimParams {
     pub algorithm: Algorithm,
     /// COBYLA initial trust region radius
     pub rhobeg: f64,
+    /// L-BFGS-B largest change of a (log10) hyperparameter in one iteration
+    pub max_step: Option<f64>,
     pub ftol_rel: f64,
     pub maxeval: usize,
     pub bounded_evaluations: bool,
@@ -96,6 +98,8 @@ impl Default for OptimParams {
         OptimParams {
             algorithm: Algorithm::Cobyla,
             rhobeg: 0.5,
+            // as COBYLA initial trust region radius: half a decade
+            max_step: Some(0.5),
             ftol_rel: 1e-4,
             maxeval: 200,
             bounded_evaluations: false,
@@ -227,6 +231,7 @@ where
             ftol_abs: 0.,
             ftol_rel: optim.ftol_rel,
             initial_radius: optim.rhobeg,
+            max_step: optim.max_step,
             bounded_evaluations: optim.bounded_evaluations,
             cancellation: cancellation.clone(),
         },

@@ -1,5 +1,7 @@
 use crate::errors::{GpError, Result};
-use crate::linalg::{UPLO, cholesky, eigh, qr, singular_values, solve_triangular, tri_solve};
+use crate::linalg::{
+    UPLO, cholesky, cholesky_inverse, eigh, qr, singular_values, solve_triangular, tri_solve,
+};
 use crate::mean_models::*;
 use crate::optimization::{
     Algorithm, OptimParams, broadcast_bounds, broadcast_theta0, check_kpls_dim, into_f64,
@@ -925,18 +927,20 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>, D: Data<Elem
             (Array1::zeros(0), noise0)
         } else {
             let base: f64 = 10.;
-            let algorithm = match self.theta_optimizer() {
-                ThetaOptimizer::Cobyla => Algorithm::Cobyla,
-                ThetaOptimizer::Lbfgsb if n_theta == 0 || self.corr().supports_theta_grad() => {
-                    Algorithm::Lbfgsb
-                }
-                ThetaOptimizer::Lbfgsb => {
+            // Optimizer actually used: COBYLA when L-BFGS-B lacks the likelihood gradient
+            let theta_optimizer = match self.theta_optimizer() {
+                ThetaOptimizer::Lbfgsb if n_theta > 0 && !self.corr().supports_theta_grad() => {
                     log::info!(
                         "{} correlation model has no derivatives wrt theta: COBYLA is used instead of L-BFGS-B",
                         self.corr()
                     );
-                    Algorithm::Cobyla
+                    ThetaOptimizer::Cobyla
                 }
+                theta_optimizer => theta_optimizer,
+            };
+            let algorithm = match theta_optimizer {
+                ThetaOptimizer::Cobyla => Algorithm::Cobyla,
+                ThetaOptimizer::Lbfgsb => Algorithm::Lbfgsb,
             };
             let ystd2 = ytrain.std[0] * ytrain.std[0];
             // Opposite of the likelihood and its gradient when requested (L-BFGS-B)
@@ -998,13 +1002,16 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>, D: Data<Elem
             // Multistart: user params0 + LHS samples within bounds
             let (params_inits, bounds) =
                 prepare_multistart(self.n_start(), &Array1::from_vec(params0), &bounds);
+            // COBYLA budget scaled by the optimizer factor
+            let maxeval = theta_optimizer
+                .max_eval((10 * params_inits.ncols()).clamp(GP_COBYLA_MIN_EVAL, self.max_eval()));
             let opt_params = multistart_minimize(
                 objfn,
                 &params_inits,
                 &bounds,
                 OptimParams {
                     algorithm,
-                    maxeval: (10 * params_inits.ncols()).clamp(GP_COBYLA_MIN_EVAL, self.max_eval()),
+                    maxeval,
                     ..OptimParams::default()
                 },
                 self.cancellation(),
@@ -1146,14 +1153,7 @@ fn reduced_likelihood_gradient<F: Float>(
     active: &[usize],
     noise_ratio: Option<F>,
 ) -> Option<Array1<F>> {
-    // R^-1 = Rc^-t . Rc^-1
-    let r_chol_inv = solve_triangular(
-        &inner_params.r_chol,
-        Array2::eye(x_distances.n_obs),
-        UPLO::Lower,
-    )
-    .ok()?;
-    let r_inv = r_chol_inv.t().dot(&r_chol_inv);
+    let r_inv = cholesky_inverse(&inner_params.r_chol).ok()?;
     let gamma = inner_params.gamma.column(0);
     let mut grad = Vec::with_capacity(active.len() + 1);
     if !active.is_empty() {
@@ -2565,6 +2565,18 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_theta_optimizer_max_eval() {
+        for n in [1, 25, 30, 50, 1000] {
+            assert_eq!(ThetaOptimizer::Cobyla.max_eval(n), n);
+        }
+        assert_eq!(ThetaOptimizer::Cobyla.max_eval_factor(), 1.);
+        assert_eq!(ThetaOptimizer::Lbfgsb.max_eval(50), 25);
+        assert_eq!(ThetaOptimizer::Lbfgsb.max_eval(25), 13);
+        assert_eq!(ThetaOptimizer::Lbfgsb.max_eval(1), 1);
+        assert_eq!(ThetaOptimizer::Lbfgsb.max_eval(0), 1);
+    }
+
     #[cfg(feature = "serializable")]
     #[test]
     fn test_theta_optimizer_not_serialized() {
@@ -2580,5 +2592,160 @@ mod tests {
             serde_json::from_value(value).unwrap();
         assert_eq!(loaded.params.theta_optimizer(), ThetaOptimizer::Cobyla);
         assert_abs_diff_eq!(loaded.predict(&xt).unwrap(), gp.predict(&xt).unwrap());
+    }
+
+    /// Training data of the theta optimizer bench: `nt` LHS points in [-3, 3]^dim
+    fn theta_bench_data(dim: usize, nt: usize) -> (Array2<f64>, Array1<f64>) {
+        let xlimits = array![[-3., 3.]].broadcast((dim, 2)).unwrap().to_owned();
+        let xt = Lhs::new(&xlimits)
+            .with_rng(Xoshiro256Plus::seed_from_u64(42))
+            .sample(nt);
+        let yt = xt.map_axis(Axis(1), |x| {
+            x.iter()
+                .enumerate()
+                .map(|(i, &v): (usize, &f64)| (i as f64 + 1.).sqrt() * v.sin() + 0.1 * v * v)
+                .sum::<f64>()
+        });
+        (xt, yt)
+    }
+
+    /// Time per call of the likelihood and of its gradient parts (Matern52):
+    /// cargo test --release -p egobox-gp -- --ignored --nocapture profile_likelihood_gradient
+    #[test]
+    #[ignore]
+    fn profile_likelihood_gradient() {
+        use std::time::Instant;
+        let time = |reps: usize, mut f: Box<dyn FnMut() + '_>| {
+            f();
+            let now = Instant::now();
+            for _ in 0..reps {
+                f();
+            }
+            now.elapsed().as_secs_f64() * 1e3 / reps as f64
+        };
+        for (dim, nt) in [(5, 60), (10, 120), (20, 200)] {
+            let (xt, yt) = theta_bench_data(dim, nt);
+            let yt = yt.insert_axis(Axis(1));
+            let xtrain = NormalizedData::new(&xt);
+            let ytrain = NormalizedData::new(&yt);
+            let x_distances = DiffMatrix::new(&xtrain.data);
+            let fx = ConstantMean::default().coefs(&xtrain.data);
+            let corr = Matern52Corr::default();
+            let prepared = corr.prepare_distances(x_distances.d.clone());
+            let nugget = 100. * f64::EPSILON;
+            let theta = Array1::from_elem(dim, 0.3);
+            let w_star = Array2::eye(dim);
+            let active = (0..dim).collect::<Vec<_>>();
+            let reps = 20;
+
+            let rxx = corr.rval_from_prepared_distances(&prepared, &theta, &w_star);
+            let (_, inner_params) =
+                reduced_likelihood(&fx, rxx.view(), &x_distances, &ytrain, nugget, 0.).unwrap();
+            let sigma2 = inner_params.sigma2 / (ytrain.std[0] * ytrain.std[0]);
+
+            let t_rval = time(
+                reps,
+                Box::new(|| {
+                    corr.rval_from_prepared_distances(&prepared, &theta, &w_star);
+                }),
+            );
+            let t_chol = time(
+                reps,
+                Box::new(|| {
+                    cholesky(correlation_matrix(&x_distances, &rxx, nugget)).unwrap();
+                }),
+            );
+            let t_lkh = time(
+                reps,
+                Box::new(|| {
+                    let rxx = corr.rval_from_prepared_distances(&prepared, &theta, &w_star);
+                    reduced_likelihood(&fx, rxx, &x_distances, &ytrain, nugget, 0.).unwrap();
+                }),
+            );
+            let t_solve = time(
+                reps,
+                Box::new(|| {
+                    solve_triangular(&inner_params.r_chol, Array2::eye(nt), UPLO::Lower).unwrap();
+                }),
+            );
+            let r_chol_inv =
+                solve_triangular(&inner_params.r_chol, Array2::eye(nt), UPLO::Lower).unwrap();
+            let t_dot = time(
+                reps,
+                Box::new(|| {
+                    r_chol_inv.t().dot(&r_chol_inv);
+                }),
+            );
+            let t_inv = time(
+                reps,
+                Box::new(|| {
+                    cholesky_inverse(&inner_params.r_chol).unwrap();
+                }),
+            );
+            // same inverse as the triangular solve
+            assert_abs_diff_eq!(
+                cholesky_inverse(&inner_params.r_chol).unwrap(),
+                r_chol_inv.t().dot(&r_chol_inv),
+                epsilon = 1e-6 * r_chol_inv.mapv(f64::abs).sum()
+            );
+            let coefs = Array1::from_elem(x_distances.d.nrows(), 1e-3);
+            let t_dlog = time(
+                reps,
+                Box::new(|| {
+                    corr.log_rval_theta_grad_dot(&prepared, &theta, &w_star, &coefs);
+                }),
+            );
+            let t_grad = time(
+                reps,
+                Box::new(|| {
+                    reduced_likelihood_gradient(
+                        &corr,
+                        &x_distances,
+                        &prepared,
+                        &rxx,
+                        &theta,
+                        &w_star,
+                        &inner_params,
+                        sigma2,
+                        &active,
+                        None,
+                    )
+                    .unwrap();
+                }),
+            );
+            println!(
+                "dim={dim} nt={nt} (ms/call): likelihood={t_lkh:.3} [rval={t_rval:.3} cholesky={t_chol:.3}] \
+                 gradient={t_grad:.3} [cholesky_inverse={t_inv:.3} (vs solve(L, I)={t_solve:.3} \
+                 + dot={t_dot:.3}) dlog_r={t_dlog:.3}]"
+            );
+        }
+    }
+
+    /// Evaluations used by each start of the theta optimization (debug log of the basin adapter):
+    /// RUST_LOG=egobox_gp::basin_optimizer=debug cargo test --release -p egobox-gp -- --ignored --nocapture profile_theta_optimizer_evaluations
+    #[test]
+    #[ignore]
+    fn profile_theta_optimizer_evaluations() {
+        let _ = env_logger::builder().is_test(true).try_init();
+        for (dim, nt) in [(5, 60), (10, 120), (20, 200)] {
+            let (xt, yt) = theta_bench_data(dim, nt);
+            for theta_optimizer in [ThetaOptimizer::Cobyla, ThetaOptimizer::Lbfgsb] {
+                println!("=== dim={dim} nt={nt} {theta_optimizer:?}");
+                let now = std::time::Instant::now();
+                let gp = GaussianProcess::<f64, ConstantMean, Matern52Corr>::params(
+                    ConstantMean::default(),
+                    Matern52Corr::default(),
+                )
+                .max_eval(50)
+                .theta_optimizer(theta_optimizer)
+                .fit(&Dataset::new(xt.clone(), yt.clone()))
+                .expect("GP fitting");
+                println!(
+                    "=== dim={dim} {theta_optimizer:?}: likelihood={} in {:?}",
+                    gp.likelihood(),
+                    now.elapsed()
+                );
+            }
+        }
     }
 }
