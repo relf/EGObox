@@ -2579,19 +2579,27 @@ mod tests {
 
     #[cfg(feature = "serializable")]
     #[test]
-    fn test_theta_optimizer_not_serialized() {
+    fn test_theta_optimizer_serialization() {
         let (xt, yt) = noisy_sin(20, 0.1, 0);
         let gp = Kriging::params()
             .theta_optimizer(ThetaOptimizer::Lbfgsb)
             .fit(&Dataset::new(xt.clone(), yt))
             .expect("GP fitting");
-        // Training-only setting: saved models keep their layout
-        let value = serde_json::to_value(&gp).unwrap();
-        assert!(value["params"].get("theta_optimizer").is_none());
+        let mut value = serde_json::to_value(&gp).unwrap();
+        assert_eq!(value["params"]["theta_optimizer"], "Lbfgsb");
+        let loaded: GaussianProcess<f64, ConstantMean, SquaredExponentialCorr> =
+            serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(loaded.params.theta_optimizer(), ThetaOptimizer::Lbfgsb);
+        assert_abs_diff_eq!(loaded.predict(&xt).unwrap(), gp.predict(&xt).unwrap());
+
+        // JSON models saved before theta optimizer introduction load with COBYLA
+        value["params"]
+            .as_object_mut()
+            .unwrap()
+            .remove("theta_optimizer");
         let loaded: GaussianProcess<f64, ConstantMean, SquaredExponentialCorr> =
             serde_json::from_value(value).unwrap();
         assert_eq!(loaded.params.theta_optimizer(), ThetaOptimizer::Cobyla);
-        assert_abs_diff_eq!(loaded.predict(&xt).unwrap(), gp.predict(&xt).unwrap());
     }
 
     /// Training data of the theta optimizer bench: `nt` LHS points in [-3, 3]^dim

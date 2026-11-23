@@ -101,10 +101,8 @@ pub struct GpConfig {
     /// and constraints values (no noise by default)
     #[serde(default = "no_noise_ratio")]
     pub(crate) noise_ratio: ParamTuning<f64>,
-    /// Optimizer of GP hyperparameters (COBYLA by default).
-    /// Not serialized so that hot start checkpoints keep their layout: a resumed run
-    /// takes it from its own configuration.
-    #[serde(skip)]
+    /// Optimizer of GP hyperparameters (COBYLA by default, also for configurations saved without it)
+    #[serde(default)]
     pub(crate) theta_optimizer: ThetaOptimizer,
 }
 
@@ -384,10 +382,8 @@ pub struct ValidEgorConfig {
     /// Constrained infill criterion activation
     pub(crate) cstr_infill: bool,
     /// With `cstr_infill`, only the probability of feasibility drives the infill
-    /// until a feasible point is found.
-    /// Not serialized so that hot start checkpoints keep their layout: a resumed run
-    /// takes it from its own configuration.
-    #[serde(skip)]
+    /// until a feasible point is found (false for configurations saved without it).
+    #[serde(default)]
     pub(crate) feasibility_first: bool,
     /// Constraints criterion
     pub(crate) cstr_strategy: ConstraintStrategy,

@@ -130,9 +130,9 @@ pub struct GpMixtureValidParams<F: Float> {
     /// Noise-to-signal ratio tuning of full GP experts (no noise by default)
     #[serde(default = "no_noise_ratio")]
     noise_ratio: ParamTuning<F>,
-    /// Optimizer of the hyperparameters of full GP experts (COBYLA by default).
-    /// Training-only setting, not serialized so that saved models keep their layout
-    #[serde(skip)]
+    /// Optimizer of the hyperparameters of full GP experts
+    /// (COBYLA by default, also for models saved without it)
+    #[serde(default)]
     theta_optimizer: ThetaOptimizer,
     /// Gaussian Mixture model used to cluster
     gmm: Option<GaussianMixtureModel<F>>,

@@ -180,9 +180,8 @@ pub struct GpValidParams<F: Float, Mean: RegressionModel<F>, Corr: CorrelationMo
     /// gaussian noise on training outputs (no noise by default, i.e. interpolation)
     #[cfg_attr(feature = "serializable", serde(default = "no_noise_ratio"))]
     pub(crate) noise_ratio: ParamTuning<F>,
-    /// Optimizer of the hyperparameters (COBYLA by default). Training-only setting,
-    /// not serialized so that saved models keep their layout (binary files included)
-    #[cfg_attr(feature = "serializable", serde(skip))]
+    /// Optimizer of the hyperparameters (COBYLA by default, also for models saved without it)
+    #[cfg_attr(feature = "serializable", serde(default))]
     pub(crate) theta_optimizer: ThetaOptimizer,
     /// Request to stop the training early (run-time hook, not serialized)
     #[cfg_attr(feature = "serializable", serde(skip))]

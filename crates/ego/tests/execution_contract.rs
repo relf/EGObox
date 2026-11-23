@@ -589,7 +589,7 @@ fn xsinx_cstr(x: &ArrayView2<f64>) -> Array2<f64> {
 }
 
 #[test]
-fn checkpoint_continuation_uses_run_feasibility_first() {
+fn checkpoint_continuation_keeps_saved_feasibility_first() {
     use egobox_ego::HotStartMode;
     let dir = std::env::temp_dir().join(format!("egobox-basin-ff-{}", std::process::id()));
     let run = |iters, feasibility_first, mode, save| {
@@ -616,21 +616,19 @@ fn checkpoint_continuation_uses_run_feasibility_first() {
     };
     let expected = run(4, true, HotStartMode::Disabled, false);
 
-    // feasibility_first is not saved in the checkpoint: the resumed run uses its own setting
+    // feasibility_first is saved in the checkpoint: the resumed run keeps it,
+    // whatever the setting of the resuming run
     let _ = std::fs::remove_dir_all(&dir);
     run(1, true, HotStartMode::Enabled, true);
-    let resumed = run(99, true, HotStartMode::ExtendedIters(3), true);
+    let resumed = run(99, false, HotStartMode::ExtendedIters(3), true);
     assert_eq!(resumed.state.iter, 4);
     assert_eq!(resumed.x_doe, expected.x_doe);
     assert_eq!(resumed.y_doe, expected.y_doe);
+    std::fs::remove_dir_all(&dir).unwrap();
 
-    // the setting matters after resumption
-    let _ = std::fs::remove_dir_all(&dir);
-    run(1, true, HotStartMode::Enabled, true);
-    let switched = run(99, false, HotStartMode::ExtendedIters(3), true);
-    assert_eq!(switched.state.iter, 4);
-    assert_ne!(switched.x_doe, expected.x_doe);
-    std::fs::remove_dir_all(dir).unwrap();
+    // the setting matters: without it the run differs
+    let other = run(4, false, HotStartMode::Disabled, false);
+    assert_ne!(other.x_doe, expected.x_doe);
 }
 
 #[test]
