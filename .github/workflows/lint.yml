@@ -55,9 +55,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Check published crates API against the base branch
+      # Baseline: last published versions on crates.io, so that breaking changes
+      # accumulated in an unreleased version (already bumped) are accepted
+      - name: Check crates API against the last published versions
         uses: obi1kenobi/cargo-semver-checks-action@v2
         with:
           package: egobox-doe,egobox-gp,egobox-moe,egobox-ego,egobox-gpx
-          baseline-rev: ${{ github.event.pull_request.base.sha }}
           feature-group: default-features
