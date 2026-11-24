@@ -103,7 +103,7 @@ use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 ///     A builder which can be fitted to data to get a Gpx object (a trained Gaussian processes mixture)
 ///
 #[gen_stub_pyclass]
-#[pyclass(skip_from_py_object, module = "egobox")]
+#[pyclass(module = "egobox")]
 pub(crate) struct GpMix {
     gp_config: GpConfig,
     xtypes: Option<Vec<egobox_moe::XType>>,
@@ -269,7 +269,7 @@ impl GpMix {
 
 /// A trained Gaussian processes mixture
 #[gen_stub_pyclass]
-#[pyclass(skip_from_py_object, module = "egobox")]
+#[pyclass(module = "egobox")]
 pub(crate) struct Gpx(MixintGpMixture);
 
 #[gen_stub_pymethods]

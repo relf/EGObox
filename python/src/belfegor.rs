@@ -87,7 +87,7 @@ use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 ///     A multi-objective optimizer which can be used to optimize a function using the minimize method.
 ///
 #[gen_stub_pyclass]
-#[pyclass(skip_from_py_object, module = "egobox")]
+#[pyclass(module = "egobox")]
 pub(crate) struct Belfegor {
     egor: Egor,
     moo: MooSetup,
@@ -499,7 +499,7 @@ impl Belfegor {
 /// y values hold the objectives and the raw constraint values as returned by the objective
 /// function (ny = n_obj + n_cstr columns, even when `cstr_specs` is used).
 #[gen_stub_pyclass]
-#[pyclass(skip_from_py_object, module = "egobox")]
+#[pyclass(module = "egobox")]
 #[derive(Debug)]
 pub(crate) struct ParetoResult {
     /// Pareto set: x values of the points of the (constrained) Pareto front
@@ -547,7 +547,7 @@ impl ParetoResult {
 /// `x_opt`, `y_opt`, `x_doe`, `y_doe`) and the output can be unpacked as
 /// `x_pareto, y_pareto = belfegor.minimize(...)`.
 #[gen_stub_pyclass]
-#[pyclass(skip_from_py_object, module = "egobox")]
+#[pyclass(module = "egobox")]
 #[derive(Debug)]
 pub(crate) struct BelfegorOptim {
     /// Result of optimization run

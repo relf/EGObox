@@ -30,7 +30,7 @@ use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 ///     otherwise they are kept as is.
 ///
 #[gen_stub_pyclass]
-#[pyclass(skip_from_py_object, module = "egobox")]
+#[pyclass(module = "egobox")]
 #[derive(Clone, Debug)]
 pub(crate) struct QEiConfig {
     /// Number of points to evaluate in parallel

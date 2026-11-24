@@ -28,7 +28,7 @@ tag-name = "{{version}}"
 
 [workspace.dependencies]
 basin = { version = "3.3", default-features = false }
-linfa = { version = "0.8", default-features = false }
+linfa = { version = "0.9", default-features = false }
 linfa-linalg = { version = "0.2", default-features = false }
 
 ndarray = { version = "0.16", features = ["rayon", "approx"] }

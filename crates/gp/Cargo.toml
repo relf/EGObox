@@ -24,7 +24,7 @@ egobox-doe = { version = "0.35.2", path = "../doe" }
 
 linfa.workspace = true
 linfa-linalg.workspace = true
-linfa-pls = { version = "0.8", default-features = false }
+linfa-pls = { version = "0.9", default-features = false }
 
 ndarray.workspace = true
 ndarray-stats.workspace = true

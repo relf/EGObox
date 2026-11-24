@@ -25,8 +25,8 @@ egobox-moe = { version = "0.39.0", path = "../moe" }
 
 linfa.workspace = true
 linfa-linalg.workspace = true
-linfa-pls = { version = "0.8", default-features = false }
-linfa-clustering = { version = "0.8", default-features = false }
+linfa-pls = { version = "0.9", default-features = false }
+linfa-clustering = { version = "0.9", default-features = false }
 
 ndarray.workspace = true
 ndarray-stats.workspace = true

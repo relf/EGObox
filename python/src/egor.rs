@@ -182,7 +182,7 @@ fn parse_run_info(py: Python, value: Py<PyAny>) -> PyResult<RunInfo> {
 ///     An optimizer which can be used to optimize a function using the minimize method.
 ///
 #[gen_stub_pyclass]
-#[pyclass(skip_from_py_object, module = "egobox")]
+#[pyclass(module = "egobox")]
 pub(crate) struct Egor {
     pub xtypes: Vec<egobox_moe::XType>,
     pub gp_config: GpConfig,

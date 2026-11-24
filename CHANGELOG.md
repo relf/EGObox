@@ -26,6 +26,8 @@
   * Breaking change (`egobox-moe` 0.39.0): `MoeError::LinalgBlasError` is removed, the Gaussian mixture uses
     `linfa-linalg` with either backend. GP LAPACK errors are reported as `MoeError::GpError`
   * `egobox-moe` and `egobox-ego` no longer depend on `ndarray-linalg`
+* Update dependencies: `linfa` 0.9 (`linfa-pls`, `linfa-clustering`), PyO3 0.30 and `numpy` 0.30, `basin` 3.5.
+  `ndarray` stays at 0.16
 
 ## Version 1.1.0 - 19/11/2026
 

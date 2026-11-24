@@ -67,7 +67,7 @@ const SPARSE_GP_OPTIM_N_START: usize = 10;
 ///     A builder which can be fitted to data to get a SparseGpx object (a trained sparse Gaussian process)
 ///
 #[gen_stub_pyclass]
-#[pyclass(skip_from_py_object, module = "egobox")]
+#[pyclass(module = "egobox")]
 pub(crate) struct SparseGpMix {
     pub correlation_spec: CorrelationSpec,
     pub theta_init: Option<Vec<f64>>,
@@ -211,7 +211,7 @@ impl SparseGpMix {
 ///
 /// Unlike `Gpx`, it has no `update` method: sparse GPs have to be refitted with the new data.
 #[gen_stub_pyclass]
-#[pyclass(skip_from_py_object, module = "egobox")]
+#[pyclass(module = "egobox")]
 pub(crate) struct SparseGpx(Box<GpMixture>);
 
 #[gen_stub_pymethods]

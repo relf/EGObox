@@ -26,10 +26,10 @@ egobox-gp = { version = "0.39.0", path = "../gp", features = ["serializable"] }
 
 linfa.workspace = true
 linfa-linalg.workspace = true
-linfa-clustering = { version = "0.8", default-features = false, features = [
+linfa-clustering = { version = "0.9", default-features = false, features = [
     "serde",
 ] }
-linfa-pls = { version = "0.8", default-features = false }
+linfa-pls = { version = "0.9", default-features = false }
 
 ndarray.workspace = true
 ndarray-stats.workspace = true
