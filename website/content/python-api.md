@@ -58,7 +58,7 @@ Egor(
 | `cstr_infill` | `bool` | `False` | Enables constrained infill with probability-of-feasibility factor. Possible values: `True`, `False`. |
 | `cstr_strategy` | `ConstraintStrategy` | `ConstraintStrategy.MC` | Constraint handling strategy. Possible values: `ConstraintStrategy.MC` (alias `MEAN_CONSTRAINT`), `ConstraintStrategy.UTB` (alias `UPPER_TRUST_BOUND`). |
 | `qei_config` | `QEiConfig` | `QEiConfig()` | Parallel/qEI batch configuration. See [QEiConfig](#qeiconfig) for details. |
-| `infill_optimizer` | `InfillOptimizer` | `InfillOptimizer.COBYLA` | Internal optimizer for infill criterion. Possible values: `InfillOptimizer.COBYLA`, `InfillOptimizer.SLSQP`. |
+| `infill_optimizer` | `InfillOptimizer` | `InfillOptimizer.COBYLA` | Internal optimizer for infill criterion. Possible values: `InfillOptimizer.COBYLA`, `InfillOptimizer.SLSQP`, `InfillOptimizer.LBFGSB` (bound constraints only: requires `cstr_infill=True` with constraints, no `fcstrs`, no `FailsafeStrategy.VIABILITY`). |
 | `trego` | `Optional[Any]` | `None` | TREGO toggle/config. Possible values: `None`, `False`, `True` (uses `TregoConfig()` defaults), `TregoConfig(...)`, or a dict with keys `n_global_local_steps`, `radius_bounds`, `alpha`, `beta`, `sigma0`. |
 | `coego_n_coop` | `int` | `0` | Number of cooperative groups for CoEGO (high-dimensional mode). |
 | `target` | `float` | `-1.7976931348623157e+308` | Known optimum target used as stopping criterion. |

@@ -416,6 +416,8 @@ where
         let algorithm = match self.config.infill_optimizer {
             InfillOptimizer::Slsqp => crate::optimizers::Algorithm::Slsqp,
             InfillOptimizer::Cobyla => crate::optimizers::Algorithm::Cobyla,
+            // Bound constraints only: configuration checks ensure there is no other constraint
+            InfillOptimizer::Lbfgsb => crate::optimizers::Algorithm::Lbfgsb,
         };
         let n_max_optim = 3;
         for _ in 0..n_max_optim {

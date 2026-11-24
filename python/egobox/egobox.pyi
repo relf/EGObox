@@ -101,8 +101,8 @@ class Belfegor:
         Constraint management, either ConstraintStrategy.MC (mean constraint, default) or
         ConstraintStrategy.UTB (upper trust bound).
     infill_optimizer : InfillOptimizer
-        Internal optimizer used to optimize infill criteria, InfillOptimizer.COBYLA (default)
-        or InfillOptimizer.SLSQP.
+        Internal optimizer used to optimize infill criteria, InfillOptimizer.COBYLA (default),
+        InfillOptimizer.SLSQP or InfillOptimizer.LBFGSB (requires `cstr_infill=True` with constraints, see Egor).
     failsafe_strategy : FailsafeStrategy
         Strategy to handle objective computation failure (NaN values) at a given x point:
         FailsafeStrategy.REJECTION (default), FailsafeStrategy.IMPUTATION (not with
@@ -481,7 +481,9 @@ class Egor:
         See QEiConfig for details.
     infill_optimizer : InfillOptimizer
         Internal optimizer used to optimize infill criteria.
-        Can be either InfillOptimizer.COBYLA (default) or InfillOptimizer.SLSQP
+        Can be either InfillOptimizer.COBYLA (default), InfillOptimizer.SLSQP or InfillOptimizer.LBFGSB.
+        LBFGSB handles bound constraints only: with constraints, it requires `cstr_infill=True`.
+        It is not compatible with function constraints (`fcstrs`) nor with FailsafeStrategy.VIABILITY.
     trego : TregoConfig, bool or dict, optional
         TREGO configuration to activate TREGO strategy for global optimization.
         When True activate TREGO with default configuration.
@@ -2215,6 +2217,12 @@ class InfillOptimizer(enum.Enum):
     SLSQP = ...
     r"""
     Gradient based optimization algorithm that uses a quasi-Newton method to optimize the acquisition function
+    """
+    LBFGSB = ...
+    r"""
+    Gradient based L-BFGS-B optimization algorithm handling bound constraints only:
+    requires `cstr_infill=True` with constraints, no function constraints and no viability
+    failsafe strategy
     """
 
 @typing.final

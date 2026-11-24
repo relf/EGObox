@@ -66,8 +66,8 @@ use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 ///     Constraint management, either ConstraintStrategy.MC (mean constraint, default) or
 ///     ConstraintStrategy.UTB (upper trust bound).
 /// infill_optimizer : InfillOptimizer
-///     Internal optimizer used to optimize infill criteria, InfillOptimizer.COBYLA (default)
-///     or InfillOptimizer.SLSQP.
+///     Internal optimizer used to optimize infill criteria, InfillOptimizer.COBYLA (default),
+///     InfillOptimizer.SLSQP or InfillOptimizer.LBFGSB (requires `cstr_infill=True` with constraints, see Egor).
 /// failsafe_strategy : FailsafeStrategy
 ///     Strategy to handle objective computation failure (NaN values) at a given x point:
 ///     FailsafeStrategy.REJECTION (default), FailsafeStrategy.IMPUTATION (not with

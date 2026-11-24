@@ -295,7 +295,13 @@ impl<O: ObjFn, C: CstrFn> EgorFactory<O, C> {
     ) -> Result<Egor<O, C, SB>> {
         crate::utils::logging::init_logger(self.verbose);
         self.validate_fcstr_specs()?;
-        let config = self.config.xtypes(xtypes);
+        let config = self.config.xtypes(xtypes).check()?;
+        if config.infill_optimizer == InfillOptimizer::Lbfgsb && !self.fcstrs.is_empty() {
+            return Err(EgoError::InvalidConfigError(
+                "L-BFGS-B infill optimizer cannot handle function constraints, use SLSQP or COBYLA"
+                    .to_string(),
+            ));
+        }
         Ok(Egor {
             fobj: match self.fcstr_specs {
                 Some(specs) => {
@@ -303,7 +309,7 @@ impl<O: ObjFn, C: CstrFn> EgorFactory<O, C> {
                 }
                 None => ProblemFunc::new(self.fobj).subject_to(self.fcstrs),
             },
-            solver: EgorSolver::new(config.check()?),
+            solver: EgorSolver::new(config),
             run_info: self.run_info,
             interrupt_check: None,
         })
@@ -1800,6 +1806,128 @@ mod tests {
             .subject_to_with_specs(vec![c1, c2], vec![CstrSpec::Leq(0.0)])
             .min_within(&xlimits);
 
+        assert!(matches!(res, Err(EgoError::InvalidConfigError(_))));
+    }
+
+    #[test]
+    #[serial]
+    fn test_egor_g24_cstr_infill_lbfgsb() {
+        let xlimits = array![[0., 3.], [0., 4.]];
+        let tol = 1e-3;
+        let res = EgorBuilder::optimize(f_g24)
+            .configure(|config| {
+                config
+                    .n_cstr(2)
+                    .cstr_tol(array![tol, tol])
+                    .cstr_infill(true)
+                    .infill_optimizer(InfillOptimizer::Lbfgsb)
+                    .n_doe(5)
+                    .max_iters(30)
+                    .seed(42)
+            })
+            .min_within(&xlimits)
+            .expect("Egor configured")
+            .run()
+            .expect("Minimize failure");
+        println!("G24 cstr_infill L-BFGS-B result = {res:?}");
+        assert!(res.y_opt[0] < -5.0, "{}", res.y_opt);
+        assert!(res.y_opt.iter().skip(1).all(|c| *c <= tol), "{}", res.y_opt);
+    }
+
+    #[test]
+    #[serial]
+    fn test_xsinx_lbfgsb_infill_optimizer() {
+        // Without constraints the constrained infill criterion is not required
+        let res = EgorBuilder::optimize(xsinx)
+            .configure(|config| {
+                config
+                    .infill_optimizer(InfillOptimizer::Lbfgsb)
+                    .doe(&array![[0.], [7.], [25.]])
+                    .max_iters(20)
+                    .seed(42)
+            })
+            .min_within(&array![[0.0, 25.0]])
+            .expect("Egor configured")
+            .run()
+            .expect("Minimize failure");
+        println!("x_opt={} y_opt={}", res.x_opt, res.y_opt);
+        assert_abs_diff_eq!(array![18.9], res.x_opt, epsilon = 1e-1);
+    }
+
+    #[test]
+    #[serial]
+    fn test_egor_g24_cstr_infill_lbfgsb_trego_local_mean() {
+        // The local posterior mean search handles the constraint surrogates
+        // as optimizer constraints, hence uses SLSQP instead of L-BFGS-B
+        let res = EgorBuilder::optimize(f_g24)
+            .configure(|config| {
+                config
+                    .n_cstr(2)
+                    .cstr_infill(true)
+                    .infill_optimizer(InfillOptimizer::Lbfgsb)
+                    .configure_trego(|trego| trego.local_mean(true))
+                    .n_doe(5)
+                    .max_iters(10)
+                    .seed(42)
+            })
+            .min_within(&array![[0., 3.], [0., 4.]])
+            .expect("Egor configured")
+            .run()
+            .expect("Minimize failure");
+        assert!(res.y_opt[0].is_finite(), "{}", res.y_opt);
+    }
+
+    #[test]
+    #[serial]
+    fn test_lbfgsb_infill_optimizer_invalid_configs() {
+        let xlimits = array![[0., 3.], [0., 4.]];
+        let lbfgsb =
+            |config: EgorConfig| config.n_cstr(2).infill_optimizer(InfillOptimizer::Lbfgsb);
+        // with constraints, valid with the constrained infill criterion only
+        assert!(
+            lbfgsb(EgorConfig::default())
+                .cstr_infill(true)
+                .check()
+                .is_ok()
+        );
+        assert!(matches!(
+            lbfgsb(EgorConfig::default()).check(),
+            Err(EgoError::InvalidConfigError(_))
+        ));
+        assert!(matches!(
+            EgorConfig::default()
+                .cstr_specs(vec![CstrSpec::Leq(0.)])
+                .infill_optimizer(InfillOptimizer::Lbfgsb)
+                .check(),
+            Err(EgoError::InvalidConfigError(_))
+        ));
+        // without constraints, valid without the constrained infill criterion
+        assert!(
+            EgorConfig::default()
+                .infill_optimizer(InfillOptimizer::Lbfgsb)
+                .check()
+                .is_ok()
+        );
+        // no viability constraint
+        assert!(matches!(
+            lbfgsb(EgorConfig::default())
+                .cstr_infill(true)
+                .failsafe_strategy(FailsafeStrategy::Viability)
+                .check(),
+            Err(EgoError::InvalidConfigError(_))
+        ));
+        // no function constraints
+        let c1 = |x: &[f64], _g: Option<&mut [f64]>, _u: &mut InfillObjData<f64>| {
+            g24_c1(&Array1::from_vec(x.to_vec()))
+        };
+        let res = EgorBuilder::optimize(f_g24_bare)
+            .subject_to(vec![c1])
+            .configure(|config| {
+                config
+                    .cstr_infill(true)
+                    .infill_optimizer(InfillOptimizer::Lbfgsb)
+            })
+            .min_within(&xlimits);
         assert!(matches!(res, Err(EgoError::InvalidConfigError(_))));
     }
 

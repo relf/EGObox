@@ -12,6 +12,8 @@
 //!
 //! - **SLSQP** - Sequential Least Squares Programming (gradient-based, faster for differentiable criteria)
 //! - **COBYLA** - Constrained Optimization BY Linear Approximations (derivative-free, more robust)
+//! - **L-BFGS-B** - Limited-memory BFGS with bounds (gradient-based, bound constraints only,
+//!   used with the constrained infill criterion)
 
 mod optimizer;
 

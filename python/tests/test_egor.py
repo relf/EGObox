@@ -261,6 +261,61 @@ class TestEgor(unittest.TestCase):
                 self.assertLess(optim.result.y_opt[0], -5.0)
                 self.assertTrue(np.all(optim.result.y_opt[1:] <= tol))
 
+    def test_g24_cstr_infill_lbfgsb(self):
+        n_cstr = 2
+        tol = 1e-3
+        # given as enum or integer value
+        for infill_optimizer in [egx.InfillOptimizer.LBFGSB, 3]:
+            with self.subTest(infill_optimizer=infill_optimizer):
+                egor = egx.Egor(
+                    [[0.0, 3.0], [0.0, 4.0]],
+                    cstr_specs=[egx.CstrSpec.leq(0.0, tol=tol)] * n_cstr,
+                    n_doe=5,
+                    cstr_infill=True,
+                    infill_optimizer=infill_optimizer,
+                )
+                optim = egor.minimize(g24, max_iters=30, seed=42)
+                print(f"f={optim.result.y_opt} at {optim.result.x_opt}")
+                self.assertLess(optim.result.y_opt[0], -5.0)
+                self.assertTrue(np.all(optim.result.y_opt[1:] <= tol))
+
+    def test_xsinx_lbfgsb(self):
+        # without constraints, cstr_infill is not required
+        egor = egx.Egor(
+            [[0.0, 25.0]],
+            infill_optimizer=egx.InfillOptimizer.LBFGSB,
+            x_doe=np.array([[0.0], [7.0], [25.0]]),
+        )
+        res = egor.minimize(xsinx, max_iters=20, seed=42).result
+        print(f"x_opt = {res.x_opt}, y_opt = {res.y_opt}")
+        self.assertAlmostEqual(18.9, res.x_opt[0], delta=1e-1)
+
+    def test_lbfgsb_requires_cstr_infill(self):
+        cstr_specs = [egx.CstrSpec.leq(0.0, tol=1e-3)] * 2
+        # (Egor options, minimize options) not compatible with L-BFGS-B
+        invalid = [
+            ("no cstr_infill", {"cstr_infill": False}, {}),
+            (
+                "viability",
+                {
+                    "cstr_infill": True,
+                    "failsafe_strategy": egx.FailsafeStrategy.VIABILITY,
+                },
+                {},
+            ),
+            ("fcstrs", {"cstr_infill": True}, {"fcstrs": [g24_c1]}),
+        ]
+        for case, egor_kwargs, minimize_kwargs in invalid:
+            with self.subTest(case=case):
+                egor = egx.Egor(
+                    [[0.0, 3.0], [0.0, 4.0]],
+                    cstr_specs=cstr_specs,
+                    infill_optimizer=egx.InfillOptimizer.LBFGSB,
+                    **egor_kwargs,
+                )
+                with self.assertRaises(ValueError):
+                    egor.minimize(g24, max_iters=1, seed=42, **minimize_kwargs)
+
     def test_reinit(self):
         n_doe = 15
         egor = egx.Egor(

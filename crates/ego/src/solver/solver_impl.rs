@@ -311,12 +311,17 @@ where
     /// Copy of this solver optimizing the objective posterior mean instead of the
     /// configured infill criterion. Probability of feasibility and feasibility enhanced
     /// infill criteria are not used with a mean: surrogated constraints are handled as
-    /// optimizer constraints.
+    /// optimizer constraints, hence SLSQP replaces L-BFGS-B which handles bounds only.
     pub(crate) fn with_mean_criterion(&self) -> Self {
         let mut solver = self.clone();
         solver.config.infill_criterion = Box::new(crate::criteria::PosteriorMean);
         solver.config.cstr_infill = false;
         solver.config.feasibility_infill = FeasibleInfillStrategy::None;
+        if solver.config.infill_optimizer == InfillOptimizer::Lbfgsb
+            && solver.config.n_internal_cstr() > 0
+        {
+            solver.config.infill_optimizer = InfillOptimizer::Slsqp;
+        }
         solver
     }
 
