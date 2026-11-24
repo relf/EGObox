@@ -327,6 +327,10 @@ pub(crate) enum InfillOptimizer {
     Cobyla = 1,
     /// Gradient based optimization algorithm that uses a quasi-Newton method to optimize the acquisition function
     Slsqp = 2,
+    /// Gradient based L-BFGS-B optimization algorithm handling bound constraints only:
+    /// requires `cstr_infill=True` with constraints, no function constraints and no viability
+    /// failsafe strategy
+    Lbfgsb = 3,
 }
 
 impl<'a, 'py> FromPyObject<'a, 'py> for InfillOptimizer {
@@ -339,11 +343,12 @@ impl<'a, 'py> FromPyObject<'a, 'py> for InfillOptimizer {
         match obj.extract::<u8>() {
             Ok(1) => Ok(Self::Cobyla),
             Ok(2) => Ok(Self::Slsqp),
+            Ok(3) => Ok(Self::Lbfgsb),
             Ok(v) => Err(PyValueError::new_err(format!(
-                "infill_optimizer integer value must be in [1, 2], got {v}"
+                "infill_optimizer integer value must be in [1, 3], got {v}"
             ))),
             Err(_) => Err(PyTypeError::new_err(
-                "infill_optimizer must be an InfillOptimizer enum or an integer in [1, 2]",
+                "infill_optimizer must be an InfillOptimizer enum or an integer in [1, 3]",
             )),
         }
     }
@@ -354,6 +359,7 @@ impl From<InfillOptimizer> for egobox_ego::InfillOptimizer {
         match value {
             InfillOptimizer::Cobyla => egobox_ego::InfillOptimizer::Cobyla,
             InfillOptimizer::Slsqp => egobox_ego::InfillOptimizer::Slsqp,
+            InfillOptimizer::Lbfgsb => egobox_ego::InfillOptimizer::Lbfgsb,
         }
     }
 }

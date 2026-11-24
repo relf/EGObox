@@ -142,7 +142,9 @@ fn parse_run_info(py: Python, value: Py<PyAny>) -> PyResult<RunInfo> {
 ///     See QEiConfig for details.
 /// infill_optimizer : InfillOptimizer
 ///     Internal optimizer used to optimize infill criteria.
-///     Can be either InfillOptimizer.COBYLA (default) or InfillOptimizer.SLSQP
+///     Can be either InfillOptimizer.COBYLA (default), InfillOptimizer.SLSQP or InfillOptimizer.LBFGSB.
+///     LBFGSB handles bound constraints only: with constraints, it requires `cstr_infill=True`.
+///     It is not compatible with function constraints (`fcstrs`) nor with FailsafeStrategy.VIABILITY.
 /// trego : TregoConfig, bool or dict, optional
 ///     TREGO configuration to activate TREGO strategy for global optimization.
 ///     When True activate TREGO with default configuration.

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+* L-BFGS-B infill optimizer: `InfillOptimizer::Lbfgsb` (Python `InfillOptimizer.LBFGSB`) optimizes the infill
+  criterion with the L-BFGS-B solver of basin and the analytic gradient of the criterion. Opt-in, handling bound
+  constraints only: with constraints, it requires the constrained infill criterion (`cstr_infill`) where constraint
+  surrogates are taken into account through the probability of feasibility. Configurations with function
+  constraints, the `Viability` failsafe strategy or with constraints but without `cstr_infill` are rejected
+  (`InvalidConfigError`, Python `ValueError`).
+  The TREGO local posterior mean search, which handles constraint surrogates as optimizer constraints, uses SLSQP
+  instead. Breaking change (`egobox-ego` 0.45.0): new `InfillOptimizer` variant
 * L-BFGS-B optimizer of GP hyperparameters: `ThetaOptimizer::Lbfgsb` (Python `ThetaOptimizer.LBFGSB`) maximizes
   the likelihood wrt theta, and the noise ratio when estimated, with the L-BFGS-B solver of basin and the analytic
   gradient of the likelihood (squared exponential, absolute exponential and Matern kernels). Opt-in, COBYLA remains

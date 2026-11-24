@@ -12,6 +12,7 @@
 //!
 //! - [`Algorithm::Slsqp`] - Sequential Least Squares Programming (gradient-based)
 //! - [`Algorithm::Cobyla`] - Constrained Optimization BY Linear Approximations (derivative-free)
+//! - [`Algorithm::Lbfgsb`] - Limited-memory BFGS with bounds (gradient-based, bound constraints only)
 //!
 //! ## Usage
 //!
@@ -30,6 +31,8 @@ impl<T, U> OptFn<U> for T where T: UserFn<U> + Sync {}
 pub enum Algorithm {
     Cobyla,
     Slsqp,
+    /// Bound constraints only
+    Lbfgsb,
 }
 
 pub const INFILL_MAX_EVAL_DEFAULT: usize = 2000;
@@ -119,6 +122,13 @@ impl<'a> Optimizer<'a> {
         let algorithm = match self.algo {
             Algorithm::Cobyla => BasinAlgorithm::Cobyla,
             Algorithm::Slsqp => BasinAlgorithm::Slsqp,
+            Algorithm::Lbfgsb => {
+                assert!(
+                    self.cons.is_empty(),
+                    "L-BFGS-B infill optimizer handles bound constraints only"
+                );
+                BasinAlgorithm::Lbfgsb
+            }
         };
         let (value, point) = minimize(
             algorithm,
@@ -184,5 +194,32 @@ mod tests {
             assert!((point[0] - 1.2).abs() < 1e-5, "{algorithm:?}: {point}");
             assert!((value + 1.2).abs() < 1e-5);
         }
+    }
+
+    #[test]
+    fn lbfgsb_minimizes_within_bounds() {
+        let data = InfillObjData::default();
+        let objective = |x: &[f64], g: Option<&mut [f64]>, _: &mut InfillObjData<f64>| {
+            if let Some(g) = g {
+                g[0] = 2. * (x[0] - 3.);
+                g[1] = 4. * (x[1] + 0.5);
+            }
+            (x[0] - 3.).powi(2) + 2. * (x[1] + 0.5).powi(2)
+        };
+        let (value, point) = Optimizer::new(
+            Algorithm::Lbfgsb,
+            &objective,
+            &[],
+            &data,
+            &array![[-1., 2.], [-1., 1.]],
+        )
+        .xinit(&array![0., 0.5].view())
+        .ftol_abs(1e-10)
+        .ftol_rel(1e-10)
+        .minimize();
+        // x[0] optimum is out of the box: stopped at the upper bound
+        assert!((point[0] - 2.).abs() < 1e-6, "{point}");
+        assert!((point[1] + 0.5).abs() < 1e-5, "{point}");
+        assert!((value - 1.).abs() < 1e-8, "{value}");
     }
 }

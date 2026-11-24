@@ -58,6 +58,13 @@ pub enum InfillOptimizer {
     Slsqp,
     /// Cobyla optimizer (gradient free)
     Cobyla,
+    /// L-BFGS-B optimizer (gradient based) handling bound constraints only.
+    ///
+    /// With constraints, requires the constrained infill criterion (see
+    /// [`crate::EgorConfig::cstr_infill`]) where the constraint surrogates are taken into account
+    /// through the probability of feasibility. Not compatible with function constraints nor with
+    /// [`FailsafeStrategy::Viability`] which have to be handled by the infill optimizer.
+    Lbfgsb,
 }
 
 /// Strategy to choose several points at each iteration

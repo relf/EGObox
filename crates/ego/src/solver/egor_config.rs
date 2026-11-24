@@ -680,6 +680,10 @@ impl EgorConfig {
     }
 
     /// Sets the infill optimizer
+    ///
+    /// [`InfillOptimizer::Lbfgsb`] handles bound constraints only: with constraints, it requires
+    /// the constrained infill criterion (see [`EgorConfig::cstr_infill`]). It is not compatible
+    /// with function constraints nor with [`FailsafeStrategy::Viability`].
     pub fn infill_optimizer(mut self, optimizer: InfillOptimizer) -> Self {
         self.0.infill_optimizer = optimizer;
         self
@@ -825,6 +829,10 @@ impl EgorConfig {
     }
 
     /// Activate constrained infill criterion
+    ///
+    /// The infill criterion is weighted by the probability of feasibility of the constraint
+    /// surrogates which are then not handled by the infill optimizer, allowing the use of
+    /// [`InfillOptimizer::Lbfgsb`].
     pub fn cstr_infill(mut self, activated: bool) -> Self {
         self.0.cstr_infill = activated;
         self
@@ -1054,6 +1062,25 @@ impl EgorConfig {
                 "Feasible infill strategy {:?} is not implemented for LogEI criterion. Consider using EI, WB2 or WB2S instead.",
                 config.feasibility_infill
             )));
+        }
+
+        // L-BFGS-B handles bound constraints only
+        if config.infill_optimizer == InfillOptimizer::Lbfgsb {
+            if !config.cstr_infill && config.n_internal_cstr() > 0 {
+                return Err(crate::EgoError::InvalidConfigError(
+                    "EgorConfig invalid: L-BFGS-B infill optimizer cannot handle constraint \
+                     surrogates as optimizer constraints: use the constrained infill criterion \
+                     (cstr_infill), or SLSQP or COBYLA"
+                        .to_string(),
+                ));
+            }
+            if config.failsafe_strategy == FailsafeStrategy::Viability {
+                return Err(crate::EgoError::InvalidConfigError(
+                    "EgorConfig invalid: L-BFGS-B infill optimizer cannot handle the viability \
+                     constraint of the Viability failsafe strategy, use SLSQP or COBYLA"
+                        .to_string(),
+                ));
+            }
         }
 
         Ok(config)
