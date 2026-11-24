@@ -1,7 +1,7 @@
 use crate::correlation_models::CorrelationModel;
 use crate::errors::{GpError, Result};
 use crate::mean_models::RegressionModel;
-use crate::{Cancellation, GP_COBYLA_MAX_EVAL, GP_COBYLA_MIN_EVAL, GP_OPTIM_N_START};
+use crate::{Cancellation, GP_OPTIM_MAX_EVAL, GP_OPTIM_MIN_EVAL, GP_OPTIM_N_START};
 use linfa::{Float, ParamGuard};
 
 use ndarray::{Array1, array};
@@ -203,7 +203,7 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> Default
             corr: Corr::default(),
             kpls_dim: None,
             n_start: GP_OPTIM_N_START,
-            max_eval: GP_COBYLA_MAX_EVAL,
+            max_eval: GP_OPTIM_MAX_EVAL,
             nugget: F::cast(100.0) * F::epsilon(),
             noise_ratio: no_noise_ratio(),
             theta_optimizer: ThetaOptimizer::default(),
@@ -363,14 +363,14 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GpParams<F, 
     }
 
     /// Set the max number of internal likelihood evaluations during one optimization
-    /// Given max_eval has to be greater than [crate::GP_COBYLA_MIN_EVAL] otherwise
-    /// max_eval is set to [crate::GP_COBYLA_MAX_EVAL].
+    /// (default [crate::GP_OPTIM_MAX_EVAL]). A max_eval below [crate::GP_OPTIM_MIN_EVAL]
+    /// is raised to it.
     ///
-    /// Each COBYLA start gets clamp(10 * n_params, [crate::GP_COBYLA_MIN_EVAL], max_eval)
+    /// Each COBYLA start gets clamp(10 * n_params, [crate::GP_OPTIM_MIN_EVAL], max_eval)
     /// evaluations, n_params being the number of optimized hyperparameters, scaled by
     /// [`ThetaOptimizer::max_eval_factor`] for the other optimizers (see [`ThetaOptimizer::max_eval`]).
     pub fn max_eval(mut self, max_eval: usize) -> Self {
-        self.0.max_eval = GP_COBYLA_MIN_EVAL.max(max_eval);
+        self.0.max_eval = GP_OPTIM_MIN_EVAL.max(max_eval);
         self
     }
 

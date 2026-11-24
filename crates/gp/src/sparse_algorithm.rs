@@ -563,7 +563,7 @@ impl<F: Float, Corr: CorrelationModel<F>, D: Data<Elem = F> + Sync>
             &theta_inits,
             &bounds,
             OptimParams {
-                maxeval: (10 * theta0_dim).clamp(crate::GP_COBYLA_MIN_EVAL, self.max_eval()),
+                maxeval: (10 * theta0_dim).clamp(crate::GP_OPTIM_MIN_EVAL, self.max_eval()),
                 // Sparse covariance factorizations need the variance
                 // and noise bounds during trial evaluations too.
                 bounded_evaluations: true,

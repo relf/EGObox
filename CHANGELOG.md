@@ -10,6 +10,8 @@
   budget, an evaluation also computing the gradient, and steps of at most half a decade per hyperparameter: it
   trains in about the COBYLA time and reaches a likelihood at least as high on the `theta_optimizer` bench. Sparse
   GPs keep COBYLA. The optimizer is saved with GP models and in hot start checkpoints
+* `egobox-gp`: `GP_COBYLA_MIN_EVAL` and `GP_COBYLA_MAX_EVAL` are renamed `GP_OPTIM_MIN_EVAL` and `GP_OPTIM_MAX_EVAL`
+  as they bound the evaluations budget of every GP hyperparameters optimizer. The former names are deprecated
 * **Compatibility**: binary GP model files (`.bin`, e.g. `egor_gp.bin`) and `Egor` hot start checkpoints saved by
   1.1.0 or earlier no longer load: `theta_optimizer` and `feasibility_first` are now saved with the configuration,
   and a resumed run uses the checkpointed values like the other settings. JSON GP model files still load, with

@@ -26,10 +26,16 @@ use std::sync::OnceLock;
 
 /// Default number of multistart for hyperparameters optimization
 pub const GP_OPTIM_N_START: usize = 10;
-/// Minimum of function evaluations for COBYLA optimizer
-pub const GP_COBYLA_MIN_EVAL: usize = 25;
-/// Maximum of function evaluations for COBYLA optimizer
-pub const GP_COBYLA_MAX_EVAL: usize = 1000;
+/// Minimum number of likelihood evaluations of a GP hyperparameters optimization start
+pub const GP_OPTIM_MIN_EVAL: usize = 25;
+/// Default maximum number of likelihood evaluations of a GP hyperparameters optimization start
+pub const GP_OPTIM_MAX_EVAL: usize = 1000;
+/// Minimum number of likelihood evaluations of a GP hyperparameters optimization start
+#[deprecated(since = "0.39.0", note = "use GP_OPTIM_MIN_EVAL")]
+pub const GP_COBYLA_MIN_EVAL: usize = GP_OPTIM_MIN_EVAL;
+/// Default maximum number of likelihood evaluations of a GP hyperparameters optimization start
+#[deprecated(since = "0.39.0", note = "use GP_OPTIM_MAX_EVAL")]
+pub const GP_COBYLA_MAX_EVAL: usize = GP_OPTIM_MAX_EVAL;
 
 /// Internal parameters computed Gp during training
 /// used later on in prediction computations
@@ -1002,9 +1008,9 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>, D: Data<Elem
             // Multistart: user params0 + LHS samples within bounds
             let (params_inits, bounds) =
                 prepare_multistart(self.n_start(), &Array1::from_vec(params0), &bounds);
-            // COBYLA budget scaled by the optimizer factor
+            // Evaluations budget of a start scaled by the optimizer factor
             let maxeval = theta_optimizer
-                .max_eval((10 * params_inits.ncols()).clamp(GP_COBYLA_MIN_EVAL, self.max_eval()));
+                .max_eval((10 * params_inits.ncols()).clamp(GP_OPTIM_MIN_EVAL, self.max_eval()));
             let opt_params = multistart_minimize(
                 objfn,
                 &params_inits,
