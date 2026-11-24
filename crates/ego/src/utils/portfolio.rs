@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use linfa::traits::Transformer;
 
@@ -6,6 +6,18 @@ use linfa_clustering::Dbscan;
 
 use crate::types::Candidates;
 use ndarray::{Array1, Array2, ArrayBase, Data, Ix2};
+
+/// Maximum number of points selected from the portfolio
+const PORTFOLIO_MAX_CANDIDATES: usize = 3;
+/// Minimum number of points of a DBSCAN cluster
+const DBSCAN_MIN_POINTS: usize = 2;
+/// DBSCAN tolerance when it can not be derived from distances (less than 2 points)
+const DBSCAN_TOLERANCE_FALLBACK: f64 = 0.2;
+/// DBSCAN tolerance as a multiple of the median nearest neighbor distance...
+const DBSCAN_TOLERANCE_MULTIPLIER: f64 = 1.1;
+/// ... clamped within these bounds (in the unit hypercube)
+const DBSCAN_TOLERANCE_MIN: f64 = 0.15;
+const DBSCAN_TOLERANCE_MAX: f64 = 0.45;
 
 /// Generate `num` points spaced evenly on a log scale between `start` and `end`.
 #[allow(dead_code)]
@@ -22,82 +34,142 @@ pub fn logspace(start: f64, end: f64, num: usize) -> Array1<f64> {
     }))
 }
 
-pub fn cluster_as_indices(xdat: &ArrayBase<impl Data<Elem = f64>, Ix2>) -> Vec<usize> {
-    // Cluster the x information
-    let clusters = Dbscan::params(2)
-        .tolerance((xdat.ncols() as f64).sqrt())
-        .transform(&xdat.to_owned())
-        .unwrap();
-    let mut dict = HashMap::new();
-    for (i, c) in clusters.iter().enumerate() {
-        match c {
-            None => (),
-            Some(label) => dict.entry(*label).or_insert(vec![]).push(i),
+/// `xdat` rows mapped to the unit hypercube wrt `xlimits`
+fn normalize(
+    xdat: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+    xlimits: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+) -> Array2<f64> {
+    let mut xnorm = xdat.to_owned();
+    for (mut col, limits) in xnorm.columns_mut().into_iter().zip(xlimits.rows()) {
+        let (lower, width) = (limits[0], limits[1] - limits[0]);
+        if width > 0.0 {
+            col.mapv_inplace(|v| (v - lower) / width);
         }
     }
+    xnorm
+}
 
-    // Pick the first element of each cluster as representative, in increasing index
-    // order (hash map iteration order is random)
-    let mut representatives: Vec<usize> = dict
-        .values()
-        .map(|members| *members.first().unwrap())
-        .collect();
-    representatives.sort_unstable();
+/// Distance of each row of `x` to its nearest other row
+fn nearest_neighbor_distances(x: &Array2<f64>) -> Vec<f64> {
+    let n = x.nrows();
+    let mut dists = vec![f64::INFINITY; n];
+    for i in 0..n {
+        for j in (i + 1)..n {
+            let d = (&x.row(i) - &x.row(j)).mapv(|v| v * v).sum().sqrt();
+            dists[i] = dists[i].min(d);
+            dists[j] = dists[j].min(d);
+        }
+    }
+    dists
+}
+
+/// DBSCAN tolerance adapted to the spreading of the points: a multiple of the median
+/// nearest neighbor distance, clamped
+fn dbscan_tolerance(nn_dists: &[f64]) -> f64 {
+    let mut sorted: Vec<f64> = nn_dists.iter().copied().filter(|d| d.is_finite()).collect();
+    if sorted.is_empty() {
+        return DBSCAN_TOLERANCE_FALLBACK;
+    }
+    sorted.sort_by(f64::total_cmp);
+    let mid = sorted.len() / 2;
+    let median = if sorted.len().is_multiple_of(2) {
+        (sorted[mid - 1] + sorted[mid]) / 2.0
+    } else {
+        sorted[mid]
+    };
+    (median * DBSCAN_TOLERANCE_MULTIPLIER).clamp(DBSCAN_TOLERANCE_MIN, DBSCAN_TOLERANCE_MAX)
+}
+
+/// Indices of the best ranked `xdat` rows, one per cluster of rows: rows are clustered
+/// in the unit hypercube wrt `xlimits`, each cluster (or isolated row) being represented
+/// by its best (highest `ranks` value) row. Representatives are sorted by decreasing rank,
+/// at most `PORTFOLIO_MAX_CANDIDATES` are returned.
+pub fn cluster_as_indices(
+    xdat: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+    xlimits: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+    ranks: &[f64],
+) -> Vec<usize> {
+    let xnorm = normalize(xdat, xlimits);
+    let tolerance = dbscan_tolerance(&nearest_neighbor_distances(&xnorm));
+    let clusters = Dbscan::params(DBSCAN_MIN_POINTS)
+        .tolerance(tolerance)
+        .transform(&xnorm)
+        .unwrap();
+
+    // Ordered map for representatives not to depend on hash map iteration order
+    let mut members: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    let mut representatives = vec![];
+    for (i, c) in clusters.iter().enumerate() {
+        match c {
+            Some(label) => members.entry(*label).or_default().push(i),
+            None => representatives.push(i),
+        }
+    }
+    log::debug!(
+        "Portfolio DBSCAN tolerance = {tolerance}, {} clusters, {} isolated points",
+        members.len(),
+        representatives.len()
+    );
+    // Best ranked member of each cluster, the first one on ties
+    representatives.extend(members.values().map(|indices| {
+        indices.iter().copied().fold(
+            indices[0],
+            |best, i| {
+                if ranks[i] > ranks[best] { i } else { best }
+            },
+        )
+    }));
+
+    // Decreasing rank, increasing index on ties
+    representatives.sort_by(|&a, &b| ranks[b].total_cmp(&ranks[a]).then(a.cmp(&b)));
+    representatives.truncate(PORTFOLIO_MAX_CANDIDATES);
     representatives
 }
 
-/// This function clusters portfolio information wrt x values then pick one member of each cluster
-pub(crate) fn select_from_portfolio(portfolio: Vec<Candidates>) -> Candidates {
-    let n = portfolio.len();
-    let mut xdat = Array2::zeros((n, portfolio[0].x.ncols()));
-
-    for (i, info) in portfolio.iter().enumerate() {
+/// Select points from the portfolio: the first points of the portfolio members are
+/// clustered and the best member (highest infill value) of each cluster is picked
+/// (see [`cluster_as_indices`]), best first.
+pub(crate) fn select_from_portfolio(
+    portfolio: Vec<Candidates>,
+    xlimits: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+) -> Candidates {
+    let mut xdat = Array2::zeros((portfolio.len(), portfolio[0].x.ncols()));
+    for (i, member) in portfolio.iter().enumerate() {
         // Pick the first x (row(0)) as representative of q points batch
-        xdat.row_mut(i).assign(&info.x.row(0).to_owned());
+        xdat.row_mut(i).assign(&member.x.row(0));
     }
+    let ranks: Vec<f64> = portfolio.iter().map(|m| m.infill_value).collect();
 
-    // Indices of representative of a cluster
-    let indices = cluster_as_indices(&xdat);
+    let indices = cluster_as_indices(&xdat, xlimits, &ranks);
+    log::info!("Select {} points from portfolio", indices.len());
 
-    log::info!("Detect {} clusters", indices.len());
-
-    // Pick information from portfolio of given indices and concatenate
-    let nclusters = indices.len();
-
-    let mut xdat = Array2::zeros((nclusters.max(1), portfolio[0].x.ncols()));
-    let mut ydat = Array2::zeros((nclusters.max(1), portfolio[0].y.ncols()));
-    let mut cdat = Array2::zeros((nclusters.max(1), portfolio[0].c.ncols()));
-    let mut ypen = Array2::zeros((nclusters.max(1), portfolio[0].y_penalized.ncols()));
-
-    if nclusters > 1 {
-        for (i, index) in indices.iter().enumerate() {
-            xdat.row_mut(i).assign(&portfolio[*index].x.row(0));
-            ydat.row_mut(i).assign(&portfolio[*index].y.row(0));
-            cdat.row_mut(i).assign(&portfolio[*index].c.row(0));
-            ypen.row_mut(i)
-                .assign(&portfolio[*index].y_penalized.row(0));
-        }
-    } else {
-        xdat.row_mut(0).assign(&portfolio[0].x.row(0));
-        ydat.row_mut(0).assign(&portfolio[0].y.row(0));
-        cdat.row_mut(0).assign(&portfolio[0].c.row(0));
-        ypen.row_mut(0).assign(&portfolio[0].y_penalized.row(0));
+    let mut selected = Candidates::empty(
+        portfolio[0].x.ncols(),
+        portfolio[0].y.ncols(),
+        portfolio[0].c.ncols(),
+    );
+    for &index in &indices {
+        selected.append(portfolio[index].select(&[0]));
     }
-    // FIXME: Have to check if fmin and infill_data values are relevant
-    // At the moment just pick the first values of portfolio
-    Candidates {
-        x: xdat,
-        y: ydat,
-        c: cdat,
-        y_penalized: ypen,
-        infill_value: portfolio[0].infill_value,
-    }
+    // Infill value of the best selected point
+    selected.infill_value = portfolio[indices[0]].infill_value;
+    selected
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use ndarray::array;
+
+    fn member(x: f64, infill_value: f64) -> Candidates {
+        Candidates {
+            x: array![[x]],
+            y: array![[100. * x]],
+            c: array![[10. * x]],
+            y_penalized: array![[1000. * x]],
+            infill_value,
+        }
+    }
 
     #[test]
     fn test_cluster_as_indices_is_deterministic() {
@@ -113,9 +185,87 @@ mod tests {
             [10.2],
             [20.2]
         ];
+        let xlimits = array![[0., 20.2]];
+        let ranks = [1., 1., 1., 2., 2., 2., 1., 1., 1.];
         for _ in 0..20 {
-            assert_eq!(cluster_as_indices(&xdat), vec![0, 1, 2]);
+            assert_eq!(cluster_as_indices(&xdat, &xlimits, &ranks), vec![3, 4, 5]);
         }
+    }
+
+    #[test]
+    fn test_clustering_best_ranked_representatives() {
+        let x = array![
+            [0.13],
+            [0.70],
+            [0.72],
+            [0.14],
+            [0.15],
+            [0.71],
+            [0.16],
+            [0.73]
+        ];
+        let xlimits = array![[0.0, 1.0]];
+        let indices = cluster_as_indices(&x, &xlimits, &[1.0, 2.0, 5.0, 3.0, 4.0, 6.0, 0.5, 7.0]);
+        assert_eq!(indices, vec![7, 4]);
+    }
+
+    #[test]
+    fn test_clustering_keeps_best_three_isolated_points() {
+        let x = array![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]];
+        let xlimits = array![[0.0, 1.0], [0.0, 1.0]];
+        let indices = cluster_as_indices(&x, &xlimits, &[1.0, 4.0, 3.0, 2.0]);
+        assert_eq!(indices, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn test_clustering_is_scale_invariant() {
+        let ranks = [1.0, 5.0, 2.0, 4.0];
+        let small = cluster_as_indices(
+            &array![[0.10], [0.11], [0.90], [0.91]],
+            &array![[0.0, 1.0]],
+            &ranks,
+        );
+        let large = cluster_as_indices(
+            &array![[10.0], [11.0], [90.0], [91.0]],
+            &array![[0.0, 100.0]],
+            &ranks,
+        );
+        assert_eq!(small, vec![1, 3]);
+        assert_eq!(large, small);
+    }
+
+    #[test]
+    fn test_dbscan_tolerance() {
+        let tol = dbscan_tolerance(&[0.10, 0.12, 0.14, 0.16, 0.18]);
+        assert!((tol - 0.154).abs() < 1e-12);
+        assert_eq!(dbscan_tolerance(&[]), DBSCAN_TOLERANCE_FALLBACK);
+        assert_eq!(
+            dbscan_tolerance(&[f64::INFINITY]),
+            DBSCAN_TOLERANCE_FALLBACK
+        );
+        assert_eq!(dbscan_tolerance(&[0.01, 0.02, 0.03]), DBSCAN_TOLERANCE_MIN);
+        assert_eq!(dbscan_tolerance(&[1.0, 2.0, 3.0]), DBSCAN_TOLERANCE_MAX);
+    }
+
+    #[test]
+    fn test_select_from_portfolio_best_first() {
+        let portfolio = vec![
+            member(0.13, 1.0),
+            member(0.70, 2.0),
+            member(0.72, 5.0),
+            member(0.14, 3.0),
+            member(0.15, 4.0),
+            member(0.71, 6.0),
+            member(0.16, 0.5),
+            member(0.73, 7.0),
+        ];
+        let selected = select_from_portfolio(portfolio, &array![[0.0, 1.0]]);
+
+        assert_eq!(selected.x.column(0).to_vec(), vec![0.73, 0.15]);
+        assert_eq!(selected.y.column(0).to_vec(), vec![73.0, 15.0]);
+        assert_eq!(selected.c.column(0).to_vec(), vec![7.3, 1.5]);
+        assert_eq!(selected.y_penalized.column(0).to_vec(), vec![730.0, 150.0]);
+        assert_eq!(selected.infill_value, 7.0);
     }
 
     #[test]

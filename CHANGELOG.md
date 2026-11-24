@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* GP variance portfolio (`use_gp_var_portfolio` runtime flag): points are selected from the portfolio by clustering
+  them in the unit hypercube with a DBSCAN tolerance adapted to their spreading (1.1 times the median nearest
+  neighbor distance, within [0.15, 0.45]) instead of `sqrt(dim)` in the original space, which mostly gave one
+  cluster. Isolated points are kept, each cluster is represented by its point of best infill value, and at most
+  the 3 best points are added per iteration
 * L-BFGS-B infill optimizer: `InfillOptimizer::Lbfgsb` (Python `InfillOptimizer.LBFGSB`) optimizes the infill
   criterion with the L-BFGS-B solver of basin and the analytic gradient of the criterion. Opt-in, handling bound
   constraints only: with constraints, it requires the constrained infill criterion (`cstr_infill`) where constraint
