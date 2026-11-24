@@ -75,8 +75,8 @@ Egor(
 | `kpls_dim` | `Optional[int]` | `None` | No PLS projection by default. |
 | `n_clusters` | `int` | `1` | Single expert/cluster by default. |
 | `recombination` | `Recombination` | `Recombination.HARD` | Expert recombination mode. Possible values: `Recombination.HARD`, `Recombination.SMOOTH`. |
-| `theta_init` | `Optional[Sequence[float]]` | `None` | Uses internal default initialization. |
-| `theta_bounds` | `Optional[Sequence[Sequence[float]]]` | `None` | Uses internal default bounds. |
+| `theta_init` | `Optional[Sequence[float]]` | `None` | `1e-1` for all components, clamped within theta bounds. |
+| `theta_bounds` | `Optional[Sequence[Sequence[float]]]` | `None` | `[1e-2, 1e1]` for all components. |
 | `theta_n_start` | `int` | `10` | GP hyperparameter optimization multistart. |
 | `theta_max_eval` | `int` | `50` | Max likelihood evaluations for hyperparameter optimization. |
 

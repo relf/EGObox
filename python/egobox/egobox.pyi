@@ -864,7 +864,7 @@ class GpConfig:
         ([[lower_1, upper_1], ..., [lower_nx, upper_nx]] where nx is the dimension of inputs x)
         Space search when optimizing theta GP hyperparameters
         When None the default is [1e-2, 1e1] for all components.
-        Note: `Egor` may adapt these bounds automatically for high-dimensional inputs.
+        With about 100 inputs or more, a higher lower bound such as 2e-2 may improve optimization results.
         """
     @theta_bounds.setter
     def theta_bounds(self, value: typing.Optional[typing.Sequence[typing.Sequence[builtins.float]]]) -> None:
@@ -872,7 +872,7 @@ class GpConfig:
         ([[lower_1, upper_1], ..., [lower_nx, upper_nx]] where nx is the dimension of inputs x)
         Space search when optimizing theta GP hyperparameters
         When None the default is [1e-2, 1e1] for all components.
-        Note: `Egor` may adapt these bounds automatically for high-dimensional inputs.
+        With about 100 inputs or more, a higher lower bound such as 2e-2 may improve optimization results.
         """
     @property
     def theta_n_start(self) -> builtins.int:
@@ -943,7 +943,8 @@ class GpConfig:
         recombination : Recombination, optional
             How the experts predictions are recombined (default: Recombination.HARD)
         theta_init : list of float, optional
-            Initial guess for GP theta hyperparameters (default: None, 1e-1 for all components)
+            Initial guess for GP theta hyperparameters, clamped within theta bounds
+            (default: None, 1e-1 for all components)
         theta_bounds : list of [float, float], optional
             Search space of GP theta hyperparameters (default: None, [1e-2, 1e1] for all components)
         theta_n_start : int, optional

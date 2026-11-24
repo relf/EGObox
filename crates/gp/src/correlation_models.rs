@@ -98,12 +98,6 @@ pub trait CorrelationModel<F: Float>: Clone + Copy + Default + fmt::Display + Sy
         weights: &ArrayBase<impl Data<Elem = F>, Ix2>,
     ) -> (Array2<F>, Array2<F>);
 
-    /// Returns the theta influence factors for the correlation model.
-    /// See <https://hal.science/hal-03812073v2/document>
-    fn theta_influence_factors(&self) -> (F, F) {
-        (F::one(), F::one())
-    }
-
     /// Whether [`CorrelationModel::log_rval_theta_grad_dot`] provides analytic derivatives
     /// of the correlation wrt `theta`, required by gradient-based hyperparameters optimization
     /// (see [`crate::ThetaOptimizer::Lbfgsb`]).
@@ -229,10 +223,6 @@ impl<F: Float> CorrelationModel<F> for SquaredExponentialCorr {
         (r, jr)
     }
 
-    fn theta_influence_factors(&self) -> (F, F) {
-        (F::cast(0.29), F::cast(1.96))
-    }
-
     fn supports_theta_grad(&self) -> bool {
         true
     }
@@ -353,10 +343,6 @@ impl<F: Float> CorrelationModel<F> for AbsoluteExponentialCorr {
         };
         let jr = &(d.mapv(|v| v.signum()) * &neg_theta_w) * &r;
         (r, jr)
-    }
-
-    fn theta_influence_factors(&self) -> (F, F) {
-        (F::cast(0.15), F::cast(3.76))
     }
 
     fn supports_theta_grad(&self) -> bool {
@@ -541,10 +527,6 @@ impl<F: Float> CorrelationModel<F> for Matern32Corr {
         (r, jr)
     }
 
-    fn theta_influence_factors(&self) -> (F, F) {
-        (F::cast(0.21), F::cast(2.74))
-    }
-
     fn supports_theta_grad(&self) -> bool {
         true
     }
@@ -700,10 +682,6 @@ impl<F: Float> CorrelationModel<F> for Matern52Corr {
         let r = self.rval_from_distances(&d, theta, weights);
         let jr = self._jac_from_r(&d, &r, theta, weights);
         (r, jr)
-    }
-
-    fn theta_influence_factors(&self) -> (F, F) {
-        (F::cast(0.23), F::cast(2.44))
     }
 
     fn supports_theta_grad(&self) -> bool {

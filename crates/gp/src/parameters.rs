@@ -47,7 +47,10 @@ impl<F: Float> Default for ThetaTuning<F> {
 impl<F: Float> ThetaTuning<F> {
     /// Default initial theta value
     pub const DEFAULT_INIT: f64 = 1e-1;
-    /// Default bounds for theta values
+    /// Default bounds for theta values, whatever the input dimension.
+    ///
+    /// With about 100 inputs or more, a higher lower bound such as `2e-2` may improve
+    /// Egor optimization results.
     pub const DEFAULT_BOUNDS: (f64, f64) = (1e-2, 1e1);
 
     /// Get initial theta value
