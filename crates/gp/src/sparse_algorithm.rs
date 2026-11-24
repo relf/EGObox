@@ -1,8 +1,8 @@
 use crate::ThetaTuning;
 use crate::errors::{GpError, Result};
 use crate::optimization::{
-    CobylaParams, broadcast_bounds, broadcast_theta0, check_kpls_dim, into_f64,
-    multistart_minimize, pls_rotation, prepare_multistart,
+    OptimParams, broadcast_bounds, broadcast_theta0, check_kpls_dim, into_f64, multistart_minimize,
+    pls_rotation, prepare_multistart,
 };
 use crate::parameters::ParamTuning;
 use crate::sparse_parameters::{Inducings, SgpParams, SgpValidParams, SparseMethod};
@@ -562,12 +562,12 @@ impl<F: Float, Corr: CorrelationModel<F>, D: Data<Elem = F> + Sync>
             objfn,
             &theta_inits,
             &bounds,
-            CobylaParams {
-                maxeval: (10 * theta0_dim).clamp(crate::GP_COBYLA_MIN_EVAL, self.max_eval()),
+            OptimParams {
+                maxeval: (10 * theta0_dim).clamp(crate::GP_OPTIM_MIN_EVAL, self.max_eval()),
                 // Sparse covariance factorizations need the variance
                 // and noise bounds during trial evaluations too.
                 bounded_evaluations: true,
-                ..CobylaParams::default()
+                ..OptimParams::default()
             },
             self.cancellation(),
         );

@@ -6,9 +6,10 @@
 use crate::Cancellation;
 use basin::{
     BoxBounds, Cobyla, ConstraintDescription, ConstraintJacobian, ConstraintSet,
-    ConstraintSolveError, ConvergenceTest, CostFunction, DenseMatrix, Gradient,
-    NoLinearConstraints, NoNonlinearBlock, NonlinearBlock, NonlinearBlocks,
-    NonlinearInequalityValues, SelectedFirstOrderState, SelectedState, Slsqp, State, Termination,
+    ConstraintSolveError, ConvergenceTest, CostFunction, DenseMatrix, FirstOrderState, Gradient,
+    LineSearch, LineSearchBounds, LineSearchResult, MoreThuente, NoLinearConstraints,
+    NoNonlinearBlock, NonlinearBlock, NonlinearBlocks, NonlinearInequalityValues,
+    SelectedFirstOrderState, SelectedState, Slsqp, State, Termination,
 };
 use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
@@ -17,6 +18,8 @@ use std::cell::{Cell, RefCell};
 pub enum Algorithm {
     Cobyla,
     Slsqp,
+    /// Box-constrained L-BFGS-B, without nonlinear constraints
+    Lbfgsb,
 }
 
 pub struct Settings<'a> {
@@ -27,9 +30,64 @@ pub struct Settings<'a> {
     pub ftol_abs: f64,
     pub ftol_rel: f64,
     pub initial_radius: f64,
+    /// L-BFGS-B only: largest change of any parameter in one iteration (None: no limit)
+    pub max_step: Option<f64>,
     pub bounded_evaluations: bool,
     /// Request to stop the optimization early, checked after each iteration
     pub cancellation: Cancellation,
+}
+
+/// Moré–Thuente line search whose steps change each parameter by at most `max_step`.
+///
+/// Without curvature information, the first L-BFGS-B step goes to the generalized Cauchy
+/// point which may be far away, e.g. across the whole box. With a likelihood whose plateaus
+/// are flat (squared exponential correlation with large theta), such long steps end there.
+struct CappedMoreThuente {
+    inner: MoreThuente<f64>,
+    max_step: Option<f64>,
+}
+
+impl<P> LineSearch<P, Vec<f64>, f64> for CappedMoreThuente
+where
+    P: CostFunction<Param = Vec<f64>, Output = f64> + Gradient<Gradient = Vec<f64>>,
+{
+    type Error = P::Error;
+
+    fn reset(&mut self) {
+        <MoreThuente<f64> as LineSearch<P, Vec<f64>, f64>>::reset(&mut self.inner)
+    }
+
+    fn next(
+        &mut self,
+        problem: &mut basin::Problem<P>,
+        param: &Vec<f64>,
+        cost: f64,
+        gradient: &Vec<f64>,
+        direction: &Vec<f64>,
+    ) -> Result<f64, Self::Error> {
+        self.inner.next(problem, param, cost, gradient, direction)
+    }
+
+    fn next_with_bounds(
+        &mut self,
+        problem: &mut basin::Problem<P>,
+        param: &Vec<f64>,
+        cost: f64,
+        gradient: &Vec<f64>,
+        direction: &Vec<f64>,
+        bounds: LineSearchBounds<f64>,
+    ) -> Result<LineSearchResult<Vec<f64>, f64>, Self::Error> {
+        let largest = direction.iter().fold(0f64, |m, d| m.max(d.abs()));
+        let bounds = match self.max_step {
+            Some(max_step) if largest * bounds.max() > max_step => {
+                let max = max_step / largest;
+                LineSearchBounds::new(bounds.initial().min(max), max)
+            }
+            _ => bounds,
+        };
+        self.inner
+            .next_with_bounds(problem, param, cost, gradient, direction, bounds)
+    }
 }
 
 /// Run controls stopping the optimization once `cancellation` is requested
@@ -145,11 +203,16 @@ impl CostFunction for &Problem<'_> {
     }
 }
 
-impl Gradient for &Problem<'_> {
-    type Gradient = Vec<f64>;
-    fn gradient(&self, x: &Vec<f64>) -> Result<Vec<f64>, Self::Error> {
-        let mut gradient = vec![0.; x.len()];
-        self.evaluate(x, Some(&mut gradient))?;
+impl Problem<'_> {
+    /// Objective value and gradient at `x` from one evaluation, the gradient written in `gradient`
+    fn evaluate_with_gradient(
+        &self,
+        x: &[f64],
+        gradient: &mut Vec<f64>,
+    ) -> Result<f64, EvaluationError> {
+        gradient.clear();
+        gradient.resize(x.len(), 0.);
+        let value = self.evaluate(x, Some(gradient.as_mut_slice()))?;
         if gradient.iter().any(|value| !value.is_finite()) {
             return Err(EvaluationError::NonFinite);
         }
@@ -158,7 +221,58 @@ impl Gradient for &Problem<'_> {
                 *g = 0.;
             }
         }
+        Ok(value)
+    }
+}
+
+impl Gradient for &Problem<'_> {
+    type Gradient = Vec<f64>;
+    fn gradient(&self, x: &Vec<f64>) -> Result<Vec<f64>, Self::Error> {
+        let mut gradient = vec![];
+        self.evaluate_with_gradient(x, &mut gradient)?;
         Ok(gradient)
+    }
+}
+
+/// View of a problem without nonlinear constraints as a box-constrained problem,
+/// as required by L-BFGS-B. Value and gradient are computed by one objective call.
+#[derive(Clone, Copy)]
+struct BoxOnly<'a, 'b>(&'a Problem<'b>);
+
+impl CostFunction for BoxOnly<'_, '_> {
+    type Param = Vec<f64>;
+    type Output = f64;
+    type Error = EvaluationError;
+    fn cost(&self, x: &Vec<f64>) -> Result<f64, Self::Error> {
+        self.0.evaluate(x, None)
+    }
+}
+
+impl Gradient for BoxOnly<'_, '_> {
+    type Gradient = Vec<f64>;
+    fn gradient(&self, x: &Vec<f64>) -> Result<Vec<f64>, Self::Error> {
+        let mut gradient = vec![];
+        self.0.evaluate_with_gradient(x, &mut gradient)?;
+        Ok(gradient)
+    }
+    fn cost_and_gradient(&self, x: &Vec<f64>) -> Result<(f64, Vec<f64>), Self::Error> {
+        let mut gradient = vec![];
+        let value = self.0.evaluate_with_gradient(x, &mut gradient)?;
+        Ok((value, gradient))
+    }
+    fn cost_and_gradient_into(
+        &self,
+        x: &Vec<f64>,
+        gradient: &mut Vec<f64>,
+    ) -> Result<f64, Self::Error> {
+        self.0.evaluate_with_gradient(x, gradient)
+    }
+}
+
+impl basin::Constraints for BoxOnly<'_, '_> {
+    type Set = ConstraintSet<BoxBounds<Vec<f64>>>;
+    fn constraints(&self) -> <Self::Set as ConstraintDescription>::Borrowed<'_> {
+        ConstraintSet::new().with_bounds(BoxBounds::new(Some(&self.0.lower), Some(&self.0.upper)))
     }
 }
 
@@ -241,7 +355,7 @@ fn cost_stop<S: State<Param = Vec<f64>, Float = f64>>(
     let stop = previous.and_then(|cost| {
         // Like the default COBYLA backend, require strict improvement so a
         // repeated incumbent does not prevent refinement at a smaller radius.
-        if !(matches!(problem.algorithm, Algorithm::Slsqp) || current < cost) {
+        if !(matches!(problem.algorithm, Algorithm::Slsqp | Algorithm::Lbfgsb) || current < cost) {
             return None;
         }
         let change = (cost - current).abs();
@@ -321,6 +435,31 @@ pub fn minimize(
             let mut solver = Slsqp::new().with_absolute_accuracy_tolerance(0.0);
             let mut control = controls(&settings.cancellation);
             let state = SelectedFirstOrderState::new(xinit);
+            run(
+                &problem,
+                &mut wrapped,
+                &mut solver,
+                state,
+                &mut control,
+                |_, _| true,
+            )
+        }
+        Algorithm::Lbfgsb => {
+            debug_assert_eq!(
+                settings.n_constraints, 0,
+                "L-BFGS-B handles bound constraints only"
+            );
+            let mut wrapped = basin::Problem::new(BoxOnly(&problem));
+            // Projected gradient tolerance of scipy L-BFGS-B (pgtol), EGObox supplies
+            // the objective-change tolerances
+            let mut solver =
+                basin::Lbfgsb::<Vec<f64>, f64, _>::with_line_search(CappedMoreThuente {
+                    inner: MoreThuente::new(),
+                    max_step: settings.max_step,
+                })
+                .with_absolute_projected_gradient_tolerance(1e-5);
+            let mut control = controls(&settings.cancellation);
+            let state = FirstOrderState::new(xinit);
             run(
                 &problem,
                 &mut wrapped,
@@ -433,9 +572,76 @@ where
 mod tests {
     use super::*;
 
+    /// Solvers usable without nonlinear constraints
+    const UNCONSTRAINED: [Algorithm; 3] = [Algorithm::Cobyla, Algorithm::Slsqp, Algorithm::Lbfgsb];
+
     #[test]
-    fn cancellation_stops_both_solvers() {
-        for algorithm in [Algorithm::Cobyla, Algorithm::Slsqp] {
+    fn lbfgsb_value_and_gradient_from_one_evaluation() {
+        let (calls, with_gradient) = (Cell::new(0), Cell::new(0));
+        let (value, x) = minimize(
+            Algorithm::Lbfgsb,
+            &|x, g| {
+                calls.set(calls.get() + 1);
+                if let Some(g) = g {
+                    with_gradient.set(with_gradient.get() + 1);
+                    g[0] = 2. * (x[0] - 0.3);
+                    g[1] = 4. * (x[1] + 0.2);
+                }
+                (x[0] - 0.3).powi(2) + 2. * (x[1] + 0.2).powi(2)
+            },
+            &|_, _, _| unreachable!(),
+            settings(&[0.9, 0.9], &[(-1., 1.), (-1., 1.)]),
+        );
+        assert!(value < 1e-8, "{value} at {x:?}");
+        // every objective call computes the value and the gradient together
+        assert_eq!(calls.get(), with_gradient.get());
+    }
+
+    #[test]
+    fn lbfgsb_max_step_limits_parameter_changes() {
+        for max_step in [None, Some(0.5)] {
+            let points = RefCell::new(Vec::<Vec<f64>>::new());
+            let mut config = settings(&[-2.5, -2.5], &[(-3., 3.), (-3., 3.)]);
+            config.max_step = max_step;
+            let (value, x) = minimize(
+                Algorithm::Lbfgsb,
+                &|x, g| {
+                    points.borrow_mut().push(x.to_vec());
+                    if let Some(g) = g {
+                        g[0] = 2. * (x[0] - 2.5);
+                        g[1] = 8. * (x[1] - 2.5);
+                    }
+                    (x[0] - 2.5).powi(2) + 4. * (x[1] - 2.5).powi(2)
+                },
+                &|_, _, _| unreachable!(),
+                config,
+            );
+            assert!(value < 1e-8, "{max_step:?}: {value} at {x:?}");
+            // every trial is within max_step of an iterate, i.e. of a previous trial
+            let points = points.into_inner();
+            let largest_move = (1..points.len())
+                .map(|k| {
+                    points[..k]
+                        .iter()
+                        .map(|p| {
+                            p.iter()
+                                .zip(&points[k])
+                                .fold(0f64, |m, (a, b)| m.max((a - b).abs()))
+                        })
+                        .fold(f64::INFINITY, f64::min)
+                })
+                .fold(0f64, f64::max);
+            match max_step {
+                Some(max_step) => assert!(largest_move <= max_step + 1e-12, "{largest_move}"),
+                // the first step goes to the generalized Cauchy point on the bounds
+                None => assert!(largest_move > 1., "{largest_move}"),
+            }
+        }
+    }
+
+    #[test]
+    fn cancellation_stops_all_solvers() {
+        for algorithm in UNCONSTRAINED {
             let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
             let counter = calls.clone();
             let objective = |x: &[f64], g: Option<&mut [f64]>| {
@@ -471,14 +677,15 @@ mod tests {
             ftol_abs: 1e-10,
             ftol_rel: 1e-10,
             initial_radius: 0.5,
+            max_step: None,
             bounded_evaluations: true,
             cancellation: Cancellation::default(),
         }
     }
 
     #[test]
-    fn bounded_quadratic_for_both_solvers() {
-        for algorithm in [Algorithm::Cobyla, Algorithm::Slsqp] {
+    fn bounded_quadratic_for_all_solvers() {
+        for algorithm in UNCONSTRAINED {
             let (value, x) = minimize(
                 algorithm,
                 &|x, g| {
@@ -559,7 +766,7 @@ mod tests {
 
     #[test]
     fn initial_points_respect_adjusted_box_bounds() {
-        for algorithm in [Algorithm::Cobyla, Algorithm::Slsqp] {
+        for algorithm in UNCONSTRAINED {
             let (value, x) = minimize(
                 algorithm,
                 &|x, g| {
@@ -604,7 +811,7 @@ mod tests {
 
     #[test]
     fn hard_budget_includes_initialization_and_gradient_callbacks() {
-        for algorithm in [Algorithm::Cobyla, Algorithm::Slsqp] {
+        for algorithm in UNCONSTRAINED {
             for budget in [0, 1, 2, 3] {
                 let calls = Cell::new(0);
                 let mut config = settings(&[0., 0.], &[(-2., 2.), (-2., 2.)]);
@@ -629,7 +836,7 @@ mod tests {
 
     #[test]
     fn nonfinite_objective_is_not_a_successful_candidate() {
-        for algorithm in [Algorithm::Cobyla, Algorithm::Slsqp] {
+        for algorithm in UNCONSTRAINED {
             let (value, _) = minimize(
                 algorithm,
                 &|_, _| f64::NAN,

@@ -81,6 +81,15 @@ pub(crate) struct GpConfig {
     ///   Not to be confused with `Egor.minimize(max_iters=...)`, the optimization iteration budget.
     #[pyo3(get, set)]
     pub theta_max_eval: usize,
+
+    /// (ThetaOptimizer.COBYLA (default) or ThetaOptimizer.LBFGSB)
+    ///   Optimizer of GP hyperparameters maximizing the likelihood:
+    ///   * COBYLA: gradient-free optimizer
+    ///   * LBFGSB: gradient-based L-BFGS-B optimizer using the analytic gradient of the likelihood.
+    ///   It usually reaches a higher likelihood, which does not always give a better surrogate
+    ///   with few training points. Not used by sparse GPs.
+    #[pyo3(get, set)]
+    pub theta_optimizer: ThetaOptimizer,
 }
 
 impl<'a, 'py> FromPyObject<'a, 'py> for GpConfig {
@@ -106,6 +115,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for GpConfig {
                 "theta_bounds" => cfg.theta_bounds = value.extract()?,
                 "theta_n_start" => cfg.theta_n_start = value.extract()?,
                 "theta_max_eval" => cfg.theta_max_eval = value.extract()?,
+                "theta_optimizer" => cfg.theta_optimizer = value.extract()?,
                 _ => {
                     return Err(PyValueError::new_err(format!(
                         "unknown gp_config key '{key}'"
@@ -163,6 +173,7 @@ impl GpConfig {
         theta_bounds: Option<Vec<Vec<f64>>>,
         theta_n_start: usize,
         theta_max_eval: usize,
+        theta_optimizer: ThetaOptimizer,
     ) -> Self {
         GpConfig {
             regr_spec,
@@ -174,6 +185,7 @@ impl GpConfig {
             theta_bounds,
             theta_n_start,
             theta_max_eval,
+            theta_optimizer,
         }
     }
 
@@ -258,6 +270,7 @@ impl Default for GpConfig {
             None,
             egobox_ego::EGO_GP_OPTIM_N_START,
             egobox_ego::EGO_GP_OPTIM_MAX_EVAL,
+            ThetaOptimizer::Cobyla,
         )
     }
 }
@@ -289,6 +302,9 @@ impl GpConfig {
     /// theta_max_eval : int, optional
     ///     Max number of likelihood evaluations of each GP hyperparameters optimization start (default: 50).
     ///     Upper limit: each start gets clamp(10 * nx, 25, theta_max_eval) evaluations.
+    /// theta_optimizer : ThetaOptimizer, optional
+    ///     Optimizer of GP hyperparameters, gradient-free COBYLA or gradient-based L-BFGS-B
+    ///     (default: ThetaOptimizer.COBYLA)
     ///
     /// Returns
     /// -------
@@ -305,6 +321,7 @@ impl GpConfig {
         theta_bounds=GpConfig::default().theta_bounds,
         theta_n_start=GpConfig::default().theta_n_start,
         theta_max_eval=GpConfig::default().theta_max_eval,
+        theta_optimizer=GpConfig::default().theta_optimizer,
 ))]
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -317,6 +334,7 @@ impl GpConfig {
         theta_bounds: Option<Vec<Vec<f64>>>,
         theta_n_start: usize,
         theta_max_eval: usize,
+        theta_optimizer: ThetaOptimizer,
     ) -> Self {
         GpConfig::from_values(
             regr_spec,
@@ -328,6 +346,7 @@ impl GpConfig {
             theta_bounds,
             theta_n_start,
             theta_max_eval,
+            theta_optimizer,
         )
     }
 
@@ -358,6 +377,10 @@ impl GpConfig {
                 (
                     "theta_max_eval",
                     self.theta_max_eval.into_pyobject(py)?.into_any(),
+                ),
+                (
+                    "theta_optimizer",
+                    self.theta_optimizer.into_pyobject(py)?.into_any(),
                 ),
             ],
         )

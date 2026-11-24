@@ -7,7 +7,7 @@
 use crate::surrogates::*;
 use crate::types::{CorrelationSpec, RegressionSpec};
 use egobox_gp::{
-    Cancellation, GaussianProcess, Inducings, ParamTuning, SparseGaussianProcess,
+    Cancellation, GaussianProcess, Inducings, ParamTuning, SparseGaussianProcess, ThetaOptimizer,
     correlation_models::*, mean_models::*,
 };
 use linfa::Dataset;
@@ -157,6 +157,7 @@ pub(crate) fn cross_validation_error(
     expert: Expert,
     kpls_dim: Option<usize>,
     noise_ratio: &ParamTuning<f64>,
+    theta_optimizer: ThetaOptimizer,
     dataset: &mut Dataset<f64, f64, Ix1>,
     cancellation: &Cancellation,
 ) -> f64 {
@@ -170,6 +171,7 @@ pub(crate) fn cross_validation_error(
     let mut params = gp_expert_params(expert);
     params.kpls_dim(kpls_dim);
     params.noise_ratio(noise_ratio.clone());
+    params.theta_optimizer(theta_optimizer);
     params.cancellation(cancellation.clone());
 
     let input_dim = dataset.records().ncols();

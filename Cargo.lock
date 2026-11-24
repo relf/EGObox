@@ -590,6 +590,7 @@ dependencies = [
  "basin",
  "criterion",
  "egobox-doe",
+ "env_logger",
  "finitediff",
  "linfa",
  "linfa-linalg",

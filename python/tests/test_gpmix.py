@@ -172,6 +172,23 @@ class TestGpMix(unittest.TestCase):
         print(f"gpx.theta = {self.gpx.thetas}")
         self.assertEqual(0.314, self.gpx.thetas.item())
 
+    def test_lbfgsb_theta_optimizer(self):
+        xt = egx.lhs([[-3.0, 3.0]] * 3, 30, seed=42)
+        yt = (xt[:, 0] ** 2 + np.sin(xt[:, 1]) * xt[:, 2]).reshape(-1, 1)
+
+        def fit(theta_optimizer):
+            return egx.Gpx.builder(theta_optimizer=theta_optimizer, seed=42).fit(xt, yt)
+
+        cobyla = fit(egx.ThetaOptimizer.COBYLA)
+        lbfgsb = fit(egx.ThetaOptimizer.LBFGSB)
+        print(f"likelihood cobyla={cobyla.likelihoods} lbfgsb={lbfgsb.likelihoods}")
+        self.assertGreaterEqual(
+            lbfgsb.likelihoods.item(),
+            cobyla.likelihoods.item() - 1e-3 * abs(cobyla.likelihoods.item()),
+        )
+        # should interpolate
+        np.testing.assert_allclose(lbfgsb.predict(xt), yt.ravel(), atol=1e-4)
+
     def test_enum_variable(self):
         """xt has one column per variable, an ENUM given by its category index (#558)"""
         rng = np.random.default_rng(0)

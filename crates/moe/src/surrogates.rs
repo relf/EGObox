@@ -3,7 +3,7 @@ use crate::persistence::{read_model, write_model};
 use crate::types::GpFileFormat;
 use egobox_gp::{
     Cancellation, GaussianProcess, GpParams, ParamTuning, SgpParams, SparseGaussianProcess,
-    SparseMethod, ThetaTuning, correlation_models::*, mean_models::*,
+    SparseMethod, ThetaOptimizer, ThetaTuning, correlation_models::*, mean_models::*,
 };
 use linfa::prelude::{Dataset, Fit};
 use ndarray::{Array1, Array2, ArrayView2, Axis};
@@ -28,6 +28,10 @@ pub trait GpSurrogateParams {
     /// (see [GpParams::noise_ratio](egobox_gp::GpParams::noise_ratio)).
     /// Default is a no-op, used by sparse GPs which handle their own noise variance.
     fn noise_ratio(&mut self, _noise_ratio: ParamTuning<f64>) {}
+    /// Set the optimizer of the hyperparameters
+    /// (see [GpParams::theta_optimizer](egobox_gp::GpParams::theta_optimizer)).
+    /// Default is a no-op, used by sparse GPs which are trained with COBYLA.
+    fn theta_optimizer(&mut self, _theta_optimizer: ThetaOptimizer) {}
     /// Set a request to stop the training early
     /// (see [GpParams::cancellation](egobox_gp::GpParams::cancellation))
     fn cancellation(&mut self, cancellation: Cancellation);
@@ -174,6 +178,10 @@ macro_rules! declare_surrogate {
 
                 fn noise_ratio(&mut self, noise_ratio: ParamTuning<f64>) {
                     self.0 = self.0.clone().noise_ratio(noise_ratio);
+                }
+
+                fn theta_optimizer(&mut self, theta_optimizer: ThetaOptimizer) {
+                    self.0 = self.0.clone().theta_optimizer(theta_optimizer);
                 }
 
                 fn train(

@@ -44,6 +44,52 @@ impl<'a, 'py> FromPyObject<'a, 'py> for Recombination {
     }
 }
 
+#[gen_stub_pyclass_enum]
+#[pyclass(
+    skip_from_py_object,
+    module = "egobox",
+    eq,
+    eq_int,
+    rename_all = "SCREAMING_SNAKE_CASE"
+)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+/// Optimizer of GP hyperparameters maximizing the likelihood
+pub enum ThetaOptimizer {
+    /// Gradient-free COBYLA optimizer
+    Cobyla = 0,
+    /// Gradient-based L-BFGS-B optimizer using the analytic gradient of the likelihood
+    Lbfgsb = 1,
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for ThetaOptimizer {
+    type Error = PyErr;
+
+    fn extract(obj: pyo3::Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if let Ok(value) = obj.extract::<PyRef<'py, Self>>() {
+            return Ok(*value);
+        }
+        match obj.extract::<u8>() {
+            Ok(0) => Ok(Self::Cobyla),
+            Ok(1) => Ok(Self::Lbfgsb),
+            Ok(v) => Err(PyValueError::new_err(format!(
+                "theta_optimizer integer value must be in [0, 1], got {v}"
+            ))),
+            Err(_) => Err(PyTypeError::new_err(
+                "theta_optimizer must be a ThetaOptimizer enum or an integer in [0, 1]",
+            )),
+        }
+    }
+}
+
+impl From<ThetaOptimizer> for egobox_moe::ThetaOptimizer {
+    fn from(value: ThetaOptimizer) -> Self {
+        match value {
+            ThetaOptimizer::Cobyla => egobox_moe::ThetaOptimizer::Cobyla,
+            ThetaOptimizer::Lbfgsb => egobox_moe::ThetaOptimizer::Lbfgsb,
+        }
+    }
+}
+
 /// RegressionSpec is a bitfield that specifies which regression terms to include in the model.
 #[gen_stub_pyclass]
 #[pyclass(skip_from_py_object, module = "egobox")]

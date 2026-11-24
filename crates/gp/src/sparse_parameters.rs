@@ -2,7 +2,7 @@ use crate::correlation_models::CorrelationModel;
 use crate::errors::{GpError, Result};
 use crate::mean_models::ConstantMean;
 use crate::parameters::{GpValidParams, ParamTuning};
-use crate::{Cancellation, GP_COBYLA_MIN_EVAL, ThetaTuning};
+use crate::{Cancellation, GP_OPTIM_MIN_EVAL, ThetaTuning};
 use linfa::{Float, ParamGuard};
 use ndarray::{Array1, Array2, array};
 #[cfg(feature = "serializable")]
@@ -228,10 +228,10 @@ impl<F: Float, Corr: CorrelationModel<F>> SgpParams<F, Corr> {
     }
 
     /// Set the max number of internal likelihood evaluations during one optimization
-    /// Given max_eval has to be greater than [crate::GP_COBYLA_MIN_EVAL] otherwise
-    /// max_eval is set to [crate::GP_COBYLA_MAX_EVAL].
+    /// (default [crate::GP_OPTIM_MAX_EVAL]). A max_eval below [crate::GP_OPTIM_MIN_EVAL]
+    /// is raised to it.
     pub fn max_eval(mut self, max_eval: usize) -> Self {
-        self.0.gp_params.max_eval = GP_COBYLA_MIN_EVAL.max(max_eval);
+        self.0.gp_params.max_eval = GP_OPTIM_MIN_EVAL.max(max_eval);
         self
     }
 

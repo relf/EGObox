@@ -1,4 +1,5 @@
 use crate::Cancellation;
+pub(crate) use crate::basin_optimizer::Algorithm;
 use crate::errors::{GpError, Result};
 use egobox_doe::{Lhs, SamplingMethod};
 use linfa_pls::PlsRegression;
@@ -78,18 +79,27 @@ pub(crate) fn broadcast_bounds<F: Float>(bounds: &Array1<(F, F)>, dim: usize) ->
     }
 }
 
+/// Settings of the GP hyperparameters optimization
 #[derive(Clone, Copy)]
-pub(crate) struct CobylaParams {
+pub(crate) struct OptimParams {
+    /// Optimizer: gradient-free COBYLA or L-BFGS-B using the objective gradient
+    pub algorithm: Algorithm,
+    /// COBYLA initial trust region radius
     pub rhobeg: f64,
+    /// L-BFGS-B largest change of a (log10) hyperparameter in one iteration
+    pub max_step: Option<f64>,
     pub ftol_rel: f64,
     pub maxeval: usize,
     pub bounded_evaluations: bool,
 }
 
-impl Default for CobylaParams {
+impl Default for OptimParams {
     fn default() -> Self {
-        CobylaParams {
+        OptimParams {
+            algorithm: Algorithm::Cobyla,
             rhobeg: 0.5,
+            // as COBYLA initial trust region radius: half a decade
+            max_step: Some(0.5),
             ftol_rel: 1e-4,
             maxeval: 200,
             bounded_evaluations: false,
@@ -144,15 +154,15 @@ pub(crate) fn prepare_multistart<F: Float>(
     (theta0s, bounds)
 }
 
-/// Minimize `objfn` with COBYLA started in parallel from each row of `inits` (log10 scale)
-/// within `bounds`, returns the best value and parameters, (inf, ones) when all fail.
+/// Minimize `objfn` with the `optim` algorithm started in parallel from each row of `inits`
+/// (log10 scale) within `bounds`, returns the best value and parameters, (inf, ones) when all fail.
 /// Once `cancellation` is requested, starts not begun yet are skipped and running ones stop
 /// early: the caller has to discard the result.
 pub(crate) fn multistart_minimize<ObjF, F>(
     objfn: ObjF,
     inits: &Array2<F>,
     bounds: &[(F, F)],
-    cobyla: CobylaParams,
+    optim: OptimParams,
     cancellation: &Cancellation,
 ) -> (f64, Array1<f64>)
 where
@@ -171,7 +181,7 @@ where
                     &objfn,
                     &inits.row(i).to_owned(),
                     bounds,
-                    cobyla,
+                    optim,
                     cancellation,
                 )
             }
@@ -190,37 +200,39 @@ pub(crate) fn into_f64<F: Float>(v: &F) -> f64 {
     num_traits::ToPrimitive::to_f64(v).expect("float convertible to f64")
 }
 
-/// Optimize log10 GP hyperparameters using Basin's bounded COBYLA adapter.
+/// Optimize log10 GP hyperparameters using Basin's bounded COBYLA or L-BFGS-B adapter.
+/// With L-BFGS-B, `objfn` has to fill the gradient when requested.
 pub(crate) fn optimize_params<ObjF, F>(
     objfn: ObjF,
     param0: &Array1<F>,
     bounds: &[(F, F)],
-    cobyla: CobylaParams,
+    optim: OptimParams,
     cancellation: &Cancellation,
 ) -> (f64, Array1<f64>)
 where
     ObjF: Fn(&[f64], Option<&mut [f64]>, &mut ()) -> f64,
     F: Float,
 {
-    use crate::basin_optimizer::{Algorithm, Settings, minimize};
+    use crate::basin_optimizer::{Settings, minimize};
     let xinit: Vec<_> = param0.iter().map(into_f64).collect();
     let bounds: Vec<_> = bounds
         .iter()
         .map(|(lo, hi)| (into_f64(lo), into_f64(hi)))
         .collect();
     let (value, params) = minimize(
-        Algorithm::Cobyla,
+        optim.algorithm,
         &|x, g| objfn(x, g, &mut ()),
         &|_, _, _| unreachable!("GP fitting has no nonlinear constraints"),
         Settings {
             xinit: &xinit,
             bounds: &bounds,
             n_constraints: 0,
-            max_evals: cobyla.maxeval,
+            max_evals: optim.maxeval,
             ftol_abs: 0.,
-            ftol_rel: cobyla.ftol_rel,
-            initial_radius: cobyla.rhobeg,
-            bounded_evaluations: cobyla.bounded_evaluations,
+            ftol_rel: optim.ftol_rel,
+            initial_radius: optim.rhobeg,
+            max_step: optim.max_step,
+            bounded_evaluations: optim.bounded_evaluations,
             cancellation: cancellation.clone(),
         },
     );

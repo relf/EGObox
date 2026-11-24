@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+* L-BFGS-B optimizer of GP hyperparameters: `ThetaOptimizer::Lbfgsb` (Python `ThetaOptimizer.LBFGSB`) maximizes
+  the likelihood wrt theta, and the noise ratio when estimated, with the L-BFGS-B solver of basin and the analytic
+  gradient of the likelihood (squared exponential, absolute exponential and Matern kernels). Opt-in, COBYLA remains
+  the default: `GpParams::theta_optimizer`, `GpMixtureParams::theta_optimizer`, `GpConfig::theta_optimizer`, Python
+  `GpConfig(theta_optimizer=...)` and `GpMix(theta_optimizer=...)`. L-BFGS-B gets half of the COBYLA evaluations
+  budget, an evaluation also computing the gradient, and steps of at most half a decade per hyperparameter: it
+  trains in about the COBYLA time and reaches a likelihood at least as high on the `theta_optimizer` bench. Sparse
+  GPs keep COBYLA. The optimizer is saved with GP models and in hot start checkpoints
+* `egobox-gp`: `GP_COBYLA_MIN_EVAL` and `GP_COBYLA_MAX_EVAL` are renamed `GP_OPTIM_MIN_EVAL` and `GP_OPTIM_MAX_EVAL`
+  as they bound the evaluations budget of every GP hyperparameters optimizer. The former names are deprecated
+* **Compatibility**: binary GP model files (`.bin`, e.g. `egor_gp.bin`) and `Egor` hot start checkpoints saved by
+  1.1.0 or earlier no longer load: `theta_optimizer` and `feasibility_first` are now saved with the configuration,
+  and a resumed run uses the checkpointed values like the other settings. JSON GP model files still load, with
+  COBYLA and `feasibility_first = false`
 * **Breaking changes** (Rust crates `egobox-gp` 0.39.0, `egobox-moe` 0.39.0, `egobox-ego` 0.45.0, `egobox-gpx`
   0.8.0): the `c-cobyla` and `c-slsqp` features (C-ported NLopt optimizers), deprecated in 1.1.0, are removed
   from these crates and from the Python package build. The Basin optimizers, used by default since 0.38.0, are

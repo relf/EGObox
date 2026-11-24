@@ -70,6 +70,7 @@ fn egobox(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ParetoResult>()?;
     m.add_class::<BelfegorOptim>()?;
     m.add_class::<Recombination>()?;
+    m.add_class::<ThetaOptimizer>()?;
     m.add_class::<RunInfo>()?;
     m.add_class::<interrupt_flag::InterruptFlag>()?;
     m.add("Interrupted", m.py().get_type::<errors::Interrupted>())?;

@@ -39,6 +39,7 @@ __all__ = [
     "SparseGpMix",
     "SparseGpx",
     "SparseMethod",
+    "ThetaOptimizer",
     "TregoConfig",
     "Verbose",
     "XSpec",
@@ -903,7 +904,27 @@ class GpConfig:
         This is an upper limit: each start gets clamp(10 * nx, 25, theta_max_eval) evaluations.
         Not to be confused with `Egor.minimize(max_iters=...)`, the optimization iteration budget.
         """
-    def __new__(cls, regr_spec: builtins.int = 1, corr_spec: builtins.int = 1, kpls_dim: typing.Optional[builtins.int] = None, n_clusters: builtins.int = 1, recombination: Recombination = Recombination.HARD, theta_init: typing.Optional[typing.Sequence[builtins.float]] = None, theta_bounds: typing.Optional[typing.Sequence[typing.Sequence[builtins.float]]] = None, theta_n_start: builtins.int = 10, theta_max_eval: builtins.int = 50) -> GpConfig:
+    @property
+    def theta_optimizer(self) -> ThetaOptimizer:
+        r"""
+        (ThetaOptimizer.COBYLA (default) or ThetaOptimizer.LBFGSB)
+        Optimizer of GP hyperparameters maximizing the likelihood:
+        * COBYLA: gradient-free optimizer
+        * LBFGSB: gradient-based L-BFGS-B optimizer using the analytic gradient of the likelihood.
+        It usually reaches a higher likelihood, which does not always give a better surrogate
+        with few training points. Not used by sparse GPs.
+        """
+    @theta_optimizer.setter
+    def theta_optimizer(self, value: ThetaOptimizer) -> None:
+        r"""
+        (ThetaOptimizer.COBYLA (default) or ThetaOptimizer.LBFGSB)
+        Optimizer of GP hyperparameters maximizing the likelihood:
+        * COBYLA: gradient-free optimizer
+        * LBFGSB: gradient-based L-BFGS-B optimizer using the analytic gradient of the likelihood.
+        It usually reaches a higher likelihood, which does not always give a better surrogate
+        with few training points. Not used by sparse GPs.
+        """
+    def __new__(cls, regr_spec: builtins.int = 1, corr_spec: builtins.int = 1, kpls_dim: typing.Optional[builtins.int] = None, n_clusters: builtins.int = 1, recombination: Recombination = Recombination.HARD, theta_init: typing.Optional[typing.Sequence[builtins.float]] = None, theta_bounds: typing.Optional[typing.Sequence[typing.Sequence[builtins.float]]] = None, theta_n_start: builtins.int = 10, theta_max_eval: builtins.int = 50, theta_optimizer: ThetaOptimizer = ThetaOptimizer.COBYLA) -> GpConfig:
         r"""
         Create a new GP configuration.
         
@@ -929,6 +950,9 @@ class GpConfig:
         theta_max_eval : int, optional
             Max number of likelihood evaluations of each GP hyperparameters optimization start (default: 50).
             Upper limit: each start gets clamp(10 * nx, 25, theta_max_eval) evaluations.
+        theta_optimizer : ThetaOptimizer, optional
+            Optimizer of GP hyperparameters, gradient-free COBYLA or gradient-based L-BFGS-B
+            (default: ThetaOptimizer.COBYLA)
         
         Returns
         -------
@@ -998,6 +1022,10 @@ class GpMix:
     theta_max_eval : int >= 0, optional
         Max number of likelihood evaluations of each GP hyperparameters optimization start (default is 50).
         This is an upper limit: each start gets clamp(10 * nx, 25, theta_max_eval) evaluations.
+    theta_optimizer : ThetaOptimizer, optional
+        Optimizer of GP hyperparameters (default is ThetaOptimizer.COBYLA):
+        * COBYLA: gradient-free optimizer
+        * LBFGSB: gradient-based L-BFGS-B optimizer using the analytic gradient of the likelihood.
     seed : int >= 0, optional
         Random generator seed to allow computation reproducibility.
         Unlike `Egor` where seed is given to `minimize()`, it is given here at construction.
@@ -1011,7 +1039,7 @@ class GpMix:
     GpMix
         A builder which can be fitted to data to get a Gpx object (a trained Gaussian processes mixture)
     """
-    def __new__(cls, xspecs: typing.Sequence[XSpec] | typing.Sequence[typing.Sequence[builtins.float]] | numpy.typing.NDArray[numpy.float64] | None = None, regr_spec: builtins.int = 1, corr_spec: builtins.int = 1, kpls_dim: typing.Optional[builtins.int] = None, n_clusters: builtins.int = 1, recombination: Recombination = Recombination.HARD, theta_init: typing.Optional[typing.Sequence[builtins.float]] = None, theta_bounds: typing.Optional[typing.Sequence[typing.Sequence[builtins.float]]] = None, theta_n_start: builtins.int = 10, theta_max_eval: builtins.int = 50, seed: typing.Optional[builtins.int] = None, verbose: Verbose | builtins.int | None = None) -> GpMix: ...
+    def __new__(cls, xspecs: typing.Sequence[XSpec] | typing.Sequence[typing.Sequence[builtins.float]] | numpy.typing.NDArray[numpy.float64] | None = None, regr_spec: builtins.int = 1, corr_spec: builtins.int = 1, kpls_dim: typing.Optional[builtins.int] = None, n_clusters: builtins.int = 1, recombination: Recombination = Recombination.HARD, theta_init: typing.Optional[typing.Sequence[builtins.float]] = None, theta_bounds: typing.Optional[typing.Sequence[typing.Sequence[builtins.float]]] = None, theta_n_start: builtins.int = 10, theta_max_eval: builtins.int = 50, theta_optimizer: ThetaOptimizer = ThetaOptimizer.COBYLA, seed: typing.Optional[builtins.int] = None, verbose: Verbose | builtins.int | None = None) -> GpMix: ...
     def fit(self, xt: numpy.typing.NDArray[numpy.float64], yt: numpy.typing.NDArray[numpy.float64], interrupt: typing.Optional[InterruptFlag] = None) -> Gpx:
         r"""
         Fit the parameters of the model using the training dataset to build a trained model
@@ -1073,7 +1101,7 @@ class Gpx:
         (one value per expert). May be used to compare various parameterizations.
         """
     @staticmethod
-    def builder(xspecs: typing.Sequence[XSpec] | typing.Sequence[typing.Sequence[builtins.float]] | numpy.typing.NDArray[numpy.float64] | None = None, regr_spec: builtins.int = 1, corr_spec: builtins.int = 1, kpls_dim: typing.Optional[builtins.int] = None, n_clusters: builtins.int = 1, recombination: Recombination = Recombination.HARD, theta_init: typing.Optional[typing.Sequence[builtins.float]] = None, theta_bounds: typing.Optional[typing.Sequence[typing.Sequence[builtins.float]]] = None, theta_n_start: builtins.int = 10, theta_max_eval: builtins.int = 50, seed: typing.Optional[builtins.int] = None, verbose: Verbose | builtins.int | None = None) -> GpMix:
+    def builder(xspecs: typing.Sequence[XSpec] | typing.Sequence[typing.Sequence[builtins.float]] | numpy.typing.NDArray[numpy.float64] | None = None, regr_spec: builtins.int = 1, corr_spec: builtins.int = 1, kpls_dim: typing.Optional[builtins.int] = None, n_clusters: builtins.int = 1, recombination: Recombination = Recombination.HARD, theta_init: typing.Optional[typing.Sequence[builtins.float]] = None, theta_bounds: typing.Optional[typing.Sequence[typing.Sequence[builtins.float]]] = None, theta_n_start: builtins.int = 10, theta_max_eval: builtins.int = 50, theta_optimizer: ThetaOptimizer = ThetaOptimizer.COBYLA, seed: typing.Optional[builtins.int] = None, verbose: Verbose | builtins.int | None = None) -> GpMix:
         r"""
         Get Gaussian processes mixture builder aka `GpMix`
         
@@ -2358,6 +2386,20 @@ class SparseMethod(enum.Enum):
     VFE = ...
     r"""
     VFE (Variational Free Energy) method, which uses a variational approach to approximate the posterior, resulting in a more accurate but slower model
+    """
+
+@typing.final
+class ThetaOptimizer(enum.Enum):
+    r"""
+    Optimizer of GP hyperparameters maximizing the likelihood
+    """
+    COBYLA = ...
+    r"""
+    Gradient-free COBYLA optimizer
+    """
+    LBFGSB = ...
+    r"""
+    Gradient-based L-BFGS-B optimizer using the analytic gradient of the likelihood
     """
 
 @typing.final

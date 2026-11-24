@@ -57,7 +57,7 @@
 
 use crate::utils::{EGOR_USE_GP_VAR_PORTFOLIO, EGOR_USE_STATE_RECORDING};
 use crate::{HotStartMode, MooConfig, criteria::*, errors::Result, types::*};
-use egobox_gp::{ParamTuning, ThetaTuning};
+use egobox_gp::{ParamTuning, ThetaOptimizer, ThetaTuning};
 use egobox_moe::NbClusters;
 use egobox_moe::Recombination;
 use egobox_moe::{CorrelationSpec, RegressionSpec};
@@ -101,6 +101,9 @@ pub struct GpConfig {
     /// and constraints values (no noise by default)
     #[serde(default = "no_noise_ratio")]
     pub(crate) noise_ratio: ParamTuning<f64>,
+    /// Optimizer of GP hyperparameters (COBYLA by default, also for configurations saved without it)
+    #[serde(default)]
+    pub(crate) theta_optimizer: ThetaOptimizer,
 }
 
 /// Default noise ratio tuning: no noise, GP models interpolate function values
@@ -120,6 +123,7 @@ impl Default for GpConfig {
             n_start: EGO_GP_OPTIM_N_START,
             max_eval: EGO_GP_OPTIM_MAX_EVAL,
             noise_ratio: no_noise_ratio(),
+            theta_optimizer: ThetaOptimizer::default(),
         }
     }
 }
@@ -197,6 +201,16 @@ impl GpConfig {
     /// so that GP models smooth noisy values (see [egobox_gp::GpParams::noise_ratio]).
     pub fn noise_ratio(mut self, noise_ratio: ParamTuning<f64>) -> Self {
         self.noise_ratio = noise_ratio;
+        self
+    }
+
+    /// Sets the optimizer of GP hyperparameters (see [egobox_gp::GpParams::theta_optimizer]):
+    /// gradient-free COBYLA (default) or L-BFGS-B using the analytic gradient of the likelihood.
+    ///
+    /// L-BFGS-B usually reaches a higher likelihood, which does not always give better
+    /// optimization results with few points in high dimension.
+    pub fn theta_optimizer(mut self, theta_optimizer: ThetaOptimizer) -> Self {
+        self.theta_optimizer = theta_optimizer;
         self
     }
 }
@@ -368,10 +382,8 @@ pub struct ValidEgorConfig {
     /// Constrained infill criterion activation
     pub(crate) cstr_infill: bool,
     /// With `cstr_infill`, only the probability of feasibility drives the infill
-    /// until a feasible point is found.
-    /// Not serialized so that hot start checkpoints keep their layout: a resumed run
-    /// takes it from its own configuration.
-    #[serde(skip)]
+    /// until a feasible point is found (false for configurations saved without it).
+    #[serde(default)]
     pub(crate) feasibility_first: bool,
     /// Constraints criterion
     pub(crate) cstr_strategy: ConstraintStrategy,

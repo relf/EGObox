@@ -132,6 +132,7 @@ impl<'a> Optimizer<'a> {
                 ftol_abs: self.ftol_abs.unwrap_or(0.),
                 ftol_rel: self.ftol_rel.unwrap_or(0.),
                 initial_radius: 0.5,
+                max_step: None,
                 bounded_evaluations: true,
                 cancellation: self.cancellation.clone(),
             },

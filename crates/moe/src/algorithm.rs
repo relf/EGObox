@@ -210,6 +210,7 @@ impl GpMixtureValidParams<f64> {
                             expert,
                             self.kpls_dim(),
                             self.noise_ratio(),
+                            self.theta_optimizer(),
                             &mut dataset,
                             self.cancellation(),
                         );
@@ -239,6 +240,7 @@ impl GpMixtureValidParams<f64> {
                 expert_params.max_eval(self.max_eval());
                 expert_params.kpls_dim(self.kpls_dim());
                 expert_params.noise_ratio(self.noise_ratio().clone());
+                expert_params.theta_optimizer(self.theta_optimizer());
                 expert_params.cancellation(self.cancellation().clone());
                 if nc > 0 && self.theta_tunings().len() == 1 {
                     expert_params.theta_tuning(self.theta_tunings()[0].clone());
@@ -2086,5 +2088,35 @@ mod tests {
             estimated > noise_var / 4. && estimated < 4. * noise_var,
             "noise variance {estimated} should be close to {noise_var}"
         );
+    }
+
+    #[test]
+    fn test_moe_theta_optimizer() {
+        let (xt, yt) = noisy_sin(40, 0.);
+        let ds = Dataset::new(xt, yt);
+        let fit = |theta_optimizer| {
+            GpMixture::params()
+                .n_clusters(NbClusters::fixed(1))
+                .correlation_spec(CorrelationSpec::SQUAREDEXPONENTIAL | CorrelationSpec::MATERN52)
+                .theta_optimizer(theta_optimizer)
+                .with_rng(Xoshiro256Plus::seed_from_u64(0))
+                .fit(&ds)
+                .expect("MOE fitted")
+        };
+        let cobyla = fit(crate::ThetaOptimizer::Cobyla);
+        let lbfgsb = fit(crate::ThetaOptimizer::Lbfgsb);
+        assert_eq!(
+            lbfgsb.params.theta_optimizer(),
+            crate::ThetaOptimizer::Lbfgsb
+        );
+        let (lkh_cobyla, lkh_lbfgsb) = (
+            cobyla.experts()[0].likelihood(),
+            lbfgsb.experts()[0].likelihood(),
+        );
+        println!("likelihood cobyla={lkh_cobyla} lbfgsb={lkh_lbfgsb}");
+        // L-BFGS-B is used to train the selected expert
+        if cobyla.experts()[0].to_string() == lbfgsb.experts()[0].to_string() {
+            assert!(lkh_lbfgsb >= lkh_cobyla - 1e-3 * lkh_cobyla.abs());
+        }
     }
 }

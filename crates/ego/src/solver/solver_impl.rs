@@ -274,6 +274,7 @@ where
         builder.set_recombination(recombination);
         builder.set_optim_params(self.config.gp.n_start, self.config.gp.max_eval);
         builder.set_noise_ratio(self.config.gp.noise_ratio.clone());
+        builder.set_theta_optimizer(self.config.gp.theta_optimizer);
         builder.set_cancellation(self.cancellation.clone());
         builder
     }

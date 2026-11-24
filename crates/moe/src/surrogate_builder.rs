@@ -7,7 +7,7 @@ use crate::{
     Clustering, CorrelationSpec, MixtureGpSurrogate, NbClusters, Recombination, RegressionSpec,
     XType, errors::Result,
 };
-use egobox_gp::{Cancellation, ParamTuning, ThetaTuning};
+use egobox_gp::{Cancellation, ParamTuning, ThetaOptimizer, ThetaTuning};
 use ndarray::{ArrayView1, ArrayView2};
 use rand_xoshiro::Xoshiro256Plus;
 
@@ -40,6 +40,11 @@ pub trait SurrogateBuilder: Clone + Sync {
     /// Sets the noise-to-signal ratio tuning of full GP experts
     /// (see [GpParams::noise_ratio](egobox_gp::GpParams::noise_ratio))
     fn set_noise_ratio(&mut self, noise_ratio: ParamTuning<f64>);
+
+    /// Sets the optimizer of the hyperparameters of full GP experts
+    /// (see [GpParams::theta_optimizer](egobox_gp::GpParams::theta_optimizer)).
+    /// Default implementation ignores it.
+    fn set_theta_optimizer(&mut self, _theta_optimizer: ThetaOptimizer) {}
 
     /// Sets the random generator used during training (e.g. clustering), for reproducibility.
     /// Default implementation ignores it.
@@ -120,6 +125,11 @@ impl SurrogateBuilder for GpMixtureParams<f64> {
     /// Sets the noise-to-signal ratio tuning of full GP experts
     fn set_noise_ratio(&mut self, noise_ratio: ParamTuning<f64>) {
         *self = self.clone().noise_ratio(noise_ratio);
+    }
+
+    /// Sets the optimizer of the hyperparameters of full GP experts
+    fn set_theta_optimizer(&mut self, theta_optimizer: ThetaOptimizer) {
+        *self = self.clone().theta_optimizer(theta_optimizer);
     }
 
     /// Sets the random generator used during training (e.g. clustering)
