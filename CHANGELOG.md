@@ -16,6 +16,9 @@
   1.1.0 or earlier no longer load: `theta_optimizer` and `feasibility_first` are now saved with the configuration,
   and a resumed run uses the checkpointed values like the other settings. JSON GP model files still load, with
   COBYLA and `feasibility_first = false`
+* Binary GP model files (`.bin`, `save()`, Python `Gpx.save()`, `Egor` GP files, `gpx fit`) are encoded with
+  postcard, as Basin checkpoints, instead of the unmaintained bincode. Breaking change (`egobox-moe` 0.39.0,
+  `egobox-ego` 0.45.0): `MoeError` and `EgoError` `SaveBinaryError` and `LoadBinaryError` hold a `postcard::Error`
 * **Breaking changes** (Rust crates `egobox-gp` 0.39.0, `egobox-moe` 0.39.0, `egobox-ego` 0.45.0, `egobox-gpx`
   0.8.0): the `c-cobyla` and `c-slsqp` features (C-ported NLopt optimizers), deprecated in 1.1.0, are removed
   from these crates and from the Python package build. The Basin optimizers, used by default since 0.38.0, are

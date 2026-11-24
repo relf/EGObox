@@ -22,7 +22,6 @@ linfa.workspace = true
 csv = "1.3"
 
 [dev-dependencies]
-bincode.workspace = true
 serde_json.workspace = true
 
 [[bin]]

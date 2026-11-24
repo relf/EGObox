@@ -153,26 +153,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bincode"
-version = "2.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36eaf5d7b090263e8150820482d5d93cd964a81e4019913c972f4edcc6edb740"
-dependencies = [
- "bincode_derive",
- "serde",
- "unty",
-]
-
-[[package]]
-name = "bincode_derive"
-version = "2.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf95709a440f45e986983918d0e8a1f30a9b1df04918fc828670606804ac3c09"
-dependencies = [
- "virtue",
-]
-
-[[package]]
 name = "bitflags"
 version = "2.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -468,7 +448,6 @@ name = "egobox"
 version = "1.1.0"
 dependencies = [
  "argmin_testfunctions",
- "bincode",
  "egobox-doe",
  "egobox-ego",
  "egobox-gp",
@@ -514,7 +493,6 @@ dependencies = [
  "approx",
  "argmin_testfunctions",
  "basin",
- "bincode",
  "clap",
  "criterion",
  "dyn-clonable",
@@ -534,6 +512,7 @@ dependencies = [
  "ndarray-npy",
  "ndarray-rand",
  "ndarray-stats",
+ "postcard",
  "rand_xoshiro",
  "rawpointer",
  "rayon",
@@ -583,7 +562,6 @@ name = "egobox-gpx"
 version = "0.8.0"
 dependencies = [
  "anyhow",
- "bincode",
  "clap",
  "csv",
  "egobox-moe",
@@ -600,7 +578,6 @@ version = "0.39.0"
 dependencies = [
  "approx",
  "argmin_testfunctions",
- "bincode",
  "bitflags",
  "criterion",
  "csv",
@@ -619,6 +596,7 @@ dependencies = [
  "ndarray-rand",
  "ndarray-stats",
  "paste",
+ "postcard",
  "rand_xoshiro",
  "serde",
  "serde_json",
@@ -2692,22 +2670,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "unty"
-version = "0.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d49784317cd0d1ee7ec5c716dd598ec5b4483ea832a2dced265471cc0f690ae"
-
-[[package]]
 name = "utf8parse"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
-
-[[package]]
-name = "virtue"
-version = "0.0.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "051eb1abcf10076295e815102942cc58f9d5e3b4560e46e53c21e8ff6f3af7b1"
 
 [[package]]
 name = "walkdir"

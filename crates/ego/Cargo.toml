@@ -36,7 +36,7 @@ rayon.workspace = true
 
 
 rand_xoshiro = { version = "0.6", features = ["serde1"] }
-bincode.workspace = true
+postcard.workspace = true
 web-time = "1.1.0"
 libm = "0.2.6"
 finitediff.workspace = true

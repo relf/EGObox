@@ -11,7 +11,7 @@ fn ego_error(err: MoeError) -> EgoError {
     }
 }
 
-/// Save models in a bincode file
+/// Save models in a binary (postcard) file
 ///
 /// See [egobox_moe::save_models]
 pub fn save_gp_models<P: AsRef<Path>>(
