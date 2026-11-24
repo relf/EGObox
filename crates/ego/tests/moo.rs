@@ -433,14 +433,11 @@ fn test_parego_rejected_tries_keep_raw_state() {
         res.state.termination_status,
         res.x_doe.nrows()
     );
-    // With the default optimizers, all tries are rejected (the C-ported ones may still find
-    // new points on the flat criterion)
-    if !cfg!(any(feature = "c-cobyla", feature = "c-slsqp")) {
-        assert_eq!(
-            res.state.termination_status,
-            TerminationStatus::Terminated(TerminationReason::SolverConverged)
-        );
-    }
+    // all tries are rejected
+    assert_eq!(
+        res.state.termination_status,
+        TerminationStatus::Terminated(TerminationReason::SolverConverged)
+    );
     // no scalarized virtual value leaks into the state
     if let Some(cost) = res.state.cost.as_ref() {
         assert_eq!(cost.len(), 2);
@@ -474,7 +471,7 @@ fn test_solver_suggest_with_several_objectives() {
         ];
         for _ in 0..3 {
             let y = bnh(&x.view());
-            let x_new = solver.suggest(&x, &y);
+            let x_new = solver.suggest(&x, &y).expect("suggestion");
             assert_eq!(x_new.dim(), (1, 2));
             assert!(
                 Zip::from(x_new.row(0))
@@ -767,7 +764,7 @@ fn test_zdt1_ask_and_tell() {
             .sample(10);
         for _ in 0..15 {
             let y = zdt1(&x.view());
-            let x_new = egor.suggest(&x, &y);
+            let x_new = egor.suggest(&x, &y).expect("suggestion");
             x = ndarray::concatenate![Axis(0), x, x_new];
         }
         let y = zdt1(&x.view());

@@ -372,6 +372,10 @@ rnd = egx.random(xlimits, n_samples=20, seed=42)  # Random
 - **Function constraints** (`minimize(fcstrs=...)`, cheap, not surrogate-modeled) are `g(x) <= 0` and given as `(g, grad_g)`, `{"fun": g, "jac": grad_g}` or `g(x, return_grad)`. Unlike scipy, no `"type"` key: use `fcstr_specs` for other bounds.
 - **Two multistarts**: `Egor(infill_n_start=...)` is the infill criterion multistart, `GpConfig(theta_n_start=...)` the GP hyperparameters multistart
   (`theta_max_eval` its likelihood evaluations budget). The former `n_start` / `max_eval` names were removed in 1.0.0.
+- **GP hyperparameters optimizer**: `GpConfig(theta_optimizer=egx.ThetaOptimizer.LBFGSB)` (also `GpMix`) uses
+  L-BFGS-B with the analytic likelihood gradient instead of the default gradient-free COBYLA. It reaches a higher
+  likelihood, which does not always give better `Egor` results with few points in high dimension: keep the default
+  unless a comparison on the problem shows a gain. Sparse GPs (`SparseGpMix`) always use COBYLA.
 - **Best point of a DOE**: `egor.best_result(x_doe, y_doe)` / `egor.best_index(y_doe)` (`get_result` / `get_result_index` were removed in 1.0.0).
 - **`cstr_infill` vs `feasible_infill_strategy`**: the former weights the criterion by the probability of feasibility of the `n_cstr` constraints, the latter (`EFI_P`, `EFI_FE`) by the probability of viability, i.e. of `fun` not failing. They are independent.
 - **`feasibility_first`** (default `False`, only with `cstr_infill=True`): when `True`, the probability of feasibility alone drives the infill until a feasible point is found, as in 0.38.0 to 1.0.1; when `False`, the criterion weighted by the probability of feasibility is used from the first iteration, as up to 0.37.

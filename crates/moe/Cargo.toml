@@ -1,7 +1,7 @@
 [package]
 name = "egobox-moe"
 authors.workspace = true
-version = "0.37.0"
+version = "0.39.0"
 license.workspace = true
 edition.workspace = true
 homepage.workspace = true
@@ -18,24 +18,20 @@ categories = ["algorithms", "mathematics", "science"]
 
 [features]
 default = []
-# Use cobyla crate (C-ported NLopt COBYLA) instead of basin COBYLA for GP training
-c-cobyla = ["egobox-gp/c-cobyla"]
-
-blas = ["ndarray-linalg", "linfa/ndarray-linalg", "linfa-pls/blas"]
+blas = ["egobox-gp/blas"]
 
 [dependencies]
 egobox-doe = { version = "0.35.2", path = "../doe" }
-egobox-gp = { version = "0.37.2", path = "../gp", features = ["serializable"] }
+egobox-gp = { version = "0.39.0", path = "../gp", features = ["serializable"] }
 
 linfa.workspace = true
 linfa-linalg.workspace = true
-linfa-clustering = { version = "0.8", default-features = false, features = [
+linfa-clustering = { version = "0.9", default-features = false, features = [
     "serde",
 ] }
-linfa-pls = { version = "0.8", default-features = false }
+linfa-pls = { version = "0.9", default-features = false }
 
 ndarray.workspace = true
-ndarray-linalg = { version = "0.17", optional = true }
 ndarray-stats.workspace = true
 ndarray-rand.workspace = true
 ndarray-npy.workspace = true
@@ -51,7 +47,7 @@ thiserror.workspace = true
 
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
-bincode.workspace = true
+postcard.workspace = true
 
 typetag = { version = "0.2" }
 

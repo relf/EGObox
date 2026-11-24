@@ -71,7 +71,7 @@ plt.show()
 
 See also [this example written in Rust](crates/gp/examples/kriging.rs)
 
-See the [tutorial notebooks](https://github.com/relf/egobox/tree/master/notebooks/README.md) and [examples folder](https://github.com/relf/egobox/tree/master/python/examples) for more information on the usage of the optimizer and mixture of Gaussian processes surrogate model.
+See the [tutorial notebooks](https://github.com/relf/EGObox/tree/master/notebooks/README.md) and [examples folder](https://github.com/relf/EGObox/tree/master/python/examples) for more information on the usage of the optimizer and mixture of Gaussian processes surrogate model.
 
 ## The Rust libraries
 
@@ -79,10 +79,10 @@ See the [tutorial notebooks](https://github.com/relf/egobox/tree/master/notebook
 
 | Name                                                         | Version                                                                                         | Documentation                                                               | Description                                                                               |
 | :----------------------------------------------------------- | :---------------------------------------------------------------------------------------------- | :-------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------- |
-| [doe](https://github.com/relf/egobox/tree/master/crates/doe) | [![crates.io](https://img.shields.io/crates/v/egobox-doe)](https://crates.io/crates/egobox-doe) | [![docs](https://docs.rs/egobox-doe/badge.svg)](https://docs.rs/egobox-doe) | sampling methods; contains LHS, FullFactorial, Random methods                             |
-| [gp](https://github.com/relf/egobox/tree/master/crates/gp)   | [![crates.io](https://img.shields.io/crates/v/egobox-gp)](https://crates.io/crates/egobox-gp)   | [![docs](https://docs.rs/egobox-gp/badge.svg)](https://docs.rs/egobox-gp)   | gaussian process regression; contains Kriging, PLS dimension reduction and sparse methods |
-| [moe](https://github.com/relf/egobox/tree/master/crates/moe) | [![crates.io](https://img.shields.io/crates/v/egobox-moe)](https://crates.io/crates/egobox-moe) | [![docs](https://docs.rs/egobox-moe/badge.svg)](https://docs.rs/egobox-moe) | mixture of experts using GP models                                                        |
-| [ego](https://github.com/relf/egobox/tree/master/crates/ego) | [![crates.io](https://img.shields.io/crates/v/egobox-ego)](https://crates.io/crates/egobox-ego) | [![docs](https://docs.rs/egobox-ego/badge.svg)](https://docs.rs/egobox-ego) | efficient global optimization with constraints, mixed integer handling and multi-objective optimization (experimental) |
+| [doe](https://github.com/relf/EGObox/tree/master/crates/doe) | [![crates.io](https://img.shields.io/crates/v/egobox-doe)](https://crates.io/crates/egobox-doe) | [![docs](https://docs.rs/egobox-doe/badge.svg)](https://docs.rs/egobox-doe) | sampling methods; contains LHS, FullFactorial, Random methods                             |
+| [gp](https://github.com/relf/EGObox/tree/master/crates/gp)   | [![crates.io](https://img.shields.io/crates/v/egobox-gp)](https://crates.io/crates/egobox-gp)   | [![docs](https://docs.rs/egobox-gp/badge.svg)](https://docs.rs/egobox-gp)   | gaussian process regression; contains Kriging, PLS dimension reduction and sparse methods |
+| [moe](https://github.com/relf/EGObox/tree/master/crates/moe) | [![crates.io](https://img.shields.io/crates/v/egobox-moe)](https://crates.io/crates/egobox-moe) | [![docs](https://docs.rs/egobox-moe/badge.svg)](https://docs.rs/egobox-moe) | mixture of experts using GP models                                                        |
+| [ego](https://github.com/relf/EGObox/tree/master/crates/ego) | [![crates.io](https://img.shields.io/crates/v/egobox-ego)](https://crates.io/crates/egobox-ego) | [![docs](https://docs.rs/egobox-ego/badge.svg)](https://docs.rs/egobox-ego) | efficient global optimization with constraints, mixed integer handling and multi-objective optimization (experimental) |
 
 ### Usage
 
@@ -105,8 +105,6 @@ The table below presents the various features available depending on the subcrat
 | serializable | ✔️    | ✔️    |      |      |
 | persistent   |      | ✔️    |      |      |
 | blas         |      | ✔️    | ✔️    | ✔️    |
-| c-cobyla     |      | ✔️    | ✔️    | ✔️    |
-| c-slsqp      |      |      |      | ✔️    |
 
 Note: `moe` and `ego` models are always serializable and can be saved/loaded (json or binary format).
 
@@ -121,18 +119,14 @@ When selected, the save and load as a json file with [serde_json crate](https://
 #### blas
 
 When selected, the usage of BLAS/LAPACK backend is possible, see [below](#blaslapack-backend-optional) for more information.
+On `moe` and `ego`, `blas` enables the feature on `gp`, where the GP linear algebra is computed.
 
-#### c-cobyla, c-slsqp
+#### Optimizers
 
-By default, [Basin](https://basin.rs) pure Rust optimizers are used: COBYLA for GP hyperparameters
-training (`gp`, `moe`) and COBYLA/SLSQP for infill criterion optimization (`ego`), which also always
-uses Basin to execute the EGO loop.
-
-When selected, `c-cobyla` (resp. `c-slsqp`) uses the [cobyla](https://crates.io/crates/cobyla)
-(resp. [slsqp](https://crates.io/crates/slsqp)) crate, a C-ported NLopt implementation, instead of
-the Basin one. These features are also available on `egobox-gpx` and the Python package. See
-[Basin integration](doc/basin.md) for build commands, checkpoint behavior, and
-reproducible comparisons.
+[Basin](https://basin.rs) pure Rust optimizers are used: COBYLA for GP hyperparameters training (`gp`, `moe`)
+and COBYLA/SLSQP for infill criterion optimization (`ego`), which also uses Basin to execute the EGO loop.
+The `c-cobyla` and `c-slsqp` features, which selected the C-ported NLopt optimizers instead, are removed since
+`egobox-gp` 0.39.0, `egobox-moe` 0.39.0, `egobox-ego` 0.45.0 and `egobox-gpx` 0.8.0. See [Basin integration](doc/basin.md) for checkpoint behavior and reproducible comparisons.
 
 ### Examples
 

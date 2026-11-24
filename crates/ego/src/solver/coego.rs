@@ -1,8 +1,4 @@
-use crate::EgorSolver;
-use crate::types::*;
-
 use ndarray::{Array, Axis, RemoveAxis};
-use serde::{Serialize, de::DeserializeOwned};
 
 /// Set active components to xcoop using xopt values
 /// active may be longer than values
@@ -42,23 +38,6 @@ where
         .cloned()
         .collect::<Vec<usize>>();
     xcoop.select(axis, &selection)
-}
-
-impl<SB, C> EgorSolver<SB, C>
-where
-    SB: SurrogateBuilder + Serialize + DeserializeOwned,
-    C: CstrFn,
-{
-    /// Used to remove out of range indices from activity last row
-    /// Indeed the last row of activity matrix may be incomplete
-    /// as n_coop might not be a divider of nx. so this last row
-    /// may contain indices with an 'nx value' used as a marker
-    /// meaning to discard the indice information while keeping
-    /// rows of the same length.
-    #[deprecated(since = "0.43.0", note = "internal to the EGO solver")]
-    pub fn strip(active: &[usize], dim: usize) -> Vec<usize> {
-        strip(active, dim)
-    }
 }
 
 #[cfg(test)]

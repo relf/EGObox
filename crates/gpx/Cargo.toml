@@ -1,6 +1,6 @@
 [package]
 name = "egobox-gpx"
-version = "0.6.1"
+version = "0.8.0"
 authors.workspace = true
 license.workspace = true
 edition.workspace = true
@@ -11,12 +11,8 @@ description = "GP surrogate executable for quality assessment, I/O specification
 keywords = ["machine-learning", "bayesian", "optimization"]
 categories = ["algorithms", "mathematics", "science"]
 
-[features]
-# Use cobyla crate (C-ported NLopt COBYLA) instead of basin COBYLA
-c-cobyla = ["egobox-moe/c-cobyla"]
-
 [dependencies]
-egobox-moe = { version = "0.37", path = "../moe" }
+egobox-moe = { version = "0.39.0", path = "../moe" }
 anyhow.workspace = true
 clap.workspace = true
 rayon.workspace = true
@@ -26,7 +22,6 @@ linfa.workspace = true
 csv = "1.3"
 
 [dev-dependencies]
-bincode.workspace = true
 serde_json.workspace = true
 
 [[bin]]

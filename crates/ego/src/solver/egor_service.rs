@@ -32,7 +32,7 @@
 //!
 //! for _i in 0..10 {
 //!     // we tell function values and ask for next suggested optimum location
-//!     let x_suggested = egor.suggest(&doe, &y_doe);
+//!     let x_suggested = egor.suggest(&doe, &y_doe).expect("suggestion");
 //!     
 //!     // we update the doe
 //!     doe = concatenate![Axis(0), doe, x_suggested];
@@ -46,6 +46,7 @@
 use std::marker::PhantomData;
 
 use crate::{EgorConfig, EgorSolver, errors::Result, to_xtypes, types::*};
+use egobox_gp::Cancellation;
 use egobox_moe::{GpMixtureParams, MixintGpMixtureParams, to_continuous_space, to_discrete_space};
 use ndarray::{Array2, ArrayBase, Data, Ix2};
 
@@ -126,15 +127,31 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorService
     /// where optimum may be located with regard to the infill criterion.
     /// This function inverses the control of the optimization and can be used
     /// for an ask-and-tell interface to the Egor optimizer.
+    ///
+    /// # Errors
+    ///
+    /// [`EgoError::Interrupted`](crate::EgoError::Interrupted) when interrupted (see
+    /// [`interrupt_check`](Self::interrupt_check)), or the error of a surrogate training failure.
     pub fn suggest(
         &self,
         x_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
         y_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
-    ) -> Array2<f64> {
+    ) -> Result<Array2<f64>> {
         let xtypes = &self.solver.config.xtypes;
         let x_data = to_continuous_space(xtypes, x_data);
-        let x = self.solver.suggest(&x_data, y_data);
-        to_discrete_space(xtypes, &x).to_owned()
+        let x = self.solver.suggest(&x_data, y_data)?;
+        Ok(to_discrete_space(xtypes, &x).to_owned())
+    }
+
+    /// Interrupt [`suggest`](Self::suggest) when the given `check` returns true: the surrogate
+    /// training and the infill optimization stop early and `suggest` fails with
+    /// [`EgoError::Interrupted`](crate::EgoError::Interrupted).
+    ///
+    /// `check` is called often, possibly from several threads at once: it has to be cheap and
+    /// thread-safe, typically a load of an atomic flag, and to keep returning true once it did.
+    pub fn interrupt_check(mut self, check: impl Fn() -> bool + Send + Sync + 'static) -> Self {
+        self.solver.cancellation = Cancellation::new(check);
+        self
     }
 
     /// Given an evaluated doe (x, y) data, return the index of the best evaluated point:
@@ -152,7 +169,12 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorService
     ) -> usize {
         let xtypes = &self.solver.config.xtypes;
         let x_data = to_continuous_space(xtypes, x_data);
-        self.solver.best_index(&x_data, y_data)
+        // never interrupted: an interrupted training would silently give the observed best
+        let solver = EgorSolver {
+            cancellation: Cancellation::default(),
+            ..self.solver.clone()
+        };
+        solver.best_index(&x_data, y_data)
     }
 }
 
@@ -173,6 +195,23 @@ mod tests {
     }
 
     #[test]
+    fn test_suggest_interrupted() {
+        let ego = EgorServiceBuilder::optimize()
+            .configure(|conf| conf.seed(42))
+            .min_within(&array![[0., 25.]])
+            .expect("Egor configured")
+            .interrupt_check(|| true);
+        let doe = array![[0.], [7.], [20.], [25.]];
+        let y_doe = xsinx(&doe.view());
+        assert!(matches!(
+            ego.suggest(&doe, &y_doe),
+            Err(crate::EgoError::Interrupted)
+        ));
+        // not interrupted
+        assert_eq!(ego.best_index(&doe, &y_doe), 2);
+    }
+
+    #[test]
     fn test_xsinx_egor_builder() {
         let ego = EgorServiceBuilder::optimize()
             .configure(|conf| {
@@ -189,7 +228,7 @@ mod tests {
         let mut doe = array![[0.], [7.], [20.], [25.]];
         let mut y_doe = xsinx(&doe.view());
         for _i in 0..10 {
-            let x_suggested = ego.suggest(&doe, &y_doe);
+            let x_suggested = ego.suggest(&doe, &y_doe).expect("suggestion");
 
             doe = concatenate![Axis(0), doe, x_suggested];
             y_doe = xsinx(&doe.view());

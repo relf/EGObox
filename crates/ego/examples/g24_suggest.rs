@@ -41,7 +41,7 @@ fn main() {
     let mut y_doe = f_g24(&doe.view());
     for _i in 0..10 {
         // We tell function values and ask for next x location
-        let x_suggested = egor.suggest(&doe, &y_doe);
+        let x_suggested = egor.suggest(&doe, &y_doe).expect("suggestion");
 
         doe = concatenate![Axis(0), doe, x_suggested];
         y_doe = f_g24(&doe.view());

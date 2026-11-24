@@ -7,10 +7,6 @@ pub type Result<T> = std::result::Result<T, MoeError>;
 #[derive(Error, Debug)]
 pub enum MoeError {
     /// When linear algebra computation fails
-    #[cfg(feature = "blas")]
-    #[error("Linalg BLAS error: {0}")]
-    LinalgBlasError(#[from] ndarray_linalg::error::LinalgError),
-    /// When linear algebra computation fails
     #[error(transparent)]
     LinalgError(#[from] linfa_linalg::LinalgError),
     /// When clustering fails
@@ -33,10 +29,10 @@ pub enum MoeError {
     SaveJsonError(#[from] serde_json::Error),
     /// When error during saving
     #[error("Save error: {0}")]
-    SaveBinaryError(#[from] bincode::error::EncodeError),
+    SaveBinaryError(postcard::Error),
     /// When error during loading
     #[error("Load error: {0}")]
-    LoadBinaryError(#[from] bincode::error::DecodeError),
+    LoadBinaryError(postcard::Error),
     /// When error during loading
     #[error("Load IO error")]
     LoadIoError(#[from] std::io::Error),

@@ -58,6 +58,13 @@ pub enum InfillOptimizer {
     Slsqp,
     /// Cobyla optimizer (gradient free)
     Cobyla,
+    /// L-BFGS-B optimizer (gradient based) handling bound constraints only.
+    ///
+    /// With constraints, requires the constrained infill criterion (see
+    /// [`crate::EgorConfig::cstr_infill`]) where the constraint surrogates are taken into account
+    /// through the probability of feasibility. Not compatible with function constraints nor with
+    /// [`FailsafeStrategy::Viability`] which have to be handled by the infill optimizer.
+    Lbfgsb,
 }
 
 /// Strategy to choose several points at each iteration
@@ -505,7 +512,8 @@ impl<E: std::fmt::Display> ObjFnResponse for std::result::Result<Array2<f64>, E>
 /// The function can return either `Array2<f64>` directly (infallible evaluation)
 /// or `Result<Array2<f64>, E>` (fallible evaluation) where `E` implements `Display`.
 /// Invalid output values are handled according to [`FailsafeStrategy`]. Errors returned by the
-/// objective are handled according to the `stop_on_error` configuration.
+/// objective are handled according to the `stop_on_error` configuration, except
+/// [`EgoError::Interrupted`] which stops the optimization (see its documentation).
 pub trait ObjFn: Clone {
     /// Evaluate the objective function at the given points.
     fn eval(&self, x: &ArrayView2<f64>) -> crate::errors::Result<Array2<f64>>;

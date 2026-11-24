@@ -8,7 +8,7 @@ It is a Rust port of sampling methods of the [SMT](https://smt.readthedocs.io) P
 
 ## The big picture
 
-`egobox-doe` is a library crate in the top-level package [egobox](https://github.com/relf/egobox).
+`egobox-doe` is a library crate in the top-level package [egobox](https://github.com/relf/EGObox).
 
 ## Current state
 

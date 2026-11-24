@@ -7,10 +7,12 @@
 //! pip install egobox
 //! ```
 //!
-//! See the [tutorial notebook](https://github.com/relf/egobox/notebooks/Sgp_Tutorial.ipynb) for usage.
+//! See the [tutorial notebook](https://github.com/relf/EGObox/blob/master/notebooks/SparseGpx_Tutorial.ipynb) for usage.
 //!
-use crate::errors::{gp_file_format, moe_err, moe_file_err, training_data};
+use crate::errors::{gp_file_format, interruptible_moe_err, moe_file_err, training_data};
 use crate::gp_config::{seeded_rng, theta_tuning, validate_corr_spec, validate_theta};
+use crate::interrupt_flag::{InterruptFlag, interruption};
+use crate::sigint::SigintGuard;
 use crate::surrogate_api;
 use crate::{logging::init_logger, types::*};
 use egobox_moe::{GpMixture, GpSurrogate, GpType, Inducings};
@@ -65,7 +67,7 @@ const SPARSE_GP_OPTIM_N_START: usize = 10;
 ///     A builder which can be fitted to data to get a SparseGpx object (a trained sparse Gaussian process)
 ///
 #[gen_stub_pyclass]
-#[pyclass(skip_from_py_object, module = "egobox")]
+#[pyclass(module = "egobox")]
 pub(crate) struct SparseGpMix {
     pub correlation_spec: CorrelationSpec,
     pub theta_init: Option<Vec<f64>>,
@@ -131,17 +133,28 @@ impl SparseGpMix {
     ///     input samples
     /// yt : array[nsamples] or array[nsamples, 1]
     ///     output samples
+    /// interrupt : InterruptFlag, optional
+    ///     the training is interrupted (Interrupted raised) once this flag is set,
+    ///     e.g. from another thread
     ///
     /// Returns
     /// -------
     /// SparseGpx
     ///     the fitted sparse Gaussian process
     ///
+    /// Notes
+    /// -----
+    /// Ctrl-C (KeyboardInterrupt) stops the training at once, unless called from another
+    /// thread than the main one or with a custom SIGINT handler. The training is also
+    /// interrupted when the `interrupt` flag is set, raising Interrupted.
+    ///
+    #[pyo3(signature = (xt, yt, interrupt = None))]
     fn fit(
         &mut self,
         py: Python,
         xt: PyReadonlyArrayDyn<f64>,
         yt: PyReadonlyArrayDyn<f64>,
+        interrupt: Option<Py<InterruptFlag>>,
     ) -> PyResult<SparseGpx> {
         validate_corr_spec(self.correlation_spec.0)?;
         validate_theta(self.theta_init.as_ref(), self.theta_bounds.as_ref())?;
@@ -166,8 +179,14 @@ impl SparseGpMix {
             self.theta_bounds.as_ref(),
         )];
 
+        // Ctrl-C stops the training at once
+        let sigint = SigintGuard::install(py);
+        let cancellation = sigint.as_ref().map(SigintGuard::cancellation);
+        let flag = interrupt.as_ref().map(|flag| flag.get());
+        let cancellation = interruption(cancellation, flag);
         let sgp = py.detach(|| {
             GpMixture::params()
+                .cancellation(cancellation)
                 .gp_type(GpType::SparseGp {
                     sparse_method: self.method.into(),
                     inducings,
@@ -181,7 +200,10 @@ impl SparseGpMix {
                 .with_rng(rng)
                 .fit(&dataset)
         });
-        Ok(SparseGpx(Box::new(sgp.map_err(moe_err)?)))
+        drop(sigint);
+        Ok(SparseGpx(Box::new(
+            sgp.map_err(|e| interruptible_moe_err(py, e, flag))?,
+        )))
     }
 }
 
@@ -189,7 +211,7 @@ impl SparseGpMix {
 ///
 /// Unlike `Gpx`, it has no `update` method: sparse GPs have to be refitted with the new data.
 #[gen_stub_pyclass]
-#[pyclass(skip_from_py_object, module = "egobox")]
+#[pyclass(module = "egobox")]
 pub(crate) struct SparseGpx(Box<GpMixture>);
 
 #[gen_stub_pymethods]

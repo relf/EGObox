@@ -9,7 +9,8 @@ pub enum TerminationReason {
     MaxItersReached,
     /// Reached target cost function value
     TargetCostReached,
-    /// Algorithm manually interrupted with Ctrl+C
+    /// Algorithm interrupted by Ctrl-C or a termination signal (SIGTERM, SIGHUP, SIGUSR1,
+    /// SIGUSR2), see [`Egor::interrupt_check`](crate::Egor::interrupt_check)
     Interrupt,
     /// Algorithm cannot add new points: considered as converged
     SolverConverged,

@@ -2,7 +2,7 @@ use crate::correlation_models::CorrelationModel;
 use crate::errors::{GpError, Result};
 use crate::mean_models::ConstantMean;
 use crate::parameters::{GpValidParams, ParamTuning};
-use crate::{GP_COBYLA_MIN_EVAL, ThetaTuning};
+use crate::{Cancellation, GP_OPTIM_MIN_EVAL, ThetaTuning};
 use linfa::{Float, ParamGuard};
 use ndarray::{Array1, Array2, array};
 #[cfg(feature = "serializable")]
@@ -74,6 +74,11 @@ impl<F: Float, Corr: CorrelationModel<F>> SgpValidParams<F, Corr> {
     /// Get correlation corr k(x, x')
     pub fn corr(&self) -> &Corr {
         &self.gp_params.corr
+    }
+
+    /// Get the request to stop the training early
+    pub fn cancellation(&self) -> &Cancellation {
+        &self.gp_params.cancellation
     }
 
     /// Get the number of components used by PLS
@@ -223,10 +228,17 @@ impl<F: Float, Corr: CorrelationModel<F>> SgpParams<F, Corr> {
     }
 
     /// Set the max number of internal likelihood evaluations during one optimization
-    /// Given max_eval has to be greater than [crate::GP_COBYLA_MIN_EVAL] otherwise
-    /// max_eval is set to [crate::GP_COBYLA_MAX_EVAL].
+    /// (default [crate::GP_OPTIM_MAX_EVAL]). A max_eval below [crate::GP_OPTIM_MIN_EVAL]
+    /// is raised to it.
     pub fn max_eval(mut self, max_eval: usize) -> Self {
-        self.0.gp_params.max_eval = GP_COBYLA_MIN_EVAL.max(max_eval);
+        self.0.gp_params.max_eval = GP_OPTIM_MIN_EVAL.max(max_eval);
+        self
+    }
+
+    /// Set a request to stop the training early: once cancelled, the hyperparameters
+    /// optimization stops and the training fails with [`GpError::Interrupted`](crate::GpError::Interrupted)
+    pub fn cancellation(mut self, cancellation: Cancellation) -> Self {
+        self.0.gp_params.cancellation = cancellation;
         self
     }
 

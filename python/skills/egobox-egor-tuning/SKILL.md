@@ -73,6 +73,9 @@ If optimization stagnates:
   alone until a feasible point is found: it finds one sooner but improves the objective more slowly,
   so use it only when finding a feasible point is the hard part
 - Use `InfillOptimizer.SLSQP` when constraints are expected to be active at the optimum
+- With `cstr_infill=True` (or without constraints), `InfillOptimizer.LBFGSB` (gradient based,
+  bounds only) can be used instead, unless `fcstrs` or `FailsafeStrategy.VIABILITY` are used
+  (rejected with a `ValueError`)
 
 ### Failures
 

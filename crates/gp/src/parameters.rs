@@ -1,7 +1,7 @@
 use crate::correlation_models::CorrelationModel;
 use crate::errors::{GpError, Result};
 use crate::mean_models::RegressionModel;
-use crate::{GP_COBYLA_MAX_EVAL, GP_COBYLA_MIN_EVAL, GP_OPTIM_N_START};
+use crate::{Cancellation, GP_OPTIM_MAX_EVAL, GP_OPTIM_MIN_EVAL, GP_OPTIM_N_START};
 use linfa::{Float, ParamGuard};
 
 use ndarray::{Array1, array};
@@ -111,6 +111,46 @@ impl<F: Float> Default for ParamTuning<F> {
     }
 }
 
+/// Optimizer used to tune GP hyperparameters (theta and noise ratio) by maximizing
+/// the likelihood
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serializable", derive(Serialize, Deserialize))]
+pub enum ThetaOptimizer {
+    /// Gradient-free COBYLA optimizer
+    #[default]
+    Cobyla,
+    /// Gradient-based L-BFGS-B optimizer using the analytic gradient of the likelihood.
+    ///
+    /// Its likelihood evaluations budget is the COBYLA one scaled by
+    /// [`ThetaOptimizer::max_eval_factor`], one evaluation also computing the gradient:
+    /// the training takes about the COBYLA time.
+    /// Its steps change each log10 hyperparameter by at most half a decade.
+    /// It usually reaches a higher likelihood than COBYLA, which does not always give a
+    /// better prediction with few training points.
+    /// Falls back to COBYLA when the correlation model does not provide derivatives
+    /// wrt theta (see [`CorrelationModel::supports_theta_grad`]).
+    Lbfgsb,
+}
+
+impl ThetaOptimizer {
+    /// Factor applied to the COBYLA likelihood evaluations budget of an optimization start
+    /// (see [`GpParams::max_eval`]): 1 for COBYLA, 0.5 for L-BFGS-B whose evaluation also
+    /// computes the gradient (about 1.7 times the cost of a likelihood alone), so that
+    /// both optimizers take about the same time.
+    pub const fn max_eval_factor(self) -> f64 {
+        match self {
+            ThetaOptimizer::Cobyla => 1.0,
+            ThetaOptimizer::Lbfgsb => 0.5,
+        }
+    }
+
+    /// Likelihood evaluations budget of an optimization start given the COBYLA one,
+    /// scaled by [`ThetaOptimizer::max_eval_factor`] (at least one evaluation)
+    pub fn max_eval(self, cobyla_max_eval: usize) -> usize {
+        ((cobyla_max_eval as f64 * self.max_eval_factor()).ceil() as usize).max(1)
+    }
+}
+
 /// A set of validated GP parameters.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(
@@ -140,6 +180,12 @@ pub struct GpValidParams<F: Float, Mean: RegressionModel<F>, Corr: CorrelationMo
     /// gaussian noise on training outputs (no noise by default, i.e. interpolation)
     #[cfg_attr(feature = "serializable", serde(default = "no_noise_ratio"))]
     pub(crate) noise_ratio: ParamTuning<F>,
+    /// Optimizer of the hyperparameters (COBYLA by default, also for models saved without it)
+    #[cfg_attr(feature = "serializable", serde(default))]
+    pub(crate) theta_optimizer: ThetaOptimizer,
+    /// Request to stop the training early (run-time hook, not serialized)
+    #[cfg_attr(feature = "serializable", serde(skip))]
+    pub(crate) cancellation: Cancellation,
 }
 
 /// Default noise ratio tuning: no noise, the GP interpolates training outputs
@@ -157,9 +203,11 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> Default
             corr: Corr::default(),
             kpls_dim: None,
             n_start: GP_OPTIM_N_START,
-            max_eval: GP_COBYLA_MAX_EVAL,
+            max_eval: GP_OPTIM_MAX_EVAL,
             nugget: F::cast(100.0) * F::epsilon(),
             noise_ratio: no_noise_ratio(),
+            theta_optimizer: ThetaOptimizer::default(),
+            cancellation: Cancellation::default(),
         }
     }
 }
@@ -203,6 +251,16 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GpValidParam
     /// Get the noise-to-signal ratio tuning
     pub fn noise_ratio(&self) -> &ParamTuning<F> {
         &self.noise_ratio
+    }
+
+    /// Get the optimizer of the hyperparameters
+    pub fn theta_optimizer(&self) -> ThetaOptimizer {
+        self.theta_optimizer
+    }
+
+    /// Get the request to stop the training early
+    pub fn cancellation(&self) -> &Cancellation {
+        &self.cancellation
     }
 }
 
@@ -305,10 +363,14 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GpParams<F, 
     }
 
     /// Set the max number of internal likelihood evaluations during one optimization
-    /// Given max_eval has to be greater than [crate::GP_COBYLA_MIN_EVAL] otherwise
-    /// max_eval is set to [crate::GP_COBYLA_MAX_EVAL].
+    /// (default [crate::GP_OPTIM_MAX_EVAL]). A max_eval below [crate::GP_OPTIM_MIN_EVAL]
+    /// is raised to it.
+    ///
+    /// Each COBYLA start gets clamp(10 * n_params, [crate::GP_OPTIM_MIN_EVAL], max_eval)
+    /// evaluations, n_params being the number of optimized hyperparameters, scaled by
+    /// [`ThetaOptimizer::max_eval_factor`] for the other optimizers (see [`ThetaOptimizer::max_eval`]).
     pub fn max_eval(mut self, max_eval: usize) -> Self {
-        self.0.max_eval = GP_COBYLA_MIN_EVAL.max(max_eval);
+        self.0.max_eval = GP_OPTIM_MIN_EVAL.max(max_eval);
         self
     }
 
@@ -330,6 +392,20 @@ impl<F: Float, Mean: RegressionModel<F>, Corr: CorrelationModel<F>> GpParams<F, 
     /// The fitted noise variance is available with [`crate::GaussianProcess::noise_variance`].
     pub fn noise_ratio(mut self, noise_ratio: ParamTuning<F>) -> Self {
         self.0.noise_ratio = noise_ratio;
+        self
+    }
+
+    /// Set the optimizer of the hyperparameters (theta and noise ratio when optimized):
+    /// gradient-free COBYLA (default) or L-BFGS-B using the analytic gradient of the likelihood
+    pub fn theta_optimizer(mut self, theta_optimizer: ThetaOptimizer) -> Self {
+        self.0.theta_optimizer = theta_optimizer;
+        self
+    }
+
+    /// Set a request to stop the training early: once cancelled, the hyperparameters
+    /// optimization stops and the training fails with [`GpError::Interrupted`](crate::GpError::Interrupted)
+    pub fn cancellation(mut self, cancellation: Cancellation) -> Self {
+        self.0.cancellation = cancellation;
         self
     }
 }

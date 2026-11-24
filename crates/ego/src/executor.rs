@@ -1,21 +1,19 @@
 //! Execution of the [`EgorSolver`] with the basin executor.
 
-use crate::outputs::{DOE_FILE, FAILED_POINTS_FILE, HISTORY_FILE, STATE_FILE_PREFIX};
+use crate::outputs::{
+    DOE_FILE, FAILED_POINTS_FILE, HISTORY_FILE, STATE_FILE_PREFIX, save_npy, save_text,
+};
 use crate::{
     CHECKPOINT_FILE, Constraints, CstrFn, EgoError, EgorSolver, EgorState, HotStartMode, ObjFn,
     ProblemFunc, SurrogateBuilder, TerminationReason as EgorReason, TerminationStatus,
 };
 use basin::{ApplicationStop, CountsMirror, EvalCounts, Executor, State, Termination};
+use egobox_gp::Cancellation;
 use log::info;
 use ndarray::{Array1, Array2, Axis, concatenate};
-use ndarray_npy::write_npy;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::cell::RefCell;
 use std::path::PathBuf;
-use std::sync::{
-    OnceLock,
-    atomic::{AtomicU64, Ordering},
-};
 use web_time::Instant;
 
 /// Basin state wrapping [`EgorState`] with the best point bookkeeping
@@ -111,10 +109,22 @@ where
         problem: &mut basin::Problem<P>,
         mut state: BasinState,
     ) -> Result<basin::SolverStep<BasinState>, Self::Error> {
-        state.inner = self.next_state(problem, state.inner)?;
-        // EGO's clean stops consume an iteration under its existing contract.
-        // Publish that iteration, then let the execution hook read its status.
-        Ok(basin::SolverStep::completed(state))
+        let previous = state.inner.clone();
+        match self.next_state(problem, std::mem::replace(&mut state.inner, previous)) {
+            Ok(inner) => {
+                state.inner = inner;
+                // EGO's clean stops consume an iteration under its existing contract.
+                // Publish that iteration, then let the execution hook read its status.
+                Ok(basin::SolverStep::completed(state))
+            }
+            // Interrupted objective evaluation: the unfinished iteration is dropped, the
+            // previous one is published and checkpointed so that a hot start does it again
+            Err(EgoError::Interrupted) => Ok(basin::SolverStep::stopped(
+                state,
+                Termination::Application(ApplicationStop::new(STOP_INTERRUPT)),
+            )),
+            Err(err) => Err(err),
+        }
     }
 }
 
@@ -161,7 +171,7 @@ impl OptimizationObserver {
 
             let filepath = self.dir.join(DOE_FILE);
             info!(">>> Save doe shape {:?} in {:?}", doe.shape(), filepath);
-            write_npy(filepath, &doe)?;
+            save_npy(filepath, &doe)?;
 
             if let Some(failed_points) = state.surrogate.x_fail.as_ref() {
                 let filepath = self.dir.join(FAILED_POINTS_FILE);
@@ -170,7 +180,7 @@ impl OptimizationObserver {
                     failed_points.shape(),
                     filepath
                 );
-                write_npy(filepath, failed_points)?;
+                save_npy(filepath, failed_points)?;
             }
 
             if self.best_params.is_none() {
@@ -198,7 +208,7 @@ impl OptimizationObserver {
 
             let filepath = std::path::Path::new(&self.dir).join(HISTORY_FILE);
             info!(">>> Save history {:?} in {:?}", hist.shape(), filepath);
-            write_npy(filepath, &hist)?;
+            save_npy(filepath, &hist)?;
 
             // Save EgorState if EGOR_USE_STATE_RECORDING equals "WITH_ITER_STATE"
             if self.state_recording {
@@ -221,7 +231,7 @@ impl OptimizationObserver {
                     .and_then(|value| serde_json::to_string_pretty(&value));
                 match json {
                     Ok(json) => {
-                        if let Err(e) = std::fs::write(&state_filepath, json) {
+                        if let Err(e) = save_text(&state_filepath, &json) {
                             log::warn!("Failed to save EgorState to {:?}: {}", state_filepath, e);
                         } else {
                             log::debug!(">>> Saved EgorState to {:?}", state_filepath);
@@ -235,25 +245,8 @@ impl OptimizationObserver {
     }
 }
 
-static INTERRUPTS: AtomicU64 = AtomicU64::new(0);
-static SIGNAL_HANDLER: OnceLock<Result<(), String>> = OnceLock::new();
-
-fn install_signal_handler() -> crate::Result<()> {
-    SIGNAL_HANDLER
-        .get_or_init(|| {
-            match ctrlc::set_handler(|| {
-                INTERRUPTS.fetch_add(1, Ordering::Relaxed);
-            }) {
-                Ok(()) | Err(ctrlc::Error::MultipleHandlers) => Ok(()),
-                Err(error) => Err(error.to_string()),
-            }
-        })
-        .clone()
-        .map_err(EgoError::InternalError)
-}
-
 /// A function telling whether the optimization has to be interrupted,
-/// used instead of the process-wide signal handler (see [crate::Egor::interrupt_check])
+/// used instead of signal handling (see [crate::Egor::interrupt_check])
 pub(crate) type InterruptCheck = std::sync::Arc<dyn Fn() -> bool + Send + Sync>;
 
 struct Observer {
@@ -275,7 +268,7 @@ impl basin::Observe<BasinState> for Observer {
 /// handling hot start, timeout, interruption and history observation.
 pub(crate) fn run<O, C, SB>(
     problem: ProblemFunc<O, C>,
-    solver: EgorSolver<SB, C>,
+    mut solver: EgorSolver<SB, C>,
     interrupt_check: Option<InterruptCheck>,
 ) -> crate::Result<EgorState<f64>>
 where
@@ -284,13 +277,28 @@ where
     SB: SurrogateBuilder + Serialize + DeserializeOwned,
 {
     use basin::{ExactCheckpoint, ExactCheckpointWriter, ObserverMode, read_exact_checkpoint};
-    let interrupted: Box<dyn Fn() -> bool> = match interrupt_check {
-        Some(check) => Box::new(move || check()),
-        None => {
-            install_signal_handler()?;
-            let interrupt = INTERRUPTS.load(Ordering::Relaxed);
-            Box::new(move || INTERRUPTS.load(Ordering::Relaxed) != interrupt)
+    // Signal handlers installed for the duration of the run, unless a check is given
+    let _signals = interrupt_check.is_none().then(crate::signals::install);
+    let signaled = interrupt_check.is_none();
+    let check: InterruptCheck = interrupt_check.unwrap_or_else(|| {
+        let interrupts = crate::signals::interrupts();
+        std::sync::Arc::new(move || crate::signals::interrupts() != interrupts)
+    });
+    // The check also cuts long computations short (training, infill optimization)
+    let cancellation = {
+        let check = check.clone();
+        Cancellation::new(move || check())
+    };
+    solver.cancellation = cancellation.clone();
+    let interrupted = move || {
+        let interrupted = check();
+        if interrupted && signaled {
+            log::warn!(
+                "Optimization interrupted by {}",
+                crate::signals::last_signal()
+            );
         }
+        interrupted
     };
     let config = solver.config.clone();
     let path = std::path::Path::new(config.outdir.as_deref().unwrap_or(".checkpoints"))
@@ -300,8 +308,7 @@ where
     let (exec, start_iter) = if checkpoint && path.exists() {
         let saved: ExactCheckpoint<EgorSolver<SB, C>, BasinState> = read_exact_checkpoint(&path)?;
         let (mut solver, mut state, counts) = saved.into_parts();
-        // Not saved in checkpoints, taken from the configuration of this run
-        solver.config.feasibility_first = config.feasibility_first;
+        solver.cancellation = cancellation;
         if let HotStartMode::ExtendedIters(n) = config.hot_start {
             state.inner.max_iters = state.inner.max_iters.checked_add(n).ok_or_else(|| {
                 EgoError::InvalidConfigError("extended iteration budget overflows".into())

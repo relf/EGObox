@@ -19,7 +19,7 @@ use crate::{
     RegressionSpec,
 };
 use crate::{GpType, SurrogateBuilder};
-use egobox_gp::{ParamTuning, ThetaTuning};
+use egobox_gp::{ParamTuning, ThetaOptimizer, ThetaTuning};
 use linfa::traits::Fit;
 use linfa::{DatasetBase, ParamGuard};
 use ndarray::{ArrayBase, ArrayView1, ArrayView2, CowArray, Data, Ix1, Ix2};
@@ -155,9 +155,23 @@ impl MixintGpMixtureParams {
         self
     }
 
+    /// Sets a request to stop the training early: once cancelled, the training fails with
+    /// [`GpError::Interrupted`](egobox_gp::GpError::Interrupted) (wrapped in
+    /// [`MoeError::GpError`](crate::MoeError::GpError))
+    pub fn cancellation(mut self, cancellation: egobox_gp::Cancellation) -> Self {
+        self.0.gpmix_params = self.0.gpmix_params.cancellation(cancellation);
+        self
+    }
+
     /// Sets the noise-to-signal ratio tuning of full GP experts
     pub fn noise_ratio(mut self, noise_ratio: ParamTuning<f64>) -> Self {
         self.0.gpmix_params = self.0.gpmix_params.noise_ratio(noise_ratio);
+        self
+    }
+
+    /// Sets the optimizer of the hyperparameters of full GP experts
+    pub fn theta_optimizer(mut self, theta_optimizer: ThetaOptimizer) -> Self {
+        self.0.gpmix_params = self.0.gpmix_params.theta_optimizer(theta_optimizer);
         self
     }
 
@@ -272,9 +286,19 @@ impl SurrogateBuilder for MixintGpMixtureParams {
         self.0.gpmix_params.set_noise_ratio(noise_ratio);
     }
 
+    /// Sets the optimizer of the hyperparameters of full GP experts
+    fn set_theta_optimizer(&mut self, theta_optimizer: ThetaOptimizer) {
+        self.0.gpmix_params.set_theta_optimizer(theta_optimizer);
+    }
+
     /// Sets the random generator used during training (e.g. clustering)
     fn set_rng(&mut self, rng: Xoshiro256Plus) {
         self.0.gpmix_params.set_rng(rng);
+    }
+
+    /// Sets a request to stop the training early
+    fn set_cancellation(&mut self, cancellation: egobox_gp::Cancellation) {
+        self.0.gpmix_params.set_cancellation(cancellation);
     }
 
     fn train(
@@ -342,7 +366,7 @@ mod tests {
     };
 
     use egobox_doe::{Lhs, SamplingMethod};
-    use egobox_gp::{ParamTuning, ThetaTuning};
+    use egobox_gp::{ParamTuning, ThetaOptimizer, ThetaTuning};
     use linfa::Dataset;
     use linfa::ParamGuard;
     use linfa::traits::Fit;
@@ -364,6 +388,7 @@ mod tests {
         builder.set_theta_tunings(&theta_tunings);
         builder.set_optim_params(3, 42);
         builder.set_noise_ratio(ParamTuning::Fixed(0.1));
+        builder.set_theta_optimizer(ThetaOptimizer::Lbfgsb);
 
         assert_eq!(
             format!("{:?}", builder.xtypes()),
@@ -379,6 +404,7 @@ mod tests {
         assert_eq!(inner.theta_tunings(), &theta_tunings.to_vec());
         assert_eq!((inner.n_start(), inner.max_eval()), (3, 42));
         assert_eq!(inner.noise_ratio(), &ParamTuning::Fixed(0.1));
+        assert_eq!(inner.theta_optimizer(), ThetaOptimizer::Lbfgsb);
     }
 
     #[test]

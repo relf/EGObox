@@ -382,8 +382,10 @@ pub fn run_py(model: &str, output: &str) -> Result<()> {
 
     let model_hex = to_hex_lines(&model_bytes, 120);
     let script = render_python_script(model, &model_hex, input_dim, output_dim_all);
-    fs::write(output, script)
-        .map_err(|e| anyhow!("cannot write generated Python file {output}: {e}"))?;
+    egobox_moe::write_atomically(output, |file| {
+        std::io::Write::write_all(file, script.as_bytes())
+    })
+    .map_err(|e| anyhow!("cannot write generated Python file {output}: {e}"))?;
 
     println!("Generated Python helper script: {output}");
     println!("Embedded model source: {model}");

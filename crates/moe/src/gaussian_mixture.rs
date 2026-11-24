@@ -4,13 +4,8 @@
 #![allow(dead_code)]
 use crate::Result;
 use linfa::{Float, traits::*};
-#[cfg(feature = "blas")]
-use linfa::{dataset::WithLapack, dataset::WithoutLapack};
-#[cfg(not(feature = "blas"))]
 use linfa_linalg::{cholesky::*, triangular::*};
 use ndarray::{Array, Array1, Array2, Array3, ArrayBase, Axis, Data, Ix1, Ix2, Ix3, Zip, s};
-#[cfg(feature = "blas")]
-use ndarray_linalg::{cholesky::*, triangular::*};
 use ndarray_stats::QuantileExt;
 
 use serde::{Deserialize, Serialize};
@@ -184,18 +179,8 @@ impl<F: Float> GaussianMixture<F> {
         let n_features = covariances.shape()[1];
         let mut precisions_chol = Array::zeros((n_clusters, n_features, n_features));
         for (k, covariance) in covariances.outer_iter().enumerate() {
-            #[cfg(feature = "blas")]
-            let sol = {
-                let cov_chol = covariance.with_lapack().cholesky(UPLO::Lower)?;
-                cov_chol
-                    .solve_triangular(UPLO::Lower, Diag::NonUnit, &Array::eye(n_features))?
-                    .without_lapack()
-            };
-            #[cfg(not(feature = "blas"))]
-            let sol = {
-                let cov_chol = covariance.cholesky()?;
-                cov_chol.solve_triangular(&Array::eye(n_features), UPLO::Lower)?
-            };
+            let cov_chol = covariance.cholesky()?;
+            let sol = cov_chol.solve_triangular(&Array::eye(n_features), UPLO::Lower)?;
             precisions_chol.slice_mut(s![k, .., ..]).assign(&sol.t());
         }
         Ok(precisions_chol)

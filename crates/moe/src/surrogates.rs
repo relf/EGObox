@@ -2,8 +2,8 @@ use crate::errors::Result;
 use crate::persistence::{read_model, write_model};
 use crate::types::GpFileFormat;
 use egobox_gp::{
-    GaussianProcess, GpParams, ParamTuning, SgpParams, SparseGaussianProcess, SparseMethod,
-    ThetaTuning, correlation_models::*, mean_models::*,
+    Cancellation, GaussianProcess, GpParams, ParamTuning, SgpParams, SparseGaussianProcess,
+    SparseMethod, ThetaOptimizer, ThetaTuning, correlation_models::*, mean_models::*,
 };
 use linfa::prelude::{Dataset, Fit};
 use ndarray::{Array1, Array2, ArrayView2, Axis};
@@ -28,6 +28,13 @@ pub trait GpSurrogateParams {
     /// (see [GpParams::noise_ratio](egobox_gp::GpParams::noise_ratio)).
     /// Default is a no-op, used by sparse GPs which handle their own noise variance.
     fn noise_ratio(&mut self, _noise_ratio: ParamTuning<f64>) {}
+    /// Set the optimizer of the hyperparameters
+    /// (see [GpParams::theta_optimizer](egobox_gp::GpParams::theta_optimizer)).
+    /// Default is a no-op, used by sparse GPs which are trained with COBYLA.
+    fn theta_optimizer(&mut self, _theta_optimizer: ThetaOptimizer) {}
+    /// Set a request to stop the training early
+    /// (see [GpParams::cancellation](egobox_gp::GpParams::cancellation))
+    fn cancellation(&mut self, cancellation: Cancellation);
     /// Train the surrogate
     fn train(&self, x: &ArrayView2<f64>, y: &ArrayView2<f64>) -> Result<Box<dyn FullGpSurrogate>>;
 }
@@ -165,8 +172,16 @@ macro_rules! declare_surrogate {
                     self.0 = self.0.clone().nugget(nugget);
                 }
 
+                fn cancellation(&mut self, cancellation: Cancellation) {
+                    self.0 = self.0.clone().cancellation(cancellation);
+                }
+
                 fn noise_ratio(&mut self, noise_ratio: ParamTuning<f64>) {
                     self.0 = self.0.clone().noise_ratio(noise_ratio);
+                }
+
+                fn theta_optimizer(&mut self, theta_optimizer: ThetaOptimizer) {
+                    self.0 = self.0.clone().theta_optimizer(theta_optimizer);
                 }
 
                 fn train(
@@ -330,6 +345,10 @@ macro_rules! declare_sgp_surrogate {
 
                 fn nugget(&mut self, nugget: f64) {
                     self.0 = self.0.clone().nugget(nugget);
+                }
+
+                fn cancellation(&mut self, cancellation: Cancellation) {
+                    self.0 = self.0.clone().cancellation(cancellation);
                 }
 
                 fn train(
@@ -512,11 +531,8 @@ mod tests {
     use super::*;
     use approx::assert_abs_diff_eq;
     use egobox_doe::{Lhs, SamplingMethod};
-    #[cfg(not(feature = "blas"))]
     use linfa_linalg::norm::*;
     use ndarray::array;
-    #[cfg(feature = "blas")]
-    use ndarray_linalg::Norm;
     use ndarray_stats::DeviationExt;
 
     fn xsinx(x: &Array2<f64>) -> Array1<f64> {

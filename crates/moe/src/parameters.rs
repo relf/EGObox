@@ -2,13 +2,13 @@ use crate::errors::{MoeError, Result};
 use crate::gaussian_mixture::GaussianMixture;
 use crate::types::*;
 
-use egobox_gp::GP_COBYLA_MAX_EVAL;
 #[allow(unused_imports)]
 use egobox_gp::correlation_models::{
     AbsoluteExponentialCorr, Matern32Corr, Matern52Corr, SquaredExponentialCorr,
 };
 #[allow(unused_imports)]
 use egobox_gp::mean_models::{ConstantMean, LinearMean, QuadraticMean};
+use egobox_gp::{Cancellation, GP_OPTIM_MAX_EVAL};
 use linfa::{Float, ParamGuard};
 use linfa_clustering::GaussianMixtureModel;
 use ndarray::{Array1, Array2, Array3};
@@ -17,7 +17,7 @@ use rand_xoshiro::Xoshiro256Plus;
 
 use serde::{Deserialize, Serialize};
 
-pub use egobox_gp::{Inducings, ParamTuning, SparseMethod, ThetaTuning};
+pub use egobox_gp::{Inducings, ParamTuning, SparseMethod, ThetaOptimizer, ThetaTuning};
 
 /// Number of clusters specification
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -130,12 +130,19 @@ pub struct GpMixtureValidParams<F: Float> {
     /// Noise-to-signal ratio tuning of full GP experts (no noise by default)
     #[serde(default = "no_noise_ratio")]
     noise_ratio: ParamTuning<F>,
+    /// Optimizer of the hyperparameters of full GP experts
+    /// (COBYLA by default, also for models saved without it)
+    #[serde(default)]
+    theta_optimizer: ThetaOptimizer,
     /// Gaussian Mixture model used to cluster
     gmm: Option<GaussianMixtureModel<F>>,
     /// GaussianMixture preset
     gmx: Option<GaussianMixture<F>>,
     /// Random number generator
     rng: Xoshiro256Plus,
+    /// Request to stop the training early (run-time hook, not serialized)
+    #[serde(skip)]
+    cancellation: Cancellation,
 }
 
 impl<F: Float> Default for GpMixtureValidParams<F> {
@@ -149,11 +156,13 @@ impl<F: Float> Default for GpMixtureValidParams<F> {
             theta_tunings: vec![ThetaTuning::default()],
             kpls_dim: None,
             n_start: 10,
-            max_eval: GP_COBYLA_MAX_EVAL,
+            max_eval: GP_OPTIM_MAX_EVAL,
             noise_ratio: no_noise_ratio(),
+            theta_optimizer: ThetaOptimizer::default(),
             gmm: None,
             gmx: None,
             rng: Xoshiro256Plus::from_entropy(),
+            cancellation: Cancellation::default(),
         }
     }
 }
@@ -214,6 +223,11 @@ impl<F: Float> GpMixtureValidParams<F> {
         &self.noise_ratio
     }
 
+    /// The optimizer of the hyperparameters of full GP experts
+    pub fn theta_optimizer(&self) -> ThetaOptimizer {
+        self.theta_optimizer
+    }
+
     /// An optional gaussian mixture to be fitted to generate multivariate normal
     /// in turns used to cluster
     pub fn gmm(&self) -> Option<&GaussianMixtureModel<F>> {
@@ -228,6 +242,11 @@ impl<F: Float> GpMixtureValidParams<F> {
     /// The random generator
     pub fn rng(&self) -> Xoshiro256Plus {
         self.rng.clone()
+    }
+
+    /// The request to stop the training early
+    pub fn cancellation(&self) -> &Cancellation {
+        &self.cancellation
     }
 }
 
@@ -326,6 +345,22 @@ impl<F: Float> GpMixtureParams<F> {
     /// Not used by sparse GP experts which handle their own noise variance.
     pub fn noise_ratio(mut self, noise_ratio: ParamTuning<F>) -> Self {
         self.0.noise_ratio = noise_ratio;
+        self
+    }
+
+    /// Sets the optimizer of the hyperparameters of full GP experts
+    /// (see [GpParams::theta_optimizer](egobox_gp::GpParams::theta_optimizer)).
+    /// Not used by sparse GP experts which are trained with COBYLA.
+    pub fn theta_optimizer(mut self, theta_optimizer: ThetaOptimizer) -> Self {
+        self.0.theta_optimizer = theta_optimizer;
+        self
+    }
+
+    /// Sets a request to stop the training early: once cancelled, the experts training
+    /// stops and fails with [`GpError::Interrupted`](egobox_gp::GpError::Interrupted)
+    /// (wrapped in [`MoeError::GpError`](crate::MoeError::GpError))
+    pub fn cancellation(mut self, cancellation: Cancellation) -> Self {
+        self.0.cancellation = cancellation;
         self
     }
 

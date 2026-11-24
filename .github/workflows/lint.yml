@@ -14,37 +14,28 @@ jobs:
       matrix:
         toolchain:
           - stable
-        features: [default, c-optim]
     steps:
       - name: Checkout sources
         uses: actions/checkout@v6
 
       - name: Install toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@master
         with:
-          profile: minimal
           toolchain: ${{ matrix.toolchain }}
-          override: true
           components: rustfmt, clippy
 
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.features }}
+          key: default
           # pull requests restore master caches but do not save their own
           save-if: ${{ github.ref == 'refs/heads/master' }}
 
       - name: Run cargo fmt
-        uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
+        run: cargo fmt --all -- --check
 
       - name: Run cargo clippy
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: --all-targets ${{ matrix.features == 'c-optim' && '--features c-cobyla,c-slsqp' || '' }} -- -D warnings
+        run: cargo clippy --all-targets -- -D warnings
 
   semver:
     name: semver-checks
@@ -56,9 +47,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Check published crates API against the base branch
+      # Baseline: last published versions on crates.io, so that breaking changes
+      # accumulated in an unreleased version (already bumped) are accepted
+      - name: Check crates API against the last published versions
         uses: obi1kenobi/cargo-semver-checks-action@v2
         with:
           package: egobox-doe,egobox-gp,egobox-moe,egobox-ego,egobox-gpx
-          baseline-rev: ${{ github.event.pull_request.base.sha }}
           feature-group: default-features

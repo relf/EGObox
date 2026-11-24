@@ -6,23 +6,76 @@ use crate::{GpMixture, MixintGpMixture, MixtureGpSurrogate};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::fs;
-use std::io::Write;
-use std::path::Path;
+use std::io::{BufWriter, Write};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
-/// Encode the model in the given format (compact JSON or bincode)
+/// Write a file through a temporary file of the same directory renamed into place.
+///
+/// A process stopped while writing (e.g. killed on Ctrl-C) leaves the previous file if any,
+/// never a truncated one. The temporary file is removed when `write` fails. This protects from
+/// process termination, not from a system crash (no `fsync`).
+///
+/// # Errors
+///
+/// The error returned by `write`, or an I/O error creating, writing or renaming the file
+/// (e.g. when its directory does not exist).
+pub fn write_atomically<P, E>(
+    path: P,
+    write: impl FnOnce(&mut BufWriter<fs::File>) -> std::result::Result<(), E>,
+) -> std::result::Result<(), E>
+where
+    P: AsRef<Path>,
+    E: From<std::io::Error>,
+{
+    let path = path.as_ref();
+    let temporary = temporary_sibling(path)?;
+    let result = fs::File::create(&temporary)
+        .map_err(E::from)
+        .and_then(|file| {
+            let mut writer = BufWriter::new(file);
+            write(&mut writer)?;
+            writer.into_inner().map_err(|e| E::from(e.into_error()))?;
+            fs::rename(&temporary, path).map_err(E::from)
+        });
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
+}
+
+/// Hidden temporary file next to `path`, unique within the process and among processes
+fn temporary_sibling(path: &Path) -> std::io::Result<PathBuf> {
+    static COUNT: AtomicU64 = AtomicU64::new(0);
+    let name = path.file_name().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("not a file path: {path:?}"),
+        )
+    })?;
+    let mut temporary = std::ffi::OsString::from(".");
+    temporary.push(name);
+    temporary.push(format!(
+        ".{}.{}.tmp",
+        std::process::id(),
+        COUNT.fetch_add(1, Ordering::Relaxed)
+    ));
+    Ok(path.with_file_name(temporary))
+}
+
+/// Encode the model in the given format (compact JSON or postcard)
 fn encode<T: Serialize + ?Sized>(model: &T, format: GpFileFormat) -> Result<Vec<u8>> {
     match format {
         GpFileFormat::Json => serde_json::to_vec(model).map_err(MoeError::SaveJsonError),
-        GpFileFormat::Binary => bincode::serde::encode_to_vec(model, bincode::config::standard())
-            .map_err(MoeError::SaveBinaryError),
+        GpFileFormat::Binary => postcard::to_allocvec(model).map_err(MoeError::SaveBinaryError),
     }
 }
 
-/// Write the bytes in a file created (or truncated) beforehand
+/// Write the encoded bytes in the file (see [write_atomically]), encoded beforehand
+/// so that an encoding error leaves the file untouched
 fn write_file<P: AsRef<Path>>(path: P, encode: impl FnOnce() -> Result<Vec<u8>>) -> Result<()> {
-    let mut file = fs::File::create(path)?;
-    file.write_all(&encode()?)?;
-    Ok(())
+    let bytes = encode()?;
+    write_atomically(path, |file| file.write_all(&bytes).map_err(MoeError::from))
 }
 
 /// Save the model in the given file
@@ -43,11 +96,7 @@ pub(crate) fn read_model<T: DeserializeOwned>(path: &str, format: GpFileFormat) 
         GpFileFormat::Json => serde_json::from_slice(&data).map_err(|err| {
             MoeError::LoadError(format!("Error while loading from {path}: ({err})"))
         }),
-        GpFileFormat::Binary => {
-            bincode::serde::decode_from_slice(&data, bincode::config::standard())
-                .map(|(model, _)| model)
-                .map_err(MoeError::LoadBinaryError)
-        }
+        GpFileFormat::Binary => postcard::from_bytes(&data).map_err(MoeError::LoadBinaryError),
     }
 }
 
@@ -65,12 +114,12 @@ pub fn save_models<P: AsRef<Path>>(
     })
 }
 
-/// Decode `data` as a `T` with bincode, all bytes being used: a saved
+/// Decode `data` as a `T` with postcard, all bytes being used: a saved
 /// [MixintGpMixture] must not be decoded as its leading [GpMixture] field
 fn decode_binary<T: DeserializeOwned>(data: &[u8]) -> Option<T> {
-    bincode::serde::decode_from_slice(data, bincode::config::standard())
+    postcard::take_from_bytes(data)
         .ok()
-        .filter(|(_, read)| *read == data.len())
+        .filter(|(_, rest)| rest.is_empty())
         .map(|(model, _)| model)
 }
 
@@ -226,17 +275,14 @@ mod tests {
     }
 
     #[test]
-    fn test_save_models_binary_is_bincode_vector() {
-        // same bytes as the vector encoding used so far by Egor and gpx
+    fn test_save_models_binary_is_postcard_vector() {
+        // the binary file of Egor and gpx is the postcard encoding of the vector of models
         let models: Vec<Box<dyn MixtureGpSurrogate>> = vec![Box::new(gp_mixture())];
         let path = tmp_path("bytes.bin");
         save_models(&path, &models, GpFileFormat::Binary).unwrap();
         let bytes = fs::read(&path);
         let _ = fs::remove_file(&path);
-        assert_eq!(
-            bytes.unwrap(),
-            bincode::serde::encode_to_vec(&models, bincode::config::standard()).unwrap()
-        );
+        assert_eq!(bytes.unwrap(), postcard::to_allocvec(&models).unwrap());
     }
 
     #[test]
@@ -251,5 +297,30 @@ mod tests {
             Err(MoeError::LoadIoError(_))
         ));
         assert!(save_models(tmp_path("missing_dir/gp.bin"), &[], GpFileFormat::Binary).is_err());
+    }
+
+    #[test]
+    fn test_write_atomically() {
+        let dir = std::path::PathBuf::from(tmp_path(&format!("atomic_{}", std::process::id())));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("out.txt");
+        fs::write(&path, b"old").unwrap();
+        write_atomically(&path, |file| file.write_all(b"new")).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"new");
+
+        // stopped while writing: the previous file is kept, no temporary file is left
+        let res: std::io::Result<()> = write_atomically(&path, |file| {
+            file.write_all(b"partial")?;
+            Err(std::io::Error::other("stopped"))
+        });
+        assert!(res.is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"new");
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
+
+        // a model encoding error leaves the file untouched
+        let res = write_file(&path, || Err(MoeError::InvalidValueError("encode".into())));
+        assert!(res.is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"new");
+        fs::remove_dir_all(dir).unwrap();
     }
 }

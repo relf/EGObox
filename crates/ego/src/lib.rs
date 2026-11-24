@@ -57,9 +57,6 @@
 //! ```
 //! use ndarray::{array, Array2, ArrayView2};
 //! use linfa::ParamGuard;
-//! #[cfg(feature = "blas")]
-//! use ndarray_linalg::Norm;
-//! #[cfg(not(feature = "blas"))]
 //! use linfa_linalg::norm::*;
 //! use egobox_ego::{EgorBuilder, InfillStrategy, XType};
 //!
@@ -461,6 +458,7 @@ pub mod criteria;
 mod egor;
 mod errors;
 mod executor;
+mod signals;
 mod solver;
 mod types;
 
@@ -474,7 +472,7 @@ pub use crate::utils::{
     EGOBOX_LOG, EGOR_USE_GP_VAR_PORTFOLIO, HotStartMode, find_best_result_index,
     find_compromise_index, find_pareto_front_indices, load_gp_models,
 };
-pub use egobox_moe::{CorrelationSpec, ParamTuning, RegressionSpec};
+pub use egobox_moe::{CorrelationSpec, ParamTuning, RegressionSpec, ThetaOptimizer};
 
 mod moo;
 mod optimizers;

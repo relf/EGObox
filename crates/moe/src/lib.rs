@@ -106,7 +106,7 @@ pub use types::*;
 pub use affined_surrogate::*;
 pub use algorithm::*;
 pub use parameters::*;
-pub use persistence::{load_models, save_models};
+pub use persistence::{load_models, save_models, write_atomically};
 pub use xtypes::*;
 
 pub use mixint::{

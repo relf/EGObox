@@ -20,9 +20,8 @@ use ndarray_rand::rand::{Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256Plus;
 use serde::{Serialize, de::DeserializeOwned};
 
-use super::egor_solver::exit_on_training_failure;
 use super::multistart::LocalLhsMultiStarter;
-use super::surrogate_set::{DataClustering, SurrogateSet};
+use super::surrogate_set::SurrogateSet;
 
 /// Overrides used to select the candidate point of a local step: the objective model
 /// (e.g. a local GP) and the solver, hence the infill criterion (e.g. posterior mean)
@@ -31,16 +30,6 @@ pub(crate) struct LocalSearch<'a, SB: SurrogateBuilder, C: CstrFn> {
     pub obj_model: Option<&'a dyn MixtureGpSurrogate>,
     /// Solver used to optimize the infill criterion instead of the current one
     pub solver: Option<&'a EgorSolver<SB, C>>,
-}
-
-impl<SB: SurrogateBuilder, C: CstrFn> LocalSearch<'_, SB, C> {
-    /// No override: global objective model and configured infill criterion
-    pub fn none() -> Self {
-        LocalSearch {
-            obj_model: None,
-            solver: None,
-        }
-    }
 }
 
 /// Indices of the data points used to train a local GP around `xbest`: the points within
@@ -83,35 +72,8 @@ where
     /// Local step where infill criterion is optimized within trust region.
     /// `models` are expected to be trained on the current state data, they
     /// are updated with the evaluated point and persisted in the returned state.
-    #[deprecated(
-        since = "0.43.0",
-        note = "internal to the EGO solver, use Egor or EgorService instead"
-    )]
-    pub fn trego_step<
-        O: CostFunction<Param = Array2<f64>, Output = Array2<f64>, Error = crate::EgoError>
-            + Constraints<C>,
-    >(
-        &mut self,
-        problem: &mut Problem<O>,
-        state: EgorState<f64>,
-        models: Vec<Box<dyn MixtureGpSurrogate>>,
-        infill_data: &InfillObjData<f64>,
-        max_dist: f64,
-        min_acceptance_distance: f64,
-    ) -> crate::errors::Result<EgorState<f64>> {
-        self.trego_step_with(
-            problem,
-            state,
-            models,
-            infill_data,
-            max_dist,
-            min_acceptance_distance,
-            LocalSearch::none(),
-        )
-    }
-
-    /// Same as [`trego_step`](Self::trego_step) where `search` gives the objective model
-    /// and the solver used to select the candidate point when they differ from the global ones.
+    /// `search` gives the objective model and the solver used to select the candidate point
+    /// when they differ from the global ones.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn trego_step_with<
         O: CostFunction<Param = Array2<f64>, Output = Array2<f64>, Error = crate::EgoError>
@@ -171,6 +133,8 @@ where
             multistarter,
             (xbest.to_owned(), ybest, cbest),
         );
+        // interrupted while optimizing: no point to evaluate, the iteration is dropped
+        self.check_interrupted()?;
 
         let mut new_state = new_state.infill_value(-infill_obj);
         info!(
@@ -253,16 +217,14 @@ where
             // (fast incremental update unless full retraining is required)
             let mut surrogates = SurrogateSet::take(&mut new_state)?;
             let point_index = state.get_iter() as usize * self.config.qei_config.batch;
-            if let Err(err) = self.refresh_models(
+            new_state = self.update_after_evaluation(
                 &mut surrogates,
-                &x_data,
-                &y_data,
+                (&x_data, &y_data),
                 &state.coego.activity,
-                DataClustering::Fixed,
+                false,
                 point_index,
-            ) {
-                new_state = exit_on_training_failure(err, new_state);
-            }
+                new_state,
+            );
             new_state = surrogates.put(new_state);
         }
 

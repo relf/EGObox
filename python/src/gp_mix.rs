@@ -7,10 +7,14 @@
 //! pip install egobox
 //! ```
 //!
-//! See the [tutorial notebook](https://github.com/relf/egobox/notebooks/Gpx_Tutorial.ipynb) for usage.
+//! See the [tutorial notebook](https://github.com/relf/EGObox/blob/master/notebooks/Gpx_Tutorial.ipynb) for usage.
 //!
-use crate::errors::{gp_file_format, input_x, moe_err, moe_file_err, output_y, training_data};
+use crate::errors::{
+    gp_file_format, input_x, interruptible_moe_err, moe_err, moe_file_err, output_y, training_data,
+};
+use crate::interrupt_flag::{InterruptFlag, interruption};
 use crate::logging::init_logger;
+use crate::sigint::SigintGuard;
 use crate::surrogate_api;
 use crate::types::*;
 use crate::{domain::parse, gp_config::GpConfig, gp_config::seeded_rng};
@@ -81,6 +85,10 @@ use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 /// theta_max_eval : int >= 0, optional
 ///     Max number of likelihood evaluations of each GP hyperparameters optimization start (default is 50).
 ///     This is an upper limit: each start gets clamp(10 * nx, 25, theta_max_eval) evaluations.
+/// theta_optimizer : ThetaOptimizer, optional
+///     Optimizer of GP hyperparameters (default is ThetaOptimizer.COBYLA):
+///     * COBYLA: gradient-free optimizer
+///     * LBFGSB: gradient-based L-BFGS-B optimizer using the analytic gradient of the likelihood.
 /// seed : int >= 0, optional
 ///     Random generator seed to allow computation reproducibility.
 ///     Unlike `Egor` where seed is given to `minimize()`, it is given here at construction.
@@ -95,7 +103,7 @@ use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 ///     A builder which can be fitted to data to get a Gpx object (a trained Gaussian processes mixture)
 ///
 #[gen_stub_pyclass]
-#[pyclass(skip_from_py_object, module = "egobox")]
+#[pyclass(module = "egobox")]
 pub(crate) struct GpMix {
     gp_config: GpConfig,
     xtypes: Option<Vec<egobox_moe::XType>>,
@@ -117,6 +125,7 @@ impl GpMix {
         theta_bounds=None,
         theta_n_start=EGO_GP_OPTIM_N_START,
         theta_max_eval=EGO_GP_OPTIM_MAX_EVAL,
+        theta_optimizer=ThetaOptimizer::Cobyla,
         seed=None,
         verbose=None,
     ))]
@@ -134,6 +143,7 @@ impl GpMix {
         theta_bounds: Option<Vec<Vec<f64>>>,
         theta_n_start: usize,
         theta_max_eval: usize,
+        theta_optimizer: ThetaOptimizer,
         seed: Option<u64>,
         #[gen_stub(override_type(type_repr = "Verbose | builtins.int | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
         verbose: Option<Py<PyAny>>,
@@ -154,6 +164,7 @@ impl GpMix {
                 theta_bounds,
                 theta_n_start,
                 theta_max_eval,
+                theta_optimizer,
             ),
             xtypes,
             seed,
@@ -169,17 +180,28 @@ impl GpMix {
     ///     by its category index, as returned by `egx.lhs(xspecs, n)`
     /// yt : array[nsamples] or array[nsamples, 1]
     ///     output samples
+    /// interrupt : InterruptFlag, optional
+    ///     the training is interrupted (Interrupted raised) once this flag is set,
+    ///     e.g. from another thread
     ///
     /// Returns
     /// -------
     /// Gpx
     ///     the fitted Gaussian process mixture
     ///
+    /// Notes
+    /// -----
+    /// Ctrl-C (KeyboardInterrupt) stops the training at once, unless called from another
+    /// thread than the main one or with a custom SIGINT handler. The training is also
+    /// interrupted when the `interrupt` flag is set, raising Interrupted.
+    ///
+    #[pyo3(signature = (xt, yt, interrupt = None))]
     fn fit(
         &mut self,
         py: Python,
         xt: PyReadonlyArrayDyn<f64>,
         yt: PyReadonlyArrayDyn<f64>,
+        interrupt: Option<Py<InterruptFlag>>,
     ) -> PyResult<Gpx> {
         self.gp_config.validate()?;
         let (xt, yt) = training_data(xt.as_array(), yt.as_array())?;
@@ -219,8 +241,14 @@ impl GpMix {
         // xt has one column per variable, enum variables given by their category index
         let mut params = MixintGpMixture::params(self.xtypes.as_deref());
         params.work_in_folded_space(true);
+        // Ctrl-C stops the training at once
+        let sigint = SigintGuard::install(py);
+        let cancellation = sigint.as_ref().map(SigintGuard::cancellation);
+        let flag = interrupt.as_ref().map(|flag| flag.get());
+        let cancellation = interruption(cancellation, flag);
         let moe = py.detach(|| {
             params
+                .cancellation(cancellation)
                 .n_clusters(n_clusters)
                 .recombination(recomb)
                 .regression_spec(self.gp_config.regression_spec())
@@ -229,17 +257,19 @@ impl GpMix {
                 .kpls_dim(self.gp_config.kpls_dim)
                 .n_start(n_start)
                 .max_eval(self.gp_config.theta_max_eval)
+                .theta_optimizer(self.gp_config.theta_optimizer.into())
                 .with_rng(rng)
                 .fit(&dataset)
         });
+        drop(sigint);
 
-        Ok(Gpx(moe.map_err(moe_err)?))
+        Ok(Gpx(moe.map_err(|e| interruptible_moe_err(py, e, flag))?))
     }
 }
 
 /// A trained Gaussian processes mixture
 #[gen_stub_pyclass]
-#[pyclass(skip_from_py_object, module = "egobox")]
+#[pyclass(module = "egobox")]
 pub(crate) struct Gpx(MixintGpMixture);
 
 #[gen_stub_pymethods]
@@ -260,6 +290,7 @@ impl Gpx {
         theta_bounds=GpConfig::default().theta_bounds,
         theta_n_start=GpConfig::default().theta_n_start,
         theta_max_eval=GpConfig::default().theta_max_eval,
+        theta_optimizer=GpConfig::default().theta_optimizer,
         seed=None,
         verbose=None,
     ))]
@@ -277,6 +308,7 @@ impl Gpx {
         theta_bounds: Option<Vec<Vec<f64>>>,
         theta_n_start: usize,
         theta_max_eval: usize,
+        theta_optimizer: ThetaOptimizer,
         seed: Option<u64>,
         #[gen_stub(override_type(type_repr = "Verbose | builtins.int | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
         verbose: Option<Py<PyAny>>,
@@ -293,6 +325,7 @@ impl Gpx {
             theta_bounds,
             theta_n_start,
             theta_max_eval,
+            theta_optimizer,
             seed,
             verbose,
         )

@@ -2,7 +2,7 @@
 //!
 //! Each scenario runs a seeded optimization and compares the resulting `[x_doe, y_doe]`
 //! against a `.npy` fixture stored in `tests/snapshots/<os>-<backend>/`.
-//! Floating point results differ across OS and optimizer/linear algebra backends,
+//! Floating point results differ across OS and linear algebra backends,
 //! hence fixtures are recorded per platform: a scenario without fixture for the current
 //! platform is skipped, unless `EGOBOX_REQUIRE_SNAPSHOTS=1` is set (reference CI job).
 //! Even on a given platform, math library code paths depend on the CPU, so values are
@@ -26,20 +26,10 @@ pub const SNAPSHOT_ABS_TOL: f64 = 1e-8;
 pub const SNAPSHOT_REL_TOL: f64 = 1e-6;
 
 pub fn snapshot_dir() -> PathBuf {
-    let mut backend = vec![];
-    if cfg!(feature = "c-cobyla") {
-        backend.push("c-cobyla");
-    }
-    if cfg!(feature = "c-slsqp") {
-        backend.push("c-slsqp");
-    }
-    if cfg!(feature = "blas") {
-        backend.push("blas");
-    }
-    let backend = if backend.is_empty() {
-        "default".to_string()
+    let backend = if cfg!(feature = "blas") {
+        "blas"
     } else {
-        backend.join("+")
+        "default"
     };
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests")

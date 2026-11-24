@@ -8,27 +8,46 @@
 //! pip install egobox
 //! ```
 //!
-//! See the [tutorial notebook](https://github.com/relf/egobox/notebooks/Egor_Tutorial.ipynb) for usage.
+//! See the [tutorial notebook](https://github.com/relf/EGObox/blob/master/notebooks/Egor_Tutorial.ipynb) for usage.
 //!
 
 use crate::domain::*;
-use crate::errors::{CallbackError, ego_err, install_panic_hook};
+use crate::errors::{
+    CallbackError, Interruption, ego_err, install_panic_hook, interruptible_ego_err,
+};
 use crate::gp_config::*;
+use crate::interrupt_flag::{InterruptFlag, interruption};
 use crate::logging::init_logger;
 use crate::qei_config::*;
+use crate::sigint::SigintGuard;
 use crate::trego_config::{TregoConfig, TregoConfigSpec};
 use crate::types::*;
 
-use egobox_ego::{CoegoStatus, EGO_DEFAULT_N_START, InfillObjData, find_best_result_index};
+use egobox_ego::{
+    CoegoStatus, EGO_DEFAULT_N_START, EgoError, InfillObjData, find_best_result_index,
+};
 use egobox_moe::to_continuous_space;
 use ndarray::{Array1, Array2, ArrayView2, Axis, concatenate};
 use numpy::{IntoPyArray, PyArray2, PyReadonlyArray2, PyReadonlyArrayDyn, ToPyArray};
-use pyo3::exceptions::{PyKeyboardInterrupt, PyTypeError, PyValueError};
+use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyTuple};
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
+
+/// Objective function given by a closure returning optimizer errors as is,
+/// so that it can return [`EgoError::Interrupted`] (a closure error is an objective error)
+#[derive(Clone)]
+struct ObjectiveFn<F>(F);
+
+impl<F> egobox_ego::ObjFn for ObjectiveFn<F>
+where
+    F: Fn(&ArrayView2<f64>) -> egobox_ego::Result<Array2<f64>> + Clone,
+{
+    fn eval(&self, x: &ArrayView2<f64>) -> egobox_ego::Result<Array2<f64>> {
+        (self.0)(x)
+    }
+}
 
 fn parse_trego_config(py: Python, value: Py<PyAny>) -> PyResult<TregoConfigSpec> {
     let value = value.bind(py);
@@ -123,7 +142,9 @@ fn parse_run_info(py: Python, value: Py<PyAny>) -> PyResult<RunInfo> {
 ///     See QEiConfig for details.
 /// infill_optimizer : InfillOptimizer
 ///     Internal optimizer used to optimize infill criteria.
-///     Can be either InfillOptimizer.COBYLA (default) or InfillOptimizer.SLSQP
+///     Can be either InfillOptimizer.COBYLA (default), InfillOptimizer.SLSQP or InfillOptimizer.LBFGSB.
+///     LBFGSB handles bound constraints only: with constraints, it requires `cstr_infill=True`.
+///     It is not compatible with function constraints (`fcstrs`) nor with FailsafeStrategy.VIABILITY.
 /// trego : TregoConfig, bool or dict, optional
 ///     TREGO configuration to activate TREGO strategy for global optimization.
 ///     When True activate TREGO with default configuration.
@@ -163,7 +184,7 @@ fn parse_run_info(py: Python, value: Py<PyAny>) -> PyResult<RunInfo> {
 ///     An optimizer which can be used to optimize a function using the minimize method.
 ///
 #[gen_stub_pyclass]
-#[pyclass(skip_from_py_object, module = "egobox")]
+#[pyclass(module = "egobox")]
 pub(crate) struct Egor {
     pub xtypes: Vec<egobox_moe::XType>,
     pub gp_config: GpConfig,
@@ -363,6 +384,10 @@ impl Egor {
     /// stop_on_error : bool
     ///     If true, terminate optimization when the objective function raises an error.
     ///     Otherwise, the error is handled according to failsafe_strategy.
+    /// interrupt : InterruptFlag, optional
+    ///     the optimization is interrupted once this flag is set, from another thread or
+    ///     from within `fun`: the result obtained so far is returned with
+    ///     status.exit == ExitStatus.INTERRUPT (see Notes).
     ///
     /// Returns
     /// -------
@@ -379,11 +404,24 @@ impl Egor {
     ///
     /// Notes
     /// -----
-    /// Ctrl-C (KeyboardInterrupt) stops the optimization after the current iteration and the
-    /// result obtained so far is returned with status.exit == ExitStatus.INTERRUPT.
-    /// An objective evaluation interrupted by Ctrl-C counts as a failed evaluation.
+    /// Ctrl-C (KeyboardInterrupt) stops the optimization and the result obtained so far is
+    /// returned with status.exit == ExitStatus.INTERRUPT, also when Ctrl-C is pressed again
+    /// meanwhile. Ctrl-C is acted on at once, also while surrogates are trained or the infill
+    /// criterion is optimized: an iteration interrupted before its point is evaluated is
+    /// dropped, and when interrupted while surrogates are updated with the evaluated point,
+    /// the update is done at the next iteration, so that a hot start goes on as if the
+    /// optimization had not been interrupted. When Ctrl-C interrupts `fun`, the current
+    /// iteration is dropped as well (not counted as a failed evaluation), and KeyboardInterrupt
+    /// is raised when there is no result yet (initial DOE evaluation). Called from another
+    /// thread than the main one, or with a custom SIGINT handler, Ctrl-C is acted on after the
+    /// current computation.
+    /// Setting the `interrupt` flag interrupts the optimization the same way, except that an
+    /// evaluation of `fun` in progress is not interrupted (`fun` may check the flag).
+    /// Other exceptions raised by signal handlers (e.g. SystemExit from sys.exit()) stop the
+    /// optimization the same way, then are raised. Within `fun` or `fcstrs`, this applies to
+    /// exceptions which are not Exception subclasses, others being evaluation errors.
     ///
-    #[pyo3(signature = (fun, fcstrs=None, fcstr_specs=None, max_iters = 20, run_info = None, outdir = None, warm_start = false, hot_start = None, seed = None, timeout = None, verbose = None, stop_on_error = false))]
+    #[pyo3(signature = (fun, fcstrs=None, fcstr_specs=None, max_iters = 20, run_info = None, outdir = None, warm_start = false, hot_start = None, seed = None, timeout = None, verbose = None, stop_on_error = false, interrupt = None))]
     #[allow(clippy::too_many_arguments)]
     fn minimize(
         &self,
@@ -406,6 +444,7 @@ impl Egor {
         #[gen_stub(override_type(type_repr = "Verbose | builtins.int | None", imports = ("typing", "builtins", "numpy", "numpy.typing")))]
         verbose: Option<Py<PyAny>>,
         stop_on_error: bool,
+        interrupt: Option<Py<InterruptFlag>>,
     ) -> PyResult<EgorOptim> {
         let (outcome, status) = self.optimize(
             py,
@@ -422,6 +461,7 @@ impl Egor {
             verbose,
             stop_on_error,
             None,
+            interrupt.as_ref().map(|flag| flag.get()),
         )?;
         let Outcome::Single(res) = outcome else {
             unreachable!("mono-objective optimization gives a single optimum")
@@ -458,6 +498,9 @@ impl Egor {
     /// seed : int >= 0, optional
     ///     Random generator seed to allow computation reproducibility.
     ///     When None, the seed given to the constructor (if any) is used.
+    /// interrupt : InterruptFlag, optional
+    ///     the suggestion is interrupted (Interrupted raised) once this flag is set,
+    ///     e.g. from another thread
     ///
     /// Returns
     /// -------
@@ -465,15 +508,29 @@ impl Egor {
     ///     suggested locations where to evaluate objective and constraints
     ///     where batch is the qEI batch size (qei_config.batch, 1 by default)
     ///
-    #[pyo3(signature = (x_doe, y_doe, seed = None))]
+    /// Notes
+    /// -----
+    /// Ctrl-C (KeyboardInterrupt) stops the surrogate training and the infill optimization at
+    /// once, unless called from another thread than the main one or with a custom SIGINT
+    /// handler.
+    ///
+    #[pyo3(signature = (x_doe, y_doe, seed = None, interrupt = None))]
     fn suggest(
         &self,
         py: Python,
         x_doe: PyReadonlyArray2<f64>,
         y_doe: PyReadonlyArray2<f64>,
         seed: Option<u64>,
+        interrupt: Option<Py<InterruptFlag>>,
     ) -> PyResult<Py<PyArray2<f64>>> {
-        self.suggest_points(py, x_doe, y_doe, seed, None)
+        self.suggest_points(
+            py,
+            x_doe,
+            y_doe,
+            seed,
+            None,
+            interrupt.as_ref().map(|flag| flag.get()),
+        )
     }
 
     /// This function gives the best evaluation index given the outputs
@@ -736,6 +793,7 @@ impl Egor {
         verbose: Option<Py<PyAny>>,
         stop_on_error: bool,
         moo: Option<&MooSetup>,
+        flag: Option<&InterruptFlag>,
     ) -> PyResult<(Outcome, RunStatus)> {
         init_logger(
             py,
@@ -750,17 +808,10 @@ impl Egor {
         let callback_error = &callback_error;
         install_panic_hook();
 
-        // Ctrl-C is handled by Python: a KeyboardInterrupt raised within a user callback,
-        // or a SIGINT received while the optimizer runs, stops the optimization
-        // after the current iteration (see `interrupt_check` below)
-        let interrupted = Arc::new(AtomicBool::new(false));
-        let is_interrupt = |py: Python, e: &PyErr| {
-            let interrupt = e.is_instance_of::<PyKeyboardInterrupt>(py);
-            if interrupt {
-                interrupted.store(true, AtomicOrdering::Relaxed);
-            }
-            interrupt
-        };
+        // Ctrl-C and signals are handled by Python: Ctrl-C (KeyboardInterrupt) or an exception
+        // raised by a signal handler, within a user callback or while the optimizer runs (see
+        // `interrupt_check` below), stops the optimization after the current iteration
+        let interruption = Arc::new(Interruption::default());
 
         let n_obj = moo.map_or(1, |moo| moo.n_obj);
         let ny = n_obj
@@ -768,21 +819,23 @@ impl Egor {
                 .cstr_specs
                 .as_ref()
                 .map_or(self.n_cstr, |specs| specs.len());
-        let obj = |x: &ArrayView2<f64>| -> std::result::Result<Array2<f64>, String> {
+        let obj = ObjectiveFn(|x: &ArrayView2<f64>| -> egobox_ego::Result<Array2<f64>> {
             Python::attach(|py| {
                 let args = (x.to_owned().into_pyarray(py),);
                 let res = fun.bind(py).call1(args);
                 match res {
-                    // Interrupted evaluation: a failed one, the optimization stops afterwards
-                    Err(e) if is_interrupt(py, &e) => {
+                    // Interrupted evaluation: the current iteration is dropped
+                    // and the optimization stops
+                    Err(e) if Interruption::is_interruption(py, &e) => {
                         log::warn!("Objective function evaluation interrupted");
-                        Err(e.to_string())
+                        interruption.record(py, e);
+                        Err(EgoError::Interrupted)
                     }
                     // Python exception in objective function is handled by the optimizer
                     // wrt stop_on_error and failsafe_strategy options
                     Err(e) => {
                         log::error!("Error during objective function evaluation: {:?}", e);
-                        Err(e.to_string())
+                        Err(EgoError::ObjectiveFunctionError(e.to_string()))
                     }
                     // Wrong returned value is a usage error which aborts the optimization
                     Ok(res) => match extract_obj_value(&res, x.nrows(), ny, n_obj) {
@@ -791,7 +844,7 @@ impl Egor {
                     },
                 }
             })
-        };
+        });
 
         let fcstrs = fcstrs
             .unwrap_or_default()
@@ -823,7 +876,8 @@ impl Egor {
                         // the optimization stops after the current iteration
                         let call = |grad: bool| {
                             cstr.call(py, x, grad).or_else(|e| {
-                                if is_interrupt(py, &e) {
+                                if Interruption::is_interruption(py, &e) {
+                                    interruption.record(py, e);
                                     cstr.call(py, x, grad)
                                 } else {
                                     Err(e)
@@ -879,16 +933,32 @@ impl Egor {
             RunInfo::default()
         };
 
-        let interrupted_check = interrupted.clone();
+        let interrupt = interruption.clone();
+        let caller = std::thread::current().id();
+        // Ctrl-C seen at once by worker threads while the optimizer runs
+        let sigint = SigintGuard::install(py);
+        let ctrl_c = sigint
+            .as_ref()
+            .map(SigintGuard::cancellation)
+            .unwrap_or_default();
+        // set from another thread or from within the objective
+        let flag = flag.map(InterruptFlag::cancellation).unwrap_or_default();
         let mixintegor = mixintegor
             .run_info(egobox_ego::RunInfo {
                 fname: py_run_info.fname.clone(),
                 num: py_run_info.num,
             })
-            // run Python signal handlers: a pending SIGINT raises KeyboardInterrupt
+            // The check is called at iteration boundaries and between iteration phases on this
+            // thread, where Python signal handlers are run (a pending SIGINT raises
+            // KeyboardInterrupt), and often from worker threads during long computations, where
+            // only the interruption flag and the Ctrl-C hook are read (no GIL)
             .interrupt_check(move || {
-                interrupted_check.load(AtomicOrdering::Relaxed)
-                    || Python::attach(|py| py.check_signals().is_err())
+                flag.is_cancelled()
+                    || if std::thread::current().id() == caller {
+                        Python::attach(|py| interrupt.check(py))
+                    } else {
+                        interrupt.is_interrupted() || ctrl_c.is_cancelled()
+                    }
             });
 
         let pareto = moo.is_some();
@@ -901,8 +971,9 @@ impl Egor {
                 }
             }))
         });
+        drop(sigint);
         let res = match res {
-            Ok(res) => res.map_err(ego_err)?,
+            Ok(res) => interruption.finish(py, res)?,
             // The optimizer was aborted: raise the recorded callback error if any
             // (the panic payload may have been rewrapped when crossing threads)
             Err(payload) => match callback_error.take() {
@@ -928,6 +999,7 @@ impl Egor {
         y_doe: PyReadonlyArray2<f64>,
         seed: Option<u64>,
         moo: Option<&MooSetup>,
+        flag: Option<&InterruptFlag>,
     ) -> PyResult<Py<PyArray2<f64>>> {
         init_logger(py, self.verbose.as_ref().map(|v| v.clone_ref(py)));
         let seed = seed.or(self.seed);
@@ -966,7 +1038,13 @@ impl Egor {
             .min_within_mixint_space(&self.xtypes)
             .map_err(ego_err)?;
 
+        // Ctrl-C stops the surrogate training and infill optimization at once
+        let sigint = SigintGuard::install(py);
+        let check = interruption(sigint.as_ref().map(SigintGuard::cancellation), flag);
+        let mixintegor = mixintegor.interrupt_check(move || check.is_cancelled());
         let x_suggested = py.detach(|| mixintegor.suggest(&x_doe, &y_doe));
+        drop(sigint);
+        let x_suggested = x_suggested.map_err(|e| interruptible_ego_err(py, e, flag))?;
         Ok(x_suggested.to_pyarray(py).into())
     }
 
@@ -1087,6 +1165,7 @@ impl Egor {
                     .theta_tuning(self.gp_config.theta_tuning())
                     .n_start(self.gp_config.theta_n_start)
                     .max_eval(self.gp_config.theta_max_eval)
+                    .theta_optimizer(self.gp_config.theta_optimizer.into())
             })
             .infill_strategy(self.infill_strategy.into())
             .feasible_infill_strategy(self.feasible_infill_strategy.into())

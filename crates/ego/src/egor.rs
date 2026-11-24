@@ -295,7 +295,13 @@ impl<O: ObjFn, C: CstrFn> EgorFactory<O, C> {
     ) -> Result<Egor<O, C, SB>> {
         crate::utils::logging::init_logger(self.verbose);
         self.validate_fcstr_specs()?;
-        let config = self.config.xtypes(xtypes);
+        let config = self.config.xtypes(xtypes).check()?;
+        if config.infill_optimizer == InfillOptimizer::Lbfgsb && !self.fcstrs.is_empty() {
+            return Err(EgoError::InvalidConfigError(
+                "L-BFGS-B infill optimizer cannot handle function constraints, use SLSQP or COBYLA"
+                    .to_string(),
+            ));
+        }
         Ok(Egor {
             fobj: match self.fcstr_specs {
                 Some(specs) => {
@@ -303,7 +309,7 @@ impl<O: ObjFn, C: CstrFn> EgorFactory<O, C> {
                 }
                 None => ProblemFunc::new(self.fobj).subject_to(self.fcstrs),
             },
-            solver: EgorSolver::new(config.check()?),
+            solver: EgorSolver::new(config),
             run_info: self.run_info,
             interrupt_check: None,
         })
@@ -333,7 +339,7 @@ impl<O: ObjFn, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> E
             std::fs::create_dir_all(outdir)?;
             let filepath = std::path::Path::new(outdir).join(CONFIG_FILE);
             let json = serde_json::to_string(&self.solver.config)?;
-            std::fs::write(filepath, json)?;
+            crate::outputs::save_text(filepath, &json)?;
         }
 
         let state = crate::executor::run(
@@ -465,13 +471,30 @@ impl<O: ObjFn, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> E
     }
 
     /// Interrupt the optimization when the given `check` returns true,
-    /// instead of on Ctrl-C (SIGINT).
+    /// instead of on Ctrl-C and termination signals.
     ///
-    /// By default, a process-wide Ctrl-C handler is installed at the first run, and Ctrl-C
-    /// stops the optimization with [TerminationReason::Interrupt](crate::TerminationReason).
-    /// When a check is given, no handler is installed: `check` is called after each
-    /// completed iteration and the optimization stops the same way when it returns true.
-    /// This lets an embedding application (e.g. a Python interpreter) keep its own signal handling.
+    /// By default, signal handlers are installed while a run executes and the previous ones are
+    /// restored when it returns. Ctrl-C (SIGINT), SIGTERM, SIGHUP, SIGUSR1 or SIGUSR2 (Ctrl-C or
+    /// Ctrl-Break on Windows) then interrupts the optimization, and a further signal terminates
+    /// the process at once. For instance, SLURM `--signal=B:USR1@120` stops a run two minutes
+    /// before the job time limit, its hot start checkpoint being saved. A signal which already
+    /// has a handler, or is ignored (e.g. SIGHUP under `nohup`), is left alone.
+    ///
+    /// When a check is given, no handler is installed and the optimization is interrupted when
+    /// `check` returns true. This lets an embedding application (e.g. a Python interpreter) keep
+    /// its own signal handling. `check` is called after initialization and after each iteration,
+    /// and also often during long computations (surrogate training, infill optimization),
+    /// possibly from several threads at once: it has to be cheap and thread-safe, typically a
+    /// load of an atomic flag, and to keep returning true once it did.
+    ///
+    /// The optimization stops with [TerminationReason::Interrupt](crate::TerminationReason)
+    /// and the result of the last completed iteration:
+    /// * interrupted before the evaluation of the new point(s) (training, infill optimization),
+    ///   the current iteration is dropped;
+    /// * interrupted while updating the models with the evaluated point(s), the iteration is
+    ///   completed but the update is deferred (see [`PendingUpdate`](crate::PendingUpdate)).
+    ///
+    /// In both cases, a hot start goes on exactly as if the optimization had not been interrupted.
     pub fn interrupt_check(mut self, check: impl Fn() -> bool + Send + Sync + 'static) -> Self {
         self.interrupt_check = Some(std::sync::Arc::new(check));
         self
@@ -499,11 +522,7 @@ mod tests {
     use crate::{CoegoStatus, DOE_FILE, DOE_INITIAL_FILE, HISTORY_FILE, OBJECTIVE_FUNCTION_ERROR};
     use egobox_moe::{CorrelationSpec, RegressionSpec};
 
-    #[cfg(not(feature = "blas"))]
     use linfa_linalg::norm::*;
-
-    #[cfg(feature = "blas")]
-    use ndarray_linalg::Norm;
 
     use std::path::PathBuf;
 
@@ -560,6 +579,9 @@ mod tests {
         }
         fn set_noise_ratio(&mut self, noise_ratio: egobox_gp::ParamTuning<f64>) {
             self.0.set_noise_ratio(noise_ratio)
+        }
+        fn set_theta_optimizer(&mut self, theta_optimizer: egobox_gp::ThetaOptimizer) {
+            self.0.set_theta_optimizer(theta_optimizer)
         }
         fn set_rng(&mut self, rng: Xoshiro256Plus) {
             self.0.set_rng(rng)
@@ -839,6 +861,145 @@ mod tests {
             .configure(|cfg| cfg.configure_trego(|trego| trego.beta_uncertain(0.5)))
             .min_within(&array![[0.0, 25.0]]);
         assert!(matches!(res, Err(crate::EgoError::InvalidConfigError(_))));
+    }
+
+    /// Values of the `theta_optimizer` fields of the GP models saved in `outdir`
+    /// (mixture and expert parameters)
+    fn saved_theta_optimizers(outdir: &str) -> Vec<String> {
+        fn collect(value: &serde_json::Value, found: &mut Vec<String>) {
+            match value {
+                serde_json::Value::Object(map) => {
+                    for (key, v) in map {
+                        if key == "theta_optimizer" {
+                            found.push(v.as_str().unwrap_or_default().to_string());
+                        }
+                        collect(v, found);
+                    }
+                }
+                serde_json::Value::Array(values) => values.iter().for_each(|v| collect(v, found)),
+                _ => (),
+            }
+        }
+        let models =
+            crate::load_gp_models(std::path::Path::new(outdir).join(crate::EGOR_GP_FILENAME))
+                .expect("GP models saved");
+        let mut found = vec![];
+        for model in models.iter() {
+            collect(&serde_json::to_value(model).unwrap(), &mut found);
+        }
+        found
+    }
+
+    #[test]
+    #[serial]
+    fn test_xsinx_with_lbfgsb_theta_optimizer() {
+        let outdir = "target/test_xsinx_lbfgsb_theta_optimizer";
+        let _ = std::fs::remove_dir_all(outdir);
+        let initial_doe = array![[0.], [7.], [25.]];
+        let res = EgorBuilder::optimize(xsinx)
+            .configure(|cfg| {
+                cfg.configure_gp(|gp| gp.theta_optimizer(crate::ThetaOptimizer::Lbfgsb))
+                    .max_iters(20)
+                    .doe(&initial_doe)
+                    .outdir(outdir)
+                    .seed(42)
+            })
+            .min_within(&array![[0.0, 25.0]])
+            .expect("Egor should be configured")
+            .run()
+            .expect("Egor should minimize xsinx");
+        println!("x_opt={} y_opt={}", res.x_opt, res.y_opt);
+        assert_abs_diff_eq!(array![18.9], res.x_opt, epsilon = 1e-1);
+
+        // the saved GP models record the hyperparameters optimizer they were trained with
+        let found = saved_theta_optimizers(outdir);
+        assert!(
+            !found.is_empty() && found.iter().all(|v| v == "Lbfgsb"),
+            "{found:?}"
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn test_hot_start_keeps_saved_configuration() {
+        let outdir = "target/test_hot_start_saved_configuration";
+        let _ = std::fs::remove_dir_all(outdir);
+        let xlimits = array![[0.0, 25.0]];
+        EgorBuilder::optimize(xsinx)
+            .configure(|cfg| {
+                cfg.configure_gp(|gp| gp.theta_optimizer(crate::ThetaOptimizer::Lbfgsb))
+                    .feasibility_first(true)
+                    .max_iters(2)
+                    .hot_start(crate::HotStartMode::Enabled)
+                    .outdir(outdir)
+                    .seed(42)
+            })
+            .min_within(&xlimits)
+            .unwrap()
+            .run()
+            .unwrap();
+        // models written from now on are trained after resuming
+        std::fs::remove_file(std::path::Path::new(outdir).join(crate::EGOR_GP_FILENAME)).unwrap();
+
+        // resumed with a default configuration: the checkpointed one is kept
+        EgorBuilder::optimize(xsinx)
+            .configure(|cfg| {
+                cfg.max_iters(2)
+                    .hot_start(crate::HotStartMode::ExtendedIters(1))
+                    .outdir(outdir)
+                    .seed(42)
+            })
+            .min_within(&xlimits)
+            .unwrap()
+            .run()
+            .unwrap();
+        let checkpoint: basin::ExactCheckpoint<
+            crate::EgorSolver<GpMixtureParams<f64>>,
+            crate::executor::BasinState,
+        > = basin::read_exact_checkpoint(std::path::Path::new(outdir).join(crate::CHECKPOINT_FILE))
+            .unwrap();
+        let config = &checkpoint.solver().config;
+        assert_eq!(config.gp.theta_optimizer, crate::ThetaOptimizer::Lbfgsb);
+        assert!(config.feasibility_first);
+        let found = saved_theta_optimizers(outdir);
+        assert!(
+            !found.is_empty() && found.iter().all(|v| v == "Lbfgsb"),
+            "{found:?}"
+        );
+    }
+
+    #[test]
+    fn test_gp_config_theta_optimizer_serialization() {
+        let gp_config = crate::GpConfig::default().theta_optimizer(crate::ThetaOptimizer::Lbfgsb);
+        let mut value = serde_json::to_value(&gp_config).unwrap();
+        assert_eq!(value["theta_optimizer"], "Lbfgsb");
+        let loaded: crate::GpConfig = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(loaded.theta_optimizer, crate::ThetaOptimizer::Lbfgsb);
+
+        // configurations saved before theta optimizer introduction load with COBYLA
+        value.as_object_mut().unwrap().remove("theta_optimizer");
+        let loaded: crate::GpConfig = serde_json::from_value(value).unwrap();
+        assert_eq!(loaded.theta_optimizer, crate::ThetaOptimizer::Cobyla);
+    }
+
+    #[test]
+    fn test_egor_config_feasibility_first_serialization() {
+        let config = crate::EgorConfig::default().feasibility_first(true);
+        let mut value = serde_json::to_value(&config).unwrap();
+        assert_eq!(value["feasibility_first"], true);
+        let loaded: crate::EgorConfig = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(
+            serde_json::to_value(&loaded).unwrap()["feasibility_first"],
+            true
+        );
+
+        // configurations saved before feasibility_first introduction load with false
+        value.as_object_mut().unwrap().remove("feasibility_first");
+        let loaded: crate::EgorConfig = serde_json::from_value(value).unwrap();
+        assert_eq!(
+            serde_json::to_value(&loaded).unwrap()["feasibility_first"],
+            false
+        );
     }
 
     #[test]
@@ -1677,6 +1838,128 @@ mod tests {
             .subject_to_with_specs(vec![c1, c2], vec![CstrSpec::Leq(0.0)])
             .min_within(&xlimits);
 
+        assert!(matches!(res, Err(EgoError::InvalidConfigError(_))));
+    }
+
+    #[test]
+    #[serial]
+    fn test_egor_g24_cstr_infill_lbfgsb() {
+        let xlimits = array![[0., 3.], [0., 4.]];
+        let tol = 1e-3;
+        let res = EgorBuilder::optimize(f_g24)
+            .configure(|config| {
+                config
+                    .n_cstr(2)
+                    .cstr_tol(array![tol, tol])
+                    .cstr_infill(true)
+                    .infill_optimizer(InfillOptimizer::Lbfgsb)
+                    .n_doe(5)
+                    .max_iters(30)
+                    .seed(42)
+            })
+            .min_within(&xlimits)
+            .expect("Egor configured")
+            .run()
+            .expect("Minimize failure");
+        println!("G24 cstr_infill L-BFGS-B result = {res:?}");
+        assert!(res.y_opt[0] < -5.0, "{}", res.y_opt);
+        assert!(res.y_opt.iter().skip(1).all(|c| *c <= tol), "{}", res.y_opt);
+    }
+
+    #[test]
+    #[serial]
+    fn test_xsinx_lbfgsb_infill_optimizer() {
+        // Without constraints the constrained infill criterion is not required
+        let res = EgorBuilder::optimize(xsinx)
+            .configure(|config| {
+                config
+                    .infill_optimizer(InfillOptimizer::Lbfgsb)
+                    .doe(&array![[0.], [7.], [25.]])
+                    .max_iters(20)
+                    .seed(42)
+            })
+            .min_within(&array![[0.0, 25.0]])
+            .expect("Egor configured")
+            .run()
+            .expect("Minimize failure");
+        println!("x_opt={} y_opt={}", res.x_opt, res.y_opt);
+        assert_abs_diff_eq!(array![18.9], res.x_opt, epsilon = 1e-1);
+    }
+
+    #[test]
+    #[serial]
+    fn test_egor_g24_cstr_infill_lbfgsb_trego_local_mean() {
+        // The local posterior mean search handles the constraint surrogates
+        // as optimizer constraints, hence uses SLSQP instead of L-BFGS-B
+        let res = EgorBuilder::optimize(f_g24)
+            .configure(|config| {
+                config
+                    .n_cstr(2)
+                    .cstr_infill(true)
+                    .infill_optimizer(InfillOptimizer::Lbfgsb)
+                    .configure_trego(|trego| trego.local_mean(true))
+                    .n_doe(5)
+                    .max_iters(10)
+                    .seed(42)
+            })
+            .min_within(&array![[0., 3.], [0., 4.]])
+            .expect("Egor configured")
+            .run()
+            .expect("Minimize failure");
+        assert!(res.y_opt[0].is_finite(), "{}", res.y_opt);
+    }
+
+    #[test]
+    #[serial]
+    fn test_lbfgsb_infill_optimizer_invalid_configs() {
+        let xlimits = array![[0., 3.], [0., 4.]];
+        let lbfgsb =
+            |config: EgorConfig| config.n_cstr(2).infill_optimizer(InfillOptimizer::Lbfgsb);
+        // with constraints, valid with the constrained infill criterion only
+        assert!(
+            lbfgsb(EgorConfig::default())
+                .cstr_infill(true)
+                .check()
+                .is_ok()
+        );
+        assert!(matches!(
+            lbfgsb(EgorConfig::default()).check(),
+            Err(EgoError::InvalidConfigError(_))
+        ));
+        assert!(matches!(
+            EgorConfig::default()
+                .cstr_specs(vec![CstrSpec::Leq(0.)])
+                .infill_optimizer(InfillOptimizer::Lbfgsb)
+                .check(),
+            Err(EgoError::InvalidConfigError(_))
+        ));
+        // without constraints, valid without the constrained infill criterion
+        assert!(
+            EgorConfig::default()
+                .infill_optimizer(InfillOptimizer::Lbfgsb)
+                .check()
+                .is_ok()
+        );
+        // no viability constraint
+        assert!(matches!(
+            lbfgsb(EgorConfig::default())
+                .cstr_infill(true)
+                .failsafe_strategy(FailsafeStrategy::Viability)
+                .check(),
+            Err(EgoError::InvalidConfigError(_))
+        ));
+        // no function constraints
+        let c1 = |x: &[f64], _g: Option<&mut [f64]>, _u: &mut InfillObjData<f64>| {
+            g24_c1(&Array1::from_vec(x.to_vec()))
+        };
+        let res = EgorBuilder::optimize(f_g24_bare)
+            .subject_to(vec![c1])
+            .configure(|config| {
+                config
+                    .cstr_infill(true)
+                    .infill_optimizer(InfillOptimizer::Lbfgsb)
+            })
+            .min_within(&xlimits);
         assert!(matches!(res, Err(EgoError::InvalidConfigError(_))));
     }
 

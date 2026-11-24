@@ -5,6 +5,20 @@ use crate::EgorState;
 /// A result type for EGO errors
 pub type Result<T> = std::result::Result<T, EgoError>;
 
+impl EgoError {
+    /// Whether the error is an interruption of the optimization: [`EgoError::Interrupted`]
+    /// or an interrupted surrogate training ([`egobox_gp::GpError::Interrupted`])
+    pub fn is_interruption(&self) -> bool {
+        use egobox_gp::GpError;
+        matches!(
+            self,
+            EgoError::Interrupted
+                | EgoError::GpError(GpError::Interrupted)
+                | EgoError::MoeError(egobox_moe::MoeError::GpError(GpError::Interrupted))
+        )
+    }
+}
+
 /// An error for efficient global optimization algorithm
 #[derive(Error, Debug)]
 pub enum EgoError {
@@ -17,6 +31,13 @@ pub enum EgoError {
     /// When the objective function fails and optimization is configured to stop
     #[error("Objective function error: {0}")]
     ObjectiveFunctionError(String),
+    /// When the optimization is interrupted: returned by an [`ObjFn`](crate::ObjFn) implementation,
+    /// it stops the optimization cleanly. The unfinished iteration is dropped (not saved in a hot
+    /// start checkpoint, so that it is done again when resuming) and the result is the last
+    /// completed iteration with [`TerminationReason::Interrupt`](crate::TerminationReason).
+    /// Returned while the initial DOE is evaluated, the optimization fails with this error.
+    #[error("Optimization interrupted")]
+    Interrupted,
     /// When an invalid value is encountered
     #[error("Value error: {0}")]
     InvalidValue(String),
@@ -43,10 +64,10 @@ pub enum EgoError {
     NoMorePointToAddError(Box<EgorState<f64>>),
     /// When error during saving
     #[error("Save error: {0}")]
-    SaveBinaryError(#[from] bincode::error::EncodeError),
+    SaveBinaryError(postcard::Error),
     /// When error during loading
     #[error("Load error: {0}")]
-    LoadBinaryError(#[from] bincode::error::DecodeError),
+    LoadBinaryError(postcard::Error),
     /// When error during saving
     #[error("Save error: {0}")]
     JsonError(#[from] serde_json::Error),
