@@ -6,8 +6,10 @@ use ndarray::Array1;
 /// [`ThetaTuning::DEFAULT_BOUNDS`] when the tuning has none.
 ///
 /// The bounds do not depend on the dimension of the problem: dimension-dependent
-/// default bounds did not improve optimization results compared to the default ones,
-/// see <https://github.com/relf/EGObox/pull/560> and <https://github.com/relf/EGObox/pull/562>.
+/// default bounds did not improve optimization results up to 20D, see
+/// <https://github.com/relf/EGObox/pull/560>, <https://github.com/relf/EGObox/pull/562>
+/// and <https://github.com/relf/EGObox/pull/563>. With about 100 inputs or more, a higher
+/// lower bound such as `2e-2` may help.
 pub fn theta_bounds(tuning: &ThetaTuning<f64>) -> Array1<(f64, f64)> {
     tuning
         .bounds()
