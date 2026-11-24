@@ -8,7 +8,7 @@ It is a Rust port of some kriging algorithms of the [SMT](https://smt.readthedoc
 
 ## The big picture
 
-`egobox-gp` is a library crate in the top-level package [egobox](https://github.com/relf/egobox).
+`egobox-gp` is a library crate in the top-level package [egobox](https://github.com/relf/EGObox).
 
 ## Current state
 

@@ -7,7 +7,7 @@
 //! pip install egobox
 //! ```
 //!
-//! See the [tutorial notebook](https://github.com/relf/egobox/notebooks/Sgp_Tutorial.ipynb) for usage.
+//! See the [tutorial notebook](https://github.com/relf/EGObox/blob/master/notebooks/SparseGpx_Tutorial.ipynb) for usage.
 //!
 use crate::errors::{gp_file_format, interruptible_moe_err, moe_file_err, training_data};
 use crate::gp_config::{seeded_rng, theta_tuning, validate_corr_spec, validate_theta};

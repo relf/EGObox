@@ -71,7 +71,7 @@ plt.show()
 
 See also [this example written in Rust](crates/gp/examples/kriging.rs)
 
-See the [tutorial notebooks](https://github.com/relf/egobox/tree/master/notebooks/README.md) and [examples folder](https://github.com/relf/egobox/tree/master/python/examples) for more information on the usage of the optimizer and mixture of Gaussian processes surrogate model.
+See the [tutorial notebooks](https://github.com/relf/EGObox/tree/master/notebooks/README.md) and [examples folder](https://github.com/relf/EGObox/tree/master/python/examples) for more information on the usage of the optimizer and mixture of Gaussian processes surrogate model.
 
 ## The Rust libraries
 
@@ -79,10 +79,10 @@ See the [tutorial notebooks](https://github.com/relf/egobox/tree/master/notebook
 
 | Name                                                         | Version                                                                                         | Documentation                                                               | Description                                                                               |
 | :----------------------------------------------------------- | :---------------------------------------------------------------------------------------------- | :-------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------- |
-| [doe](https://github.com/relf/egobox/tree/master/crates/doe) | [![crates.io](https://img.shields.io/crates/v/egobox-doe)](https://crates.io/crates/egobox-doe) | [![docs](https://docs.rs/egobox-doe/badge.svg)](https://docs.rs/egobox-doe) | sampling methods; contains LHS, FullFactorial, Random methods                             |
-| [gp](https://github.com/relf/egobox/tree/master/crates/gp)   | [![crates.io](https://img.shields.io/crates/v/egobox-gp)](https://crates.io/crates/egobox-gp)   | [![docs](https://docs.rs/egobox-gp/badge.svg)](https://docs.rs/egobox-gp)   | gaussian process regression; contains Kriging, PLS dimension reduction and sparse methods |
-| [moe](https://github.com/relf/egobox/tree/master/crates/moe) | [![crates.io](https://img.shields.io/crates/v/egobox-moe)](https://crates.io/crates/egobox-moe) | [![docs](https://docs.rs/egobox-moe/badge.svg)](https://docs.rs/egobox-moe) | mixture of experts using GP models                                                        |
-| [ego](https://github.com/relf/egobox/tree/master/crates/ego) | [![crates.io](https://img.shields.io/crates/v/egobox-ego)](https://crates.io/crates/egobox-ego) | [![docs](https://docs.rs/egobox-ego/badge.svg)](https://docs.rs/egobox-ego) | efficient global optimization with constraints, mixed integer handling and multi-objective optimization (experimental) |
+| [doe](https://github.com/relf/EGObox/tree/master/crates/doe) | [![crates.io](https://img.shields.io/crates/v/egobox-doe)](https://crates.io/crates/egobox-doe) | [![docs](https://docs.rs/egobox-doe/badge.svg)](https://docs.rs/egobox-doe) | sampling methods; contains LHS, FullFactorial, Random methods                             |
+| [gp](https://github.com/relf/EGObox/tree/master/crates/gp)   | [![crates.io](https://img.shields.io/crates/v/egobox-gp)](https://crates.io/crates/egobox-gp)   | [![docs](https://docs.rs/egobox-gp/badge.svg)](https://docs.rs/egobox-gp)   | gaussian process regression; contains Kriging, PLS dimension reduction and sparse methods |
+| [moe](https://github.com/relf/EGObox/tree/master/crates/moe) | [![crates.io](https://img.shields.io/crates/v/egobox-moe)](https://crates.io/crates/egobox-moe) | [![docs](https://docs.rs/egobox-moe/badge.svg)](https://docs.rs/egobox-moe) | mixture of experts using GP models                                                        |
+| [ego](https://github.com/relf/EGObox/tree/master/crates/ego) | [![crates.io](https://img.shields.io/crates/v/egobox-ego)](https://crates.io/crates/egobox-ego) | [![docs](https://docs.rs/egobox-ego/badge.svg)](https://docs.rs/egobox-ego) | efficient global optimization with constraints, mixed integer handling and multi-objective optimization (experimental) |
 
 ### Usage
 

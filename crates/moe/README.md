@@ -8,7 +8,7 @@ It is a Rust port of mixture of expert of the [SMT](https://smt.readthedocs.io) 
 
 ## The big picture
 
-`egobox-moe` is a library crate in the top-level package [egobox](https://github.com/relf/egobox).
+`egobox-moe` is a library crate in the top-level package [egobox](https://github.com/relf/EGObox).
 
 ## Current state
 

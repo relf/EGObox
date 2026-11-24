@@ -2,7 +2,7 @@
 
 Any input, feedback, bug report or contribution is welcome.
 
-When contributing to this repository, please first discuss the change you wish to make via an [issue](https://github.com/relf/egobox/issues/new). Subsequent code changes, if any, happen through pull requests.
+When contributing to this repository, please first discuss the change you wish to make via an [issue](https://github.com/relf/EGObox/issues/new). Subsequent code changes, if any, happen through pull requests.
 
 ## Creating a Pull Request
 
@@ -39,4 +39,4 @@ Examples of unacceptable behavior include:
 
 ## License
 
-By contributing to this repository, you agree that your contributions will be licensed under its [Apache 2.0 license](https://github.com/relf/egobox/blob/master/LICENSE).
+By contributing to this repository, you agree that your contributions will be licensed under its [Apache 2.0 license](https://github.com/relf/EGObox/blob/master/LICENSE).

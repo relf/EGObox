@@ -1,9 +1,9 @@
 # EGObox - Efficient Global Optimization toolbox
 
-![pytests](https://github.com/relf/egobox/actions/workflows/pytest.yml/badge.svg)
+![pytests](https://github.com/relf/EGObox/actions/workflows/pytest.yml/badge.svg)
 [![DOI](https://joss.theoj.org/papers/10.21105/joss.04737/status.svg)](https://doi.org/10.21105/joss.04737)
 
-`egobox` package is the Python binding of the optimizer named `Egor` (and its multi-objective counterpart `Belfegor`) and the surrogate model `Gpx`, mixture of Gaussian processes, from the [EGObox libraries](https://github.com/relf/egobox?tab=readme-ov-file#egobox---efficient-global-optimization-toolbox) written in Rust.
+`egobox` package is the Python binding of the optimizer named `Egor` (and its multi-objective counterpart `Belfegor`) and the surrogate model `Gpx`, mixture of Gaussian processes, from the [EGObox libraries](https://github.com/relf/EGObox?tab=readme-ov-file#egobox---efficient-global-optimization-toolbox) written in Rust.
 
 ## Installation
 
@@ -86,7 +86,7 @@ plt.plot(xtrain, ytrain, "o")
 plt.show()
 ```
 
-See the [tutorial notebooks](https://github.com/relf/egobox/tree/master/notebooks/README.md) and [examples folder](https://github.com/relf/egobox/tree/master/python/examples) for more information on the usage of the optimizer and mixture of Gaussian processes surrogate model.
+See the [tutorial notebooks](https://github.com/relf/EGObox/tree/master/notebooks/README.md) and [examples folder](https://github.com/relf/EGObox/tree/master/python/examples) for more information on the usage of the optimizer and mixture of Gaussian processes surrogate model.
 In particular, `examples/belfegor_pymoo.py` runs `Belfegor` on [pymoo](https://pymoo.org) multi-objective test problems
 (`pip install pymoo`, then `python belfegor_pymoo.py --list` to list them and `python belfegor_pymoo.py zdt1 --n-var 5`
 to approximate the ZDT1 Pareto front, plotted with quality metrics such as hypervolume and IGD).
