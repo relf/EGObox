@@ -63,12 +63,11 @@ fn temporary_sibling(path: &Path) -> std::io::Result<PathBuf> {
     Ok(path.with_file_name(temporary))
 }
 
-/// Encode the model in the given format (compact JSON or bincode)
+/// Encode the model in the given format (compact JSON or postcard)
 fn encode<T: Serialize + ?Sized>(model: &T, format: GpFileFormat) -> Result<Vec<u8>> {
     match format {
         GpFileFormat::Json => serde_json::to_vec(model).map_err(MoeError::SaveJsonError),
-        GpFileFormat::Binary => bincode::serde::encode_to_vec(model, bincode::config::standard())
-            .map_err(MoeError::SaveBinaryError),
+        GpFileFormat::Binary => postcard::to_allocvec(model).map_err(MoeError::SaveBinaryError),
     }
 }
 
@@ -97,11 +96,7 @@ pub(crate) fn read_model<T: DeserializeOwned>(path: &str, format: GpFileFormat) 
         GpFileFormat::Json => serde_json::from_slice(&data).map_err(|err| {
             MoeError::LoadError(format!("Error while loading from {path}: ({err})"))
         }),
-        GpFileFormat::Binary => {
-            bincode::serde::decode_from_slice(&data, bincode::config::standard())
-                .map(|(model, _)| model)
-                .map_err(MoeError::LoadBinaryError)
-        }
+        GpFileFormat::Binary => postcard::from_bytes(&data).map_err(MoeError::LoadBinaryError),
     }
 }
 
@@ -119,12 +114,12 @@ pub fn save_models<P: AsRef<Path>>(
     })
 }
 
-/// Decode `data` as a `T` with bincode, all bytes being used: a saved
+/// Decode `data` as a `T` with postcard, all bytes being used: a saved
 /// [MixintGpMixture] must not be decoded as its leading [GpMixture] field
 fn decode_binary<T: DeserializeOwned>(data: &[u8]) -> Option<T> {
-    bincode::serde::decode_from_slice(data, bincode::config::standard())
+    postcard::take_from_bytes(data)
         .ok()
-        .filter(|(_, read)| *read == data.len())
+        .filter(|(_, rest)| rest.is_empty())
         .map(|(model, _)| model)
 }
 
@@ -280,17 +275,14 @@ mod tests {
     }
 
     #[test]
-    fn test_save_models_binary_is_bincode_vector() {
-        // same bytes as the vector encoding used so far by Egor and gpx
+    fn test_save_models_binary_is_postcard_vector() {
+        // the binary file of Egor and gpx is the postcard encoding of the vector of models
         let models: Vec<Box<dyn MixtureGpSurrogate>> = vec![Box::new(gp_mixture())];
         let path = tmp_path("bytes.bin");
         save_models(&path, &models, GpFileFormat::Binary).unwrap();
         let bytes = fs::read(&path);
         let _ = fs::remove_file(&path);
-        assert_eq!(
-            bytes.unwrap(),
-            bincode::serde::encode_to_vec(&models, bincode::config::standard()).unwrap()
-        );
+        assert_eq!(bytes.unwrap(), postcard::to_allocvec(&models).unwrap());
     }
 
     #[test]

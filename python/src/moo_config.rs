@@ -6,13 +6,7 @@ use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pyclass_enum, gen_stub_py
 
 /// MooStrategy specifies how several objectives are optimized by Belfegor
 #[gen_stub_pyclass_enum]
-#[pyclass(
-    skip_from_py_object,
-    module = "egobox",
-    eq,
-    eq_int,
-    rename_all = "SCREAMING_SNAKE_CASE"
-)]
+#[pyclass(module = "egobox", eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum MooStrategy {
     /// ParEGO (Knowles 2006): at each iteration, objectives normalized with their observed bounds
@@ -70,13 +64,7 @@ impl From<MooStrategy> for egobox_ego::MooStrategy {
 /// EimAggregation specifies how the expected improvement matrix is aggregated
 /// by the MooStrategy.EIM strategy
 #[gen_stub_pyclass_enum]
-#[pyclass(
-    skip_from_py_object,
-    module = "egobox",
-    eq,
-    eq_int,
-    rename_all = "SCREAMING_SNAKE_CASE"
-)]
+#[pyclass(module = "egobox", eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum EimAggregation {
     /// Minimum over front points of the Euclidean norm of the expected improvements
@@ -156,7 +144,7 @@ const DEFAULT_RHO: f64 = 0.05;
 ///     When None (default), 10 for 2 objectives, 4 for 3 objectives and 3 beyond.
 ///
 #[gen_stub_pyclass]
-#[pyclass(skip_from_py_object, module = "egobox")]
+#[pyclass(module = "egobox")]
 #[derive(Clone, Debug)]
 pub(crate) struct MooConfig {
     /// Strategy used to optimize the objectives (None for the default depending on the number of objectives)

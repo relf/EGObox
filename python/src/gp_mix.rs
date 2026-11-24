@@ -7,7 +7,7 @@
 //! pip install egobox
 //! ```
 //!
-//! See the [tutorial notebook](https://github.com/relf/egobox/notebooks/Gpx_Tutorial.ipynb) for usage.
+//! See the [tutorial notebook](https://github.com/relf/EGObox/blob/master/notebooks/Gpx_Tutorial.ipynb) for usage.
 //!
 use crate::errors::{
     gp_file_format, input_x, interruptible_moe_err, moe_err, moe_file_err, output_y, training_data,
@@ -103,7 +103,7 @@ use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 ///     A builder which can be fitted to data to get a Gpx object (a trained Gaussian processes mixture)
 ///
 #[gen_stub_pyclass]
-#[pyclass(skip_from_py_object, module = "egobox")]
+#[pyclass(module = "egobox")]
 pub(crate) struct GpMix {
     gp_config: GpConfig,
     xtypes: Option<Vec<egobox_moe::XType>>,
@@ -269,7 +269,7 @@ impl GpMix {
 
 /// A trained Gaussian processes mixture
 #[gen_stub_pyclass]
-#[pyclass(skip_from_py_object, module = "egobox")]
+#[pyclass(module = "egobox")]
 pub(crate) struct Gpx(MixintGpMixture);
 
 #[gen_stub_pymethods]

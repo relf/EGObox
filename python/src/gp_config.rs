@@ -11,7 +11,7 @@ use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 
 /// GP configuration used by `Egor` and `GpMix`
 #[gen_stub_pyclass]
-#[pyclass(skip_from_py_object, module = "egobox")]
+#[pyclass(module = "egobox")]
 #[derive(Clone, Debug)]
 pub(crate) struct GpConfig {
     /// (RegressionSpec flags, an int in [1, 7])

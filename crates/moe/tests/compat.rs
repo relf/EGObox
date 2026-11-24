@@ -238,11 +238,7 @@ fn compat_mixture_list() {
             Box::new(AffinedSurrogate::new(Box::new(gp), -1., 0.5)),
         ];
         std::fs::write(&json, serde_json::to_vec(&models).unwrap()).unwrap();
-        std::fs::write(
-            &bin,
-            bincode::serde::encode_to_vec(&models, bincode::config::standard()).unwrap(),
-        )
-        .unwrap();
+        std::fs::write(&bin, postcard::to_allocvec(&models).unwrap()).unwrap();
         let preds = models
             .iter()
             .map(|m| predictions(m.as_ref(), &xtest))
@@ -253,12 +249,8 @@ fn compat_mixture_list() {
     let expected: Array2<f64> = read_npy(&reference).expect("reference predictions");
     let from_json: Vec<Box<dyn MixtureGpSurrogate>> =
         serde_json::from_slice(&std::fs::read(&json).unwrap()).expect("json mixture list");
-    let from_bin: Vec<Box<dyn MixtureGpSurrogate>> = bincode::serde::decode_from_slice(
-        &std::fs::read(&bin).unwrap(),
-        bincode::config::standard(),
-    )
-    .map(|(models, _)| models)
-    .expect("binary mixture list");
+    let from_bin: Vec<Box<dyn MixtureGpSurrogate>> =
+        postcard::from_bytes(&std::fs::read(&bin).unwrap()).expect("binary mixture list");
     for (format, models) in [("json", from_json), ("bin", from_bin)] {
         assert_eq!(models.len(), 3, "mixture_list.{format}: number of models");
         let preds = models

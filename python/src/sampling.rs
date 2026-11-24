@@ -8,13 +8,7 @@ use pyo3_stub_gen::derive::{gen_stub_pyclass_enum, gen_stub_pyfunction};
 
 /// Sampling specifies the method used to generate samples, see `sampling()`.
 #[gen_stub_pyclass_enum]
-#[pyclass(
-    skip_from_py_object,
-    module = "egobox",
-    eq,
-    eq_int,
-    rename_all = "SCREAMING_SNAKE_CASE"
-)]
+#[pyclass(module = "egobox", eq, eq_int, rename_all = "SCREAMING_SNAKE_CASE")]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Sampling {
     /// Optimized Latin Hypercube Sampling: sample locations are optimized using the

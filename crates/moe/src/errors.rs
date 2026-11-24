@@ -29,10 +29,10 @@ pub enum MoeError {
     SaveJsonError(#[from] serde_json::Error),
     /// When error during saving
     #[error("Save error: {0}")]
-    SaveBinaryError(#[from] bincode::error::EncodeError),
+    SaveBinaryError(postcard::Error),
     /// When error during loading
     #[error("Load error: {0}")]
-    LoadBinaryError(#[from] bincode::error::DecodeError),
+    LoadBinaryError(postcard::Error),
     /// When error during loading
     #[error("Load IO error")]
     LoadIoError(#[from] std::io::Error),

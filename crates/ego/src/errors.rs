@@ -64,10 +64,10 @@ pub enum EgoError {
     NoMorePointToAddError(Box<EgorState<f64>>),
     /// When error during saving
     #[error("Save error: {0}")]
-    SaveBinaryError(#[from] bincode::error::EncodeError),
+    SaveBinaryError(postcard::Error),
     /// When error during loading
     #[error("Load error: {0}")]
-    LoadBinaryError(#[from] bincode::error::DecodeError),
+    LoadBinaryError(postcard::Error),
     /// When error during saving
     #[error("Save error: {0}")]
     JsonError(#[from] serde_json::Error),

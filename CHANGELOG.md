@@ -16,6 +16,9 @@
   1.1.0 or earlier no longer load: `theta_optimizer` and `feasibility_first` are now saved with the configuration,
   and a resumed run uses the checkpointed values like the other settings. JSON GP model files still load, with
   COBYLA and `feasibility_first = false`
+* Binary GP model files (`.bin`, `save()`, Python `Gpx.save()`, `Egor` GP files, `gpx fit`) are encoded with
+  postcard, as Basin checkpoints, instead of the unmaintained bincode. Breaking change (`egobox-moe` 0.39.0,
+  `egobox-ego` 0.45.0): `MoeError` and `EgoError` `SaveBinaryError` and `LoadBinaryError` hold a `postcard::Error`
 * **Breaking changes** (Rust crates `egobox-gp` 0.39.0, `egobox-moe` 0.39.0, `egobox-ego` 0.45.0, `egobox-gpx`
   0.8.0): the `c-cobyla` and `c-slsqp` features (C-ported NLopt optimizers), deprecated in 1.1.0, are removed
   from these crates and from the Python package build. The Basin optimizers, used by default since 0.38.0, are
@@ -26,6 +29,8 @@
   * Breaking change (`egobox-moe` 0.39.0): `MoeError::LinalgBlasError` is removed, the Gaussian mixture uses
     `linfa-linalg` with either backend. GP LAPACK errors are reported as `MoeError::GpError`
   * `egobox-moe` and `egobox-ego` no longer depend on `ndarray-linalg`
+* Update dependencies: `linfa` 0.9 (`linfa-pls`, `linfa-clustering`), PyO3 0.30 and `numpy` 0.30, `basin` 3.5.
+  `ndarray` stays at 0.16
 
 ## Version 1.1.0 - 19/11/2026
 
@@ -440,12 +445,12 @@ Implementation details:
 ## Version 0.34.0 - 17/11/2025
 
 * **Breaking changes**:
-  * Add Egor configuration validation by @relf in <https://github.com/relf/egobox/pull/335>
-  * Use Logarithm of Expected Improvement (LogEI) as the default infill strategy by @relf in <https://github.com/relf/egobox/pull/336>
-  * Enable middle points picker heuristic by @relf in <https://github.com/relf/egobox/pull/334>
-  * Add new surrogate API functions to optimize GP usage in Egor optimizer by @relf in <https://github.com/relf/egobox/pull/332>
-* Add Egor examples on rosenbrock, michalewicz and ackley test functions by @relf in <https://github.com/relf/egobox/pull/325>
-* Parallelize distance calculations and eliminate allocations in hot paths by @Copilot in <https://github.com/relf/egobox/pull/328>
+  * Add Egor configuration validation by @relf in <https://github.com/relf/EGObox/pull/335>
+  * Use Logarithm of Expected Improvement (LogEI) as the default infill strategy by @relf in <https://github.com/relf/EGObox/pull/336>
+  * Enable middle points picker heuristic by @relf in <https://github.com/relf/EGObox/pull/334>
+  * Add new surrogate API functions to optimize GP usage in Egor optimizer by @relf in <https://github.com/relf/EGObox/pull/332>
+* Add Egor examples on rosenbrock, michalewicz and ackley test functions by @relf in <https://github.com/relf/EGObox/pull/325>
+* Parallelize distance calculations and eliminate allocations in hot paths by @Copilot in <https://github.com/relf/EGObox/pull/328>
 
 ## Version 0.33.0 - 11/10/2025
 
@@ -458,35 +463,35 @@ Reliability Engineering & System Safety, 247, 110094.
 
 This release removes experimental or deprecated features so **breaking changes** below:
 
-* Remove experimental GBNM internal optimizer by @relf in <https://github.com/relf/egobox/pull/285>
-* GP/SGP 'predict()' and 'predict_var()' return a one-dimensional array by @relf in <https://github.com/relf/egobox/pull/286>
-* Remove deprecated features by @relf in <https://github.com/relf/egobox/pull/287>
+* Remove experimental GBNM internal optimizer by @relf in <https://github.com/relf/EGObox/pull/285>
+* GP/SGP 'predict()' and 'predict_var()' return a one-dimensional array by @relf in <https://github.com/relf/EGObox/pull/286>
+* Remove deprecated features by @relf in <https://github.com/relf/EGObox/pull/287>
 
 ## Version 0.31.0 - 11/07/2025
 
-* Improve `LogEI` criterion computation by @relf in <https://github.com/relf/egobox/pull/281> and <https://github.com/relf/egobox/pull/283>
-* Improve hyperparameters theta bounds handling by @relf in <https://github.com/relf/egobox/pull/272>
-* Implement `LogCEI` criterion by @relf in <https://github.com/relf/egobox/pull/284>
+* Improve `LogEI` criterion computation by @relf in <https://github.com/relf/EGObox/pull/281> and <https://github.com/relf/EGObox/pull/283>
+* Improve hyperparameters theta bounds handling by @relf in <https://github.com/relf/EGObox/pull/272>
+* Implement `LogCEI` criterion by @relf in <https://github.com/relf/EGObox/pull/284>
 
 ## Version 0.30.0 - 27/06/2025
 
-* Refactor GP configuration from Egor optimizer by @relf in <https://github.com/relf/egobox/pull/273>
-* Improve Egor Python API: `to_specs` is now useless and deprecated by @relf in <https://github.com/relf/egobox/pull/282>
-* Add new optim multistart strategy based on picking points in-between training points by @relf in <https://github.com/relf/egobox/pull/279>
-* Add pyi file generation using pyo3-stub-gen by @relf in <https://github.com/relf/egobox/pull/276>
-* Fix MoE (hard) gradients, py source dir and theta init by @relf in <https://github.com/relf/egobox/pull/278>
-* Add link to an [example](<https://github.com/relf/egobox/tree/master/doc#solve-an-analytical-mdo-problem-with-a-hidden-optimum>) of EGObox optimizer usage (MDO course 2025) by @jomorlier in <https://github.com/relf/egobox/pull/280>
+* Refactor GP configuration from Egor optimizer by @relf in <https://github.com/relf/EGObox/pull/273>
+* Improve Egor Python API: `to_specs` is now useless and deprecated by @relf in <https://github.com/relf/EGObox/pull/282>
+* Add new optim multistart strategy based on picking points in-between training points by @relf in <https://github.com/relf/EGObox/pull/279>
+* Add pyi file generation using pyo3-stub-gen by @relf in <https://github.com/relf/EGObox/pull/276>
+* Fix MoE (hard) gradients, py source dir and theta init by @relf in <https://github.com/relf/EGObox/pull/278>
+* Add link to an [example](<https://github.com/relf/EGObox/tree/master/doc#solve-an-analytical-mdo-problem-with-a-hidden-optimum>) of EGObox optimizer usage (MDO course 2025) by @jomorlier in <https://github.com/relf/EGObox/pull/280>
 
 ## Version 0.29.0 - 14/05/2025
 
-* Add experimental Global Bounded Nelder-Mead infill criterion optimizer  by @relf in <https://github.com/relf/egobox/pull/264>
-* Add Rust simple examples by @relf in <https://github.com/relf/egobox/pull/266>
-* Adjust bounds for GP/SGP theta hyperparameters optimization by @relf in <https://github.com/relf/egobox/pull/258>
-* Make GP max nb of likelihood evaluations in hyperparameter optimization configurable by @relf in <https://github.com/relf/egobox/pull/262>
-* Make CoEGO activity matrix more balanced by @relf in <https://github.com/relf/egobox/pull/265>
-* Fix MOE smooth derivatives test which fails from time to time by @relf in <https://github.com/relf/egobox/pull/260>
-* Refactor infill criterion optimization by @relf in <https://github.com/relf/egobox/pull/259>
-* Remove last resort LHS optimization by @relf in <https://github.com/relf/egobox/pull/261>
+* Add experimental Global Bounded Nelder-Mead infill criterion optimizer  by @relf in <https://github.com/relf/EGObox/pull/264>
+* Add Rust simple examples by @relf in <https://github.com/relf/EGObox/pull/266>
+* Adjust bounds for GP/SGP theta hyperparameters optimization by @relf in <https://github.com/relf/EGObox/pull/258>
+* Make GP max nb of likelihood evaluations in hyperparameter optimization configurable by @relf in <https://github.com/relf/EGObox/pull/262>
+* Make CoEGO activity matrix more balanced by @relf in <https://github.com/relf/EGObox/pull/265>
+* Fix MOE smooth derivatives test which fails from time to time by @relf in <https://github.com/relf/EGObox/pull/260>
+* Refactor infill criterion optimization by @relf in <https://github.com/relf/EGObox/pull/259>
+* Remove last resort LHS optimization by @relf in <https://github.com/relf/EGObox/pull/261>
 
 ## Version 0.28.0 - 17/04/2025
 
@@ -497,112 +502,112 @@ This release contains an implementation of the CoEGO [1] algorithm in a CCBO [2]
 
 See also some breaking changes description in optimizer options in PR #253
 
-* CoEGO implementation and refactoring by @relf in <https://github.com/relf/egobox/pull/253>
-* Prepare release 0.28.0 by @relf in <https://github.com/relf/egobox/pull/254>
+* CoEGO implementation and refactoring by @relf in <https://github.com/relf/EGObox/pull/253>
+* Prepare release 0.28.0 by @relf in <https://github.com/relf/EGObox/pull/254>
 
 ## Version 0.27.0 - 13/03/2025
 
 * `ego`:
-  * Implement upper trusted bound criterion for constraint handling by @relf in <https://github.com/relf/egobox/pull/245>
-  * Implement constrained infill criterion by @relf in <https://github.com/relf/egobox/pull/246>
-* `moe`: Relax number of points required wrt regression spec by @relf in <https://github.com/relf/egobox/pull/244>
+  * Implement upper trusted bound criterion for constraint handling by @relf in <https://github.com/relf/EGObox/pull/245>
+  * Implement constrained infill criterion by @relf in <https://github.com/relf/EGObox/pull/246>
+* `moe`: Relax number of points required wrt regression spec by @relf in <https://github.com/relf/EGObox/pull/244>
 
 ## Version 0.26.0 - 14/02/2025
 
-* `ego`: Manage constraints as functions by @relf in <https://github.com/relf/egobox/pull/242>
+* `ego`: Manage constraints as functions by @relf in <https://github.com/relf/EGObox/pull/242>
 
 ## Version 0.25.0 - 19/12/2024
 
-* `gp`: **Breaking change** - Change GP training Rust API to use one dimensional array by @relf in <https://github.com/relf/egobox/pull/222>
-* `doe`: Fix optimized LHS ESE algorithm  by @relf in <https://github.com/relf/egobox/pull/219>
-* `egobox::Gpx`: Exception raised if training output data is not one-dimensional by @relf in <https://github.com/relf/egobox/pull/218>
-* `moe`: Refactor `predict_smooth` by @relf in <https://github.com/relf/egobox/pull/221>
-* Update to numpy crate 0.22.1 to fix win32 compilation by @relf in <https://github.com/relf/egobox/pull/216>
+* `gp`: **Breaking change** - Change GP training Rust API to use one dimensional array by @relf in <https://github.com/relf/EGObox/pull/222>
+* `doe`: Fix optimized LHS ESE algorithm  by @relf in <https://github.com/relf/EGObox/pull/219>
+* `egobox::Gpx`: Exception raised if training output data is not one-dimensional by @relf in <https://github.com/relf/EGObox/pull/218>
+* `moe`: Refactor `predict_smooth` by @relf in <https://github.com/relf/EGObox/pull/221>
+* Update to numpy crate 0.22.1 to fix win32 compilation by @relf in <https://github.com/relf/EGObox/pull/216>
 
 ## Version 0.24.0 - 12/11/2024
 
-* `moe`: Save/Load surrogates in binary format by @relf in <https://github.com/relf/egobox/pull/213>
-* Fix badge link by @relf in <https://github.com/relf/egobox/pull/201>
-* Upgrade to PyO3 0.22 by @relf in <https://github.com/relf/egobox/pull/203>
+* `moe`: Save/Load surrogates in binary format by @relf in <https://github.com/relf/EGObox/pull/213>
+* Fix badge link by @relf in <https://github.com/relf/EGObox/pull/201>
+* Upgrade to PyO3 0.22 by @relf in <https://github.com/relf/EGObox/pull/203>
 
 ## Version 0.23.0 - 01/10/2024
 
-* Add EGObox logo by @relf in <https://github.com/relf/egobox/pull/193>
-* `gp`: Add training infos getters at Python level by @relf in <https://github.com/relf/egobox/pull/196>
+* Add EGObox logo by @relf in <https://github.com/relf/EGObox/pull/193>
+* `gp`: Add training infos getters at Python level by @relf in <https://github.com/relf/EGObox/pull/196>
 * `ego`:
-  * Add checkpointing and hot start by @relf in <https://github.com/relf/egobox/pull/197>
-  * Do not activate TREGO by default by @relf in <https://github.com/relf/egobox/pull/198>
-  * Improve hot start API by @relf in <https://github.com/relf/egobox/pull/199>
+  * Add checkpointing and hot start by @relf in <https://github.com/relf/EGObox/pull/197>
+  * Do not activate TREGO by default by @relf in <https://github.com/relf/EGObox/pull/198>
+  * Improve hot start API by @relf in <https://github.com/relf/EGObox/pull/199>
   
 ## Version 0.22.0 - 04/09/2024
 
 * `ego`:
-  * Save config and optim history by @relf in <https://github.com/relf/egobox/pull/190>
-  * Move the DOE save after the algo the iteration (fixes #182) by @relf in <https://github.com/relf/egobox/pull/185>
-* Maintainance by @relf in <https://github.com/relf/egobox/pull/183>
+  * Save config and optim history by @relf in <https://github.com/relf/EGObox/pull/190>
+  * Move the DOE save after the algo the iteration (fixes #182) by @relf in <https://github.com/relf/EGObox/pull/185>
+* Maintainance by @relf in <https://github.com/relf/EGObox/pull/183>
 
 ## Version 0.21.1 - 31/07/2024
 
-* `gp`: Fix variance gradient computation by @relf in <https://github.com/relf/egobox/pull/177>
+* `gp`: Fix variance gradient computation by @relf in <https://github.com/relf/EGObox/pull/177>
 
 ## Version 0.21.0 - 09/07/2024
 
 * `ego`:
-  * Implement [TREGO algorithm](https://arxiv.org/abs/2101.06808) by @relf in <https://github.com/relf/egobox/pull/173>
-  * Fix added point count in TREGO local step by @relf in <https://github.com/relf/egobox/pull/174>
-  * Fix WB2S criteria scaling factor and fmin computation by @relf in <https://github.com/relf/egobox/pull/175>
-* Prepare release 0.21 by @relf in <https://github.com/relf/egobox/pull/176>
+  * Implement [TREGO algorithm](https://arxiv.org/abs/2101.06808) by @relf in <https://github.com/relf/EGObox/pull/173>
+  * Fix added point count in TREGO local step by @relf in <https://github.com/relf/EGObox/pull/174>
+  * Fix WB2S criteria scaling factor and fmin computation by @relf in <https://github.com/relf/EGObox/pull/175>
+* Prepare release 0.21 by @relf in <https://github.com/relf/EGObox/pull/176>
 
 ## Version 0.20.0 - 25/06/2024
 
 * `gp`:
-  * Save original parameters in trained `gp` models  by @relf in <https://github.com/relf/egobox/pull/166>
-  * Implement cross validation metric for surrogates by @relf in <https://github.com/relf/egobox/pull/167>
+  * Save original parameters in trained `gp` models  by @relf in <https://github.com/relf/EGObox/pull/166>
+  * Implement cross validation metric for surrogates by @relf in <https://github.com/relf/EGObox/pull/167>
 * `ego`:
-  * Make `n_optmod` option available in Python by @relf in <https://github.com/relf/egobox/pull/161>
-  * Better `Egor` solver state handling by @relf in <https://github.com/relf/egobox/pull/168>
-  * Refactor `ego` module by @relf in <https://github.com/relf/egobox/pull/169>
-* Add dependabot cargo ecosystem check by @relf in <https://github.com/relf/egobox/pull/163>
+  * Make `n_optmod` option available in Python by @relf in <https://github.com/relf/EGObox/pull/161>
+  * Better `Egor` solver state handling by @relf in <https://github.com/relf/EGObox/pull/168>
+  * Refactor `ego` module by @relf in <https://github.com/relf/EGObox/pull/169>
+* Add dependabot cargo ecosystem check by @relf in <https://github.com/relf/EGObox/pull/163>
 
 ## Version 0.19.0 - 15/05/2024
 
 * `ego`:
-  * Allow to reuse surrogate trainings (reuse previous hyperparameters) from a previous iteration by @relf in <https://github.com/relf/egobox/pull/157>
-  * Fix hot start mechanism due to bad loaded DOE exploitation by @relf in <https://github.com/relf/egobox/pull/156>
-  * Adjust log messages by @relf in <https://github.com/relf/egobox/pull/158>
-  * Log Egor configuration by @relf in <https://github.com/relf/egobox/pull/159>
+  * Allow to reuse surrogate trainings (reuse previous hyperparameters) from a previous iteration by @relf in <https://github.com/relf/EGObox/pull/157>
+  * Fix hot start mechanism due to bad loaded DOE exploitation by @relf in <https://github.com/relf/EGObox/pull/156>
+  * Adjust log messages by @relf in <https://github.com/relf/EGObox/pull/158>
+  * Log Egor configuration by @relf in <https://github.com/relf/EGObox/pull/159>
 * `gp`:
-  * Allow fixed hyperparameters theta for GP and Sparse GP by @relf in <https://github.com/relf/egobox/pull/155>
+  * Allow fixed hyperparameters theta for GP and Sparse GP by @relf in <https://github.com/relf/EGObox/pull/155>
 * `egobox`:
-  * Upgrade to pyo3 0.21 by @relf in <https://github.com/relf/egobox/pull/152>
-  * Upgrade dependencies by @relf in <https://github.com/relf/egobox/pull/153>
+  * Upgrade to pyo3 0.21 by @relf in <https://github.com/relf/EGObox/pull/152>
+  * Upgrade dependencies by @relf in <https://github.com/relf/EGObox/pull/153>
 
 ## Version 0.18.1 - 10/04/2024
 
-* Fix GP mixture with kpls option on Griewank test function by @relf in <https://github.com/relf/egobox/pull/150>
+* Fix GP mixture with kpls option on Griewank test function by @relf in <https://github.com/relf/EGObox/pull/150>
 
 ## Version 0.18.0 - 08/04/2024
 
-* [Breaking changes] `gp`, `moe`, `egobox` (Python): Rename `predict_derivatives()` as `predict_gradients()` by @relf in <https://github.com/relf/egobox/pull/148>
+* [Breaking changes] `gp`, `moe`, `egobox` (Python): Rename `predict_derivatives()` as `predict_gradients()` by @relf in <https://github.com/relf/EGObox/pull/148>
 
 ## Version 0.17.0 - 04/04/2024
 
-* [Breaking changes] `gp` API renaming by @relf in <https://github.com/relf/egobox/pull/145>
+* [Breaking changes] `gp` API renaming by @relf in <https://github.com/relf/EGObox/pull/145>
   * `predict_values()` is renamed `predict()`
   * `predict_variances()` is renamed `predict_var()`
   * `predict_variance_derivatives()` is renamed `predict_var_derivatives()`
    Derivatives predictions (`predict_derivatives()` and `predict_var_derivatives()`) are made available in Python.
-* Refactor Mixture of Experts by @relf in <https://github.com/relf/egobox/pull/146>
+* Refactor Mixture of Experts by @relf in <https://github.com/relf/EGObox/pull/146>
   Factorize code between full GP and sparse GP implementations
 
 ## Version 0.16.0 - 07/03/2024
 
-* Add `Gpx` accessors by @relf in <https://github.com/relf/egobox/pull/140>
-* Fix `LHS` maximin bug by @relf in <https://github.com/relf/egobox/pull/141>
-* `doe`: Improve classic, centered and maximin LHS performances by @relf in <https://github.com/relf/egobox/pull/138>
-* `doe`: Improve optimized LHS performances (1.25x speedup) by @relf in <https://github.com/relf/egobox/pull/136>
-* Rework (mostly internal) API to avoid awkward &Option by @relf in <https://github.com/relf/egobox/pull/134>
-* Add Python bindings for all LHS flavours by @relf in <https://github.com/relf/egobox/pull/135>
+* Add `Gpx` accessors by @relf in <https://github.com/relf/EGObox/pull/140>
+* Fix `LHS` maximin bug by @relf in <https://github.com/relf/EGObox/pull/141>
+* `doe`: Improve classic, centered and maximin LHS performances by @relf in <https://github.com/relf/EGObox/pull/138>
+* `doe`: Improve optimized LHS performances (1.25x speedup) by @relf in <https://github.com/relf/EGObox/pull/136>
+* Rework (mostly internal) API to avoid awkward &Option by @relf in <https://github.com/relf/EGObox/pull/134>
+* Add Python bindings for all LHS flavours by @relf in <https://github.com/relf/EGObox/pull/135>
 
 ## Version 0.15.0 - 02/01/2024
 
@@ -636,21 +641,21 @@ A few API breaking changes:
 
 ## Version 0.12.0 - 10/11/2023
 
-* `gp` uses pure Rust COBYLA by @relf in <https://github.com/relf/egobox/pull/110,https://github.com/relf/egobox/pull/113>
-* `ego` as pure Rust implementation (`nlopt` is now optional) by @relf in <https://github.com/relf/egobox/pull/112>
-* `egobox` Python module: Simplify mixed-integer type declaration by @relf in <https://github.com/relf/egobox/pull/115>
-* Upgrade dependencies by @relf in <https://github.com/relf/egobox/pull/114>
-* Upgrade edition 2021 by @relf in <https://github.com/relf/egobox/pull/109>
-* CI maintainance by @relf in <https://github.com/relf/egobox/pull/111>
-* Bump actions/checkout from 2 to 4 by @dependabot in <https://github.com/relf/egobox/pull/107>
-* Bump actions/setup-python from 2 to 4 by @dependabot in <https://github.com/relf/egobox/pull/108>
+* `gp` uses pure Rust COBYLA by @relf in <https://github.com/relf/EGObox/pull/110,https://github.com/relf/EGObox/pull/113>
+* `ego` as pure Rust implementation (`nlopt` is now optional) by @relf in <https://github.com/relf/EGObox/pull/112>
+* `egobox` Python module: Simplify mixed-integer type declaration by @relf in <https://github.com/relf/EGObox/pull/115>
+* Upgrade dependencies by @relf in <https://github.com/relf/EGObox/pull/114>
+* Upgrade edition 2021 by @relf in <https://github.com/relf/EGObox/pull/109>
+* CI maintainance by @relf in <https://github.com/relf/EGObox/pull/111>
+* Bump actions/checkout from 2 to 4 by @dependabot in <https://github.com/relf/EGObox/pull/107>
+* Bump actions/setup-python from 2 to 4 by @dependabot in <https://github.com/relf/EGObox/pull/108>
 
 ## Version 0.11.0 - 20/09/2023
 
-* Automate Python package build and upload on Pypi from Github CI by @relf in <https://github.com/relf/egobox/pull/104>
+* Automate Python package build and upload on Pypi from Github CI by @relf in <https://github.com/relf/EGObox/pull/104>
 * Fix FullFactorial when asked nb iof samples is small wrt x dimension
-by @relf in <https://github.com/relf/egobox/pull/105>
-* Make mixed-integer sampling methods available in Python by @relf in <https://github.com/relf/egobox/pull/106>
+by @relf in <https://github.com/relf/EGObox/pull/105>
+* Make mixed-integer sampling methods available in Python by @relf in <https://github.com/relf/EGObox/pull/106>
 
 ## Version 0.10.0 - 22/06/2023
 
@@ -715,7 +720,7 @@ by @relf in <https://github.com/relf/egobox/pull/105>
 * `ego`:
   * Refactor `Egor` using [`argmin 0.7.0` solver framework](http://argmin-rs.org) `EgorSolver` can be used with `argmin::Executor` and benefit from observers and checkpointing features (#67)
   * `Egor` use kriging setting by default (i.e. one cluster with constant mean and squared exponential correlation model)
-* Add [notebook on Manuau Loa CO2 example](https://github.com/relf/egobox/blob/master/notebooks/Gpx_MaunaLoaCO2.ipynb) to show `GpMix`/`Gpx` surrogate model usage (#62)
+* Add [notebook on Manuau Loa CO2 example](https://github.com/relf/EGObox/blob/master/notebooks/Gpx_MaunaLoaCO2.ipynb) to show `GpMix`/`Gpx` surrogate model usage (#62)
 * Use xoshiro instead of isaac random generator (#63)
 * Upgrade `ndarray 0.15`, `linfa 0.6.1`, `PyO3 0.17` (#57, #64)
 

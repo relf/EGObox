@@ -33,11 +33,11 @@ brew install relf/tap/gpx
 
 # Linux / macOS (shell installer)
 curl --proto '=https' --tlsv1.2 -LsSf \
-  https://github.com/relf/egobox/releases/download/gpx-0.4.0/gpx-installer.sh | sh
+  https://github.com/relf/EGObox/releases/download/gpx-0.4.0/gpx-installer.sh | sh
 
 # Windows (PowerShell)
 powershell -ExecutionPolicy Bypass -c \
-  "irm https://github.com/relf/egobox/releases/download/gpx-0.4.0/gpx-installer.ps1 | iex"
+  "irm https://github.com/relf/EGObox/releases/download/gpx-0.4.0/gpx-installer.ps1 | iex"
 ```
 
 ---

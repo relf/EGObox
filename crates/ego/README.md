@@ -7,7 +7,7 @@
 
 ## The big picture
 
-`egobox-ego` is a library crate in the top-level package [egobox](https://github.com/relf/egobox).
+`egobox-ego` is a library crate in the top-level package [egobox](https://github.com/relf/EGObox).
 
 ## Current state
 

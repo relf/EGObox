@@ -27,8 +27,8 @@ egobox-ego = { version = "0.45.0", path = "../crates/ego" }
 egobox-gpx = { version = "0.8.0", path = "../crates/gpx" }
 
 
-pyo3 = { version = "0.29.0" }
-numpy = "0.29.0"
+pyo3 = { version = "0.30.1" }
+numpy = "0.30.0"
 
 linfa.workspace = true
 ndarray.workspace = true
@@ -43,7 +43,6 @@ serde_json.workspace = true
 
 argmin_testfunctions.workspace = true
 pyo3-stub-gen = { version = "0.23.0", features = ["numpy"] }
-bincode.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
