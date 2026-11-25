@@ -18,8 +18,9 @@ use serde::{Deserialize, Serialize};
 ///
 /// Constraint surrogates are sampled as well (Scalable Constrained Bayesian Optimization rule):
 /// the candidate minimizes the objective sample among the points feasible for the constraint
-/// samples, or minimizes the total sampled violation when none is feasible. Points violating
-/// function constraints are removed from the candidate set.
+/// samples, or minimizes the total sampled violation when none is feasible, each constraint
+/// violation being divided by the largest magnitude of its mean prediction on the candidate set.
+/// Points violating function constraints are removed from the candidate set.
 ///
 /// TS follows the GP posterior belief: with few points, a GP confident that unexplored
 /// regions are high keeps sampling the current basin where EI would explore, hence an

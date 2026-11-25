@@ -1,7 +1,7 @@
 //! Exact discrete Thompson Sampling: joint posterior samples of the surrogates on a finite
 //! candidate set, the minimizer of a sample being the candidate point.
 
-use crate::utils::cholesky_psd;
+use crate::utils::{cholesky_psd, compute_cstr_scales};
 
 use egobox_doe::{Lhs, LhsKind, SamplingMethod};
 use egobox_moe::{MixtureGpSurrogate, MoeError};
@@ -79,15 +79,35 @@ impl JointSampler {
     }
 }
 
+/// Constraint scales for the sampled violations: the largest magnitude of the mean prediction
+/// of each constraint model at the candidate points `x` (see [`compute_cstr_scales`]),
+/// 1 when it is null or not finite
+pub(crate) fn violation_scales(
+    cstr_models: &[Box<dyn MixtureGpSurrogate>],
+    x: &Array2<f64>,
+) -> Vec<f64> {
+    compute_cstr_scales(&x.view(), cstr_models)
+        .iter()
+        .map(|&s| if s.is_finite() && s > 0. { s } else { 1. })
+        .collect()
+}
+
 /// Index of the point selected from an objective sample `f` and constraint samples `g`
 /// (`g_k <= tols[k]` is feasible), Scalable Constrained Bayesian Optimization (SCBO) rule:
 /// the minimizer of `f` among the points feasible for all sampled constraints, or the
-/// minimizer of the total sampled violation when no point is feasible.
-pub(crate) fn sampled_argmin(f: &Array1<f64>, g: &[Array1<f64>], tols: &[f64]) -> usize {
+/// minimizer of the total sampled violation when no point is feasible, the violation of
+/// each constraint being divided by its scale `scales[k]` (see [`violation_scales`]).
+pub(crate) fn sampled_argmin(
+    f: &Array1<f64>,
+    g: &[Array1<f64>],
+    tols: &[f64],
+    scales: &[f64],
+) -> usize {
     let violation = |i: usize| -> f64 {
         g.iter()
             .zip(tols)
-            .map(|(gk, tol)| (gk[i] - tol).max(0.))
+            .zip(scales)
+            .map(|((gk, tol), scale)| (gk[i] - tol).max(0.) / scale)
             .sum()
     };
     let argmin = |key: &dyn Fn(usize) -> f64, rows: &mut dyn Iterator<Item = usize>| {
@@ -152,13 +172,28 @@ mod tests {
     fn test_sampled_argmin() {
         let f = array![3., 1., 2., 0.];
         // no constraint
-        assert_eq!(sampled_argmin(&f, &[], &[]), 3);
+        assert_eq!(sampled_argmin(&f, &[], &[], &[]), 3);
         // best feasible point
         let g = [array![0., 0., 0., 1.]];
-        assert_eq!(sampled_argmin(&f, &g, &[1e-4]), 1);
+        assert_eq!(sampled_argmin(&f, &g, &[1e-4], &[1.]), 1);
         // no feasible point: least total violation
         let g = [array![2., 3., 0.5, 1.], array![0., 0., 1., 1.]];
-        assert_eq!(sampled_argmin(&f, &g, &[0., 0.]), 2);
+        assert_eq!(sampled_argmin(&f, &g, &[0., 0.], &[1., 1.]), 2);
+    }
+
+    #[test]
+    fn test_sampled_argmin_scaled_violation() {
+        let f = array![0., 1.];
+        // a constraint of order 1000 and a constraint of order 1, none feasible
+        let g = [array![1000., 0.], array![0., 1.5]];
+        let tols = [0., 0.];
+        // raw violations 1000 vs 1.5: the large constraint dominates
+        assert_eq!(sampled_argmin(&f, &g, &tols, &[1., 1.]), 1);
+        // scaled violations 1 vs 1.5
+        assert_eq!(sampled_argmin(&f, &g, &tols, &[1000., 1.]), 0);
+        // feasibility does not depend on scales
+        let g = [array![0., 1000.], array![0., 0.]];
+        assert_eq!(sampled_argmin(&f, &g, &tols, &[1000., 1.]), 0);
     }
 
     #[test]

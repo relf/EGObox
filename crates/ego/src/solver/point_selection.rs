@@ -307,12 +307,13 @@ where
             .map(|model| JointSampler::new(model.as_ref(), &xc))
             .collect::<std::result::Result<Vec<_>, _>>()?;
         let tols: Vec<f64> = (0..cstr_models.len()).map(tol).collect();
+        let scales = thompson::violation_scales(cstr_models, &xc);
 
         let mut members = vec![];
         for _ in 0..n_draws {
             let f = obj_sampler.sample(rng);
             let g: Vec<Array1<f64>> = cstr_samplers.iter().map(|s| s.sample(rng)).collect();
-            let k = thompson::sampled_argmin(&f, &g, &tols);
+            let k = thompson::sampled_argmin(&f, &g, &tols, &scales);
             let xk = xc.row(k);
             debug!("+++++++  TS xk = {xk}, sampled value = {}", f[k]);
             match self.compute_virtual_point(&xk, &inputs.y_data, obj_models, cstr_models) {
