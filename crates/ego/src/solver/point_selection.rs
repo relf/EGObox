@@ -1,6 +1,8 @@
 //! Selection of the next points to evaluate in a global EGO step: surrogates training,
-//! infill criterion optimization for each point of a batch, and portfolio of GP variance weights.
+//! infill criterion optimization for each point of a batch, portfolio of GP variance weights,
+//! and Thompson Sampling (joint posterior samples on a candidate set).
 
+use crate::criteria::ThompsonSampling;
 use crate::errors::Result;
 use crate::moo::criterion::MooCriterion;
 use crate::moo::ehvi::EhviCriterion;
@@ -10,7 +12,10 @@ use crate::moo::qehvi::{QEhviCriterion, fd_steps};
 use crate::solver::multistart::MiddlePickerMultiStarter;
 use crate::solver::solver_infill_optim::InfillOptProblem;
 use crate::solver::surrogate_set::{DataClustering, SurrogateSet, TrainSpec};
-use crate::utils::select_from_portfolio;
+use crate::solver::thompson::{self, CstrSampler, JointSampler};
+use crate::utils::{
+    GP_VAR_PORTFOLIO_MAX_POINTS, distinct_indices, duplicates, select_from_portfolio,
+};
 use crate::{EgorSolver, types::*};
 
 use egobox_doe::SamplingMethod;
@@ -84,6 +89,28 @@ impl Batch {
     fn selected_x(&self) -> ArrayView2<'_, f64> {
         self.points.x.slice(s![self.n_imputed.., ..])
     }
+
+    /// Imputed failed points
+    fn imputed(&self) -> Candidates {
+        self.points.select(&(0..self.n_imputed).collect::<Vec<_>>())
+    }
+
+    /// Points selected by the infill criterion optimization
+    fn selected(&self) -> Candidates {
+        self.points
+            .select(&(self.n_imputed..self.points.x.nrows()).collect::<Vec<_>>())
+    }
+}
+
+/// Portfolio of candidate points the next points are selected from
+enum Portfolio {
+    /// Default: one infill criterion optimization, the GP standard deviation not weighted
+    Single,
+    /// GP variance portfolio (see `RuntimeFlags::use_gp_var_portfolio`): one infill
+    /// criterion optimization per GP standard deviation weight
+    GpVariance,
+    /// Thompson Sampling: the minimizer of each joint posterior sample on a candidate set
+    ThompsonSampling,
 }
 
 impl<SB, C> EgorSolver<SB, C>
@@ -100,13 +127,19 @@ where
         surrogates: &mut SurrogateSet,
         rng: &mut Xoshiro256Plus,
     ) -> Result<Candidates> {
-        let sigma_weights: &[f64] = if self.config.runtime_flags.use_gp_var_portfolio
+        if let Some(ts) = self.config.infill_criterion.thompson_sampling() {
+            return self.select_ts_candidates(ts, inputs, surrogates, rng);
+        }
+        let kind = if self.config.runtime_flags.use_gp_var_portfolio
             && self.config.qei_config.batch == 1
         {
-            &GP_VAR_PORTFOLIO_SIGMA_WEIGHTS
+            Portfolio::GpVariance
         } else {
-            // Fallback to default GP usage
-            &[1.]
+            Portfolio::Single
+        };
+        let sigma_weights: &[f64] = match kind {
+            Portfolio::GpVariance => &GP_VAR_PORTFOLIO_SIGMA_WEIGHTS,
+            _ => &[1.],
         };
         // qEHVI: surrogates of the actual data only (no virtual points), the points
         // already selected in the batch (after imputed failed points) entering the criterion
@@ -153,19 +186,279 @@ where
                     None => break,
                 }
             }
-            portfolio.push(batch.points);
+            portfolio.push(batch);
         }
         if portfolio.len() > 1 {
-            info!(
-                "Portfolio : {:?}",
-                portfolio.iter().map(|v| v.x[[0, 0]]).collect::<Vec<_>>()
-            );
-            // Use portfolio strategy: Pick one point from portfolio
-            Ok(select_from_portfolio(portfolio, &self.xlimits))
+            Ok(self.select_from(&kind, portfolio, &inputs.x_data))
         } else {
             // Fallback to default returning one or several points (in case of qEI strategy)
-            Ok(portfolio.remove(0))
+            Ok(portfolio.remove(0).points)
         }
+    }
+
+    /// Thompson Sampling: surrogates are trained once, then each of the `draws` joint
+    /// posterior samples on a candidate set gives a candidate point (its minimizer),
+    /// the batch points being selected from these candidates in draw order
+    fn select_ts_candidates(
+        &self,
+        ts: &ThompsonSampling,
+        inputs: &SelectionInputs<impl CstrFn>,
+        surrogates: &mut SurrogateSet,
+        rng: &mut Xoshiro256Plus,
+    ) -> Result<Candidates> {
+        let (x_data, y_data) = (&inputs.x_data, &inputs.y_data);
+        self.train_for_point(
+            inputs,
+            surrogates,
+            &x_data.to_owned(),
+            &y_data.to_owned(),
+            0,
+            true,
+        )?;
+        let (imputed, n_imputed) = if inputs.iter == 0
+            && self.config.failsafe_strategy == FailsafeStrategy::Imputation
+            && let Some(x_fail) = inputs.x_fail
+        {
+            (
+                self.impute_failed_points(inputs, &surrogates.models, x_fail),
+                x_fail.nrows(),
+            )
+        } else {
+            (
+                Candidates::empty(x_data.ncols(), y_data.ncols(), inputs.c_data.ncols()),
+                0,
+            )
+        };
+        self.save_models(&surrogates.models, inputs.iter);
+
+        let members = self.thompson_samples(ts, inputs, &surrogates.models, rng)?;
+        if members.is_empty() {
+            return Ok(imputed);
+        }
+        let all_imputed: Vec<usize> = (0..n_imputed).collect();
+        let portfolio = members
+            .into_iter()
+            .map(|member| {
+                let mut points = imputed.select(&all_imputed);
+                points.append(member);
+                Batch {
+                    points,
+                    n_imputed,
+                    sigma_weight: 1.,
+                }
+            })
+            .collect();
+        Ok(self.select_from(&Portfolio::ThompsonSampling, portfolio, x_data))
+    }
+
+    /// Candidate points of the `draws` joint posterior samples of the `models` on a candidate
+    /// set (see [`thompson::candidate_set`]): the minimizer of each objective sample among the
+    /// points feasible for the constraint samples (see [`thompson::sampled_argmin`]), sampled
+    /// without replacement (a candidate is selected once, candidates duplicating evaluated
+    /// points are not selected). Candidate set points violating function constraints are
+    /// removed beforehand, unless none satisfies them: function constraints are then handled
+    /// as constraint samples (least violation). Mixed-integer candidates are projected on
+    /// discrete values.
+    fn thompson_samples(
+        &self,
+        ts: &ThompsonSampling,
+        inputs: &SelectionInputs<impl CstrFn>,
+        models: &[Box<dyn MixtureGpSurrogate>],
+        rng: &mut Xoshiro256Plus,
+    ) -> Result<Vec<Candidates>> {
+        let (obj_models, cstr_models) = models.split_at(self.config.n_obj_models());
+        let tol = |i: usize| {
+            inputs
+                .cstr_tol
+                .get(i)
+                .copied()
+                .unwrap_or(crate::DEFAULT_CSTR_TOL)
+        };
+        let n_candidates = ts.n_candidates(self.xlimits.nrows());
+        let n_draws = ts.n_draws(self.config.qei_config.batch);
+        // Mixed-integer: candidates projected on discrete values, as surrogates and
+        // objective see them, so that duplicates are detected
+        let xc = self.projected(&thompson::candidate_set(
+            &self.xlimits,
+            inputs.x_data.row(inputs.best_index),
+            n_candidates,
+            rng,
+        ));
+
+        // Function constraints: candidates violating them are removed, when none satisfies
+        // them, they are kept and the least violation is selected
+        let transformed_fcstrs = crate::types::affine_fcstrs(inputs.fcstrs, inputs.fcstr_specs);
+        let n_cstr = cstr_models.len();
+        let (xc, c) = if transformed_fcstrs.is_empty() {
+            let c = Array2::zeros((xc.nrows(), 0));
+            (xc, c)
+        } else {
+            let c = self.evaluate_fcstrs(&transformed_fcstrs, &xc);
+            let feasible: Vec<usize> = (0..xc.nrows())
+                .filter(|&i| {
+                    c.row(i)
+                        .iter()
+                        .enumerate()
+                        .all(|(j, cj)| *cj <= tol(n_cstr + j))
+                })
+                .collect();
+            if feasible.is_empty() {
+                info!("No TS candidate point satisfies the function constraints: least violation");
+                (xc, c)
+            } else {
+                (xc.select(Axis(0), &feasible), c.select(Axis(0), &feasible))
+            }
+        };
+        info!(
+            "Thompson Sampling: {} samples on {} candidate points",
+            n_draws,
+            xc.nrows()
+        );
+        let obj_sampler = JointSampler::new(obj_models[0].as_ref(), &xc)?;
+        // Expanded `Eq`/`Btw` constraint specifications: the second constraint is an
+        // affine transform of the first one, so is its sample
+        let n_obj = self.config.n_obj_models();
+        let mapping = self
+            .config
+            .cstr_specs
+            .as_ref()
+            .map(|specs| output_mapping(n_obj, specs));
+        let cstr_samplers = cstr_models
+            .iter()
+            .enumerate()
+            .map(|(i, model)| match mapping.as_ref().map(|m| &m[n_obj + i]) {
+                Some(InternalCstrKind::Derived {
+                    source,
+                    scale,
+                    offset,
+                }) => Ok(CstrSampler::Affine {
+                    source: source - n_obj,
+                    scale: *scale,
+                    offset: *offset,
+                }),
+                _ => JointSampler::new(model.as_ref(), &xc).map(CstrSampler::Joint),
+            })
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        // Function constraints values are the same for all samples
+        let fcstr_values: Vec<Array1<f64>> =
+            c.columns().into_iter().map(|v| v.to_owned()).collect();
+        let tols: Vec<f64> = (0..n_cstr + c.ncols()).map(tol).collect();
+        let mut scales = thompson::violation_scales(cstr_models, &xc);
+        scales.extend(thompson::value_scales(&c));
+
+        // Sampling without replacement: candidates already selected by a previous sample
+        // or duplicating an evaluated point are not available
+        let mut available: Vec<bool> =
+            duplicates(&xc, &self.xlimits, &self.projected(&inputs.x_data))
+                .into_iter()
+                .map(|dup| !dup)
+                .collect();
+        if !available.contains(&true) {
+            info!("All TS candidate points duplicate evaluated points");
+            available.fill(true);
+        }
+
+        let mut members = vec![];
+        for _ in 0..n_draws {
+            let f = obj_sampler.sample(rng);
+            let mut g = thompson::sample_constraints(&cstr_samplers, rng);
+            g.extend(fcstr_values.iter().cloned());
+            let Some(k) = thompson::sampled_argmin(&f, &g, &tols, &scales, &available) else {
+                info!("No more TS candidate point available");
+                break;
+            };
+            let xk = xc.row(k);
+            let xk_dups = duplicates(&xc, &self.xlimits, &xk.insert_axis(Axis(0)));
+            for (avail, dup) in available.iter_mut().zip(xk_dups) {
+                *avail &= !dup;
+            }
+            debug!("+++++++  TS xk = {xk}, sampled value = {}", f[k]);
+            match self.compute_virtual_point(&xk, &inputs.y_data, obj_models, cstr_models) {
+                Ok(yk) => {
+                    let yk = Array2::from_shape_vec((1, self.config.n_surrogates()), yk).unwrap();
+                    let yk_pen =
+                        self.compute_penalized_point(&xk, obj_models, cstr_models, &inputs.y_data);
+                    let xk = xk.to_owned().insert_axis(Axis(0));
+                    let ck = self.evaluate_fcstrs(&transformed_fcstrs, &xk);
+                    members.push(Candidates {
+                        x: xk,
+                        y: yk,
+                        c: ck,
+                        y_penalized: yk_pen.insert_axis(Axis(0)),
+                        infill_value: -f[k],
+                    });
+                }
+                Err(err) => info!("Error while getting virtual point: {err}"),
+            }
+        }
+        Ok(members)
+    }
+
+    /// Points selected from the `portfolio` batches, after imputed failed points if any
+    /// (the same for all batches). `x_data` are the evaluated points.
+    fn select_from(
+        &self,
+        kind: &Portfolio,
+        portfolio: Vec<Batch>,
+        x_data: &ArrayView2<f64>,
+    ) -> Candidates {
+        let mut points = portfolio[0].imputed();
+        let mut members: Vec<Candidates> = portfolio
+            .iter()
+            .map(Batch::selected)
+            .filter(|selected| selected.x.nrows() > 0)
+            .collect();
+        if members.is_empty() {
+            return points;
+        }
+        if !matches!(kind, Portfolio::ThompsonSampling) {
+            // Mixed-integer: members projected on discrete values, as the objective sees
+            // them, members duplicating a better one or an evaluated point are dropped
+            // (TS candidates are projected and distinct already)
+            for member in members.iter_mut() {
+                member.x = self.projected(&member.x);
+            }
+            let xdat = concatenate(
+                Axis(0),
+                &members
+                    .iter()
+                    .map(|m| m.x.row(0).insert_axis(Axis(0)))
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap();
+            let ranks: Vec<f64> = members.iter().map(|m| m.infill_value).collect();
+            let kept = distinct_indices(&xdat, &self.xlimits, &ranks, &self.projected(x_data));
+            members = members
+                .into_iter()
+                .enumerate()
+                .filter_map(|(i, m)| kept.contains(&i).then_some(m))
+                .collect();
+        }
+        let (ranks, max_points, fill_wrt): (Vec<f64>, usize, _) = match kind {
+            // Draw order: the first sample is the Thompson sample, the next ones (sampled
+            // without replacement) bring diversity in the batch.
+            // Sampled minima are not compared as it would favour the most optimistic sample.
+            Portfolio::ThompsonSampling => (
+                (0..members.len()).map(|i| -(i as f64)).collect(),
+                self.config.qei_config.batch,
+                Some(x_data),
+            ),
+            _ => (
+                members.iter().map(|m| m.infill_value).collect(),
+                GP_VAR_PORTFOLIO_MAX_POINTS,
+                None,
+            ),
+        };
+        debug!(
+            "Portfolio: {:?}",
+            members
+                .iter()
+                .map(|m| m.x.row(0).to_vec())
+                .collect::<Vec<_>>()
+        );
+        let selected = select_from_portfolio(members, &self.xlimits, &ranks, max_points, fill_wrt);
+        points.append(selected);
+        points
     }
 
     /// Train `surrogates` on `(xt, yt)` before selecting the `i`-th point of a batch.

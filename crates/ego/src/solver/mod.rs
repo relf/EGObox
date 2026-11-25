@@ -93,6 +93,7 @@ mod solver_impl;
 mod solver_infill_optim;
 mod surrogate_set;
 mod termination;
+mod thompson;
 mod trego;
 
 pub use activity_strategy::{ActivityStrategy, CooperativeActivity, FullActivity};
@@ -104,3 +105,4 @@ pub use iteration_strategy::{
     IterationMode, IterationStrategy, LocalStepConfig, StandardEgoStrategy, TregoStrategy,
 };
 pub use termination::*;
+pub(crate) use thompson::default_n_candidates as default_ts_candidates;

@@ -57,13 +57,14 @@ pub fn is_update_ok<F: Float>(
 }
 
 /// Returns the ind of usable points in `x_new` not too close to `x_data` points
+/// nor to a previous usable point of `x_new`
 pub fn usable_data(
     x_data: &Array2<f64>,
     x_new: &ArrayBase<impl Data<Elem = f64>, Ix2>,
 ) -> Vec<usize> {
-    let mut appended = vec![];
+    let mut appended: Vec<usize> = vec![];
     Zip::indexed(x_new.rows()).for_each(|idx, x| {
-        if is_update_ok(x_data, &x) {
+        if is_update_ok(x_data, &x) && is_update_ok(&x_new.select(Axis(0), &appended), &x) {
             appended.push(idx);
         }
     });
@@ -174,6 +175,11 @@ mod tests {
     fn test_usable_data() {
         let xdata = array![[0., 1.], [2., 3.]];
         assert_eq!(usable_data(&xdata, &array![[3., 4.], [1e-15, 1.]],), &[0]);
+        // a point repeated in the batch is used once
+        assert_eq!(
+            usable_data(&xdata, &array![[3., 4.], [5., 6.], [3., 4.]]),
+            &[0, 1]
+        );
     }
 
     #[test]

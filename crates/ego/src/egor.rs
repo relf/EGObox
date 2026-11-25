@@ -843,6 +843,263 @@ mod tests {
         assert_eq!(res1.x_doe, res2.x_doe);
     }
 
+    fn run_xsinx_ts(max_iters: usize, batch: usize) -> OptimResult<f64> {
+        EgorBuilder::optimize(xsinx)
+            .configure(|cfg| {
+                cfg.infill_strategy(InfillStrategy::TS)
+                    .configure_qei(|qei| qei.batch(batch))
+                    .doe(&array![[0.], [7.], [25.]])
+                    .max_iters(max_iters)
+                    .seed(42)
+            })
+            .min_within(&array![[0.0, 25.0]])
+            .expect("Egor should be configured")
+            .run()
+            .expect("Egor should minimize xsinx")
+    }
+
+    #[test]
+    #[serial]
+    fn test_xsinx_ts_egor_builder() {
+        // TS follows the GP belief: from 3 points [0, 7, 25], the posterior is confident
+        // that the 7-25 region is high and the samples stay in the x = 3.5 basin, while
+        // from a DOE spread over the domain the global optimum is found
+        let res = EgorBuilder::optimize(xsinx)
+            .configure(|cfg| {
+                cfg.infill_strategy(InfillStrategy::TS)
+                    .doe(&array![[0.], [6.], [12.], [18.], [25.]])
+                    .max_iters(10)
+                    .seed(42)
+            })
+            .min_within(&array![[0.0, 25.0]])
+            .expect("Egor should be configured")
+            .run()
+            .expect("Egor should minimize xsinx");
+        assert_abs_diff_eq!(array![-15.125], res.y_opt, epsilon = 1e-2);
+    }
+
+    #[test]
+    #[serial]
+    fn test_egor_g24_ts() {
+        // constraint surrogates sampled with the objective one (SCBO rule)
+        let xlimits = array![[0., 3.], [0., 4.]];
+        let doe = Lhs::new(&xlimits)
+            .with_rng(Xoshiro256Plus::seed_from_u64(0))
+            .sample(5);
+        let res = EgorBuilder::optimize(f_g24)
+            .configure(|config| {
+                config
+                    .infill_strategy(InfillStrategy::TS)
+                    .n_cstr(2)
+                    .doe(&doe)
+                    .max_iters(30)
+                    .cstr_tol(array![2e-3, 1e-3])
+                    .seed(42)
+            })
+            .min_within(&xlimits)
+            .expect("Egor configured")
+            .run()
+            .expect("Minimize failure");
+        let expected = array![2.3295, 3.1785];
+        assert_abs_diff_eq!(expected, res.x_opt, epsilon = 5e-2);
+    }
+
+    #[test]
+    #[serial]
+    fn test_egor_g24_ts_with_specs() {
+        // the second constraint of a `Btw` specification is sampled as the affine transform
+        // of the first one
+        let xlimits = array![[0., 3.], [0., 4.]];
+        let doe = Lhs::new(&xlimits)
+            .with_rng(Xoshiro256Plus::seed_from_u64(0))
+            .sample(5);
+        let res = EgorBuilder::optimize(f_g24)
+            .configure(|config| {
+                config
+                    .infill_strategy(InfillStrategy::TS)
+                    .cstr_specs(vec![CstrSpec::Btw(-100., 0.), CstrSpec::Leq(0.)])
+                    .doe(&doe)
+                    .max_iters(30)
+                    .cstr_tol(array![2e-3, 2e-3, 1e-3])
+                    .seed(42)
+            })
+            .min_within(&xlimits)
+            .expect("Egor configured")
+            .run()
+            .expect("Minimize failure");
+        let expected = array![2.3295, 3.1785];
+        assert_abs_diff_eq!(expected, res.x_opt, epsilon = 5e-2);
+    }
+
+    #[test]
+    #[serial]
+    fn test_xsinx_ts_function_constraint_without_feasible_candidate() {
+        // feasible only within 1e-4 of 5.3: no candidate satisfies the function constraint,
+        // the least violating one is selected
+        let res = EgorBuilder::optimize(xsinx)
+            .subject_to(vec![|x: &[f64], g: Option<&mut [f64]>, _u| {
+                if let Some(g) = g {
+                    g[0] = 2e4 * (x[0] - 5.3)
+                }
+                1e4 * (x[0] - 5.3).powi(2) - 1e-6
+            }])
+            .configure(|cfg| {
+                cfg.infill_strategy(InfillStrategy::TS)
+                    .doe(&array![[0.], [7.], [25.]])
+                    .max_iters(1)
+                    .seed(42)
+            })
+            .min_within(&array![[0.0, 25.0]])
+            .expect("Egor should be configured")
+            .run()
+            .expect("Egor should minimize xsinx");
+        assert_eq!(res.x_doe.nrows(), 4);
+        let x_new = res.x_doe[[3, 0]];
+        assert!((x_new - 5.3).abs() < 0.25, "x_new = {x_new}");
+    }
+
+    #[test]
+    #[serial]
+    fn test_xsinx_ts_is_reproducible() {
+        let (res1, res2) = (run_xsinx_ts(4, 1), run_xsinx_ts(4, 1));
+        assert_eq!(res1.x_doe, res2.x_doe);
+    }
+
+    #[test]
+    #[serial]
+    fn test_xsinx_ts_hot_start() {
+        // TS samples are drawn from the solver random generator saved in checkpoints, and
+        // non-default TS settings are saved with the criterion:
+        // a resumed run gives the same points as an uninterrupted one
+        let outdir = "target/test_xsinx_ts_hot_start";
+        let _ = std::fs::remove_dir_all(outdir);
+        let run = |hot_start: crate::HotStartMode, max_iters: usize| {
+            EgorBuilder::optimize(xsinx)
+                .configure(|cfg| {
+                    cfg.infill_criterion(Box::new(
+                        crate::criteria::ThompsonSampling::default()
+                            .draws(5)
+                            .candidates(80),
+                    ))
+                    .doe(&array![[0.], [7.], [25.]])
+                    .max_iters(max_iters)
+                    .hot_start(hot_start)
+                    .outdir(outdir)
+                    .seed(42)
+                })
+                .min_within(&array![[0.0, 25.0]])
+                .expect("Egor should be configured")
+                .run()
+                .expect("Egor should minimize xsinx")
+        };
+        let full = run(crate::HotStartMode::Disabled, 6);
+        let _ = run(crate::HotStartMode::Enabled, 3);
+        let resumed = run(crate::HotStartMode::ExtendedIters(3), 3);
+        let _ = std::fs::remove_dir_all(outdir);
+        assert_eq!(resumed.state.iter, 6);
+        assert_eq!(full.x_doe, resumed.x_doe);
+    }
+
+    #[test]
+    #[serial]
+    fn test_xsinx_ts_batch() {
+        // batches are full: samples are drawn without replacement
+        let res = run_xsinx_ts(1, 3);
+        assert_eq!(res.x_doe.nrows() - 3, 3);
+
+        // even with as many draws as batch points
+        let n_added = |ts_draws: Option<usize>| {
+            EgorBuilder::optimize(xsinx)
+                .configure(|cfg| {
+                    let cfg = cfg
+                        .infill_strategy(InfillStrategy::TS)
+                        .configure_qei(|qei| qei.batch(3))
+                        .doe(&array![[0.], [7.], [25.]])
+                        .max_iters(3)
+                        .seed(42);
+                    match ts_draws {
+                        Some(n) => cfg.infill_criterion(Box::new(
+                            crate::criteria::ThompsonSampling::default().draws(n),
+                        )),
+                        None => cfg,
+                    }
+                })
+                .min_within(&array![[0.0, 25.0]])
+                .expect("Egor should be configured")
+                .run()
+                .expect("Egor should minimize xsinx")
+                .x_doe
+                .nrows()
+                - 3
+        };
+        assert_eq!(n_added(None), 9);
+        assert_eq!(n_added(Some(3)), 9);
+    }
+
+    #[test]
+    fn test_ts_batch_with_concentrated_posterior() {
+        // smooth function well modeled by the initial DOE: all samples have the same minimizer,
+        // the next samples take the next minimizers
+        let quadratic = |x: &ArrayView2<f64>| -> Array2<f64> {
+            x.map_axis(Axis(1), |xi| (xi[0] - 1.).powi(2) + (xi[1] - 2.).powi(2))
+                .insert_axis(Axis(1))
+        };
+        let res = EgorBuilder::optimize(quadratic)
+            .configure(|cfg| {
+                cfg.infill_strategy(InfillStrategy::TS)
+                    .configure_qei(|qei| qei.batch(4))
+                    .n_doe(10)
+                    .max_iters(2)
+                    .seed(42)
+            })
+            .min_within(&array![[-3.0, 3.0], [-3.0, 3.0]])
+            .expect("Egor should be configured")
+            .run()
+            .expect("Egor should minimize");
+        assert_eq!(res.x_doe.nrows(), 10 + 2 * 4);
+    }
+
+    #[test]
+    fn test_invalid_ts_configs() {
+        let invalid = |configure: fn(EgorConfig) -> EgorConfig| {
+            let res = EgorBuilder::optimize(xsinx)
+                .configure(|cfg| configure(cfg.infill_strategy(InfillStrategy::TS)))
+                .min_within(&array![[0.0, 25.0]]);
+            matches!(res, Err(crate::EgoError::InvalidConfigError(msg)) if msg.contains("Thompson Sampling"))
+        };
+        assert!(invalid(|cfg| cfg.cstr_infill(true)));
+        assert!(invalid(|cfg| {
+            cfg.configure_gp(|gp| gp.n_clusters(NbClusters::fixed(2)))
+        }));
+        assert!(invalid(|cfg| cfg.trego(true)));
+        assert!(invalid(|cfg| cfg.coego(CoegoStatus::Enabled(2))));
+        assert!(invalid(
+            |cfg| cfg.failsafe_strategy(FailsafeStrategy::Viability)
+        ));
+        assert!(invalid(
+            |cfg| cfg.feasible_infill_strategy(FeasibleInfillStrategy::EfiP)
+        ));
+        assert!(invalid(|cfg| cfg.n_obj(2)));
+        assert!(invalid(|cfg| {
+            cfg.configure_runtime_flags(|flags| flags.use_gp_var_portfolio(true))
+        }));
+        assert!(invalid(|cfg| {
+            cfg.infill_criterion(Box::new(
+                crate::criteria::ThompsonSampling::default().draws(2),
+            ))
+            .configure_qei(|qei| qei.batch(3))
+        }));
+        assert!(!invalid(|cfg| {
+            cfg.infill_criterion(Box::new(
+                crate::criteria::ThompsonSampling::default().draws(3),
+            ))
+            .configure_qei(|qei| qei.batch(3))
+        }));
+        assert!(!invalid(|cfg| cfg
+            .n_obj(2)
+            .configure_moo(|moo| moo.strategy(crate::MooStrategy::ParEgo))));
+    }
+
     #[test]
     #[serial]
     fn test_xsinx_without_noise_ratio_has_no_estimates() {
@@ -2101,6 +2358,108 @@ mod tests {
             .run()
             .expect("Optimization successful");
         assert_abs_diff_eq!(array![18.], res.x_opt, epsilon = 2.);
+    }
+
+    #[test]
+    #[serial]
+    fn test_mixsinx_ts_mixint() {
+        // candidates projected on integers: batch points are distinct integers,
+        // different from the evaluated ones
+        let (n_iters, batch) = (4, 3);
+        let xtypes = vec![XType::Int(0, 25)];
+        let res = EgorBuilder::optimize(mixsinx)
+            .configure(|config| {
+                config
+                    .infill_strategy(InfillStrategy::TS)
+                    .configure_qei(|qei| qei.batch(batch))
+                    .doe(&array![[0.], [7.], [25.]])
+                    .max_iters(n_iters)
+                    .seed(42)
+            })
+            .min_within_mixint_space(&xtypes)
+            .expect("Egor configured")
+            .run()
+            .expect("Optimization successful");
+        let mut xs: Vec<i64> = res.x_doe.iter().map(|v| v.round() as i64).collect();
+        assert_eq!(xs.len(), 3 + n_iters * batch);
+        xs.sort_unstable();
+        xs.dedup();
+        assert_eq!(
+            xs.len(),
+            3 + n_iters * batch,
+            "duplicated points: {}",
+            res.x_doe
+        );
+        assert_abs_diff_eq!(array![18.], res.x_opt, epsilon = 2.);
+    }
+
+    /// Whether one of the `x` rows from `start` on duplicates a previous row
+    fn has_duplicated_rows(x: &Array2<f64>, start: usize) -> bool {
+        (start..x.nrows()).any(|i| (0..i).any(|j| x.row(i) == x.row(j)))
+    }
+
+    /// Objective of an enum variable (4 levels) and an integer one (0 to 3),
+    /// defined on discrete values only
+    fn enum_int_obj(x: &ArrayView2<f64>) -> Array2<f64> {
+        assert!(
+            x.iter().all(|v| v.fract() == 0.),
+            "enum_int_obj works only on discrete values, got {x}"
+        );
+        x.map_axis(Axis(1), |xi| {
+            let level_cost = [2., 0.5, 3., 1.][xi[0] as usize];
+            level_cost + (xi[1] - 2.).powi(2)
+        })
+        .insert_axis(Axis(1))
+    }
+
+    #[test]
+    #[serial]
+    fn test_mixint_enum_gp_var_portfolio_distinct() {
+        // GP variance portfolio members are projected before being selected:
+        // distinct discrete configurations, not evaluated yet
+        let xtypes = vec![XType::Enum(4), XType::Int(0, 3)];
+        let res = EgorBuilder::optimize(enum_int_obj)
+            .configure(|config| {
+                config
+                    .configure_runtime_flags(|flags| flags.use_gp_var_portfolio(true))
+                    .n_doe(5)
+                    .max_iters(3)
+                    .seed(42)
+            })
+            .min_within_mixint_space(&xtypes)
+            .expect("Egor configured")
+            .run()
+            .expect("Optimization successful");
+        // the initial DOE (5 points) may contain duplicates: only added points are checked
+        assert!(
+            !has_duplicated_rows(&res.x_doe, 5),
+            "duplicated points: {}",
+            res.x_doe
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn test_mixsinx_wb2_mixint_no_reevaluation() {
+        // WB2 mean term may favour an evaluated discrete configuration: it is not re-evaluated
+        let xtypes = vec![XType::Int(0, 25)];
+        let res = EgorBuilder::optimize(mixsinx)
+            .configure(|config| {
+                config
+                    .infill_strategy(InfillStrategy::WB2)
+                    .doe(&array![[0.], [7.], [25.]])
+                    .max_iters(20)
+                    .seed(42)
+            })
+            .min_within_mixint_space(&xtypes)
+            .expect("Egor configured")
+            .run()
+            .expect("Optimization successful");
+        assert!(
+            !has_duplicated_rows(&res.x_doe, 0),
+            "duplicated points: {}",
+            res.x_doe
+        );
     }
 
     #[test]

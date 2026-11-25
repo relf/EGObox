@@ -1,6 +1,6 @@
 use crate::errors::Result;
 use crate::types::*;
-use egobox_moe::{XType, to_discrete_space};
+use egobox_moe::{XType, to_continuous_space, to_discrete_space};
 
 use crate::utils::{compute_cstr_scales, pofs, update_data};
 use crate::{EgorSolver, solver::coego};
@@ -411,6 +411,19 @@ where
             });
 
         res
+    }
+
+    /// `x` points projected on discrete values (in the continuous unfolded space) for
+    /// mixed-integer problems, unchanged otherwise
+    pub(crate) fn projected(&self, x: &ArrayBase<impl Data<Elem = f64>, Ix2>) -> Array2<f64> {
+        if self.config.discrete() {
+            to_continuous_space(
+                &self.config.xtypes,
+                &to_discrete_space(&self.config.xtypes, x),
+            )
+        } else {
+            x.to_owned()
+        }
     }
 
     /// Convert a point from the internal continuous (unfolded) space to the space

@@ -463,6 +463,9 @@ class Egor:
     infill_strategy : InfillStrategy
         Infill criterion to decide best next promising point.
         Can be either InfillStrategy.LOG_EI (default), InfillStrategy.EI, InfillStrategy.WB2, InfillStrategy.WB2S
+        or InfillStrategy.TS (exact Thompson Sampling on a discrete candidate set, reproducible given `seed`).
+        TS requires a single-cluster GP and is not compatible with `cstr_infill`, `feasible_infill_strategy`,
+        TREGO, CoEGO, FailsafeStrategy.VIABILITY nor several objectives (unless ParEGO).
     feasible_infill_strategy : FeasibleInfillStrategy
         Weight the infill criterion by the probability of viability to avoid regions where
         `fun` fails (hidden constraints). Can be either FeasibleInfillStrategy.NONE (default),
@@ -2250,6 +2253,14 @@ class InfillStrategy(enum.Enum):
     r"""
     Logarithm of Expected Improvement (LogEI)
     see Ament et al. (2023) "Unexpected Improvements to Expected Improvement for Bayesian Optimization"
+    """
+    TS = ...
+    r"""
+    Thompson Sampling (TS), exact on a discrete candidate set: joint posterior samples of the
+    surrogates on a LHS of the domain completed with points around the best point, the minimizer
+    of each sample being a candidate (max(10, 4 * batch) samples per iteration).
+    Constraint surrogates are sampled as well. Requires a single-cluster GP, no TREGO nor CoEGO.
+    Better used with an initial DOE spread over the domain
     """
 
 @typing.final

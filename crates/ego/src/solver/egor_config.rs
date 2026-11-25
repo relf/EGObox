@@ -473,6 +473,54 @@ impl ValidEgorConfig {
             .unwrap_or_else(|| crate::moo::config::default_strategy(self.n_obj))
     }
 
+    /// Check the configuration options compatible with Thompson Sampling infill strategy
+    fn check_thompson_sampling(&self) -> Result<()> {
+        let unsupported = if self.is_per_objective() {
+            Some(format!(
+                "several objectives with {:?} (TS only applies to one objective or ParEGO)",
+                self.moo_strategy()
+            ))
+        } else if self.gp.n_clusters != NbClusters::fixed(1) {
+            // the joint posterior is only available with one GP expert
+            Some(format!(
+                "{:?} clusters (single-cluster surrogates required)",
+                self.gp.n_clusters
+            ))
+        } else if self.iteration_strategy.name() == "TREGO" {
+            Some("TREGO iteration strategy".to_string())
+        } else if self.activity_strategy.is_cooperative() {
+            Some("CoEGO".to_string())
+        } else if self.cstr_infill {
+            // constraint surrogates are sampled (SCBO), not weighting the criterion
+            Some("constrained infill criterion (cstr_infill)".to_string())
+        } else if self.failsafe_strategy == FailsafeStrategy::Viability {
+            Some("Viability failsafe strategy".to_string())
+        } else if self.feasibility_infill.is_enabled() {
+            Some(format!(
+                "{:?} feasible infill strategy",
+                self.feasibility_infill
+            ))
+        } else if self.runtime_flags.use_gp_var_portfolio {
+            Some("GP variance portfolio".to_string())
+        } else if let Some(ts) = self.infill_criterion.thompson_sampling()
+            && ts.n_draws(self.qei_config.batch) < self.qei_config.batch.max(1)
+        {
+            Some(format!(
+                "{} draws for a batch of {} points (draws >= batch required)",
+                ts.n_draws(self.qei_config.batch),
+                self.qei_config.batch
+            ))
+        } else {
+            None
+        };
+        match unsupported {
+            Some(feature) => Err(crate::EgoError::InvalidConfigError(format!(
+                "EgorConfig invalid: {feature} is not supported with Thompson Sampling (TS) infill strategy"
+            ))),
+            None => Ok(()),
+        }
+    }
+
     /// Whether several objectives are scalarized into one surrogate (ParEGO)
     pub(crate) fn is_scalarized(&self) -> bool {
         self.n_obj > 1 && self.moo_strategy() == crate::MooStrategy::ParEgo
@@ -677,6 +725,7 @@ impl EgorConfig {
             InfillStrategy::LogEI => Box::new(LOG_EI),
             InfillStrategy::WB2 => Box::new(WB2),
             InfillStrategy::WB2S => Box::new(WB2S),
+            InfillStrategy::TS => Box::new(TS),
         };
         self
     }
@@ -1064,6 +1113,10 @@ impl EgorConfig {
                 "Feasible infill strategy {:?} is not implemented for LogEI criterion. Consider using EI, WB2 or WB2S instead.",
                 config.feasibility_infill
             )));
+        }
+
+        if config.infill_criterion.thompson_sampling().is_some() {
+            config.check_thompson_sampling()?;
         }
 
         // L-BFGS-B handles bound constraints only

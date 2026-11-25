@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+* Thompson Sampling infill strategy: `InfillStrategy::TS` (Python `InfillStrategy.TS`), exact on a discrete
+  candidate set. At each iteration, joint samples of the surrogates posterior are drawn on a candidate set (a LHS of
+  the domain completed with points around the best point, `ThompsonSampling::candidates`, `min(100 * nx, 1000)` by
+  default), the minimizer of each sample being a candidate point. The posterior covariance is factorized once per
+  iteration, samples are drawn from the optimizer random generator (reproducible given the seed, consistent with
+  hot start), `ThompsonSampling::draws` per iteration (`max(10, 4 * batch)` by default), without replacement
+  (a candidate is selected once, candidates duplicating evaluated points are not selected) so that batches are full.
+  The batch points (`QEiConfig::batch`) are selected from these candidates in draw order, one per cluster first.
+  Constraint surrogates are sampled as well (SCBO rule: best objective sample among the points feasible for the
+  constraint samples, or least total violation, each constraint scaled by its largest predicted magnitude; `Eq` and
+  `Btw` specifications sampled once), points violating function constraints are removed from the candidate set
+  (least violation when none satisfies them). Mixed-integer candidates are projected on discrete values. Requires single-cluster surrogates, not supported with TREGO, CoEGO, `cstr_infill`, feasible infill
+  strategies, the Viability failsafe strategy, the GP variance portfolio nor several objectives other than ParEGO
+  (`InvalidConfigError`, Python `ValueError`). Settings other than the default ones are given with
+  `EgorConfig::infill_criterion(Box::new(ThompsonSampling::default().draws(n).candidates(m)))`: they are saved
+  with the criterion, the configuration layout of hot start checkpoints is unchanged.
+  Breaking change (`egobox-ego`): new `InfillStrategy` variant
+* Mixed-integer optimization: points to evaluate are projected on discrete values before being added, so that a
+  discrete configuration already evaluated, or selected twice in a batch, is not evaluated again (all infill
+  strategies, TREGO local steps). It happened with WB2/WB2S, whose mean term does not vanish at evaluated points,
+  and with the GP variance portfolio, whose members are also made distinct before being selected
+* GP variance portfolio: with the `Imputation` failsafe strategy, points are selected from the portfolio among
+  the points found by the infill optimizations instead of the imputed failed points of the initial DOE
 * GP variance portfolio (`use_gp_var_portfolio` runtime flag): points are selected from the portfolio by clustering
   them in the unit hypercube with a DBSCAN tolerance adapted to their spreading (1.1 times the median nearest
   neighbor distance, within [0.15, 0.45]) instead of `sqrt(dim)` in the original space, which mostly gave one

@@ -1,10 +1,12 @@
 //! Available infill criteria to be used by Egor solver
 mod ei;
 mod mean;
+mod ts;
 mod wb2;
 
 pub use ei::{EI, ExpectedImprovement, LOG_EI, LogExpectedImprovement};
 pub(crate) use mean::PosteriorMean;
+pub use ts::{TS, ThompsonSampling};
 pub use wb2::{WB2, WB2Criterion, WB2S};
 
 use dyn_clonable::*;
@@ -39,6 +41,12 @@ pub trait InfillCriterion: Clone + Sync {
     /// How the criterion combines with feasibility terms.
     fn composition(&self) -> InfillComposition {
         InfillComposition::Linear
+    }
+
+    /// Thompson Sampling settings when the criterion is the Thompson Sampling one,
+    /// which selects points by sampling instead of being optimized
+    fn thompson_sampling(&self) -> Option<&ThompsonSampling> {
+        None
     }
 
     /// Whether the criterion uses a dynamic scaling factor computed from samples.

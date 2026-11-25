@@ -975,7 +975,7 @@ where
                 fcstrs,
                 fcstr_specs,
             };
-            let candidates = self.select_candidates(&inputs, &mut surrogates, &mut rng)?;
+            let mut candidates = self.select_candidates(&inputs, &mut surrogates, &mut rng)?;
             // interrupted while selecting (models training, infill optimization):
             // no point to evaluate, the iteration is dropped
             self.check_interrupted()?;
@@ -983,8 +983,11 @@ where
             if let Some(models) = persisted_models {
                 surrogates.models = models;
             }
+            // Mixed-integer: points projected on discrete values, as the objective sees them,
+            // so that already evaluated configurations are not evaluated again
+            candidates.x = self.projected(&candidates.x);
             debug!("Try adding {}", candidates.x);
-            let usable_indices = usable_data(&x_data, &candidates.x);
+            let usable_indices = usable_data(&self.projected(&x_data), &candidates.x);
 
             new_state = new_state
                 .clusterings(surrogates.clusterings.clone())

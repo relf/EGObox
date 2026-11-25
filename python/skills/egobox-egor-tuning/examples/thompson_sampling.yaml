@@ -1,0 +1,17 @@
+case: parallel_low_dimension
+
+dimension: 5
+parallel: true
+constraints:
+  - 2 inequalities (order 1)
+
+recommendation:
+  infill_strategy: TS
+  qei_config:
+    batch: 4
+  n_doe: 15
+  cstr_infill: false
+  notes:
+    - spread initial DOE, TS follows the GP belief
+    - QEiStrategy, optim_every, infill_optimizer and infill_n_start are not used
+    - not compatible with TREGO, CoEGO, n_clusters != 1, cstr_infill, feasible infill strategies, VIABILITY
