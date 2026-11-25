@@ -4,16 +4,19 @@
 
 * Thompson Sampling infill strategy: `InfillStrategy::TS` (Python `InfillStrategy.TS`), exact on a discrete
   candidate set. At each iteration, joint samples of the surrogates posterior are drawn on a candidate set (a LHS of
-  the domain completed with points around the best point, `EgorConfig::ts_candidates`, `min(100 * nx, 1000)` by
+  the domain completed with points around the best point, `ThompsonSampling::candidates`, `min(100 * nx, 1000)` by
   default), the minimizer of each sample being a candidate point. The posterior covariance is factorized once per
   iteration, samples are drawn from the optimizer random generator (reproducible given the seed, consistent with
-  hot start), `EgorConfig::ts_draws` per iteration (`max(10, 4 * batch)` by default). The batch points
+  hot start), `ThompsonSampling::draws` per iteration (`max(10, 4 * batch)` by default). The batch points
   (`QEiConfig::batch`) are selected from these candidates in draw order, one per cluster first, skipping candidates
   close to a selected or evaluated point. Constraint surrogates are sampled as well (SCBO rule: best objective sample
   among the points feasible for the constraint samples), points violating function constraints are removed from the
   candidate set. Requires single-cluster surrogates, not supported with TREGO, CoEGO, `cstr_infill`, feasible infill
   strategies, the Viability failsafe strategy, the GP variance portfolio nor several objectives other than ParEGO
-  (`InvalidConfigError`, Python `ValueError`). Breaking change (`egobox-ego`): new `InfillStrategy` variant
+  (`InvalidConfigError`, Python `ValueError`). Settings other than the default ones are given with
+  `EgorConfig::infill_criterion(Box::new(ThompsonSampling::default().draws(n).candidates(m)))`: they are saved
+  with the criterion, the configuration layout of hot start checkpoints is unchanged.
+  Breaking change (`egobox-ego`): new `InfillStrategy` variant
 * GP variance portfolio: with the `Imputation` failsafe strategy, points are selected from the portfolio among
   the points found by the infill optimizations instead of the imputed failed points of the initial DOE
 * GP variance portfolio (`use_gp_var_portfolio` runtime flag): points are selected from the portfolio by clustering

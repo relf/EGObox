@@ -2,6 +2,7 @@
 //! infill criterion optimization for each point of a batch, portfolio of GP variance weights,
 //! and Thompson Sampling (joint posterior samples on a candidate set).
 
+use crate::criteria::ThompsonSampling;
 use crate::errors::Result;
 use crate::moo::criterion::MooCriterion;
 use crate::moo::ehvi::EhviCriterion;
@@ -124,8 +125,8 @@ where
         surrogates: &mut SurrogateSet,
         rng: &mut Xoshiro256Plus,
     ) -> Result<Candidates> {
-        if self.config.infill_criterion.name() == "TS" {
-            return self.select_ts_candidates(inputs, surrogates, rng);
+        if let Some(ts) = self.config.infill_criterion.thompson_sampling() {
+            return self.select_ts_candidates(ts, inputs, surrogates, rng);
         }
         let kind = if self.config.runtime_flags.use_gp_var_portfolio
             && self.config.qei_config.batch == 1
@@ -193,11 +194,12 @@ where
         }
     }
 
-    /// Thompson Sampling: surrogates are trained once, then each of the `ts_draws` joint
+    /// Thompson Sampling: surrogates are trained once, then each of the `draws` joint
     /// posterior samples on a candidate set gives a candidate point (its minimizer),
     /// the batch points being selected from these candidates in draw order
     fn select_ts_candidates(
         &self,
+        ts: &ThompsonSampling,
         inputs: &SelectionInputs<impl CstrFn>,
         surrogates: &mut SurrogateSet,
         rng: &mut Xoshiro256Plus,
@@ -227,7 +229,7 @@ where
         };
         self.save_models(&surrogates.models, inputs.iter);
 
-        let members = self.thompson_samples(inputs, &surrogates.models, rng)?;
+        let members = self.thompson_samples(ts, inputs, &surrogates.models, rng)?;
         if members.is_empty() {
             return Ok(imputed);
         }
@@ -247,12 +249,13 @@ where
         Ok(self.select_from(&Portfolio::ThompsonSampling, portfolio, x_data))
     }
 
-    /// Candidate points of `ts_draws` joint posterior samples of the `models` on a candidate
+    /// Candidate points of the `draws` joint posterior samples of the `models` on a candidate
     /// set (see [`thompson::candidate_set`]): the minimizer of each objective sample among the
     /// points feasible for the constraint samples (see [`thompson::sampled_argmin`]).
     /// Candidate set points violating function constraints are removed beforehand.
     fn thompson_samples(
         &self,
+        ts: &ThompsonSampling,
         inputs: &SelectionInputs<impl CstrFn>,
         models: &[Box<dyn MixtureGpSurrogate>],
         rng: &mut Xoshiro256Plus,
@@ -265,10 +268,8 @@ where
                 .copied()
                 .unwrap_or(crate::DEFAULT_CSTR_TOL)
         };
-        let n_candidates = self
-            .config
-            .ts_candidates
-            .unwrap_or_else(|| thompson::default_n_candidates(self.xlimits.nrows()));
+        let n_candidates = ts.n_candidates(self.xlimits.nrows());
+        let n_draws = ts.n_draws(self.config.qei_config.batch);
         let xc = thompson::candidate_set(
             &self.xlimits,
             inputs.x_data.row(inputs.best_index),
@@ -297,7 +298,7 @@ where
         };
         info!(
             "Thompson Sampling: {} samples on {} candidate points",
-            self.config.n_ts_draws(),
+            n_draws,
             xc.nrows()
         );
         let obj_sampler = JointSampler::new(obj_models[0].as_ref(), &xc)?;
@@ -308,7 +309,7 @@ where
         let tols: Vec<f64> = (0..cstr_models.len()).map(tol).collect();
 
         let mut members = vec![];
-        for _ in 0..self.config.n_ts_draws() {
+        for _ in 0..n_draws {
             let f = obj_sampler.sample(rng);
             let g: Vec<Array1<f64>> = cstr_samplers.iter().map(|s| s.sample(rng)).collect();
             let k = thompson::sampled_argmin(&f, &g, &tols);

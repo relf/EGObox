@@ -914,19 +914,24 @@ mod tests {
     #[test]
     #[serial]
     fn test_xsinx_ts_hot_start() {
-        // TS samples are drawn from the solver random generator saved in checkpoints:
+        // TS samples are drawn from the solver random generator saved in checkpoints, and
+        // non-default TS settings are saved with the criterion:
         // a resumed run gives the same points as an uninterrupted one
         let outdir = "target/test_xsinx_ts_hot_start";
         let _ = std::fs::remove_dir_all(outdir);
         let run = |hot_start: crate::HotStartMode, max_iters: usize| {
             EgorBuilder::optimize(xsinx)
                 .configure(|cfg| {
-                    cfg.infill_strategy(InfillStrategy::TS)
-                        .doe(&array![[0.], [7.], [25.]])
-                        .max_iters(max_iters)
-                        .hot_start(hot_start)
-                        .outdir(outdir)
-                        .seed(42)
+                    cfg.infill_criterion(Box::new(
+                        crate::criteria::ThompsonSampling::default()
+                            .draws(5)
+                            .candidates(80),
+                    ))
+                    .doe(&array![[0.], [7.], [25.]])
+                    .max_iters(max_iters)
+                    .hot_start(hot_start)
+                    .outdir(outdir)
+                    .seed(42)
                 })
                 .min_within(&array![[0.0, 25.0]])
                 .expect("Egor should be configured")
@@ -961,7 +966,9 @@ mod tests {
                         .max_iters(3)
                         .seed(42);
                     match ts_draws {
-                        Some(n) => cfg.ts_draws(n),
+                        Some(n) => cfg.infill_criterion(Box::new(
+                            crate::criteria::ThompsonSampling::default().draws(n),
+                        )),
                         None => cfg,
                     }
                 })
@@ -1002,11 +1009,17 @@ mod tests {
             cfg.configure_runtime_flags(|flags| flags.use_gp_var_portfolio(true))
         }));
         assert!(invalid(|cfg| {
-            cfg.ts_draws(2).configure_qei(|qei| qei.batch(3))
+            cfg.infill_criterion(Box::new(
+                crate::criteria::ThompsonSampling::default().draws(2),
+            ))
+            .configure_qei(|qei| qei.batch(3))
         }));
-        assert!(!invalid(|cfg| cfg
-            .ts_draws(3)
-            .configure_qei(|qei| qei.batch(3))));
+        assert!(!invalid(|cfg| {
+            cfg.infill_criterion(Box::new(
+                crate::criteria::ThompsonSampling::default().draws(3),
+            ))
+            .configure_qei(|qei| qei.batch(3))
+        }));
         assert!(!invalid(|cfg| cfg
             .n_obj(2)
             .configure_moo(|moo| moo.strategy(crate::MooStrategy::ParEgo))));

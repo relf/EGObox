@@ -43,6 +43,12 @@ pub trait InfillCriterion: Clone + Sync {
         InfillComposition::Linear
     }
 
+    /// Thompson Sampling settings when the criterion is the Thompson Sampling one,
+    /// which selects points by sampling instead of being optimized
+    fn thompson_sampling(&self) -> Option<&ThompsonSampling> {
+        None
+    }
+
     /// Whether the criterion uses a dynamic scaling factor computed from samples.
     fn uses_dynamic_scaling(&self) -> bool {
         false
