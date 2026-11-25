@@ -949,13 +949,11 @@ mod tests {
     #[test]
     #[serial]
     fn test_xsinx_ts_batch() {
-        // batch points: draws merged in a cluster are replaced by the next ones
-        // (fewer points when all draws land on the same point)
+        // batches are full: samples are drawn without replacement
         let res = run_xsinx_ts(1, 3);
         assert_eq!(res.x_doe.nrows() - 3, 3);
 
-        // the default number of draws (max(10, 4 * batch)) fills batches at least as well
-        // as fewer draws
+        // even with as many draws as batch points
         let n_added = |ts_draws: Option<usize>| {
             EgorBuilder::optimize(xsinx)
                 .configure(|cfg| {
@@ -980,8 +978,31 @@ mod tests {
                 .nrows()
                 - 3
         };
-        let (n_default, n_few) = (n_added(None), n_added(Some(6)));
-        assert!(n_default >= n_few, "{n_default} < {n_few} points added");
+        assert_eq!(n_added(None), 9);
+        assert_eq!(n_added(Some(3)), 9);
+    }
+
+    #[test]
+    fn test_ts_batch_with_concentrated_posterior() {
+        // smooth function well modeled by the initial DOE: all samples have the same minimizer,
+        // the next samples take the next minimizers
+        let quadratic = |x: &ArrayView2<f64>| -> Array2<f64> {
+            x.map_axis(Axis(1), |xi| (xi[0] - 1.).powi(2) + (xi[1] - 2.).powi(2))
+                .insert_axis(Axis(1))
+        };
+        let res = EgorBuilder::optimize(quadratic)
+            .configure(|cfg| {
+                cfg.infill_strategy(InfillStrategy::TS)
+                    .configure_qei(|qei| qei.batch(4))
+                    .n_doe(10)
+                    .max_iters(2)
+                    .seed(42)
+            })
+            .min_within(&array![[-3.0, 3.0], [-3.0, 3.0]])
+            .expect("Egor should be configured")
+            .run()
+            .expect("Egor should minimize");
+        assert_eq!(res.x_doe.nrows(), 10 + 2 * 4);
     }
 
     #[test]

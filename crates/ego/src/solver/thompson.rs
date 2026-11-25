@@ -92,17 +92,19 @@ pub(crate) fn violation_scales(
         .collect()
 }
 
-/// Index of the point selected from an objective sample `f` and constraint samples `g`
-/// (`g_k <= tols[k]` is feasible), Scalable Constrained Bayesian Optimization (SCBO) rule:
-/// the minimizer of `f` among the points feasible for all sampled constraints, or the
-/// minimizer of the total sampled violation when no point is feasible, the violation of
-/// each constraint being divided by its scale `scales[k]` (see [`violation_scales`]).
+/// Index of the point selected among the `available` ones from an objective sample `f` and
+/// constraint samples `g` (`g_k <= tols[k]` is feasible), Scalable Constrained Bayesian
+/// Optimization (SCBO) rule: the minimizer of `f` among the points feasible for all sampled
+/// constraints, or the minimizer of the total sampled violation when no point is feasible,
+/// the violation of each constraint being divided by its scale `scales[k]`
+/// (see [`violation_scales`]). `None` when no point is available.
 pub(crate) fn sampled_argmin(
     f: &Array1<f64>,
     g: &[Array1<f64>],
     tols: &[f64],
     scales: &[f64],
-) -> usize {
+    available: &[bool],
+) -> Option<usize> {
     let violation = |i: usize| -> f64 {
         g.iter()
             .zip(tols)
@@ -116,10 +118,9 @@ pub(crate) fn sampled_argmin(
             _ => Some(i),
         })
     };
-    let mut feasible = (0..f.len()).filter(|&i| violation(i) == 0.);
-    argmin(&|i| f[i], &mut feasible)
-        .or_else(|| argmin(&violation, &mut (0..f.len())))
-        .unwrap_or(0)
+    let candidates = || (0..f.len()).filter(|&i| available[i]);
+    let mut feasible = candidates().filter(|&i| violation(i) == 0.);
+    argmin(&|i| f[i], &mut feasible).or_else(|| argmin(&violation, &mut candidates()))
 }
 
 #[cfg(test)]
@@ -171,29 +172,47 @@ mod tests {
     #[test]
     fn test_sampled_argmin() {
         let f = array![3., 1., 2., 0.];
+        let all = [true; 4];
         // no constraint
-        assert_eq!(sampled_argmin(&f, &[], &[], &[]), 3);
+        assert_eq!(sampled_argmin(&f, &[], &[], &[], &all), Some(3));
         // best feasible point
         let g = [array![0., 0., 0., 1.]];
-        assert_eq!(sampled_argmin(&f, &g, &[1e-4], &[1.]), 1);
+        assert_eq!(sampled_argmin(&f, &g, &[1e-4], &[1.], &all), Some(1));
         // no feasible point: least total violation
         let g = [array![2., 3., 0.5, 1.], array![0., 0., 1., 1.]];
-        assert_eq!(sampled_argmin(&f, &g, &[0., 0.], &[1., 1.]), 2);
+        assert_eq!(sampled_argmin(&f, &g, &[0., 0.], &[1., 1.], &all), Some(2));
+    }
+
+    #[test]
+    fn test_sampled_argmin_without_replacement() {
+        let f = array![3., 1., 2., 0.];
+        assert_eq!(
+            sampled_argmin(&f, &[], &[], &[], &[true, true, true, false]),
+            Some(1)
+        );
+        // the best feasible point among the available ones
+        let g = [array![0., 1., 0., 0.]];
+        assert_eq!(
+            sampled_argmin(&f, &g, &[0.], &[1.], &[true, true, true, false]),
+            Some(2)
+        );
+        assert_eq!(sampled_argmin(&f, &[], &[], &[], &[false; 4]), None);
     }
 
     #[test]
     fn test_sampled_argmin_scaled_violation() {
         let f = array![0., 1.];
+        let all = [true; 2];
         // a constraint of order 1000 and a constraint of order 1, none feasible
         let g = [array![1000., 0.], array![0., 1.5]];
         let tols = [0., 0.];
         // raw violations 1000 vs 1.5: the large constraint dominates
-        assert_eq!(sampled_argmin(&f, &g, &tols, &[1., 1.]), 1);
+        assert_eq!(sampled_argmin(&f, &g, &tols, &[1., 1.], &all), Some(1));
         // scaled violations 1 vs 1.5
-        assert_eq!(sampled_argmin(&f, &g, &tols, &[1000., 1.]), 0);
+        assert_eq!(sampled_argmin(&f, &g, &tols, &[1000., 1.], &all), Some(0));
         // feasibility does not depend on scales
         let g = [array![0., 1000.], array![0., 0.]];
-        assert_eq!(sampled_argmin(&f, &g, &tols, &[1000., 1.]), 0);
+        assert_eq!(sampled_argmin(&f, &g, &tols, &[1000., 1.], &all), Some(0));
     }
 
     #[test]

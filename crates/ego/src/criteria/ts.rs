@@ -12,9 +12,10 @@ use serde::{Deserialize, Serialize};
 /// point. The posterior covariance of the candidate set is factorized once per iteration,
 /// samples are drawn from the optimizer random generator, so that runs are reproducible given
 /// a seed and consistent with hot start. Several samples are drawn per iteration
-/// (see [`ThompsonSampling::draws`]) and the points to evaluate (as many as the qEI batch
-/// size) are selected in draw order, skipping candidates close to a previous one or to an
-/// evaluated point.
+/// (see [`ThompsonSampling::draws`]) without replacement: each sample minimizer is taken among
+/// the candidates not selected by a previous sample and not duplicating an evaluated point,
+/// so that a batch is full even when the posterior is concentrated. The points to evaluate
+/// (as many as the qEI batch size) are selected from these minimizers in draw order.
 ///
 /// Constraint surrogates are sampled as well (Scalable Constrained Bayesian Optimization rule):
 /// the candidate minimizes the objective sample among the points feasible for the constraint
@@ -57,13 +58,12 @@ const DEFAULT_DRAWS_PER_POINT: usize = 4;
 
 impl ThompsonSampling {
     /// Sets the number of posterior samples drawn per iteration, at least the qEI batch size,
-    /// `max(10, 4 * batch)` by default. The minimizer of each sample is a candidate point,
-    /// then the points to evaluate (as many as the qEI batch size) are selected from these
-    /// candidates in draw order: one per cluster of candidates first, then the next ones not
-    /// duplicating a selected or evaluated point. The first usable sample is always selected,
-    /// the extra samples replace the ones landing on evaluated points or on the same point as
-    /// a previous sample, and diversify batches. Samples are cheap: the posterior covariance
-    /// is factorized once per iteration.
+    /// `max(10, 4 * batch)` by default. The minimizer of each sample, among the candidates not
+    /// selected by a previous sample, is a candidate point, then the points to evaluate
+    /// (as many as the qEI batch size) are selected from these candidates in draw order:
+    /// one per cluster of candidates first, then the next ones. The first sample is always
+    /// selected, the extra samples diversify batches. Samples are cheap: the posterior
+    /// covariance is factorized once per iteration.
     pub fn draws(mut self, n: usize) -> Self {
         self.draws = Some(n);
         self

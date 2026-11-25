@@ -138,6 +138,21 @@ fn is_duplicate(x: ndarray::ArrayView1<f64>, points: &Array2<f64>) -> bool {
         .any(|p| (&p - &x).mapv(|v| v * v).sum().sqrt() < DUPLICATE_TOLERANCE)
 }
 
+/// Whether each `xdat` row duplicates one of the `points` rows: closer than
+/// `DUPLICATE_TOLERANCE` once mapped to the unit hypercube wrt `xlimits`
+pub(crate) fn duplicates(
+    xdat: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+    xlimits: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+    points: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+) -> Vec<bool> {
+    let points_norm = normalize(points, xlimits);
+    normalize(xdat, xlimits)
+        .rows()
+        .into_iter()
+        .map(|x| is_duplicate(x, &points_norm))
+        .collect()
+}
+
 /// Indices of `xdat` rows making a batch of `max_points` points: the representatives of
 /// clusters of rows (see [`cluster_as_indices`]), then the other rows by decreasing rank.
 /// Rows duplicating an `x_data` point or a row already in the batch are skipped,

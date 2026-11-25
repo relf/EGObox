@@ -13,7 +13,7 @@ use crate::solver::multistart::MiddlePickerMultiStarter;
 use crate::solver::solver_infill_optim::InfillOptProblem;
 use crate::solver::surrogate_set::{DataClustering, SurrogateSet, TrainSpec};
 use crate::solver::thompson::{self, JointSampler};
-use crate::utils::{GP_VAR_PORTFOLIO_MAX_POINTS, select_from_portfolio};
+use crate::utils::{GP_VAR_PORTFOLIO_MAX_POINTS, duplicates, select_from_portfolio};
 use crate::{EgorSolver, types::*};
 
 use egobox_doe::SamplingMethod;
@@ -251,8 +251,10 @@ where
 
     /// Candidate points of the `draws` joint posterior samples of the `models` on a candidate
     /// set (see [`thompson::candidate_set`]): the minimizer of each objective sample among the
-    /// points feasible for the constraint samples (see [`thompson::sampled_argmin`]).
-    /// Candidate set points violating function constraints are removed beforehand.
+    /// points feasible for the constraint samples (see [`thompson::sampled_argmin`]), sampled
+    /// without replacement (a candidate is selected once, candidates duplicating evaluated
+    /// points are not selected). Candidate set points violating function constraints are
+    /// removed beforehand.
     fn thompson_samples(
         &self,
         ts: &ThompsonSampling,
@@ -309,12 +311,30 @@ where
         let tols: Vec<f64> = (0..cstr_models.len()).map(tol).collect();
         let scales = thompson::violation_scales(cstr_models, &xc);
 
+        // Sampling without replacement: candidates already selected by a previous sample
+        // or duplicating an evaluated point are not available
+        let mut available: Vec<bool> = duplicates(&xc, &self.xlimits, &inputs.x_data)
+            .into_iter()
+            .map(|dup| !dup)
+            .collect();
+        if !available.contains(&true) {
+            info!("All TS candidate points duplicate evaluated points");
+            available.fill(true);
+        }
+
         let mut members = vec![];
         for _ in 0..n_draws {
             let f = obj_sampler.sample(rng);
             let g: Vec<Array1<f64>> = cstr_samplers.iter().map(|s| s.sample(rng)).collect();
-            let k = thompson::sampled_argmin(&f, &g, &tols, &scales);
+            let Some(k) = thompson::sampled_argmin(&f, &g, &tols, &scales, &available) else {
+                info!("No more TS candidate point available");
+                break;
+            };
             let xk = xc.row(k);
+            let xk_dups = duplicates(&xc, &self.xlimits, &xk.insert_axis(Axis(0)));
+            for (avail, dup) in available.iter_mut().zip(xk_dups) {
+                *avail &= !dup;
+            }
             debug!("+++++++  TS xk = {xk}, sampled value = {}", f[k]);
             match self.compute_virtual_point(&xk, &inputs.y_data, obj_models, cstr_models) {
                 Ok(yk) => {
@@ -355,8 +375,8 @@ where
             return points;
         }
         let (ranks, max_points, fill_wrt): (Vec<f64>, usize, _) = match kind {
-            // Draw order: the first sample is the Thompson sample, the next ones bring
-            // diversity in the batch and replace samples duplicating evaluated points.
+            // Draw order: the first sample is the Thompson sample, the next ones (sampled
+            // without replacement) bring diversity in the batch.
             // Sampled minima are not compared as it would favour the most optimistic sample.
             Portfolio::ThompsonSampling => (
                 (0..members.len()).map(|i| -(i as f64)).collect(),
