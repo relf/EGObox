@@ -265,7 +265,7 @@ optim = egx.Egor(
     n_cstr=2,  # constraint surrogates are sampled as well (SCBO rule)
     n_doe=15,  # TS follows the GP belief: spread the initial DOE
     infill_strategy=egx.InfillStrategy.TS,
-    qei_config=egx.QEiConfig(batch=4),  # 4 points per iteration, QEiStrategy is not used
+    qei_config=egx.QEiConfig(batch=4),  # 4 points per iteration
 ).minimize(f_obj, max_iters=20, seed=42)
 ```
 
