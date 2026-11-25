@@ -79,6 +79,48 @@ impl JointSampler {
     }
 }
 
+/// Constraint sampler: a joint posterior sampler, or an affine transform of the sample of a
+/// previous constraint (second constraint of an expanded `Eq` or `Btw` specification)
+pub(crate) enum CstrSampler {
+    Joint(JointSampler),
+    Affine {
+        /// Index of the source constraint, before this one
+        source: usize,
+        scale: f64,
+        offset: f64,
+    },
+}
+
+/// Joint samples of the constraints: affine constraints get the transformed sample of their
+/// source constraint, without drawing from `rng`
+pub(crate) fn sample_constraints(
+    samplers: &[CstrSampler],
+    rng: &mut Xoshiro256Plus,
+) -> Vec<Array1<f64>> {
+    let mut g: Vec<Array1<f64>> = Vec::with_capacity(samplers.len());
+    for sampler in samplers {
+        let gk = match sampler {
+            CstrSampler::Joint(joint) => joint.sample(rng),
+            CstrSampler::Affine {
+                source,
+                scale,
+                offset,
+            } => g[*source].mapv(|v| scale * v + offset),
+        };
+        g.push(gk);
+    }
+    g
+}
+
+/// `scale` when it is positive and finite, 1 otherwise
+fn usable_scale(scale: f64) -> f64 {
+    if scale.is_finite() && scale > 0. {
+        scale
+    } else {
+        1.
+    }
+}
+
 /// Constraint scales for the sampled violations: the largest magnitude of the mean prediction
 /// of each constraint model at the candidate points `x` (see [`compute_cstr_scales`]),
 /// 1 when it is null or not finite
@@ -88,7 +130,22 @@ pub(crate) fn violation_scales(
 ) -> Vec<f64> {
     compute_cstr_scales(&x.view(), cstr_models)
         .iter()
-        .map(|&s| if s.is_finite() && s > 0. { s } else { 1. })
+        .map(|&s| usable_scale(s))
+        .collect()
+}
+
+/// Scales of the function constraints values `c` (one column per constraint) for their
+/// violations: the largest magnitude of each column, 1 when it is null or not finite
+pub(crate) fn value_scales(c: &Array2<f64>) -> Vec<f64> {
+    c.columns()
+        .into_iter()
+        .map(|col| {
+            usable_scale(
+                col.iter()
+                    .filter(|v| v.is_finite())
+                    .fold(0., |m: f64, v| m.max(v.abs())),
+            )
+        })
         .collect()
 }
 
@@ -213,6 +270,42 @@ mod tests {
         // feasibility does not depend on scales
         let g = [array![0., 1000.], array![0., 0.]];
         assert_eq!(sampled_argmin(&f, &g, &tols, &[1000., 1.], &all), Some(0));
+    }
+
+    #[test]
+    fn test_sample_constraints_affine() {
+        let model = xsinx_model();
+        let x = array![[2.], [3.], [18.]];
+        let samplers = vec![
+            CstrSampler::Joint(JointSampler::new(&model, &x).unwrap()),
+            // Eq: opposite of the source
+            CstrSampler::Affine {
+                source: 0,
+                scale: -1.,
+                offset: 0.,
+            },
+            // Btw(lo, hi): opposite of the source plus lo - hi
+            CstrSampler::Affine {
+                source: 0,
+                scale: -1.,
+                offset: -2.,
+            },
+        ];
+        let mut rng = Xoshiro256Plus::seed_from_u64(42);
+        let g = sample_constraints(&samplers, &mut rng);
+        assert_eq!(g[1], g[0].mapv(|v| -v));
+        assert_eq!(g[2], g[0].mapv(|v| -v - 2.));
+        // affine constraints do not draw from the generator
+        let mut rng_joint = Xoshiro256Plus::seed_from_u64(42);
+        let g0 = sample_constraints(&samplers[..1], &mut rng_joint);
+        assert_eq!(g0[0], g[0]);
+        assert_eq!(rng, rng_joint);
+    }
+
+    #[test]
+    fn test_value_scales() {
+        let c = array![[1., 0., f64::INFINITY], [-3., 0., 2.]];
+        assert_eq!(value_scales(&c), vec![3., 1., 2.]);
     }
 
     #[test]

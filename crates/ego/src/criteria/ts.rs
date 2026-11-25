@@ -21,7 +21,11 @@ use serde::{Deserialize, Serialize};
 /// the candidate minimizes the objective sample among the points feasible for the constraint
 /// samples, or minimizes the total sampled violation when none is feasible, each constraint
 /// violation being divided by the largest magnitude of its mean prediction on the candidate set.
-/// Points violating function constraints are removed from the candidate set.
+/// The second constraint of an expanded `Eq` or `Btw` specification is the affine transform of
+/// the sample of the first one. Points violating function constraints are removed from the
+/// candidate set, unless none satisfies them: the least violation is then selected.
+/// With discrete variables, candidates are projected on discrete values so that samples
+/// select distinct discrete points.
 ///
 /// TS follows the GP posterior belief: with few points, a GP confident that unexplored
 /// regions are high keeps sampling the current basin where EI would explore, hence an

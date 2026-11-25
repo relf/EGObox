@@ -906,6 +906,60 @@ mod tests {
 
     #[test]
     #[serial]
+    fn test_egor_g24_ts_with_specs() {
+        // the second constraint of a `Btw` specification is sampled as the affine transform
+        // of the first one
+        let xlimits = array![[0., 3.], [0., 4.]];
+        let doe = Lhs::new(&xlimits)
+            .with_rng(Xoshiro256Plus::seed_from_u64(0))
+            .sample(5);
+        let res = EgorBuilder::optimize(f_g24)
+            .configure(|config| {
+                config
+                    .infill_strategy(InfillStrategy::TS)
+                    .cstr_specs(vec![CstrSpec::Btw(-100., 0.), CstrSpec::Leq(0.)])
+                    .doe(&doe)
+                    .max_iters(30)
+                    .cstr_tol(array![2e-3, 2e-3, 1e-3])
+                    .seed(42)
+            })
+            .min_within(&xlimits)
+            .expect("Egor configured")
+            .run()
+            .expect("Minimize failure");
+        let expected = array![2.3295, 3.1785];
+        assert_abs_diff_eq!(expected, res.x_opt, epsilon = 5e-2);
+    }
+
+    #[test]
+    #[serial]
+    fn test_xsinx_ts_function_constraint_without_feasible_candidate() {
+        // feasible only within 1e-4 of 5.3: no candidate satisfies the function constraint,
+        // the least violating one is selected
+        let res = EgorBuilder::optimize(xsinx)
+            .subject_to(vec![|x: &[f64], g: Option<&mut [f64]>, _u| {
+                if let Some(g) = g {
+                    g[0] = 2e4 * (x[0] - 5.3)
+                }
+                1e4 * (x[0] - 5.3).powi(2) - 1e-6
+            }])
+            .configure(|cfg| {
+                cfg.infill_strategy(InfillStrategy::TS)
+                    .doe(&array![[0.], [7.], [25.]])
+                    .max_iters(1)
+                    .seed(42)
+            })
+            .min_within(&array![[0.0, 25.0]])
+            .expect("Egor should be configured")
+            .run()
+            .expect("Egor should minimize xsinx");
+        assert_eq!(res.x_doe.nrows(), 4);
+        let x_new = res.x_doe[[3, 0]];
+        assert!((x_new - 5.3).abs() < 0.25, "x_new = {x_new}");
+    }
+
+    #[test]
+    #[serial]
     fn test_xsinx_ts_is_reproducible() {
         let (res1, res2) = (run_xsinx_ts(4, 1), run_xsinx_ts(4, 1));
         assert_eq!(res1.x_doe, res2.x_doe);
@@ -2303,6 +2357,39 @@ mod tests {
             .expect("Egor configured")
             .run()
             .expect("Optimization successful");
+        assert_abs_diff_eq!(array![18.], res.x_opt, epsilon = 2.);
+    }
+
+    #[test]
+    #[serial]
+    fn test_mixsinx_ts_mixint() {
+        // candidates projected on integers: batch points are distinct integers,
+        // different from the evaluated ones
+        let (n_iters, batch) = (4, 3);
+        let xtypes = vec![XType::Int(0, 25)];
+        let res = EgorBuilder::optimize(mixsinx)
+            .configure(|config| {
+                config
+                    .infill_strategy(InfillStrategy::TS)
+                    .configure_qei(|qei| qei.batch(batch))
+                    .doe(&array![[0.], [7.], [25.]])
+                    .max_iters(n_iters)
+                    .seed(42)
+            })
+            .min_within_mixint_space(&xtypes)
+            .expect("Egor configured")
+            .run()
+            .expect("Optimization successful");
+        let mut xs: Vec<i64> = res.x_doe.iter().map(|v| v.round() as i64).collect();
+        assert_eq!(xs.len(), 3 + n_iters * batch);
+        xs.sort_unstable();
+        xs.dedup();
+        assert_eq!(
+            xs.len(),
+            3 + n_iters * batch,
+            "duplicated points: {}",
+            res.x_doe
+        );
         assert_abs_diff_eq!(array![18.], res.x_opt, epsilon = 2.);
     }
 

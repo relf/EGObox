@@ -12,14 +12,14 @@ use crate::moo::qehvi::{QEhviCriterion, fd_steps};
 use crate::solver::multistart::MiddlePickerMultiStarter;
 use crate::solver::solver_infill_optim::InfillOptProblem;
 use crate::solver::surrogate_set::{DataClustering, SurrogateSet, TrainSpec};
-use crate::solver::thompson::{self, JointSampler};
+use crate::solver::thompson::{self, CstrSampler, JointSampler};
 use crate::utils::{GP_VAR_PORTFOLIO_MAX_POINTS, duplicates, select_from_portfolio};
 use crate::{EgorSolver, types::*};
 
 use egobox_doe::SamplingMethod;
-use egobox_moe::MixtureGpSurrogate;
+use egobox_moe::{MixtureGpSurrogate, to_continuous_space, to_discrete_space};
 use log::{debug, info};
-use ndarray::{Array1, Array2, ArrayView2, Axis, Zip, concatenate, s};
+use ndarray::{Array1, Array2, ArrayBase, ArrayView2, Axis, Data, Ix2, Zip, concatenate, s};
 use ndarray_rand::rand::{Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256Plus;
 use serde::{Serialize, de::DeserializeOwned};
@@ -249,12 +249,27 @@ where
         Ok(self.select_from(&Portfolio::ThompsonSampling, portfolio, x_data))
     }
 
+    /// `x` points projected on discrete values (in the continuous unfolded space) for
+    /// mixed-integer problems, unchanged otherwise
+    fn projected(&self, x: &ArrayBase<impl Data<Elem = f64>, Ix2>) -> Array2<f64> {
+        if self.config.discrete() {
+            to_continuous_space(
+                &self.config.xtypes,
+                &to_discrete_space(&self.config.xtypes, x),
+            )
+        } else {
+            x.to_owned()
+        }
+    }
+
     /// Candidate points of the `draws` joint posterior samples of the `models` on a candidate
     /// set (see [`thompson::candidate_set`]): the minimizer of each objective sample among the
     /// points feasible for the constraint samples (see [`thompson::sampled_argmin`]), sampled
     /// without replacement (a candidate is selected once, candidates duplicating evaluated
     /// points are not selected). Candidate set points violating function constraints are
-    /// removed beforehand.
+    /// removed beforehand, unless none satisfies them: function constraints are then handled
+    /// as constraint samples (least violation). Mixed-integer candidates are projected on
+    /// discrete values.
     fn thompson_samples(
         &self,
         ts: &ThompsonSampling,
@@ -272,15 +287,22 @@ where
         };
         let n_candidates = ts.n_candidates(self.xlimits.nrows());
         let n_draws = ts.n_draws(self.config.qei_config.batch);
-        let xc = thompson::candidate_set(
+        // Mixed-integer: candidates projected on discrete values, as surrogates and
+        // objective see them, so that duplicates are detected
+        let xc = self.projected(&thompson::candidate_set(
             &self.xlimits,
             inputs.x_data.row(inputs.best_index),
             n_candidates,
             rng,
-        );
+        ));
+
+        // Function constraints: candidates violating them are removed, when none satisfies
+        // them, they are kept and the least violation is selected
         let transformed_fcstrs = crate::types::affine_fcstrs(inputs.fcstrs, inputs.fcstr_specs);
-        let xc = if transformed_fcstrs.is_empty() {
-            xc
+        let n_cstr = cstr_models.len();
+        let (xc, c) = if transformed_fcstrs.is_empty() {
+            let c = Array2::zeros((xc.nrows(), 0));
+            (xc, c)
         } else {
             let c = self.evaluate_fcstrs(&transformed_fcstrs, &xc);
             let feasible: Vec<usize> = (0..xc.nrows())
@@ -288,14 +310,14 @@ where
                     c.row(i)
                         .iter()
                         .enumerate()
-                        .all(|(j, cj)| *cj <= tol(cstr_models.len() + j))
+                        .all(|(j, cj)| *cj <= tol(n_cstr + j))
                 })
                 .collect();
             if feasible.is_empty() {
-                info!("No TS candidate point satisfies the function constraints");
-                xc
+                info!("No TS candidate point satisfies the function constraints: least violation");
+                (xc, c)
             } else {
-                xc.select(Axis(0), &feasible)
+                (xc.select(Axis(0), &feasible), c.select(Axis(0), &feasible))
             }
         };
         info!(
@@ -304,19 +326,44 @@ where
             xc.nrows()
         );
         let obj_sampler = JointSampler::new(obj_models[0].as_ref(), &xc)?;
+        // Expanded `Eq`/`Btw` constraint specifications: the second constraint is an
+        // affine transform of the first one, so is its sample
+        let n_obj = self.config.n_obj_models();
+        let mapping = self
+            .config
+            .cstr_specs
+            .as_ref()
+            .map(|specs| output_mapping(n_obj, specs));
         let cstr_samplers = cstr_models
             .iter()
-            .map(|model| JointSampler::new(model.as_ref(), &xc))
+            .enumerate()
+            .map(|(i, model)| match mapping.as_ref().map(|m| &m[n_obj + i]) {
+                Some(InternalCstrKind::Derived {
+                    source,
+                    scale,
+                    offset,
+                }) => Ok(CstrSampler::Affine {
+                    source: source - n_obj,
+                    scale: *scale,
+                    offset: *offset,
+                }),
+                _ => JointSampler::new(model.as_ref(), &xc).map(CstrSampler::Joint),
+            })
             .collect::<std::result::Result<Vec<_>, _>>()?;
-        let tols: Vec<f64> = (0..cstr_models.len()).map(tol).collect();
-        let scales = thompson::violation_scales(cstr_models, &xc);
+        // Function constraints values are the same for all samples
+        let fcstr_values: Vec<Array1<f64>> =
+            c.columns().into_iter().map(|v| v.to_owned()).collect();
+        let tols: Vec<f64> = (0..n_cstr + c.ncols()).map(tol).collect();
+        let mut scales = thompson::violation_scales(cstr_models, &xc);
+        scales.extend(thompson::value_scales(&c));
 
         // Sampling without replacement: candidates already selected by a previous sample
         // or duplicating an evaluated point are not available
-        let mut available: Vec<bool> = duplicates(&xc, &self.xlimits, &inputs.x_data)
-            .into_iter()
-            .map(|dup| !dup)
-            .collect();
+        let mut available: Vec<bool> =
+            duplicates(&xc, &self.xlimits, &self.projected(&inputs.x_data))
+                .into_iter()
+                .map(|dup| !dup)
+                .collect();
         if !available.contains(&true) {
             info!("All TS candidate points duplicate evaluated points");
             available.fill(true);
@@ -325,7 +372,8 @@ where
         let mut members = vec![];
         for _ in 0..n_draws {
             let f = obj_sampler.sample(rng);
-            let g: Vec<Array1<f64>> = cstr_samplers.iter().map(|s| s.sample(rng)).collect();
+            let mut g = thompson::sample_constraints(&cstr_samplers, rng);
+            g.extend(fcstr_values.iter().cloned());
             let Some(k) = thompson::sampled_argmin(&f, &g, &tols, &scales, &available) else {
                 info!("No more TS candidate point available");
                 break;

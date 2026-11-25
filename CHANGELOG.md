@@ -11,8 +11,9 @@
   (a candidate is selected once, candidates duplicating evaluated points are not selected) so that batches are full.
   The batch points (`QEiConfig::batch`) are selected from these candidates in draw order, one per cluster first.
   Constraint surrogates are sampled as well (SCBO rule: best objective sample among the points feasible for the
-  constraint samples, or least total violation, each constraint scaled by its largest predicted magnitude), points
-  violating function constraints are removed from the candidate set. Requires single-cluster surrogates, not supported with TREGO, CoEGO, `cstr_infill`, feasible infill
+  constraint samples, or least total violation, each constraint scaled by its largest predicted magnitude; `Eq` and
+  `Btw` specifications sampled once), points violating function constraints are removed from the candidate set
+  (least violation when none satisfies them). Mixed-integer candidates are projected on discrete values. Requires single-cluster surrogates, not supported with TREGO, CoEGO, `cstr_infill`, feasible infill
   strategies, the Viability failsafe strategy, the GP variance portfolio nor several objectives other than ParEGO
   (`InvalidConfigError`, Python `ValueError`). Settings other than the default ones are given with
   `EgorConfig::infill_criterion(Box::new(ThompsonSampling::default().draws(n).candidates(m)))`: they are saved
