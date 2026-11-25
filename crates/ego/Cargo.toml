@@ -4,7 +4,6 @@ authors.workspace = true
 version = "0.45.0"
 license.workspace = true
 edition.workspace = true
-homepage.workspace = true
 repository.workspace = true
 readme = "README.md"
 description = "A library for efficient global optimization"
@@ -46,7 +45,6 @@ log.workspace = true
 env_logger.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
-clap.workspace = true
 
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json.workspace = true
@@ -67,6 +65,7 @@ criterion.workspace = true
 approx.workspace = true
 argmin_testfunctions.workspace = true
 serial_test = "3.1.0"
+clap.workspace = true
 
 [[bench]]
 name = "ego"

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* Cargo manifests: unused dependencies removed (`env_logger` and `ndarray-npy` in `egobox-moe`, `typetag` in
+  `egobox-gp`, `argmin_testfunctions` in the Python bindings), `clap` (`egobox-ego` examples) and `ndarray-npy`
+  (`egobox-gp` tests and benches) moved to dev-dependencies, unused `workspace.package` fields and the `homepage`
+  fields redundant with `repository` removed.
+  Breaking change (`egobox-gp`): the implicit `typetag` feature is removed (no effect, `typetag` was not used)
 * Thompson Sampling infill strategy: `InfillStrategy::TS` (Python `InfillStrategy.TS`), exact on a discrete
   candidate set. At each iteration, joint samples of the surrogates posterior are drawn on a candidate set (a LHS of
   the domain completed with points around the best point, `ThompsonSampling::candidates`, `min(100 * nx, 1000)` by

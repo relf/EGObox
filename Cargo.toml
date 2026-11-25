@@ -6,21 +6,7 @@ resolver = "2"
 license = "Apache-2.0"
 edition = "2024"
 authors = ["Rémi Lafage <remi.lafage@onera.fr>"]
-homepage = "https://github.com/relf/EGObox"
-documentation = "https://pypi.org/project/egobox"
-readme = "README.md"
-description = "A toolbox for efficient global optimization"
 repository = "https://github.com/relf/EGObox"
-keywords = [
-    "machine-learning",
-    "doe",
-    "gaussian-process",
-    "mixture-of-experts",
-    "optimization",
-]
-categories = ["algorithms", "mathematics", "science"]
-
-exclude = [".github/"]
 
 [workspace.metadata.release]
 shared-version = true
