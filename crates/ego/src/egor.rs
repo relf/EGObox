@@ -2393,6 +2393,75 @@ mod tests {
         assert_abs_diff_eq!(array![18.], res.x_opt, epsilon = 2.);
     }
 
+    /// Whether one of the `x` rows from `start` on duplicates a previous row
+    fn has_duplicated_rows(x: &Array2<f64>, start: usize) -> bool {
+        (start..x.nrows()).any(|i| (0..i).any(|j| x.row(i) == x.row(j)))
+    }
+
+    /// Objective of an enum variable (4 levels) and an integer one (0 to 3),
+    /// defined on discrete values only
+    fn enum_int_obj(x: &ArrayView2<f64>) -> Array2<f64> {
+        assert!(
+            x.iter().all(|v| v.fract() == 0.),
+            "enum_int_obj works only on discrete values, got {x}"
+        );
+        x.map_axis(Axis(1), |xi| {
+            let level_cost = [2., 0.5, 3., 1.][xi[0] as usize];
+            level_cost + (xi[1] - 2.).powi(2)
+        })
+        .insert_axis(Axis(1))
+    }
+
+    #[test]
+    #[serial]
+    fn test_mixint_enum_gp_var_portfolio_distinct() {
+        // GP variance portfolio members are projected before being selected:
+        // distinct discrete configurations, not evaluated yet
+        let xtypes = vec![XType::Enum(4), XType::Int(0, 3)];
+        let res = EgorBuilder::optimize(enum_int_obj)
+            .configure(|config| {
+                config
+                    .configure_runtime_flags(|flags| flags.use_gp_var_portfolio(true))
+                    .n_doe(5)
+                    .max_iters(3)
+                    .seed(42)
+            })
+            .min_within_mixint_space(&xtypes)
+            .expect("Egor configured")
+            .run()
+            .expect("Optimization successful");
+        // the initial DOE (5 points) may contain duplicates: only added points are checked
+        assert!(
+            !has_duplicated_rows(&res.x_doe, 5),
+            "duplicated points: {}",
+            res.x_doe
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn test_mixsinx_wb2_mixint_no_reevaluation() {
+        // WB2 mean term may favour an evaluated discrete configuration: it is not re-evaluated
+        let xtypes = vec![XType::Int(0, 25)];
+        let res = EgorBuilder::optimize(mixsinx)
+            .configure(|config| {
+                config
+                    .infill_strategy(InfillStrategy::WB2)
+                    .doe(&array![[0.], [7.], [25.]])
+                    .max_iters(20)
+                    .seed(42)
+            })
+            .min_within_mixint_space(&xtypes)
+            .expect("Egor configured")
+            .run()
+            .expect("Optimization successful");
+        assert!(
+            !has_duplicated_rows(&res.x_doe, 0),
+            "duplicated points: {}",
+            res.x_doe
+        );
+    }
+
     #[test]
     #[serial]
     fn test_mixsinx_wb2_mixint_egor_builder() {

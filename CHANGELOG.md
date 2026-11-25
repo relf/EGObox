@@ -19,6 +19,10 @@
   `EgorConfig::infill_criterion(Box::new(ThompsonSampling::default().draws(n).candidates(m)))`: they are saved
   with the criterion, the configuration layout of hot start checkpoints is unchanged.
   Breaking change (`egobox-ego`): new `InfillStrategy` variant
+* Mixed-integer optimization: points to evaluate are projected on discrete values before being added, so that a
+  discrete configuration already evaluated, or selected twice in a batch, is not evaluated again (all infill
+  strategies, TREGO local steps). It happened with WB2/WB2S, whose mean term does not vanish at evaluated points,
+  and with the GP variance portfolio, whose members are also made distinct before being selected
 * GP variance portfolio: with the `Imputation` failsafe strategy, points are selected from the portfolio among
   the points found by the infill optimizations instead of the imputed failed points of the initial DOE
 * GP variance portfolio (`use_gp_var_portfolio` runtime flag): points are selected from the portfolio by clustering

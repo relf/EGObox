@@ -148,12 +148,14 @@ where
             state.get_infill_value()
         );
 
-        let x_new = x_opt.insert_axis(Axis(0));
+        // Mixed-integer: point projected on discrete values, as the objective sees it,
+        // so that an already evaluated configuration is not evaluated again
+        let x_new = self.projected(&x_opt.insert_axis(Axis(0)));
         debug!("x_old={} x_new={}", x_data.row(best_index), x_new.row(0));
 
         let (add_count, valid_count, x_fail_points) = if xbest.l1_dist(&x_new.row(0)).unwrap()
             > min_acceptance_distance
-            && is_update_ok(&x_data, &x_new.row(0))
+            && is_update_ok(&self.projected(&x_data), &x_new.row(0))
         {
             // Penalized values are used in case of failed evaluation
             let y_penalized =

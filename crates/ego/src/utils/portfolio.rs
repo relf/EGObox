@@ -153,6 +153,35 @@ pub(crate) fn duplicates(
         .collect()
 }
 
+/// Indices of the `xdat` rows not duplicating an `x_data` point nor a better ranked row
+/// (highest `ranks` value first, the first one on ties), in increasing order.
+/// The best ranked row is kept when all rows duplicate `x_data` points.
+pub(crate) fn distinct_indices(
+    xdat: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+    xlimits: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+    ranks: &[f64],
+    x_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+) -> Vec<usize> {
+    let xnorm = normalize(xdat, xlimits);
+    let data_norm = normalize(x_data, xlimits);
+    let mut by_rank: Vec<usize> = (0..xnorm.nrows()).collect();
+    by_rank.sort_by(|&a, &b| ranks[b].total_cmp(&ranks[a]).then(a.cmp(&b)));
+    let mut kept: Vec<usize> = vec![];
+    for &i in &by_rank {
+        if !is_duplicate(xnorm.row(i), &data_norm)
+            && !is_duplicate(xnorm.row(i), &xnorm.select(ndarray::Axis(0), &kept))
+        {
+            kept.push(i);
+        }
+    }
+    if kept.is_empty() {
+        log::debug!("All portfolio points duplicate evaluated points");
+        kept.extend(by_rank.first());
+    }
+    kept.sort_unstable();
+    kept
+}
+
 /// Indices of `xdat` rows making a batch of `max_points` points: the representatives of
 /// clusters of rows (see [`cluster_as_indices`]), then the other rows by decreasing rank.
 /// Rows duplicating an `x_data` point or a row already in the batch are skipped,
@@ -368,6 +397,23 @@ mod tests {
         );
         // at least one point
         assert_eq!(cluster_as_indices(&x, &xlimits, &ranks, 0), vec![1]);
+    }
+
+    #[test]
+    fn test_distinct_indices() {
+        let xlimits = array![[0., 10.]];
+        let xdat = array![[1.], [5.], [1.], [8.], [5.]];
+        let ranks = [1., 2., 3., 0., 4.];
+        // duplicates of 2 (rank 3 > 1) and 4 (rank 4 > 2) dropped, 8. evaluated
+        assert_eq!(
+            distinct_indices(&xdat, &xlimits, &ranks, &array![[8.]]),
+            vec![2, 4]
+        );
+        // all evaluated: best ranked kept
+        assert_eq!(
+            distinct_indices(&xdat, &xlimits, &ranks, &array![[1.], [5.], [8.]]),
+            vec![4]
+        );
     }
 
     #[test]

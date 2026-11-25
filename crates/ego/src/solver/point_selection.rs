@@ -13,13 +13,15 @@ use crate::solver::multistart::MiddlePickerMultiStarter;
 use crate::solver::solver_infill_optim::InfillOptProblem;
 use crate::solver::surrogate_set::{DataClustering, SurrogateSet, TrainSpec};
 use crate::solver::thompson::{self, CstrSampler, JointSampler};
-use crate::utils::{GP_VAR_PORTFOLIO_MAX_POINTS, duplicates, select_from_portfolio};
+use crate::utils::{
+    GP_VAR_PORTFOLIO_MAX_POINTS, distinct_indices, duplicates, select_from_portfolio,
+};
 use crate::{EgorSolver, types::*};
 
 use egobox_doe::SamplingMethod;
-use egobox_moe::{MixtureGpSurrogate, to_continuous_space, to_discrete_space};
+use egobox_moe::MixtureGpSurrogate;
 use log::{debug, info};
-use ndarray::{Array1, Array2, ArrayBase, ArrayView2, Axis, Data, Ix2, Zip, concatenate, s};
+use ndarray::{Array1, Array2, ArrayView2, Axis, Zip, concatenate, s};
 use ndarray_rand::rand::{Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256Plus;
 use serde::{Serialize, de::DeserializeOwned};
@@ -249,19 +251,6 @@ where
         Ok(self.select_from(&Portfolio::ThompsonSampling, portfolio, x_data))
     }
 
-    /// `x` points projected on discrete values (in the continuous unfolded space) for
-    /// mixed-integer problems, unchanged otherwise
-    fn projected(&self, x: &ArrayBase<impl Data<Elem = f64>, Ix2>) -> Array2<f64> {
-        if self.config.discrete() {
-            to_continuous_space(
-                &self.config.xtypes,
-                &to_discrete_space(&self.config.xtypes, x),
-            )
-        } else {
-            x.to_owned()
-        }
-    }
-
     /// Candidate points of the `draws` joint posterior samples of the `models` on a candidate
     /// set (see [`thompson::candidate_set`]): the minimizer of each objective sample among the
     /// points feasible for the constraint samples (see [`thompson::sampled_argmin`]), sampled
@@ -414,13 +403,36 @@ where
         x_data: &ArrayView2<f64>,
     ) -> Candidates {
         let mut points = portfolio[0].imputed();
-        let members: Vec<Candidates> = portfolio
+        let mut members: Vec<Candidates> = portfolio
             .iter()
             .map(Batch::selected)
             .filter(|selected| selected.x.nrows() > 0)
             .collect();
         if members.is_empty() {
             return points;
+        }
+        if !matches!(kind, Portfolio::ThompsonSampling) {
+            // Mixed-integer: members projected on discrete values, as the objective sees
+            // them, members duplicating a better one or an evaluated point are dropped
+            // (TS candidates are projected and distinct already)
+            for member in members.iter_mut() {
+                member.x = self.projected(&member.x);
+            }
+            let xdat = concatenate(
+                Axis(0),
+                &members
+                    .iter()
+                    .map(|m| m.x.row(0).insert_axis(Axis(0)))
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap();
+            let ranks: Vec<f64> = members.iter().map(|m| m.infill_value).collect();
+            let kept = distinct_indices(&xdat, &self.xlimits, &ranks, &self.projected(x_data));
+            members = members
+                .into_iter()
+                .enumerate()
+                .filter_map(|(i, m)| kept.contains(&i).then_some(m))
+                .collect();
         }
         let (ranks, max_points, fill_wrt): (Vec<f64>, usize, _) = match kind {
             // Draw order: the first sample is the Thompson sample, the next ones (sampled
