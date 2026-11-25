@@ -595,6 +595,26 @@ fn snapshot_xsinx_gp_var_portfolio() {
     check_snapshot("xsinx_gp_var_portfolio", &res);
 }
 
+/// Thompson Sampling: one infill optimization per posterior sample drawn from the
+/// optimizer random generator, a batch of 2 points selected from the samples per iteration
+#[test]
+#[serial]
+fn snapshot_xsinx_ts() {
+    let res = EgorBuilder::optimize(xsinx)
+        .configure(|cfg| {
+            cfg.infill_strategy(InfillStrategy::TS)
+                .configure_qei(|qei| qei.batch(2))
+                .doe(&xsinx_doe5())
+                .max_iters(4)
+                .seed(42)
+        })
+        .min_within(&array![[0., 25.]])
+        .unwrap()
+        .run()
+        .unwrap();
+    check_snapshot("xsinx_ts", &res);
+}
+
 /// Mixture of two GP experts, whose clustering is seeded by the optimizer seed
 /// (explicit DOE: an optimized LHS of 10 points differs between platforms)
 #[test]

@@ -124,6 +124,9 @@ fn parse_run_info(py: Python, value: Py<PyAny>) -> PyResult<RunInfo> {
 /// infill_strategy : InfillStrategy
 ///     Infill criterion to decide best next promising point.
 ///     Can be either InfillStrategy.LOG_EI (default), InfillStrategy.EI, InfillStrategy.WB2, InfillStrategy.WB2S
+///     or InfillStrategy.TS (exact Thompson Sampling on a discrete candidate set, reproducible given `seed`).
+///     TS requires a single-cluster GP and is not compatible with `cstr_infill`, `feasible_infill_strategy`,
+///     TREGO, CoEGO, FailsafeStrategy.VIABILITY nor several objectives (unless ParEGO).
 /// feasible_infill_strategy : FeasibleInfillStrategy
 ///     Weight the infill criterion by the probability of viability to avoid regions where
 ///     `fun` fails (hidden constraints). Can be either FeasibleInfillStrategy.NONE (default),

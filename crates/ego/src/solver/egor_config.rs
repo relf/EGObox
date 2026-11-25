@@ -367,6 +367,14 @@ pub struct ValidEgorConfig {
     pub(crate) infill_criterion: Box<dyn InfillCriterion>,
     /// The optimizer used to optimize infill criterium
     pub(crate) infill_optimizer: InfillOptimizer,
+    /// Number of posterior samples drawn per iteration with the Thompson Sampling criterion
+    /// (`max(10, 4 * batch)` when not set)
+    #[serde(default)]
+    pub(crate) ts_draws: Option<usize>,
+    /// Number of global candidate points the Thompson samples are drawn on
+    /// (`min(100 * nx, 1000)` when not set)
+    #[serde(default)]
+    pub(crate) ts_candidates: Option<usize>,
     /// Specification of a target objective value which is used to stop the algorithm once reached
     pub(crate) target: f64,
     /// Optional timeout in seconds: the optimization is stopped when the elapsed time exceeds this duration
@@ -406,6 +414,11 @@ pub struct ValidEgorConfig {
     pub(crate) moo: MooConfig,
 }
 
+/// Default minimum number of Thompson samples per iteration
+const TS_DEFAULT_MIN_DRAWS: usize = 10;
+/// Default number of Thompson samples per point of the batch
+const TS_DEFAULT_DRAWS_PER_POINT: usize = 4;
+
 impl Default for ValidEgorConfig {
     fn default() -> Self {
         ValidEgorConfig {
@@ -421,6 +434,8 @@ impl Default for ValidEgorConfig {
             gp: GpConfig::default(),
             infill_criterion: Box::new(LOG_EI),
             infill_optimizer: InfillOptimizer::Slsqp,
+            ts_draws: None,
+            ts_candidates: None,
             target: f64::MIN,
             timeout: None,
             outdir: None,
@@ -471,6 +486,60 @@ impl ValidEgorConfig {
             .strategy
             .clone()
             .unwrap_or_else(|| crate::moo::config::default_strategy(self.n_obj))
+    }
+
+    /// Number of posterior samples drawn per iteration with Thompson Sampling
+    /// infill strategy: `max(10, 4 * batch)` by default
+    pub(crate) fn n_ts_draws(&self) -> usize {
+        self.ts_draws.unwrap_or(
+            (TS_DEFAULT_DRAWS_PER_POINT * self.qei_config.batch.max(1)).max(TS_DEFAULT_MIN_DRAWS),
+        )
+    }
+
+    /// Check the configuration options compatible with Thompson Sampling infill strategy
+    fn check_thompson_sampling(&self) -> Result<()> {
+        let unsupported = if self.is_per_objective() {
+            Some(format!(
+                "several objectives with {:?} (TS only applies to one objective or ParEGO)",
+                self.moo_strategy()
+            ))
+        } else if self.gp.n_clusters != NbClusters::fixed(1) {
+            // the joint posterior is only available with one GP expert
+            Some(format!(
+                "{:?} clusters (single-cluster surrogates required)",
+                self.gp.n_clusters
+            ))
+        } else if self.iteration_strategy.name() == "TREGO" {
+            Some("TREGO iteration strategy".to_string())
+        } else if self.activity_strategy.is_cooperative() {
+            Some("CoEGO".to_string())
+        } else if self.cstr_infill {
+            // constraint surrogates are sampled (SCBO), not weighting the criterion
+            Some("constrained infill criterion (cstr_infill)".to_string())
+        } else if self.failsafe_strategy == FailsafeStrategy::Viability {
+            Some("Viability failsafe strategy".to_string())
+        } else if self.feasibility_infill.is_enabled() {
+            Some(format!(
+                "{:?} feasible infill strategy",
+                self.feasibility_infill
+            ))
+        } else if self.runtime_flags.use_gp_var_portfolio {
+            Some("GP variance portfolio".to_string())
+        } else if self.n_ts_draws() < self.qei_config.batch.max(1) {
+            Some(format!(
+                "{} draws for a batch of {} points (ts_draws >= batch required)",
+                self.n_ts_draws(),
+                self.qei_config.batch
+            ))
+        } else {
+            None
+        };
+        match unsupported {
+            Some(feature) => Err(crate::EgoError::InvalidConfigError(format!(
+                "EgorConfig invalid: {feature} is not supported with Thompson Sampling (TS) infill strategy"
+            ))),
+            None => Ok(()),
+        }
     }
 
     /// Whether several objectives are scalarized into one surrogate (ParEGO)
@@ -677,7 +746,31 @@ impl EgorConfig {
             InfillStrategy::LogEI => Box::new(LOG_EI),
             InfillStrategy::WB2 => Box::new(WB2),
             InfillStrategy::WB2S => Box::new(WB2S),
+            InfillStrategy::TS => Box::new(TS),
         };
+        self
+    }
+
+    /// Sets the number of posterior samples drawn per iteration with the Thompson Sampling
+    /// infill strategy ([`InfillStrategy::TS`]), at least the qEI batch size,
+    /// `max(10, 4 * batch)` by default. The minimizer of each sample is a candidate point,
+    /// then the points to evaluate (as many as the qEI batch size) are selected from these
+    /// candidates in draw order: one per cluster of candidates first, then the next ones not
+    /// duplicating a selected or evaluated point. The first usable sample is always selected,
+    /// the extra samples replace the ones landing on evaluated points or on the same point as
+    /// a previous sample, and diversify batches. Samples are cheap: the posterior covariance
+    /// is factorized once per iteration.
+    pub fn ts_draws(mut self, n: usize) -> Self {
+        self.0.ts_draws = Some(n);
+        self
+    }
+
+    /// Sets the number of global candidate points the Thompson samples are drawn on with
+    /// [`InfillStrategy::TS`] (`min(100 * nx, 1000)` by default): a LHS of the domain,
+    /// completed with 20% of points around the current best point. The posterior covariance
+    /// of these points is computed and factorized at each iteration (cubic cost).
+    pub fn ts_candidates(mut self, n: usize) -> Self {
+        self.0.ts_candidates = Some(n);
         self
     }
 
@@ -1064,6 +1157,10 @@ impl EgorConfig {
                 "Feasible infill strategy {:?} is not implemented for LogEI criterion. Consider using EI, WB2 or WB2S instead.",
                 config.feasibility_infill
             )));
+        }
+
+        if config.infill_criterion.name() == "TS" {
+            config.check_thompson_sampling()?;
         }
 
         // L-BFGS-B handles bound constraints only

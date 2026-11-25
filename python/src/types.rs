@@ -137,6 +137,12 @@ pub(crate) enum InfillStrategy {
     /// Logarithm of Expected Improvement (LogEI)
     /// see Ament et al. (2023) "Unexpected Improvements to Expected Improvement for Bayesian Optimization"
     LogEi = 4,
+    /// Thompson Sampling (TS), exact on a discrete candidate set: joint posterior samples of the
+    /// surrogates on a LHS of the domain completed with points around the best point, the minimizer
+    /// of each sample being a candidate (max(10, 4 * batch) samples per iteration).
+    /// Constraint surrogates are sampled as well. Requires a single-cluster GP, no TREGO nor CoEGO.
+    /// Better used with an initial DOE spread over the domain
+    Ts = 5,
 }
 
 impl<'a, 'py> FromPyObject<'a, 'py> for InfillStrategy {
@@ -151,11 +157,12 @@ impl<'a, 'py> FromPyObject<'a, 'py> for InfillStrategy {
             Ok(2) => Ok(Self::Wb2),
             Ok(3) => Ok(Self::Wb2s),
             Ok(4) => Ok(Self::LogEi),
+            Ok(5) => Ok(Self::Ts),
             Ok(v) => Err(PyValueError::new_err(format!(
-                "infill_strategy integer value must be in [1, 4], got {v}"
+                "infill_strategy integer value must be in [1, 5], got {v}"
             ))),
             Err(_) => Err(PyTypeError::new_err(
-                "infill_strategy must be an InfillStrategy enum or an integer in [1, 4]",
+                "infill_strategy must be an InfillStrategy enum or an integer in [1, 5]",
             )),
         }
     }
@@ -168,6 +175,7 @@ impl From<InfillStrategy> for egobox_ego::InfillStrategy {
             InfillStrategy::Wb2 => egobox_ego::InfillStrategy::WB2,
             InfillStrategy::Wb2s => egobox_ego::InfillStrategy::WB2S,
             InfillStrategy::LogEi => egobox_ego::InfillStrategy::LogEI,
+            InfillStrategy::Ts => egobox_ego::InfillStrategy::TS,
         }
     }
 }

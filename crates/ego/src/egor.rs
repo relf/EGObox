@@ -843,6 +843,175 @@ mod tests {
         assert_eq!(res1.x_doe, res2.x_doe);
     }
 
+    fn run_xsinx_ts(max_iters: usize, batch: usize) -> OptimResult<f64> {
+        EgorBuilder::optimize(xsinx)
+            .configure(|cfg| {
+                cfg.infill_strategy(InfillStrategy::TS)
+                    .configure_qei(|qei| qei.batch(batch))
+                    .doe(&array![[0.], [7.], [25.]])
+                    .max_iters(max_iters)
+                    .seed(42)
+            })
+            .min_within(&array![[0.0, 25.0]])
+            .expect("Egor should be configured")
+            .run()
+            .expect("Egor should minimize xsinx")
+    }
+
+    #[test]
+    #[serial]
+    fn test_xsinx_ts_egor_builder() {
+        // TS follows the GP belief: from 3 points [0, 7, 25], the posterior is confident
+        // that the 7-25 region is high and the samples stay in the x = 3.5 basin, while
+        // from a DOE spread over the domain the global optimum is found
+        let res = EgorBuilder::optimize(xsinx)
+            .configure(|cfg| {
+                cfg.infill_strategy(InfillStrategy::TS)
+                    .doe(&array![[0.], [6.], [12.], [18.], [25.]])
+                    .max_iters(10)
+                    .seed(42)
+            })
+            .min_within(&array![[0.0, 25.0]])
+            .expect("Egor should be configured")
+            .run()
+            .expect("Egor should minimize xsinx");
+        assert_abs_diff_eq!(array![-15.125], res.y_opt, epsilon = 1e-2);
+    }
+
+    #[test]
+    #[serial]
+    fn test_egor_g24_ts() {
+        // constraint surrogates sampled with the objective one (SCBO rule)
+        let xlimits = array![[0., 3.], [0., 4.]];
+        let doe = Lhs::new(&xlimits)
+            .with_rng(Xoshiro256Plus::seed_from_u64(0))
+            .sample(5);
+        let res = EgorBuilder::optimize(f_g24)
+            .configure(|config| {
+                config
+                    .infill_strategy(InfillStrategy::TS)
+                    .n_cstr(2)
+                    .doe(&doe)
+                    .max_iters(30)
+                    .cstr_tol(array![2e-3, 1e-3])
+                    .seed(42)
+            })
+            .min_within(&xlimits)
+            .expect("Egor configured")
+            .run()
+            .expect("Minimize failure");
+        let expected = array![2.3295, 3.1785];
+        assert_abs_diff_eq!(expected, res.x_opt, epsilon = 5e-2);
+    }
+
+    #[test]
+    #[serial]
+    fn test_xsinx_ts_is_reproducible() {
+        let (res1, res2) = (run_xsinx_ts(4, 1), run_xsinx_ts(4, 1));
+        assert_eq!(res1.x_doe, res2.x_doe);
+    }
+
+    #[test]
+    #[serial]
+    fn test_xsinx_ts_hot_start() {
+        // TS samples are drawn from the solver random generator saved in checkpoints:
+        // a resumed run gives the same points as an uninterrupted one
+        let outdir = "target/test_xsinx_ts_hot_start";
+        let _ = std::fs::remove_dir_all(outdir);
+        let run = |hot_start: crate::HotStartMode, max_iters: usize| {
+            EgorBuilder::optimize(xsinx)
+                .configure(|cfg| {
+                    cfg.infill_strategy(InfillStrategy::TS)
+                        .doe(&array![[0.], [7.], [25.]])
+                        .max_iters(max_iters)
+                        .hot_start(hot_start)
+                        .outdir(outdir)
+                        .seed(42)
+                })
+                .min_within(&array![[0.0, 25.0]])
+                .expect("Egor should be configured")
+                .run()
+                .expect("Egor should minimize xsinx")
+        };
+        let full = run(crate::HotStartMode::Disabled, 6);
+        let _ = run(crate::HotStartMode::Enabled, 3);
+        let resumed = run(crate::HotStartMode::ExtendedIters(3), 3);
+        let _ = std::fs::remove_dir_all(outdir);
+        assert_eq!(resumed.state.iter, 6);
+        assert_eq!(full.x_doe, resumed.x_doe);
+    }
+
+    #[test]
+    #[serial]
+    fn test_xsinx_ts_batch() {
+        // batch points: draws merged in a cluster are replaced by the next ones
+        // (fewer points when all draws land on the same point)
+        let res = run_xsinx_ts(1, 3);
+        assert_eq!(res.x_doe.nrows() - 3, 3);
+
+        // the default number of draws (max(10, 4 * batch)) fills batches at least as well
+        // as fewer draws
+        let n_added = |ts_draws: Option<usize>| {
+            EgorBuilder::optimize(xsinx)
+                .configure(|cfg| {
+                    let cfg = cfg
+                        .infill_strategy(InfillStrategy::TS)
+                        .configure_qei(|qei| qei.batch(3))
+                        .doe(&array![[0.], [7.], [25.]])
+                        .max_iters(3)
+                        .seed(42);
+                    match ts_draws {
+                        Some(n) => cfg.ts_draws(n),
+                        None => cfg,
+                    }
+                })
+                .min_within(&array![[0.0, 25.0]])
+                .expect("Egor should be configured")
+                .run()
+                .expect("Egor should minimize xsinx")
+                .x_doe
+                .nrows()
+                - 3
+        };
+        let (n_default, n_few) = (n_added(None), n_added(Some(6)));
+        assert!(n_default >= n_few, "{n_default} < {n_few} points added");
+    }
+
+    #[test]
+    fn test_invalid_ts_configs() {
+        let invalid = |configure: fn(EgorConfig) -> EgorConfig| {
+            let res = EgorBuilder::optimize(xsinx)
+                .configure(|cfg| configure(cfg.infill_strategy(InfillStrategy::TS)))
+                .min_within(&array![[0.0, 25.0]]);
+            matches!(res, Err(crate::EgoError::InvalidConfigError(msg)) if msg.contains("Thompson Sampling"))
+        };
+        assert!(invalid(|cfg| cfg.cstr_infill(true)));
+        assert!(invalid(|cfg| {
+            cfg.configure_gp(|gp| gp.n_clusters(NbClusters::fixed(2)))
+        }));
+        assert!(invalid(|cfg| cfg.trego(true)));
+        assert!(invalid(|cfg| cfg.coego(CoegoStatus::Enabled(2))));
+        assert!(invalid(
+            |cfg| cfg.failsafe_strategy(FailsafeStrategy::Viability)
+        ));
+        assert!(invalid(
+            |cfg| cfg.feasible_infill_strategy(FeasibleInfillStrategy::EfiP)
+        ));
+        assert!(invalid(|cfg| cfg.n_obj(2)));
+        assert!(invalid(|cfg| {
+            cfg.configure_runtime_flags(|flags| flags.use_gp_var_portfolio(true))
+        }));
+        assert!(invalid(|cfg| {
+            cfg.ts_draws(2).configure_qei(|qei| qei.batch(3))
+        }));
+        assert!(!invalid(|cfg| cfg
+            .ts_draws(3)
+            .configure_qei(|qei| qei.batch(3))));
+        assert!(!invalid(|cfg| cfg
+            .n_obj(2)
+            .configure_moo(|moo| moo.strategy(crate::MooStrategy::ParEgo))));
+    }
+
     #[test]
     #[serial]
     fn test_xsinx_without_noise_ratio_has_no_estimates() {
