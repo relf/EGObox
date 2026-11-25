@@ -100,16 +100,19 @@ When parallel evaluations are available:
 ### Thompson Sampling (`InfillStrategy.TS`)
 
 Use it:
+
 - for batches in low dimension (nx ≲ 8), in particular on multimodal objectives
 - with an initial DOE spread over the domain (e.g. `n_doe` ≈ 3 × nx): TS follows the GP belief, with
   a tiny DOE it keeps sampling the current basin (2 successes out of 10 seeds on xsinx with 3 points)
 
 Avoid it:
+
 - in high dimension: the candidate set (`min(100 * nx, 1000)` points) gets sparse
 - when TREGO, CoEGO, clustered GPs (`n_clusters != 1`), `cstr_infill`, feasible infill strategies or
   `FailsafeStrategy.VIABILITY` are needed: they are rejected with TS (`ValueError`)
 
 Notes:
+
 - `QEiConfig.strategy` / `optim_every`, `infill_optimizer` and `infill_n_start` have no effect with TS
 - Samples are drawn without replacement: each iteration adds `batch` distinct points
 
