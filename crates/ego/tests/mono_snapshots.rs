@@ -595,8 +595,8 @@ fn snapshot_xsinx_gp_var_portfolio() {
     check_snapshot("xsinx_gp_var_portfolio", &res);
 }
 
-/// Thompson Sampling: one infill optimization per posterior sample drawn from the
-/// optimizer random generator, a batch of 2 points selected from the samples per iteration
+/// Thompson Sampling: joint posterior samples on a discrete candidate set drawn from the
+/// optimizer random generator (no infill optimization), a batch of 2 points per iteration
 #[test]
 #[serial]
 fn snapshot_xsinx_ts() {

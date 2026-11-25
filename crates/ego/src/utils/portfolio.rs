@@ -135,7 +135,7 @@ fn is_duplicate(x: ndarray::ArrayView1<f64>, points: &Array2<f64>) -> bool {
     points
         .rows()
         .into_iter()
-        .any(|p| (&p - &x).mapv(|v| v * v).sum().sqrt() < DUPLICATE_TOLERANCE)
+        .any(|p| (&p - &x).mapv(|v| v * v).sum() < DUPLICATE_TOLERANCE * DUPLICATE_TOLERANCE)
 }
 
 /// Whether each `xdat` row duplicates one of the `points` rows: closer than
