@@ -250,6 +250,23 @@ egx.InfillStrategy.LOG_EI  # Log Expected Improvement (default), Ament et al. 20
 egx.InfillStrategy.EI  # Expected Improvement (classic)
 egx.InfillStrategy.WB2  # Watson & Barnes 2nd criterion — balanced
 egx.InfillStrategy.WB2S  # Scaled WB2
+egx.InfillStrategy.TS  # Thompson Sampling, exact on a discrete candidate set
+```
+
+**Thompson Sampling** (`InfillStrategy.TS`): at each iteration, joint samples of the GP posterior are
+drawn on a candidate set (a LHS of the domain plus points around the best point), each sample minimizer
+being a candidate, without replacement. No infill criterion optimization is run. It suits batches in low
+dimension (nx ≲ 8): the batch points come from independent samples with a single GP training per
+iteration (no Kriging Believer fantasy points).
+
+```python
+optim = egx.Egor(
+    [[-3.0, 3.0]] * 4,
+    n_cstr=2,  # constraint surrogates are sampled as well (SCBO rule)
+    n_doe=15,  # TS follows the GP belief: spread the initial DOE
+    infill_strategy=egx.InfillStrategy.TS,
+    qei_config=egx.QEiConfig(batch=4),  # 4 points per iteration, QEiStrategy is not used
+).minimize(f_obj, max_iters=20, seed=42)
 ```
 
 **TREGO variant** (trust-region, good for high-dimensional problems):
@@ -379,6 +396,11 @@ rnd = egx.random(xlimits, n_samples=20, seed=42)  # Random
 - **Best point of a DOE**: `egor.best_result(x_doe, y_doe)` / `egor.best_index(y_doe)` (`get_result` / `get_result_index` were removed in 1.0.0).
 - **`cstr_infill` vs `feasible_infill_strategy`**: the former weights the criterion by the probability of feasibility of the `n_cstr` constraints, the latter (`EFI_P`, `EFI_FE`) by the probability of viability, i.e. of `fun` not failing. They are independent.
 - **`feasibility_first`** (default `False`, only with `cstr_infill=True`): when `True`, the probability of feasibility alone drives the infill until a feasible point is found, as in 0.38.0 to 1.0.1; when `False`, the criterion weighted by the probability of feasibility is used from the first iteration, as up to 0.37.
+- **`InfillStrategy.TS`**: constraints are sampled, so keep `cstr_infill=False`. `ValueError` with `cstr_infill=True`,
+  `trego`, `coego_n_coop > 0`, `feasible_infill_strategy`, `FailsafeStrategy.VIABILITY`, `GpConfig(n_clusters != 1)`
+  or several `Belfegor` objectives (unless ParEGO). Only `QEiConfig.batch` is used (not `strategy` nor `optim_every`),
+  `infill_optimizer` and `infill_n_start` have no effect. The number of samples (`max(10, 4 * batch)`) and candidate
+  points (`min(100 * nx, 1000)`) can only be changed from Rust (`ThompsonSampling::draws` / `candidates`).
 - **`xtypes` vs `xlimits`**: pass a flat list of `[lo, hi]` for continuous-only; use `XSpec` objects for mixed-integer.
 - **Low `n_doe`**: default is `max(n_dims + 1, 5)`. For complex functions, use `n_doe = 3 * n_dims` or more.
 

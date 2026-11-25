@@ -155,6 +155,8 @@ Rule of thumb:
 
 - around d=50, try batch=5
 - around d=100, try batch=10
+- in low dimension (d ≲ 8), Thompson Sampling is an alternative, see
+  [Recipe 13](#recipe-13-batch-thompson-sampling-in-low-dimension)
 
 ## Recipe 6: Stagnation or Poor Progress
 
@@ -485,3 +487,47 @@ Note:
   of a previous call, one diverged (NaN) evaluation can make all the following ones fail.
 - Compare configurations with at least two seeds: in this case study the seed alone changed
   the final objective by up to 1.3%.
+
+## Recipe 13: Batch Thompson Sampling in Low Dimension
+
+Use when:
+
+- you can evaluate several points concurrently
+- the dimension is low (d ≲ 8)
+- the objective may be multimodal
+
+Suggested setup:
+
+```python
+optim = egx.Egor(
+    xspecs,
+    n_cstr=2,
+    n_doe=3 * len(xspecs),
+    infill_strategy=egx.InfillStrategy.TS,
+    qei_config=egx.QEiConfig(batch=4),
+)
+res = optim.minimize(fun, max_iters=20, seed=42)
+```
+
+Why it helps:
+
+- At each iteration, joint samples of the GP posterior are drawn on a candidate set (a LHS of the
+  domain plus points around the best point): the minimizer of each sample is a batch point.
+  The batch comes from independent samples with a single GP training per iteration, instead of
+  Kriging Believer fantasy points, and no infill criterion optimization is run.
+- Samples are drawn without replacement: each iteration adds `batch` distinct points, even when
+  the GP posterior is concentrated.
+- Constraint surrogates are sampled as well (SCBO rule): the batch point minimizes the objective
+  sample among the points feasible for the constraint samples, or the total constraint violation
+  when none is.
+
+Rule of thumb:
+
+- Spread the initial DOE (e.g. `n_doe = 3 * d`): TS follows the GP belief, and with a few points
+  a GP confident that unexplored regions are high keeps sampling the current basin.
+- Keep `cstr_infill=False` and scale constraints to order 1.
+- Only `QEiConfig.batch` is used: `QEiConfig.strategy`, `infill_optimizer` and `infill_n_start`
+  have no effect.
+- TS is rejected (`ValueError`) with `trego`, `coego_n_coop`, `cstr_infill`, `feasible_infill_strategy`,
+  `FailsafeStrategy.VIABILITY` or `GpConfig(n_clusters != 1)`.
+- Avoid it in high dimension: the candidate set (`min(100 * d, 1000)` points) gets sparse.

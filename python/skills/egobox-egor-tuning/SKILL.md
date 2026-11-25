@@ -23,7 +23,7 @@ Provide practical guidance for selecting and adapting EGOR optimization paramete
 
 For detailed parameterization recipes with complete examples, see the **[EGObox Cookbook](../../website/content/cookbook.md)**.
 
-The cookbook contains 12 practical recipes covering:
+The cookbook contains 13 practical recipes covering:
 - Cheap vs. expensive objectives
 - High-dimensional problems (d > 10, d > 50)
 - Parallel/batch evaluations
@@ -32,6 +32,7 @@ The cookbook contains 12 practical recipes covering:
 - Cheap constraints
 - Warm restarts from existing DOE
 - Constrained engineering problems with active constraints (e.g. MDO)
+- Batch Thompson Sampling in low dimension
 
 ---
 
@@ -76,6 +77,9 @@ If optimization stagnates:
 - With `cstr_infill=True` (or without constraints), `InfillOptimizer.LBFGSB` (gradient based,
   bounds only) can be used instead, unless `fcstrs` or `FailsafeStrategy.VIABILITY` are used
   (rejected with a `ValueError`)
+- With `InfillStrategy.TS`, constraint surrogates are sampled (SCBO rule): keep `cstr_infill=False`
+  (`ValueError` otherwise). When no candidate is feasible for a sample, the least total violation is
+  selected, each constraint scaled by its largest predicted magnitude: order 1 constraints are still preferable
 
 ### Failures
 
@@ -90,6 +94,24 @@ When parallel evaluations are available:
 - Use `QEiConfig` with appropriate batch size
 - Batch size ≈ dimension/10 is a good starting point
 - Strategy `KB` works well for most cases
+- In low dimension (nx ≲ 8), try `infill_strategy=egx.InfillStrategy.TS` with the same `QEiConfig(batch=...)`:
+  batch points come from independent posterior samples, with one GP training per iteration
+
+### Thompson Sampling (`InfillStrategy.TS`)
+
+Use it:
+- for batches in low dimension (nx ≲ 8), in particular on multimodal objectives
+- with an initial DOE spread over the domain (e.g. `n_doe` ≈ 3 × nx): TS follows the GP belief, with
+  a tiny DOE it keeps sampling the current basin (2 successes out of 10 seeds on xsinx with 3 points)
+
+Avoid it:
+- in high dimension: the candidate set (`min(100 * nx, 1000)` points) gets sparse
+- when TREGO, CoEGO, clustered GPs (`n_clusters != 1`), `cstr_infill`, feasible infill strategies or
+  `FailsafeStrategy.VIABILITY` are needed: they are rejected with TS (`ValueError`)
+
+Notes:
+- `QEiConfig.strategy` / `optim_every`, `infill_optimizer` and `infill_n_start` have no effect with TS
+- Samples are drawn without replacement: each iteration adds `batch` distinct points
 
 ---
 
@@ -118,10 +140,11 @@ constraints are in `c <= 0` form after expansion of the `cstr_specs` (two column
 See [examples directory](examples/) for concrete use cases:
 - `cheap_function.yaml` - Low-cost objective optimization
 - `expensive_function.yaml` - High-cost objective optimization  
-- `high_dimensional.yaml` - Problems with d > 10
+- `high_dimension.yaml` - Problems with d > 10
 - `parallel.yaml` - Batch/parallel evaluation setup
 - `bad_progress.yaml` - Stagnation recovery strategies
 - `constrained_engineering.yaml` - Constrained engineering problem with active constraints
+- `thompson_sampling.yaml` - Batch Thompson Sampling in low dimension
 
 ---
 
