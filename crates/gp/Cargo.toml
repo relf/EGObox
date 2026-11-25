@@ -4,7 +4,6 @@ authors.workspace = true
 version = "0.39.0"
 license.workspace = true
 edition.workspace = true
-homepage.workspace = true
 repository.workspace = true
 readme = "README.md"
 description = "A library for gaussian process modeling"
@@ -14,7 +13,7 @@ categories = ["algorithms", "mathematics", "science"]
 [features]
 
 default = []
-serializable = ["serde", "typetag", "linfa/serde", "rand_xoshiro/serde1"]
+serializable = ["serde", "linfa/serde", "rand_xoshiro/serde1"]
 persistent = ["serializable", "serde_json"]
 blas = ["ndarray-linalg", "linfa/ndarray-linalg", "linfa-pls/blas"]
 
@@ -40,18 +39,17 @@ rayon.workspace = true
 ndarray-linalg = { version = "0.17", optional = true }
 ndarray-einsum = "0.8"
 
-ndarray-npy.workspace = true
 paste = "1.0"
 
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
-typetag = { version = "0.2", optional = true }
 
 finitediff.workspace = true
 anyhow.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true
+ndarray-npy.workspace = true
 serde_json.workspace = true
 approx.workspace = true
 argmin_testfunctions.workspace = true

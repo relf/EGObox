@@ -4,7 +4,6 @@ authors.workspace = true
 version = "0.35.2"
 license.workspace = true
 edition.workspace = true
-homepage.workspace = true
 repository.workspace = true
 readme = "README.md"
 description = "A library for design of experiments"
@@ -15,6 +14,7 @@ keywords = [
     "lhs",
     "full-factorial",
 ]
+categories = ["algorithms", "mathematics", "science"]
 
 [features]
 default = []
