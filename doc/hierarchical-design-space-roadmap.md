@@ -176,18 +176,25 @@ places:
     and motors in multiples of 4, 8 or 12 give the 17.
 
 ### 3. Hierarchical sampling
-- A decorator around an `egobox_doe::SamplingMethod`, like `MixintSampling`.
-- Take one point per valid configuration (more if more points are requested),
-  sampling the included continuous variables, then subsample to the requested
-  size (§4.4).
-- Enumerate only the discrete variables that shape the configuration: meta
-  variables and the variables in value constraints. Other discrete
-  variables, such as the MLP's activation function, are sampled as
-  `MixintSampling` does today. The counts are multiplied by their number of
-  values (MLP: 69 configurations × 3 activation functions = 207).
-- Above the cap, sample the whole space and correct the points.
-- Sampling can be restricted to a given configuration of the meta variables,
-  which PR 5 needs.
+- `HierarchicalSampling`, a decorator around an `egobox_doe::SamplingMethod`
+  that implements `SamplingMethod<f64>`, like `MixintSampling`.
+- Spread the points over the valid configurations as evenly as possible:
+  each configuration gets the same number of points, give or take one, with
+  the extra points (or, with fewer points than configurations, the
+  configurations) drawn at random. This is one point per configuration then
+  a subsample (§4.4).
+- Enumerate only the discrete variables that shape the configuration: the
+  ones a condition or value constraint mentions. Other variables, continuous
+  ones and discrete ones such as the MLP's activation function, are drawn by
+  the inner method as `MixintSampling` does, so an LHS keeps covering them
+  evenly; then each point is corrected. The counts are multiplied by their
+  number of values (MLP: 69 configurations × 3 activation functions = 207).
+- Above `max_configurations` (10 000 by default), sample the whole space and
+  correct the points.
+- `fix(var, value)` restricts sampling to the configurations where a
+  variable is included with that value, e.g. one configuration of the meta
+  variables, which PR 5 needs. The correction search takes these pins too,
+  so the fallback respects them.
 - Log `n_valid` / `n_declared`.
 
 ### 4. Egor integration with correction only (imputation baseline)

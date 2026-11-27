@@ -1,14 +1,18 @@
-//! Search for the nearest valid configuration, and count of valid configurations
+//! Search for the nearest valid configuration, count and enumeration of valid
+//! configurations
 //!
-//! Both walk the variables in topological order: when a variable is reached,
+//! All walk the variables in topological order: when a variable is reached,
 //! the variables its inclusion and its allowed values depend on already have
 //! their values.
 //!
 //! The values of a discrete variable that no condition and no value
 //! constraint mentions all have the same effect on the other variables. Only
 //! one of them, the nearest one, needs to be tried, and they can be counted
-//! together. This keeps both walks cheap for integer variables with large
-//! ranges.
+//! together. This keeps the search and the count cheap for integer variables
+//! with large ranges.
+//!
+//! *Pins* (one `Option<f64>` per variable) restrict variables to one value:
+//! a pinned variable must be included and take that value.
 
 use super::{DesignSpace, domain_size};
 use crate::mixint::space::unfolded_width;
@@ -16,7 +20,8 @@ use crate::xtypes::XType;
 use std::cmp::Ordering;
 
 impl DesignSpace {
-    /// Nearest valid configuration to a point of the relaxed space.
+    /// Nearest valid configuration to a point of the relaxed space, with
+    /// pinned variables taking their pinned value.
     ///
     /// Returns the folded value and the inclusion of each variable, or `None`
     /// when there is no valid configuration. `starts` gives the first column
@@ -25,16 +30,22 @@ impl DesignSpace {
         &self,
         relaxed: &[f64],
         starts: &[usize],
+        pins: &[Option<f64>],
     ) -> Option<(Vec<f64>, Vec<bool>)> {
         let n = self.xtypes.len();
         let mut folded = vec![0.; n];
         let mut included = vec![false; n];
-        self.search(0, relaxed, starts, &mut folded, &mut included)
+        let mut walk = Walk {
+            folded: &mut folded,
+            included: &mut included,
+            pins,
+        };
+        self.search(0, relaxed, starts, &mut walk)
             .then_some((folded, included))
     }
 
-    /// Whether at least one valid configuration exists
-    pub(super) fn has_valid_configuration(&self) -> bool {
+    /// Whether at least one valid configuration exists with the given pins
+    pub(super) fn has_valid_configuration(&self, pins: &[Option<f64>]) -> bool {
         let starts = self.unfolded_starts();
         let dim = self.xtypes.iter().map(unfolded_width).sum();
         let mut relaxed = vec![0.; dim];
@@ -44,7 +55,7 @@ impl DesignSpace {
                 _ => relaxed[start] = default_value(xtype),
             }
         }
-        self.correct_row(&relaxed, &starts).is_some()
+        self.correct_row(&relaxed, &starts, pins).is_some()
     }
 
     /// Number of valid configurations of the discrete variables
@@ -53,29 +64,87 @@ impl DesignSpace {
         self.count(0, &mut vec![0.; n], &mut vec![false; n])
     }
 
+    /// Valid configurations of the `shaping` variables, as folded points,
+    /// with the given pins; `None` when there are more than `max`.
+    ///
+    /// Each configuration gives every included shaping variable one of its
+    /// allowed values. The other variables hold their default value: they
+    /// must not be mentioned by any condition or value constraint, so that
+    /// their values have no effect on the shaping ones. Pinned variables
+    /// count as shaping.
+    pub(super) fn configurations(
+        &self,
+        shaping: &[bool],
+        pins: &[Option<f64>],
+        max: usize,
+    ) -> Option<Vec<Vec<f64>>> {
+        let n = self.xtypes.len();
+        let mut folded = vec![0.; n];
+        let mut included = vec![false; n];
+        let mut walk = Walk {
+            folded: &mut folded,
+            included: &mut included,
+            pins,
+        };
+        let mut configurations = vec![];
+        self.enumerate(0, shaping, max, &mut walk, &mut configurations)
+            .then_some(configurations)
+    }
+
     /// Depth-first search from the `k`-th variable in topological order,
     /// trying the values of each variable nearest first. Returns whether a
-    /// valid configuration was found, which `folded` and `included` then hold.
-    fn search(
-        &self,
-        k: usize,
-        relaxed: &[f64],
-        starts: &[usize],
-        folded: &mut [f64],
-        included: &mut [bool],
-    ) -> bool {
+    /// valid configuration was found, which `walk` then holds.
+    fn search(&self, k: usize, relaxed: &[f64], starts: &[usize], walk: &mut Walk) -> bool {
         let Some(&i) = self.order.get(k) else {
             return true;
         };
-        included[i] = self.is_included(i, folded, included);
+        walk.included[i] = self.is_included(i, walk.folded, walk.included);
         let block = &relaxed[starts[i]..starts[i] + unfolded_width(&self.xtypes[i])];
-        for v in self.candidates(i, block, folded, included) {
-            folded[i] = v;
-            if self.search(k + 1, relaxed, starts, folded, included) {
+        for v in self.candidates(i, block, walk) {
+            walk.folded[i] = v;
+            if self.search(k + 1, relaxed, starts, walk) {
                 return true;
             }
         }
         false
+    }
+
+    /// Depth-first enumeration from the `k`-th variable in topological order
+    /// of the configurations of the shaping variables, added to
+    /// `configurations`. Returns `false` as soon as there are more than `max`.
+    fn enumerate(
+        &self,
+        k: usize,
+        shaping: &[bool],
+        max: usize,
+        walk: &mut Walk,
+        configurations: &mut Vec<Vec<f64>>,
+    ) -> bool {
+        let Some(&i) = self.order.get(k) else {
+            if configurations.len() == max {
+                return false;
+            }
+            configurations.push(walk.folded.to_vec());
+            return true;
+        };
+        let included = self.is_included(i, walk.folded, walk.included);
+        walk.included[i] = included;
+        let xtype = &self.xtypes[i];
+        let values: Box<dyn Iterator<Item = f64>> = match walk.pins[i] {
+            Some(pin) => Box::new(self.allowed(i, pin, walk).then_some(pin).into_iter()),
+            None if included && shaping[i] => {
+                let forbidden = self.forbidden(i, walk.folded, walk.included);
+                Box::new(domain_values(xtype).filter(move |v| !forbidden.contains(v)))
+            }
+            None => Box::new(std::iter::once(default_value(xtype))),
+        };
+        for v in values {
+            walk.folded[i] = v;
+            if !self.enumerate(k + 1, shaping, max, walk, configurations) {
+                return false;
+            }
+        }
+        true
     }
 
     /// Number of valid configurations of the variables from the `k`-th one in
@@ -126,19 +195,32 @@ impl DesignSpace {
             .collect()
     }
 
+    /// Whether included variable `i` can take value `v`, given the variables
+    /// before it. A pinned variable must also be included.
+    fn allowed(&self, i: usize, v: f64, walk: &Walk) -> bool {
+        walk.included[i] && !self.forbidden(i, walk.folded, walk.included).contains(&v)
+    }
+
     /// Values to try for variable `i`, nearest to its relaxed columns `block`
-    /// first: its default when excluded, its relaxed value when continuous,
-    /// and otherwise its allowed mentioned values and the nearest unmentioned
-    /// one
-    fn candidates(&self, i: usize, block: &[f64], folded: &[f64], included: &[bool]) -> Vec<f64> {
+    /// first: its pin if it is allowed, its default when excluded, its relaxed
+    /// value when continuous, and otherwise its allowed mentioned values and
+    /// the nearest unmentioned one
+    fn candidates(&self, i: usize, block: &[f64], walk: &Walk) -> Vec<f64> {
         let xtype = &self.xtypes[i];
-        if !included[i] {
+        if let Some(pin) = walk.pins[i] {
+            return if self.allowed(i, pin, walk) {
+                vec![pin]
+            } else {
+                vec![]
+            };
+        }
+        if !walk.included[i] {
             return vec![default_value(xtype)];
         }
         if let XType::Float(_, _) = xtype {
             return vec![block[0]];
         }
-        let forbidden = self.forbidden(i, folded, included);
+        let forbidden = self.forbidden(i, walk.folded, walk.included);
         let nearness = |a: &f64, b: &f64| nearness(xtype, block, *a, *b);
         let mut values: Vec<f64> = self.mentioned[i]
             .iter()
@@ -177,9 +259,28 @@ impl DesignSpace {
     }
 }
 
+/// State of a walk through the variables: the values and inclusion of the
+/// variables reached so far, and the pins
+struct Walk<'a> {
+    folded: &'a mut [f64],
+    included: &'a mut [bool],
+    pins: &'a [Option<f64>],
+}
+
+/// All the values of a discrete variable, in folded space; none for a
+/// continuous one
+fn domain_values(xtype: &XType) -> Box<dyn Iterator<Item = f64> + '_> {
+    match xtype {
+        XType::Float(_, _) => Box::new(std::iter::empty()),
+        XType::Int(lb, ub) => Box::new((*lb..=*ub).map(f64::from)),
+        XType::Ord(levels) => Box::new(levels.iter().copied()),
+        XType::Enum(n) => Box::new((0..*n).map(|l| l as f64)),
+    }
+}
+
 /// Default value of an excluded variable, in folded space: the lower bound,
 /// the smallest level, or the first level of an Enum
-fn default_value(xtype: &XType) -> f64 {
+pub(super) fn default_value(xtype: &XType) -> f64 {
     match xtype {
         XType::Float(lb, _) => *lb,
         XType::Int(lb, _) => *lb as f64,
@@ -211,17 +312,17 @@ fn nearness(xtype: &XType, block: &[f64], a: f64, b: f64) -> Ordering {
 }
 
 #[cfg(test)]
-mod tests {
+pub(in crate::hierarchy) mod tests {
     use crate::{DesignSpace, Role, XType};
     use ndarray::array;
 
     const ASGD: f64 = 0.;
-    const ADAM: f64 = 1.;
+    pub(in crate::hierarchy) const ADAM: f64 = 1.;
 
     /// The MLP problem of Table 1 of the reference, with the decrees and value
     /// constraints of its Fig. 14: no 3 layers with Adam, and no 40 or 45
     /// units in a layer with ASGD
-    fn mlp() -> DesignSpace {
+    pub(in crate::hierarchy) fn mlp() -> DesignSpace {
         let units = XType::Ord(vec![25., 30., 35., 40., 45.]);
         let mut ds = DesignSpace::named(&[
             ("learning_rate", XType::Float(0., 1.)),

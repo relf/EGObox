@@ -106,7 +106,7 @@ pub use types::*;
 
 pub use affined_surrogate::*;
 pub use algorithm::*;
-pub use hierarchy::{Condition, DesignSpace, Role, ValueConstraint, Var};
+pub use hierarchy::{Condition, DesignSpace, HierarchicalSampling, Role, ValueConstraint, Var};
 pub use parameters::*;
 pub use persistence::{load_models, save_models, write_atomically};
 pub use xtypes::*;
