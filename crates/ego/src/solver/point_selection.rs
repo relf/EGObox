@@ -283,6 +283,7 @@ where
             inputs.x_data.row(inputs.best_index),
             n_candidates,
             rng,
+            self.config.design_space.as_ref(),
         ));
 
         // Function constraints: candidates violating them are removed, when none satisfies

@@ -158,7 +158,7 @@ use crate::moo::pareto::pareto_front_indices;
 use crate::outputs::CONFIG_FILE;
 use crate::types::*;
 use crate::{EgorSolver, to_xtypes};
-use egobox_moe::{MixintGpMixtureParams, to_discrete_space};
+use egobox_moe::{DesignSpace, MixintGpMixtureParams};
 
 use egobox_moe::GpMixtureParams;
 use log::info;
@@ -287,15 +287,47 @@ impl<O: ObjFn, C: CstrFn> EgorFactory<O, C> {
         self.build(xtypes)
     }
 
+    /// Build an Egor optimizer to minimize the function R^n -> R^p within a
+    /// hierarchical design space, where some variables are only included for
+    /// some values of others (see [`DesignSpace`]).
+    ///
+    /// The objective and constraint functions get valid points only, in
+    /// folded space (one column per variable): excluded variables at their
+    /// default value and value constraints satisfied. The result is given in
+    /// the same way; [`DesignSpace::correct_get_included`] gives which
+    /// variables are included at `x_opt`.
+    ///
+    /// CoEGO ([`EgorConfig::activity_strategy`]) is not supported.
+    pub fn min_within_design_space(
+        self,
+        design_space: &DesignSpace,
+    ) -> Result<Egor<O, C, MixintGpMixtureParams>> {
+        self.build_within(design_space.xtypes(), Some(design_space.clone()))
+    }
+
     /// Build an Egor optimizer within the design space given by `xtypes`
     /// with the surrogate builder `SB`
     fn build<SB: SurrogateBuilder + Serialize + DeserializeOwned>(
         self,
         xtypes: &[XType],
     ) -> Result<Egor<O, C, SB>> {
+        self.build_within(xtypes, None)
+    }
+
+    /// Build an Egor optimizer within the design space given by `xtypes`
+    /// and an optional hierarchical design space, with the surrogate builder `SB`
+    fn build_within<SB: SurrogateBuilder + Serialize + DeserializeOwned>(
+        self,
+        xtypes: &[XType],
+        design_space: Option<DesignSpace>,
+    ) -> Result<Egor<O, C, SB>> {
         crate::utils::logging::init_logger(self.verbose);
         self.validate_fcstr_specs()?;
-        let config = self.config.xtypes(xtypes).check()?;
+        let config = self
+            .config
+            .xtypes(xtypes)
+            .design_space(design_space)
+            .check()?;
         if config.infill_optimizer == InfillOptimizer::Lbfgsb && !self.fcstrs.is_empty() {
             return Err(EgoError::InvalidConfigError(
                 "L-BFGS-B infill optimizer cannot handle function constraints, use SLSQP or COBYLA"
@@ -333,7 +365,6 @@ pub struct Egor<
 impl<O: ObjFn, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> Egor<O, C, SB> {
     /// Runs the (constrained) optimization of the objective function.
     pub fn run(&self) -> Result<OptimResult<f64>> {
-        let xtypes = self.solver.config.xtypes.clone();
         info!("{:?}", self.solver.config);
         if let Some(outdir) = self.solver.config.outdir.as_ref() {
             std::fs::create_dir_all(outdir)?;
@@ -391,7 +422,8 @@ impl<O: ObjFn, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> E
                 state,
             }
         } else {
-            let x_data = to_discrete_space(&xtypes, &x_data.view());
+            let config = &self.solver.config;
+            let x_data = config.to_user_space(&x_data);
             info!("Data: \n{}", concatenate![Axis(1), x_data, y_data, c_data]);
 
             let x_opt = state
@@ -399,7 +431,7 @@ impl<O: ObjFn, C: CstrFn, SB: SurrogateBuilder + Serialize + DeserializeOwned> E
                 .unwrap()
                 .to_owned()
                 .insert_axis(Axis(0));
-            let x_opt = to_discrete_space(&xtypes, &x_opt.view());
+            let x_opt = config.to_user_space(&x_opt);
             OptimResult {
                 x_opt: x_opt.row(0).to_owned(),
                 y_opt,

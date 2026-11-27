@@ -58,11 +58,11 @@
 use crate::utils::{EGOR_USE_GP_VAR_PORTFOLIO, EGOR_USE_STATE_RECORDING};
 use crate::{HotStartMode, MooConfig, criteria::*, errors::Result, types::*};
 use egobox_gp::{ParamTuning, ThetaOptimizer, ThetaTuning};
-use egobox_moe::NbClusters;
 use egobox_moe::Recombination;
 use egobox_moe::{CorrelationSpec, RegressionSpec};
+use egobox_moe::{DesignSpace, NbClusters, to_continuous_space, to_discrete_space};
 use ndarray::Array1;
-use ndarray::Array2;
+use ndarray::{Array2, ArrayBase, ArrayView2, Data, Ix2};
 use ndarray_rand::rand::SeedableRng;
 use rand_xoshiro::Xoshiro256Plus;
 
@@ -379,6 +379,14 @@ pub struct ValidEgorConfig {
     pub(crate) hot_start: HotStartMode,
     /// List of x types allowing the handling of discrete input variables
     pub(crate) xtypes: Vec<XType>,
+    /// Hierarchical design space, whose variable types are `xtypes`: points are
+    /// corrected (excluded variables at their default value, value constraints
+    /// satisfied) wherever discrete values are cast.
+    ///
+    /// Not serialized, so that hot start checkpoints keep their binary layout:
+    /// it is restored from the running configuration when resuming.
+    #[serde(skip)]
+    pub(crate) design_space: Option<DesignSpace>,
     /// A random generator seed used to get reproductible results.
     pub(crate) seed: Option<u64>,
     /// Constrained infill criterion activation
@@ -427,6 +435,7 @@ impl Default for ValidEgorConfig {
             warm_start: false,
             hot_start: HotStartMode::Disabled,
             xtypes: vec![],
+            design_space: None,
             seed: None,
             cstr_infill: false,
             feasibility_first: false,
@@ -443,9 +452,66 @@ impl Default for ValidEgorConfig {
 }
 
 impl ValidEgorConfig {
-    /// Check whether we are in a discrete optimization context
+    /// Check whether we are in a discrete optimization context: some
+    /// variables are discrete, or a hierarchical design space is set
     pub fn discrete(&self) -> bool {
-        crate::utils::discrete(&self.xtypes)
+        crate::utils::discrete(&self.xtypes) || self.design_space.is_some()
+    }
+
+    /// Points of the internal continuous (unfolded) space projected on valid
+    /// values, in that same space: discrete values cast and, with a design
+    /// space, excluded variables at their default value and value constraints
+    /// satisfied. Unchanged for continuous problems.
+    pub(crate) fn projected(&self, x: &ArrayBase<impl Data<Elem = f64>, Ix2>) -> Array2<f64> {
+        match &self.design_space {
+            Some(ds) => {
+                ds.correct_get_included_unfolded(x)
+                    .expect("points of the internal space are corrected")
+                    .0
+            }
+            None if self.discrete() => {
+                to_continuous_space(&self.xtypes, &to_discrete_space(&self.xtypes, x))
+            }
+            None => x.to_owned(),
+        }
+    }
+
+    /// Points of the internal space as the objective and constraint functions
+    /// expect them: projected (see [`projected`](Self::projected)), then
+    /// folded, with one column per variable
+    pub(crate) fn to_user_space(&self, x: &ArrayBase<impl Data<Elem = f64>, Ix2>) -> Array2<f64> {
+        match &self.design_space {
+            Some(_) => to_discrete_space(&self.xtypes, &self.projected(x)),
+            None if self.discrete() => to_discrete_space(&self.xtypes, x),
+            None => x.to_owned(),
+        }
+    }
+
+    /// With a design space, corrects a point of the internal space in place
+    /// and returns the internal columns of its excluded variables, along
+    /// which values are fixed and gradients are zero. Without one, does
+    /// nothing and returns no column.
+    pub(crate) fn correct_point(&self, x: &mut [f64]) -> Vec<usize> {
+        let Some(ds) = &self.design_space else {
+            return vec![];
+        };
+        let (xcorr, included) = ds
+            .correct_get_included_unfolded(&ArrayView2::from_shape((1, x.len()), &*x).unwrap())
+            .expect("points of the internal space are corrected");
+        x.iter_mut().zip(&xcorr).for_each(|(xi, &v)| *xi = v);
+        let mut excluded = vec![];
+        let mut start = 0;
+        for (i, xtype) in self.xtypes.iter().enumerate() {
+            let width = match xtype {
+                XType::Enum(n) => *n,
+                _ => 1,
+            };
+            if !included[[0, i]] {
+                excluded.extend(start..start + width);
+            }
+            start += width;
+        }
+        excluded
     }
 
     /// Returns the number of internal `<= 0` constraints after expanding `cstr_specs`.
@@ -795,6 +861,15 @@ impl EgorConfig {
         self
     }
 
+    /// Define a hierarchical design space, along with its x types
+    pub(crate) fn design_space(mut self, design_space: Option<DesignSpace>) -> Self {
+        if let Some(ds) = &design_space {
+            self.0.xtypes = ds.xtypes().to_vec();
+        }
+        self.0.design_space = design_space;
+        self
+    }
+
     /// Activate or deactivate TREGO method.
     ///
     /// When `activated` is true, sets the iteration strategy to [`TregoStrategy`] with
@@ -1017,6 +1092,13 @@ impl EgorConfig {
         // When both CoEGO and KPLS are enabled, KPLS takes priority for GP training
         // (full theta optimization in reduced PLS space) while CoEGO is used for
         // infill criterion optimization (partial x-space search).
+        if config.activity_strategy.is_cooperative() && config.design_space.is_some() {
+            return Err(crate::EgoError::InvalidConfigError(
+                "EgorConfig invalid: CoEGO (activity strategy) is not supported with a hierarchical design space"
+                    .to_string(),
+            ));
+        }
+
         if config.activity_strategy.is_cooperative() && config.gp.kpls_dim.is_some() {
             log::info!(
                 "CoEGO and KPLS both enabled: KPLS will be used for GP training, \

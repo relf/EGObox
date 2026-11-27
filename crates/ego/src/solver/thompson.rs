@@ -4,7 +4,7 @@
 use crate::utils::{cholesky_psd, compute_cstr_scales};
 
 use egobox_doe::{Lhs, LhsKind, SamplingMethod};
-use egobox_moe::{MixtureGpSurrogate, MoeError};
+use egobox_moe::{DesignSpace, HierarchicalSampling, MixtureGpSurrogate, MoeError};
 use ndarray::{Array1, Array2, ArrayView1, Axis, concatenate};
 use ndarray_rand::RandomExt;
 use ndarray_rand::rand::{Rng, SeedableRng};
@@ -27,18 +27,24 @@ pub(crate) fn default_n_candidates(nx: usize) -> usize {
 
 /// Candidate points: `n_global` LHS points of the domain `xlimits` and `n_global * 0.2`
 /// gaussian perturbations of `xbest` (standard deviation 5% of the ranges, clipped to the domain)
-/// for the set to be dense around the current best point
+/// for the set to be dense around the current best point.
+/// With a hierarchical `design_space`, the global points are spread over its valid
+/// configurations (see [`HierarchicalSampling`]).
 pub(crate) fn candidate_set(
     xlimits: &Array2<f64>,
     xbest: ArrayView1<f64>,
     n_global: usize,
     rng: &mut Xoshiro256Plus,
+    design_space: Option<&DesignSpace>,
 ) -> Array2<f64> {
     let sub_rng = Xoshiro256Plus::seed_from_u64(rng.r#gen());
-    let global = Lhs::new(xlimits)
-        .kind(LhsKind::Classic)
-        .with_rng(sub_rng)
-        .sample(n_global.max(1));
+    let lhs = Lhs::new(xlimits).kind(LhsKind::Classic).with_rng(sub_rng);
+    let global = match design_space {
+        Some(ds) => HierarchicalSampling::new(lhs, ds.clone())
+            .with_rng(Xoshiro256Plus::seed_from_u64(rng.r#gen()))
+            .sample(n_global.max(1)),
+        None => lhs.sample(n_global.max(1)),
+    };
     let n_local = ((n_global as f64) * LOCAL_CANDIDATES_RATIO).ceil() as usize;
     let mut local = Array2::zeros((n_local, xlimits.nrows()));
     for (j, mut col) in local.columns_mut().into_iter().enumerate() {
@@ -312,7 +318,7 @@ mod tests {
     fn test_candidate_set() {
         let xlimits = array![[0., 25.], [-1., 1.]];
         let mut rng = Xoshiro256Plus::seed_from_u64(42);
-        let xc = candidate_set(&xlimits, array![24.9, 0.].view(), 50, &mut rng);
+        let xc = candidate_set(&xlimits, array![24.9, 0.].view(), 50, &mut rng, None);
         assert_eq!(xc.nrows(), 60);
         for row in xc.rows() {
             for (v, lim) in row.iter().zip(xlimits.rows()) {

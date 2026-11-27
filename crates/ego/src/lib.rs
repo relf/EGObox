@@ -473,7 +473,7 @@ pub use crate::utils::{
     EGOBOX_LOG, EGOR_USE_GP_VAR_PORTFOLIO, HotStartMode, find_best_result_index,
     find_compromise_index, find_pareto_front_indices, load_gp_models,
 };
-pub use egobox_moe::{CorrelationSpec, ParamTuning, RegressionSpec, ThetaOptimizer};
+pub use egobox_moe::{CorrelationSpec, DesignSpace, ParamTuning, RegressionSpec, ThetaOptimizer};
 
 mod moo;
 mod optimizers;

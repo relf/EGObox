@@ -309,6 +309,8 @@ where
         let saved: ExactCheckpoint<EgorSolver<SB, C>, BasinState> = read_exact_checkpoint(&path)?;
         let (mut solver, mut state, counts) = saved.into_parts();
         solver.cancellation = cancellation;
+        // Not saved in checkpoints (see `ValidEgorConfig::design_space`)
+        solver.config.design_space = config.design_space.clone();
         if let HotStartMode::ExtendedIters(n) = config.hot_start {
             state.inner.max_iters = state.inner.max_iters.checked_add(n).ok_or_else(|| {
                 EgoError::InvalidConfigError("extended iteration budget overflows".into())

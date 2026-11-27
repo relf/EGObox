@@ -104,7 +104,7 @@ use crate::types::*;
 
 use egobox_doe::{Lhs, SamplingMethod};
 use egobox_gp::Cancellation;
-use egobox_moe::MixintSampling;
+use egobox_moe::{HierarchicalSampling, MixintSampling};
 use log::{debug, info};
 use ndarray::{Array1, Array2, ArrayBase, Axis, Data, Ix2, Zip, concatenate, s};
 use ndarray_npy::read_npy;
@@ -327,7 +327,13 @@ where
             if doe.ncols() == self.xlimits.nrows() {
                 // only x are specified
                 info!("Compute initial DOE on specified {} points", doe.nrows());
-                (self.evaluate_obj(problem, doe)?, doe.to_owned())
+                // Hierarchical design space: given points are corrected
+                let x = if self.config.design_space.is_some() {
+                    self.projected(doe)
+                } else {
+                    doe.to_owned()
+                };
+                (self.evaluate_obj(problem, &x)?, x)
             } else {
                 // split doe in x and y
                 info!("Use specified DOE {} samples", doe.nrows());
@@ -347,10 +353,15 @@ where
                         ny_end
                     )));
                 }
-                (
-                    doe.slice(s![.., nx..ny_end]).to_owned(),
-                    doe.slice(s![.., ..nx]).to_owned(),
-                )
+                let x = doe.slice(s![.., ..nx]);
+                // Hierarchical design space: given points are corrected, so that
+                // points differing only in excluded variables are seen as the same
+                let x = if self.config.design_space.is_some() {
+                    self.projected(&x)
+                } else {
+                    x.to_owned()
+                };
+                (doe.slice(s![.., nx..ny_end]).to_owned(), x)
             }
         } else {
             let n_doe = if self.config.n_doe == 0 {
@@ -360,7 +371,14 @@ where
             };
             info!("Compute initial LHS with {n_doe} points");
             let lhs = Lhs::new(&self.xlimits).with_rng(rng.clone());
-            let x = if self.config.discrete() {
+            let x = if let Some(ds) = &self.config.design_space {
+                // points spread over the valid configurations
+                let mut configurations_rng = rng.clone();
+                configurations_rng.jump();
+                HierarchicalSampling::new(lhs, ds.clone())
+                    .with_rng(configurations_rng)
+                    .sample(n_doe)
+            } else if self.config.discrete() {
                 // each discrete level has the same probability to be sampled
                 MixintSampling::new(lhs, self.config.xtypes.clone()).sample(n_doe)
             } else {

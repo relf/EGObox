@@ -1,6 +1,6 @@
 use crate::errors::Result;
 use crate::types::*;
-use egobox_moe::{XType, to_continuous_space, to_discrete_space};
+use egobox_moe::XType;
 
 use crate::utils::{compute_cstr_scales, pofs, update_data};
 use crate::{EgorSolver, solver::coego};
@@ -358,14 +358,9 @@ where
         pb: &mut Problem<O>,
         x: &Array2<f64>,
     ) -> Result<Array2<f64>> {
-        let x = if self.config.discrete() {
-            // We have to cast x to folded space as EgorSolver
-            // works internally in the continuous space while
-            // the objective function expects discrete variable in folded space
-            to_discrete_space(&self.config.xtypes, x)
-        } else {
-            x.to_owned()
-        };
+        // EgorSolver works internally in the continuous space while the
+        // objective function expects discrete variables in folded space
+        let x = self.config.to_user_space(x);
         match pb.cost(&x) {
             Ok(y) => Ok(y),
             // not a failed evaluation: the iteration is dropped
@@ -413,27 +408,19 @@ where
         res
     }
 
-    /// `x` points projected on discrete values (in the continuous unfolded space) for
-    /// mixed-integer problems, unchanged otherwise
+    /// `x` points projected on valid values (in the continuous unfolded space) for
+    /// mixed-integer and hierarchical problems, unchanged otherwise
+    /// (see [`ValidEgorConfig::projected`](crate::ValidEgorConfig))
     pub(crate) fn projected(&self, x: &ArrayBase<impl Data<Elem = f64>, Ix2>) -> Array2<f64> {
-        if self.config.discrete() {
-            to_continuous_space(
-                &self.config.xtypes,
-                &to_discrete_space(&self.config.xtypes, x),
-            )
-        } else {
-            x.to_owned()
-        }
+        self.config.projected(x)
     }
 
     /// Convert a point from the internal continuous (unfolded) space to the space
-    /// expected by function constraints (discrete variables in folded space)
+    /// expected by function constraints (valid values, discrete variables in folded space)
     pub(crate) fn fcstr_input(&self, x: &[f64]) -> Vec<f64> {
         if self.config.discrete() {
             let xary = ArrayView2::from_shape((1, x.len()), x).unwrap();
-            to_discrete_space(&self.config.xtypes, &xary)
-                .row(0)
-                .to_vec()
+            self.config.to_user_space(&xary).row(0).to_vec()
         } else {
             x.to_vec()
         }
@@ -454,6 +441,10 @@ where
                             let mut gfold = vec![0.; xuser.len()];
                             let v = cstr(&xuser, Some(&mut gfold), params);
                             self.unfold_fcstr_gradient(&gfold, g);
+                            // Excluded variables are fixed at their default value
+                            for j in self.config.correct_point(&mut x.to_vec()) {
+                                g[j] = 0.;
+                            }
                             v
                         }
                         gradient => cstr(&xuser, gradient, params),
