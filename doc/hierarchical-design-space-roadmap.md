@@ -143,25 +143,37 @@ places:
   - an AND/OR condition, as in Fig. 7 but without the continuous threshold.
 
 ### 2. Value constraints and partially decreed discrete variables
-- `add_value_constraint(var1, vals1, var2, vals2)` (SMT's name) forbids a
-  combination of values. When `var1` comes before `var2` in topological order
-  (declaration order breaks ties), the constraint is a partial decree of
-  `var2`, and correction changes `var2`. An example is DRAGON's motor count,
-  whose allowed values depend on the core count (§4.2). Like `decreed_var`,
-  it takes variables by name or by index.
+- `forbid(var1, vals1, var2, vals2)` (SMT's `add_value_constraint`) forbids a
+  combination of values when both variables are included, and records it as
+  a `ValueConstraint`. The variable that
+  comes later in the topological order of the decrees (variable index breaks
+  ties) is partially decreed by the other, whichever argument it is, and
+  correction changes it. Constraint arcs then all go forward in that order,
+  so they cannot create a cycle. An example is DRAGON's motor count, whose
+  allowed values depend on the core count (§4.2). Like `decreed_var`, it
+  takes variables by name or by index.
+- Roles: `Role::PARTIALLY_DECREED` for the restricted variable, `Role::META`
+  for the one restricting it (Def. 3).
 - Order relations and bounds between discrete variables are finite sets of
   forbidden pairs, so they are value constraints too, e.g. `l ∈ [m+1, 4]`
   when `l` and `m` are integers.
 - Correction casts each variable, in topological order, to the nearest value
-  allowed by the variables before it. If a variable has no allowed value left,
-  it backtracks with a depth-first search, trying the nearest allowed values
-  first.
-- Enumerate configurations and count them (`n_valid`, `n_declared`).
+  allowed by the variables before it, with the tie-breaks of the
+  mixed-integer cast; Int values are also clamped to their bounds. If a
+  variable has no allowed value left, it backtracks with a depth-first
+  search, trying the nearest allowed values first.
+- Values that no condition or constraint mentions all have the same effect on
+  the other variables: the search only tries the nearest one, and the count
+  groups them, so large Int ranges stay cheap.
+- Count configurations (`n_valid`, `n_declared`). A declaration that leaves
+  no valid configuration fails and leaves the space unchanged.
 - Tests:
   - the MLP of Table 1 with the constraints of Fig. 14 (no 3 layers with Adam,
     no 40 or 45 units with ASGD) gives `n_valid = 207` and
     `n_declared = 2250`, as in Table 6;
-  - DRAGON's motor counts.
+  - DRAGON's motor counts: 17 architectures (Table 3). Table 3 lists 4
+    cores for architectures 15 to 17, but Table 4 gives cores in {2, 4, 6},
+    and motors in multiples of 4, 8 or 12 give the 17.
 
 ### 3. Hierarchical sampling
 - A decorator around an `egobox_doe::SamplingMethod`, like `MixintSampling`.
@@ -320,8 +332,8 @@ places:
   - a comparison with the PR 4 baseline on the PR 4 problems.
 
 ### 8. Python bindings and docs
-- `egx.DesignSpace(xspecs, names=None)` with `decreed_var` and
-  `add_value_constraint`, taking variables as `int | str`, and a
+- `egx.DesignSpace(xspecs, names=None)` with `decreed_var` and `forbid`,
+  taking variables as `int | str`, and a
   `design_space` argument for `Egor` and `Gpx`. `names=None` gives the
   default names `x0`, `x1`, ...
 - Regenerated `.pyi` stubs, updated skills in `python/skills/`, and an MLP

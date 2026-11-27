@@ -10,16 +10,22 @@
 //! refer to *meta* variables, which may themselves be decreed: together they
 //! form the role graph, which must be acyclic.
 //!
+//! [Value constraints](ValueConstraint) forbid combinations of values of two
+//! discrete variables, such as no more than 35 units per layer with a given
+//! optimizer. The variable that comes later in the topological order is then
+//! *partially decreed*: it is always included, but the values it can take
+//! depend on the other one.
+//!
 //! Variables are given by name or by index ([`Var`]). Every variable has a
 //! name: the one given to [`DesignSpace::named`], which is preferred, or
 //! `x0`, `x1`, ... after its index with [`DesignSpace::new`]. Error messages
 //! show the names.
 //!
 //! Points keep a fixed size, with one entry for every variable. The correction
-//! ([`DesignSpace::correct_get_included`]) casts each variable to a value of its
-//! type, works out which variables are included, and sets excluded variables to
-//! a fixed default value, so that points that only differ in excluded variables
-//! become identical.
+//! ([`DesignSpace::correct_get_included`]) casts each variable to the nearest
+//! value it can take, works out which variables are included, and sets
+//! excluded variables to a fixed default value, so that points that only
+//! differ in excluded variables become identical.
 //!
 //! # Reference
 //!
@@ -28,15 +34,15 @@
 //! surrogate-based architecture design. Structural and Multidisciplinary
 //! Optimization, 69, 65. <https://doi.org/10.1007/s00158-026-04249-2>
 
+mod correction;
+
 use crate::errors::{MoeError, Result};
 use crate::mixint::space::{
-    cast_variable_mut, check_enum_indices, fold_with_enum_index, unfold_with_enum_mask,
-    unfolded_width,
+    check_enum_indices, fold_with_enum_index, unfold_with_enum_mask, unfolded_width,
 };
 use crate::xtypes::XType;
 use bitflags::bitflags;
-use ndarray::{Array2, ArrayBase, ArrayView1, ArrayViewMut1, Data, Ix2, s};
-use ndarray_stats::QuantileExt;
+use ndarray::{Array2, ArrayBase, Data, Ix2};
 use serde::{Deserialize, Serialize};
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashSet};
@@ -47,14 +53,18 @@ bitflags! {
     /// Roles are flags that can be combined: a variable that decrees other
     /// variables while being decreed itself is both [`META`](Role::META) and
     /// [`DECREED`](Role::DECREED). A variable with no role
-    /// ([`is_empty()`](Role::is_empty)) is *neutral*: it is always included
-    /// and decrees no other variable.
+    /// ([`is_empty()`](Role::is_empty)) is *neutral*: it is always included,
+    /// can take all the values of its type, and has no effect on other
+    /// variables.
     #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, Copy)]
     pub struct Role: u8 {
-        /// Decrees the inclusion of other variables
+        /// Decrees the inclusion of other variables, or restricts their values
+        /// through value constraints
         const META = 1;
         /// Included only for some values of other variables
         const DECREED = 1 << 1;
+        /// Values restricted by other variables through value constraints
+        const PARTIALLY_DECREED = 1 << 2;
     }
 }
 
@@ -143,11 +153,21 @@ impl Condition {
 
     /// Whether the condition holds for a point, given the folded values and
     /// the inclusion of the variables it depends on
-    fn holds(&self, folded: ArrayView1<f64>, included: ArrayView1<bool>) -> bool {
+    fn holds(&self, folded: &[f64], included: &[bool]) -> bool {
         match self {
             Condition::In { var, values } => included[*var] && values.contains(&folded[*var]),
             Condition::And(cs) => cs.iter().all(|c| c.holds(folded, included)),
             Condition::Or(cs) => cs.iter().any(|c| c.holds(folded, included)),
+        }
+    }
+
+    /// Add the values the condition tests to `mentioned`, indexed by variable
+    fn collect_values(&self, mentioned: &mut [Vec<f64>]) {
+        match self {
+            Condition::In { var, values } => mentioned[*var].extend(values),
+            Condition::And(cs) | Condition::Or(cs) => {
+                cs.iter().for_each(|c| c.collect_values(mentioned))
+            }
         }
     }
 
@@ -156,12 +176,6 @@ impl Condition {
         let label = |i| label(names, i);
         match self {
             Condition::In { var, values } => {
-                let xtype = xtypes.get(*var).ok_or_else(|| {
-                    invalid(format!(
-                        "meta variable {var} out of range: the design space has {} variables",
-                        xtypes.len()
-                    ))
-                })?;
                 if *var == decreed {
                     return Err(invalid(format!(
                         "variable {} cannot decree itself",
@@ -175,26 +189,7 @@ impl Condition {
                         label(decreed)
                     )));
                 }
-                for &v in values {
-                    let valid = match xtype {
-                        XType::Float(_, _) => {
-                            return Err(invalid(format!(
-                                "variable {} is continuous: only discrete variables (Int, Ord, Enum) can decree other variables",
-                                label(*var)
-                            )));
-                        }
-                        XType::Int(lb, ub) => v.fract() == 0. && v >= *lb as f64 && v <= *ub as f64,
-                        XType::Ord(levels) => levels.contains(&v),
-                        XType::Enum(n) => v.fract() == 0. && v >= 0. && v < *n as f64,
-                    };
-                    if !valid {
-                        return Err(invalid(format!(
-                            "{v} is not a value of meta variable {}: {xtype:?}",
-                            label(*var)
-                        )));
-                    }
-                }
-                Ok(())
+                check_values(xtypes, names, *var, values)
             }
             Condition::And(cs) | Condition::Or(cs) => {
                 if cs.is_empty() {
@@ -210,8 +205,60 @@ impl Condition {
     }
 }
 
-/// A hierarchical design space: variable types, variable names, and
-/// the conditions under which decreed variables are included.
+/// A forbidden combination of values of two discrete variables: `var1` cannot
+/// take one of `values1` while `var2` takes one of `values2`, when both are
+/// included.
+///
+/// Values are given in folded space, as in [`Condition`]. Declared with
+/// [`DesignSpace::forbid`].
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct ValueConstraint {
+    /// Index of the first variable
+    pub var1: usize,
+    /// Values of the first variable
+    pub values1: Vec<f64>,
+    /// Index of the second variable
+    pub var2: usize,
+    /// Values of the second variable
+    pub values2: Vec<f64>,
+}
+
+impl ValueConstraint {
+    /// Check the constraint against the variable types
+    fn validate(&self, xtypes: &[XType], names: &[String]) -> Result<()> {
+        if self.var1 == self.var2 {
+            return Err(invalid(format!(
+                "a value constraint needs two different variables, got {} twice",
+                label(names, self.var1)
+            )));
+        }
+        for (var, values) in [(self.var1, &self.values1), (self.var2, &self.values2)] {
+            if values.is_empty() {
+                return Err(invalid(format!(
+                    "no value given for variable {} in a value constraint",
+                    label(names, var)
+                )));
+            }
+            check_values(xtypes, names, var, values)?;
+        }
+        Ok(())
+    }
+}
+
+/// A value constraint seen from the variable it restricts: when `source` is
+/// included and takes one of `source_values`, the restricted variable cannot
+/// take any of the `forbidden` values
+#[derive(Clone, Debug)]
+struct Restriction {
+    source: usize,
+    source_values: Vec<f64>,
+    forbidden: Vec<f64>,
+}
+
+/// A hierarchical design space: variable types, variable names, the
+/// conditions under which decreed variables are included, and the value
+/// constraints between discrete variables.
 ///
 /// # Example
 ///
@@ -262,8 +309,16 @@ pub struct DesignSpace {
     names: Vec<String>,
     /// Inclusion condition of each variable, `None` when always included
     conditions: Vec<Option<Condition>>,
-    /// Variable indices in topological order of the role graph
+    /// Value constraints, in declaration order
+    constraints: Vec<ValueConstraint>,
+    /// Variable indices in topological order of the decrees
     order: Vec<usize>,
+    /// For each variable, the value constraints that restrict it
+    restrictions: Vec<Vec<Restriction>>,
+    /// For each variable, the sorted values that conditions and value
+    /// constraints test. The other values of a variable all have the same
+    /// effect on the other variables.
+    mentioned: Vec<Vec<f64>>,
 }
 
 /// Serialized form of a [`DesignSpace`], checked on deserialization
@@ -274,6 +329,9 @@ struct DesignSpaceSpec {
     #[serde(default)]
     names: Option<Vec<String>>,
     conditions: Vec<Option<Condition>>,
+    /// Can be left out in JSON when there is none
+    #[serde(default)]
+    constraints: Vec<ValueConstraint>,
 }
 
 impl From<DesignSpace> for DesignSpaceSpec {
@@ -282,6 +340,7 @@ impl From<DesignSpace> for DesignSpaceSpec {
             xtypes: ds.xtypes,
             names: Some(ds.names),
             conditions: ds.conditions,
+            constraints: ds.constraints,
         }
     }
 }
@@ -309,13 +368,10 @@ impl TryFrom<DesignSpaceSpec> for DesignSpace {
                 condition.validate(&spec.xtypes, &names, i)?;
             }
         }
-        let order = topological_order(&spec.conditions, &names)?;
-        Ok(DesignSpace {
-            xtypes: spec.xtypes,
-            names,
-            conditions: spec.conditions,
-            order,
-        })
+        for constraint in &spec.constraints {
+            constraint.validate(&spec.xtypes, &names)?;
+        }
+        DesignSpace::build(spec.xtypes, names, spec.conditions, spec.constraints)
     }
 }
 
@@ -324,12 +380,73 @@ impl DesignSpace {
     /// included (no hierarchy yet). Variables are named `x0`, `x1`, ... after
     /// their index.
     pub fn new(xtypes: &[XType]) -> Self {
+        let n = xtypes.len();
         DesignSpace {
             xtypes: xtypes.to_vec(),
-            names: default_names(xtypes.len()),
-            conditions: vec![None; xtypes.len()],
-            order: (0..xtypes.len()).collect(),
+            names: default_names(n),
+            conditions: vec![None; n],
+            constraints: vec![],
+            order: (0..n).collect(),
+            restrictions: vec![vec![]; n],
+            mentioned: vec![vec![]; n],
         }
+    }
+
+    /// A design space from checked parts. Orders the variables, orients the
+    /// value constraints along that order, and checks that a valid
+    /// configuration exists.
+    fn build(
+        xtypes: Vec<XType>,
+        names: Vec<String>,
+        conditions: Vec<Option<Condition>>,
+        constraints: Vec<ValueConstraint>,
+    ) -> Result<Self> {
+        let n = xtypes.len();
+        let order = topological_order(&conditions, &names)?;
+        let mut position = vec![0; n];
+        for (k, &i) in order.iter().enumerate() {
+            position[i] = k;
+        }
+        let mut restrictions = vec![vec![]; n];
+        let mut mentioned = vec![vec![]; n];
+        conditions
+            .iter()
+            .flatten()
+            .for_each(|c| c.collect_values(&mut mentioned));
+        for c in &constraints {
+            let ((source, source_values), (target, forbidden)) =
+                if position[c.var1] < position[c.var2] {
+                    ((c.var1, &c.values1), (c.var2, &c.values2))
+                } else {
+                    ((c.var2, &c.values2), (c.var1, &c.values1))
+                };
+            restrictions[target].push(Restriction {
+                source,
+                source_values: source_values.clone(),
+                forbidden: forbidden.clone(),
+            });
+            mentioned[c.var1].extend(&c.values1);
+            mentioned[c.var2].extend(&c.values2);
+        }
+        for values in &mut mentioned {
+            values.sort_by(f64::total_cmp);
+            values.dedup();
+        }
+        let ds = DesignSpace {
+            xtypes,
+            names,
+            conditions,
+            constraints,
+            order,
+            restrictions,
+            mentioned,
+        };
+        if !ds.has_valid_configuration() {
+            return Err(invalid(
+                "the value constraints leave no valid configuration".to_string(),
+            ));
+        }
+        Ok(ds)
     }
 
     /// A design space with the given variable names and types, where all
@@ -375,8 +492,8 @@ impl DesignSpace {
     /// declarations for the same decreed variable are combined with AND.
     ///
     /// Fails, leaving the design space unchanged, when a variable is unknown,
-    /// when a value is invalid or when the declaration creates a cycle of
-    /// decrees.
+    /// when a value is invalid, when the declaration creates a cycle of
+    /// decrees, or when no valid configuration would be left.
     pub fn decreed_var_when<'a>(
         &mut self,
         decreed: impl Into<Var<'a>>,
@@ -393,8 +510,52 @@ impl DesignSpace {
             }
             Some(previous) => Condition::And(vec![previous, condition]),
         });
-        self.order = topological_order(&conditions, &self.names)?;
-        self.conditions = conditions;
+        *self = DesignSpace::build(
+            self.xtypes.clone(),
+            self.names.clone(),
+            conditions,
+            self.constraints.clone(),
+        )?;
+        Ok(self)
+    }
+
+    /// Forbid variable `var1` to take one of `values1` while variable `var2`
+    /// takes one of `values2`, when both are included. This declares a
+    /// [`ValueConstraint`], as SMT's `add_value_constraint` does.
+    ///
+    /// Variables are given by name or by index (see [`Var`]). Both must be
+    /// discrete, and values are given in folded space (see [`Condition`]).
+    /// Several calls can forbid several combinations, for instance an order
+    /// relation such as `l > m` between two integers.
+    ///
+    /// The correction adjusts the variable that comes later in the
+    /// [topological order](DesignSpace::topological_order): it is *partially
+    /// decreed* by the other one, whichever argument it is given as.
+    ///
+    /// Fails, leaving the design space unchanged, when a variable is unknown,
+    /// when a value is invalid, or when no valid configuration would be left.
+    pub fn forbid<'a>(
+        &mut self,
+        var1: impl Into<Var<'a>>,
+        values1: &[f64],
+        var2: impl Into<Var<'a>>,
+        values2: &[f64],
+    ) -> Result<&mut Self> {
+        let constraint = ValueConstraint {
+            var1: self.resolve(var1.into())?,
+            values1: values1.to_vec(),
+            var2: self.resolve(var2.into())?,
+            values2: values2.to_vec(),
+        };
+        constraint.validate(&self.xtypes, &self.names)?;
+        let mut constraints = self.constraints.clone();
+        constraints.push(constraint);
+        *self = DesignSpace::build(
+            self.xtypes.clone(),
+            self.names.clone(),
+            self.conditions.clone(),
+            constraints,
+        )?;
         Ok(self)
     }
 
@@ -441,15 +602,26 @@ impl DesignSpace {
         self.conditions[self.index(var.into())].as_ref()
     }
 
-    /// Sorted indices of the variables whose values decide whether `var` is included
+    /// Value constraints, in declaration order
+    pub fn value_constraints(&self) -> &[ValueConstraint] {
+        &self.constraints
+    }
+
+    /// Sorted indices of the variables whose values decide whether `var` is
+    /// included or which values it can take
     ///
     /// # Panics
     ///
     /// When `var` is out of range or an unknown name
     pub fn parents<'a>(&self, var: impl Into<Var<'a>>) -> Vec<usize> {
-        self.conditions[self.index(var.into())]
+        let var = self.index(var.into());
+        let mut parents = self.conditions[var]
             .as_ref()
-            .map_or(vec![], Condition::vars)
+            .map_or(vec![], Condition::vars);
+        parents.extend(self.restrictions[var].iter().map(|r| r.source));
+        parents.sort_unstable();
+        parents.dedup();
+        parents
     }
 
     /// Roles of variable `var`
@@ -463,33 +635,65 @@ impl DesignSpace {
         if self.conditions[var].is_some() {
             role |= Role::DECREED;
         }
-        if self
+        if !self.restrictions[var].is_empty() {
+            role |= Role::PARTIALLY_DECREED;
+        }
+        let decrees = self
             .conditions
             .iter()
             .flatten()
-            .any(|c| c.vars().contains(&var))
-        {
+            .any(|c| c.vars().contains(&var));
+        let restricts = self.restrictions.iter().flatten().any(|r| r.source == var);
+        if decrees || restricts {
             role |= Role::META;
         }
         role
     }
 
-    /// Variable indices in topological order of the role graph: each variable
+    /// Variable indices in topological order of the decrees: each variable
     /// comes after the variables its inclusion depends on. Ties are broken by
     /// variable index.
+    ///
+    /// Value constraints don't change the order: each one restricts the
+    /// variable that comes later.
     pub fn topological_order(&self) -> &[usize] {
         &self.order
+    }
+
+    /// Number of combinations of values of the discrete variables, ignoring
+    /// decrees and value constraints (saturates at `u128::MAX`)
+    pub fn n_declared(&self) -> u128 {
+        self.xtypes
+            .iter()
+            .filter_map(domain_size)
+            .fold(1, u128::saturating_mul)
+    }
+
+    /// Number of valid configurations of the discrete variables: combinations
+    /// of values allowed by the decrees and the value constraints, where
+    /// excluded variables are not counted (saturates at `u128::MAX`)
+    pub fn n_valid(&self) -> u128 {
+        self.count_valid()
     }
 
     /// Correct points given in folded space (one column per variable, enum
     /// variables given by their level index).
     ///
     /// Returns the corrected points and, for each point and each variable,
-    /// whether the variable is included. Each variable is cast to the nearest
-    /// value of its type (as [`to_discrete_space`](crate::to_discrete_space)
-    /// does), and each excluded variable is set to a default value: the lower
-    /// bound for Float and Int variables, the smallest level for Ord
-    /// variables, and the first level for Enum variables.
+    /// whether the variable is included.
+    ///
+    /// The variables are corrected in topological order. Each included
+    /// discrete variable is cast to the nearest value it can take, given the
+    /// variables before it: the nearest allowed integer (within bounds) or
+    /// level for Int and Ord variables, and the allowed level with the largest
+    /// relaxed component for Enum variables. Ties are broken as
+    /// [`to_discrete_space`](crate::to_discrete_space) does. When a variable
+    /// has no value left, the search goes back to the variables before it and
+    /// tries their next nearest values.
+    ///
+    /// Each excluded variable is set to a default value: the lower bound for
+    /// Float and Int variables, the smallest level for Ord variables, and the
+    /// first level for Enum variables.
     pub fn correct_get_included(
         &self,
         x: &ArrayBase<impl Data<Elem = f64>, Ix2>,
@@ -511,16 +715,8 @@ impl DesignSpace {
         &self,
         x: &ArrayBase<impl Data<Elem = f64>, Ix2>,
     ) -> Result<(Array2<f64>, Array2<bool>)> {
-        let widths: Vec<usize> = self.xtypes.iter().map(unfolded_width).collect();
-        let starts: Vec<usize> = widths
-            .iter()
-            .scan(0, |next, w| {
-                let start = *next;
-                *next += w;
-                Some(start)
-            })
-            .collect();
-        let dim: usize = widths.iter().sum();
+        let starts = self.unfolded_starts();
+        let dim: usize = self.xtypes.iter().map(unfolded_width).sum();
         if x.ncols() != dim {
             return Err(invalid(format!(
                 "input should have {dim} columns in the relaxed space, got {}",
@@ -528,30 +724,36 @@ impl DesignSpace {
             )));
         }
 
-        let (n, nv) = (x.nrows(), self.xtypes.len());
-        let mut xcorr = x.to_owned();
-        let mut folded = Array2::<f64>::zeros((n, nv));
-        let mut included = Array2::from_elem((n, nv), true);
-        for &i in &self.order {
-            let xtype = &self.xtypes[i];
-            let mut block = xcorr.slice_mut(s![.., starts[i]..starts[i] + widths[i]]);
-            cast_variable_mut(xtype, block.view_mut());
-            if let Some(condition) = &self.conditions[i] {
-                for r in 0..n {
-                    if !condition.holds(folded.row(r), included.row(r)) {
-                        included[[r, i]] = false;
-                        set_excluded_default(xtype, block.row_mut(r));
-                    }
+        let nv = self.xtypes.len();
+        let mut xcorr = Array2::zeros(x.raw_dim());
+        let mut included = Array2::from_elem((x.nrows(), nv), true);
+        for (r, row) in x.rows().into_iter().enumerate() {
+            let relaxed = row.to_vec();
+            // Unreachable: declarations that leave no valid configuration fail
+            let (folded, inc) = self
+                .correct_row(&relaxed, &starts)
+                .ok_or_else(|| invalid(format!("no valid configuration found for point {r}")))?;
+            for (i, xtype) in self.xtypes.iter().enumerate() {
+                match xtype {
+                    XType::Enum(_) => xcorr[[r, starts[i] + folded[i] as usize]] = 1.,
+                    _ => xcorr[[r, starts[i]]] = folded[i],
                 }
-            }
-            for (r, row) in block.rows().into_iter().enumerate() {
-                folded[[r, i]] = match xtype {
-                    XType::Enum(_) => row.argmax().unwrap() as f64,
-                    _ => row[0],
-                };
+                included[[r, i]] = inc[i];
             }
         }
         Ok((xcorr, included))
+    }
+
+    /// First column of each variable in the relaxed space
+    fn unfolded_starts(&self) -> Vec<usize> {
+        self.xtypes
+            .iter()
+            .scan(0, |next, xtype| {
+                let start = *next;
+                *next += unfolded_width(xtype);
+                Some(start)
+            })
+            .collect()
     }
 
     /// Index of `var`. Fails when it is out of range or an unknown name.
@@ -610,16 +812,43 @@ fn label(names: &[String], var: usize) -> String {
     }
 }
 
-/// Set the relaxed columns `row` of an excluded variable to its default value
-fn set_excluded_default(xtype: &XType, mut row: ArrayViewMut1<f64>) {
-    match xtype {
-        XType::Float(lb, _) => row[0] = *lb,
-        XType::Int(lb, _) => row[0] = *lb as f64,
-        XType::Ord(levels) => row[0] = levels.iter().copied().fold(f64::INFINITY, f64::min),
-        XType::Enum(_) => {
-            row.fill(0.);
-            row[0] = 1.;
+/// Check that variable `var` is in range, discrete, and can take each of `values`
+fn check_values(xtypes: &[XType], names: &[String], var: usize, values: &[f64]) -> Result<()> {
+    let xtype = xtypes.get(var).ok_or_else(|| {
+        invalid(format!(
+            "variable {var} out of range: the design space has {} variables",
+            xtypes.len()
+        ))
+    })?;
+    for &v in values {
+        let valid = match xtype {
+            XType::Float(_, _) => {
+                return Err(invalid(format!(
+                    "variable {} is continuous: only discrete variables (Int, Ord, Enum) can decree other variables or be in value constraints",
+                    label(names, var)
+                )));
+            }
+            XType::Int(lb, ub) => v.fract() == 0. && v >= *lb as f64 && v <= *ub as f64,
+            XType::Ord(levels) => levels.contains(&v),
+            XType::Enum(n) => v.fract() == 0. && v >= 0. && v < *n as f64,
+        };
+        if !valid {
+            return Err(invalid(format!(
+                "{v} is not a value of variable {}: {xtype:?}",
+                label(names, var)
+            )));
         }
+    }
+    Ok(())
+}
+
+/// Number of values of a discrete variable, `None` for a continuous one
+fn domain_size(xtype: &XType) -> Option<u128> {
+    match xtype {
+        XType::Float(_, _) => None,
+        XType::Int(lb, ub) => Some((*ub as i128 - *lb as i128 + 1).max(0) as u128),
+        XType::Ord(levels) => Some(levels.len() as u128),
+        XType::Enum(n) => Some(*n as u128),
     }
 }
 
