@@ -89,6 +89,7 @@ mod types;
 
 mod affined_surrogate;
 mod algorithm;
+mod hierarchy;
 mod metrics;
 mod mixint;
 mod parameters;
@@ -105,6 +106,7 @@ pub use types::*;
 
 pub use affined_surrogate::*;
 pub use algorithm::*;
+pub use hierarchy::{Condition, DesignSpace, Role, Var};
 pub use parameters::*;
 pub use persistence::{load_models, save_models, write_atomically};
 pub use xtypes::*;

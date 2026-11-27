@@ -4,7 +4,7 @@
 
 mod context;
 mod sampling;
-mod space;
+pub(crate) mod space;
 mod surrogate;
 
 pub use context::MixintContext;
