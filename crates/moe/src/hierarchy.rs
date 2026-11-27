@@ -10,9 +10,10 @@
 //! refer to *meta* variables, which may themselves be decreed: together they
 //! form the role graph, which must be acyclic.
 //!
-//! Variables are given by name or by index ([`Var`]). Names are optional but
-//! preferred: a design space built with [`DesignSpace::named`] accepts them
-//! wherever a variable is expected, and its error messages show them.
+//! Variables are given by name or by index ([`Var`]). Every variable has a
+//! name: the one given to [`DesignSpace::named`], which is preferred, or
+//! `x0`, `x1`, ... after its index with [`DesignSpace::new`]. Error messages
+//! show the names.
 //!
 //! Points keep a fixed size, with one entry for every variable. The correction
 //! ([`DesignSpace::correct_get_included`]) casts each variable to a value of its
@@ -60,8 +61,8 @@ bitflags! {
 /// A variable of a [`DesignSpace`], given by index or by name.
 ///
 /// Methods that take a variable accept `impl Into<Var>`: an index (`usize`)
-/// or a name (`&str` or `&String`). Names only work with a design space built
-/// with [`DesignSpace::named`].
+/// or a name (`&str` or `&String`), such as `x0`, `x1`, ... for a design space
+/// built with [`DesignSpace::new`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Var<'a> {
     /// Index of the variable
@@ -151,7 +152,7 @@ impl Condition {
     }
 
     /// Check the condition against the variable types, for the variable `decreed`
-    fn validate(&self, xtypes: &[XType], names: Option<&[String]>, decreed: usize) -> Result<()> {
+    fn validate(&self, xtypes: &[XType], names: &[String], decreed: usize) -> Result<()> {
         let label = |i| label(names, i);
         match self {
             Condition::In { var, values } => {
@@ -209,7 +210,7 @@ impl Condition {
     }
 }
 
-/// A hierarchical design space: variable types, optional variable names, and
+/// A hierarchical design space: variable types, variable names, and
 /// the conditions under which decreed variables are included.
 ///
 /// # Example
@@ -248,15 +249,17 @@ impl Condition {
 /// # Ok::<(), egobox_moe::MoeError>(())
 /// ```
 ///
-/// Variables can also be given by index, which is the only way for a design
-/// space built with [`DesignSpace::new`]: `ds.decreed_var(1, 0, &[1., 2.])`.
+/// Variables can also be given by index, `ds.decreed_var(1, 0, &[1., 2.])`.
+/// A design space built with [`DesignSpace::new`] names its variables `x0`,
+/// `x1`, ... after their index, so the same declaration there reads
+/// `ds.decreed_var("x1", "x0", &[1., 2.])`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(try_from = "DesignSpaceSpec", into = "DesignSpaceSpec")]
 pub struct DesignSpace {
     /// Type of each variable
     xtypes: Vec<XType>,
-    /// Name of each variable, `None` when the variables are not named
-    names: Option<Vec<String>>,
+    /// Name of each variable, `x0`, `x1`, ... by default
+    names: Vec<String>,
     /// Inclusion condition of each variable, `None` when always included
     conditions: Vec<Option<Condition>>,
     /// Variable indices in topological order of the role graph
@@ -267,7 +270,7 @@ pub struct DesignSpace {
 #[derive(Serialize, Deserialize)]
 struct DesignSpaceSpec {
     xtypes: Vec<XType>,
-    /// Can be left out in JSON when the variables are not named
+    /// Always written; can be left out in JSON for the default names
     #[serde(default)]
     names: Option<Vec<String>>,
     conditions: Vec<Option<Condition>>,
@@ -277,7 +280,7 @@ impl From<DesignSpace> for DesignSpaceSpec {
     fn from(ds: DesignSpace) -> Self {
         DesignSpaceSpec {
             xtypes: ds.xtypes,
-            names: ds.names,
+            names: Some(ds.names),
             conditions: ds.conditions,
         }
     }
@@ -287,9 +290,13 @@ impl TryFrom<DesignSpaceSpec> for DesignSpace {
     type Error = MoeError;
 
     fn try_from(spec: DesignSpaceSpec) -> Result<Self> {
-        if let Some(names) = &spec.names {
-            check_names(names, spec.xtypes.len())?;
-        }
+        let names = match spec.names {
+            Some(names) => {
+                check_names(&names, spec.xtypes.len())?;
+                names
+            }
+            None => default_names(spec.xtypes.len()),
+        };
         if spec.conditions.len() != spec.xtypes.len() {
             return Err(invalid(format!(
                 "{} conditions given for {} variables",
@@ -297,16 +304,15 @@ impl TryFrom<DesignSpaceSpec> for DesignSpace {
                 spec.xtypes.len()
             )));
         }
-        let names = spec.names.as_deref();
         for (i, condition) in spec.conditions.iter().enumerate() {
             if let Some(condition) = condition {
-                condition.validate(&spec.xtypes, names, i)?;
+                condition.validate(&spec.xtypes, &names, i)?;
             }
         }
-        let order = topological_order(&spec.conditions, names)?;
+        let order = topological_order(&spec.conditions, &names)?;
         Ok(DesignSpace {
             xtypes: spec.xtypes,
-            names: spec.names,
+            names,
             conditions: spec.conditions,
             order,
         })
@@ -315,12 +321,12 @@ impl TryFrom<DesignSpaceSpec> for DesignSpace {
 
 impl DesignSpace {
     /// A design space with the given variable types, where all variables are
-    /// included (no hierarchy yet). Variables have no names and are given by
-    /// index.
+    /// included (no hierarchy yet). Variables are named `x0`, `x1`, ... after
+    /// their index.
     pub fn new(xtypes: &[XType]) -> Self {
         DesignSpace {
             xtypes: xtypes.to_vec(),
-            names: None,
+            names: default_names(xtypes.len()),
             conditions: vec![None; xtypes.len()],
             order: (0..xtypes.len()).collect(),
         }
@@ -336,7 +342,7 @@ impl DesignSpace {
         check_names(&names, vars.len())?;
         let xtypes: Vec<XType> = vars.iter().map(|(_, t)| t.clone()).collect();
         Ok(DesignSpace {
-            names: Some(names),
+            names,
             ..DesignSpace::new(&xtypes)
         })
     }
@@ -377,8 +383,7 @@ impl DesignSpace {
         condition: Condition,
     ) -> Result<&mut Self> {
         let decreed = self.resolve(decreed.into())?;
-        let names = self.names.as_deref();
-        condition.validate(&self.xtypes, names, decreed)?;
+        condition.validate(&self.xtypes, &self.names, decreed)?;
         let mut conditions = self.conditions.clone();
         conditions[decreed] = Some(match conditions[decreed].take() {
             None => condition,
@@ -388,7 +393,7 @@ impl DesignSpace {
             }
             Some(previous) => Condition::And(vec![previous, condition]),
         });
-        self.order = topological_order(&conditions, names)?;
+        self.order = topological_order(&conditions, &self.names)?;
         self.conditions = conditions;
         Ok(self)
     }
@@ -408,20 +413,23 @@ impl DesignSpace {
         &self.xtypes
     }
 
-    /// Names of the variables, `None` when they are not named
-    pub fn names(&self) -> Option<&[String]> {
-        self.names.as_deref()
+    /// Names of the variables
+    pub fn names(&self) -> &[String] {
+        &self.names
     }
 
-    /// Name of the variable of index `var`, `None` when the variables are not
-    /// named or `var` is out of range
-    pub fn name(&self, var: usize) -> Option<&str> {
-        self.names()?.get(var).map(String::as_str)
+    /// Name of the variable of index `var`
+    ///
+    /// # Panics
+    ///
+    /// When `var` is out of range
+    pub fn name(&self, var: usize) -> &str {
+        &self.names[var]
     }
 
     /// Index of the variable called `name`, `None` when there is none
     pub fn index_of(&self, name: &str) -> Option<usize> {
-        self.names()?.iter().position(|n| n == name)
+        self.names.iter().position(|n| n == name)
     }
 
     /// Inclusion condition of variable `var`, `None` when it is always included
@@ -554,9 +562,6 @@ impl DesignSpace {
             Var::Index(i) => Err(invalid(format!(
                 "variable {i} out of range: the design space has {n} variables"
             ))),
-            Var::Name(name) if self.names.is_none() => Err(invalid(format!(
-                "unknown variable `{name}`: the variables of the design space are not named"
-            ))),
             Var::Name(name) => self
                 .index_of(name)
                 .ok_or_else(|| invalid(format!("unknown variable `{name}`"))),
@@ -590,10 +595,16 @@ fn check_names(names: &[String], nvars: usize) -> Result<()> {
     Ok(())
 }
 
-/// Variable label for messages: `3 (r_11)` when the variables are named, `3`
-/// otherwise
-fn label(names: Option<&[String]>, var: usize) -> String {
-    match names.and_then(|names| names.get(var)) {
+/// Default variable names, `x0`, `x1`, ... after their index
+fn default_names(nvars: usize) -> Vec<String> {
+    (0..nvars).map(|i| format!("x{i}")).collect()
+}
+
+/// Variable label for messages: `x3` for a default name, which already
+/// carries the index, and `3 (r_11)` otherwise
+fn label(names: &[String], var: usize) -> String {
+    match names.get(var) {
+        Some(name) if *name == format!("x{var}") => name.clone(),
         Some(name) => format!("{var} ({name})"),
         None => var.to_string(),
     }
@@ -616,10 +627,7 @@ fn set_excluded_default(xtype: &XType, mut row: ArrayViewMut1<f64>) {
 /// variable index. Fails when the graph has a cycle.
 ///
 /// The variable indices in `conditions` must be in range.
-fn topological_order(
-    conditions: &[Option<Condition>],
-    names: Option<&[String]>,
-) -> Result<Vec<usize>> {
+fn topological_order(conditions: &[Option<Condition>], names: &[String]) -> Result<Vec<usize>> {
     let n = conditions.len();
     let mut children = vec![vec![]; n];
     let mut in_degree = vec![0; n];
@@ -902,17 +910,33 @@ mod tests {
     #[test]
     fn test_names() {
         let ds = motors_and_propellers();
-        assert_eq!(ds.name(3), Some("r_11"));
-        assert_eq!(ds.name(7), None);
+        assert_eq!(ds.name(3), "r_11");
         assert_eq!(ds.index_of("r_11"), Some(3));
         assert_eq!(ds.index_of("r_33"), None);
         assert_eq!(ds.condition("r_12"), ds.condition(4));
         assert_eq!(ds.parents(&String::from("p_2")), vec![0]);
+    }
 
-        let unnamed = DesignSpace::new(&[XType::Int(0, 1)]);
-        assert_eq!(unnamed.names(), None);
-        assert_eq!(unnamed.name(0), None);
-        assert_eq!(unnamed.index_of("x0"), None);
+    #[test]
+    fn test_default_names() {
+        let mut ds = DesignSpace::new(&[XType::Int(0, 2), XType::Int(1, 2), XType::Float(0.5, 2.)]);
+        assert_eq!(ds.names(), &["x0", "x1", "x2"]);
+        assert_eq!(ds.name(2), "x2");
+        assert_eq!(ds.index_of("x1"), Some(1));
+        assert_eq!(ds.index_of("x3"), None);
+        // Default names work wherever a variable is expected
+        ds.decreed_var("x1", "x0", &[1., 2.])
+            .unwrap()
+            .decreed_var("x2", 1, &[2.])
+            .unwrap();
+        assert_eq!(ds.condition("x1"), Some(&Condition::is_in(0, &[1., 2.])));
+        assert_eq!(ds.role("x1"), Role::META | Role::DECREED);
+    }
+
+    #[test]
+    #[should_panic(expected = "index out of bounds")]
+    fn test_name_panics_out_of_range() {
+        motors_and_propellers().name(7);
     }
 
     #[test]
@@ -923,7 +947,7 @@ mod tests {
         // Owned names
         let names = [String::from("a"), String::from("b")];
         let ds = DesignSpace::named(&[(&names[0], int.clone()), (&names[1], int)]).unwrap();
-        assert_eq!(ds.names(), Some(&names[..]));
+        assert_eq!(ds.names(), &names[..]);
     }
 
     #[test]
@@ -940,8 +964,8 @@ mod tests {
         assert_eq!(serde_json::to_string(&ds).unwrap(), before);
 
         let mut unnamed = DesignSpace::new(&[XType::Int(0, 1), XType::Float(0., 1.)]);
-        let err = unnamed.decreed_var("y", "x", &[1.]).unwrap_err();
-        assert!(err.to_string().contains("not named"), "{err}");
+        let err = unnamed.decreed_var("x1", "y", &[1.]).unwrap_err();
+        assert!(err.to_string().contains("unknown variable `y`"), "{err}");
         assert!(unnamed.condition(1).is_none());
     }
 
@@ -959,6 +983,11 @@ mod tests {
         // m -> p_2 -> m
         let err = ds.decreed_var("m", "p_2", &[1.]).unwrap_err().to_string();
         assert!(err.contains("0 (m), 1 (p_1), 2 (p_2)"), "{err}");
+
+        // Default names already carry the index
+        let mut ds = DesignSpace::new(&[XType::Int(0, 1), XType::Float(0., 1.)]);
+        let err = ds.decreed_var(0, 1, &[0.5]).unwrap_err().to_string();
+        assert!(err.contains("variable x1 is continuous"), "{err}");
     }
 
     #[test]
@@ -983,12 +1012,12 @@ mod tests {
 
     #[test]
     fn test_deserialization_checks_the_graph() {
-        // Names can be left out
+        // Names can be left out: the variables get the default names
         let unnamed = r#"{"xtypes":[{"Int":[0,1]},{"Float":[0,1]}],
             "conditions":[null,{"In":{"var":0,"values":[1.0]}}]}"#;
         let ds = serde_json::from_str::<DesignSpace>(unnamed).unwrap();
-        assert_eq!(ds.names(), None);
-        assert_eq!(ds.role(1), Role::DECREED);
+        assert_eq!(ds.names(), &["x0", "x1"]);
+        assert_eq!(ds.role("x1"), Role::DECREED);
 
         let cyclic = r#"{"xtypes":[{"Int":[0,1]},{"Int":[0,1]}],
             "conditions":[{"In":{"var":1,"values":[1.0]}},{"In":{"var":0,"values":[1.0]}}]}"#;

@@ -109,9 +109,10 @@ places:
 
 ### 1. `DesignSpace` model (new `crates/moe/src/hierarchy.rs`, no behaviour change)
 - Variables are named, preferably, with `DesignSpace::named(&[(name, xtype)])`.
-  Names stay optional: `DesignSpace::new(xtypes)` builds a space with unnamed
-  variables. Names appear in error messages next to the index, e.g.
-  `variable 3 (r_11)`.
+  Otherwise `DesignSpace::new(xtypes)` names the variables `x0`, `x1`, ...
+  after their index, so every variable has a name. Names appear in error
+  messages next to the index, e.g. `variable 3 (r_11)`, or alone for a
+  default name, e.g. `variable x3`.
 - `decreed_var(decreed, meta, values)` is SMT's `declare_decreed_var`, renamed
   for brevity: `decreed` is included when `meta` takes one of `values`.
   - It takes each variable as a name or an index (`Var`, from `&str` or
@@ -321,7 +322,8 @@ places:
 ### 8. Python bindings and docs
 - `egx.DesignSpace(xspecs, names=None)` with `decreed_var` and
   `add_value_constraint`, taking variables as `int | str`, and a
-  `design_space` argument for `Egor` and `Gpx`.
+  `design_space` argument for `Egor` and `Gpx`. `names=None` gives the
+  default names `x0`, `x1`, ...
 - Regenerated `.pyi` stubs, updated skills in `python/skills/`, and an MLP
   notebook.
 
@@ -341,8 +343,7 @@ places:
 
 ### 10. (optional) Interop and visualisation
 - A pure-Python adapter from SMT's `DesignSpace` / adsg-core.
-- DOT export of the role graph, with variable names as labels (`x{i}` when
-  the variables are not named).
+- DOT export of the role graph, with variable names as labels.
 
 ### 11. (optional) CoEGO within configurations
 Worth doing only for hierarchical problems with enough continuous variables
