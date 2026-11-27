@@ -6,6 +6,10 @@
 //! when the number of training points is large. Indeed the complexity of GPs algorithm is in O(N^3) in processing
 //! time and O(N^2) in memory where N is the number of training points. The complexity is then respectively reduced
 //! to O(N.M^2) and O(NM) where M is the number of so-called inducing points with M < N.
+//!
+//! In addition, [`PairwiseGaussianProcess`] (parameterized by [`PairwiseGpParams`] / [`PreferentialKriging`])
+//! implements preference learning from pairwise comparisons, ties, and joint rejections via a dual-space
+//! Laplace approximation alongside analytic Expected Utility of the Best Option (EUBO) acquisition.
 //!   
 //! GP methods are implemented by [GaussianProcess] parameterized by [GpParams].
 //!
@@ -19,6 +23,8 @@ mod errors;
 mod linalg;
 pub mod mean_models;
 pub mod metrics;
+mod pairwise_algorithm;
+mod pairwise_parameters;
 mod sparse_algorithm;
 
 mod parameters;
@@ -30,6 +36,8 @@ mod optimization;
 pub use algorithm::*;
 pub use cancellation::Cancellation;
 pub use errors::*;
+pub use pairwise_algorithm::*;
+pub use pairwise_parameters::*;
 pub use parameters::*;
 pub use sparse_algorithm::*;
 pub use sparse_parameters::*;
