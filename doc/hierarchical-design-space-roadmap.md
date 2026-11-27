@@ -108,9 +108,17 @@ places:
 ## PRs
 
 ### 1. `DesignSpace` model (new `crates/moe/src/hierarchy.rs`, no behaviour change)
-- `DesignSpace::new(xtypes)` and `declare_decreed_var(decreed, meta, values)`,
-  named after SMT's method: `decreed` is included when `meta` takes one of
-  `values`.
+- Variables are named, preferably, with `DesignSpace::named(&[(name, xtype)])`.
+  Names stay optional: `DesignSpace::new(xtypes)` builds a space with unnamed
+  variables. Names appear in error messages next to the index, e.g.
+  `variable 3 (r_11)`.
+- `decreed_var(decreed, meta, values)` is SMT's `declare_decreed_var`, renamed
+  for brevity: `decreed` is included when `meta` takes one of `values`.
+  - It takes each variable as a name or an index (`Var`, from `&str` or
+    `usize`). There is one method, not separate named and indexed versions.
+  - `decreed_var_when(decreed, condition)` takes an AND/OR condition, whose
+    leaves `ds.is_in(name, values)` builds by name.
+  - Conditions store indices, so names are labels only.
 - A condition type that combines value sets of discrete parents with AND/OR,
   for intermediate nodes. Thresholds on continuous parents come in PR 9.
 - No graph crate. The role graph is stored as the domain model: `xtypes`, one
@@ -127,7 +135,8 @@ places:
   does.
 - Two entry points: folded space for users, and Egor's unfolded space, where
   the relaxed values are kept until each variable is cast.
-- Serde support.
+- Serde support, names included, so that adding them later doesn't change
+  the postcard format of saved surrogates (PR 7).
 - Tests:
   - motors and propellers (Fig. 1);
   - an AND/OR condition, as in Fig. 7 but without the continuous threshold.
@@ -137,7 +146,8 @@ places:
   combination of values. When `var1` comes before `var2` in topological order
   (declaration order breaks ties), the constraint is a partial decree of
   `var2`, and correction changes `var2`. An example is DRAGON's motor count,
-  whose allowed values depend on the core count (§4.2).
+  whose allowed values depend on the core count (§4.2). Like `decreed_var`,
+  it takes variables by name or by index.
 - Order relations and bounds between discrete variables are finite sets of
   forbidden pairs, so they are value constraints too, e.g. `l ∈ [m+1, 4]`
   when `l` and `m` are integers.
@@ -202,7 +212,8 @@ places:
 - `OptimResult` has public fields and no `#[non_exhaustive]`, so adding a
   field would be a breaking change. Instead, users call
   `DesignSpace::correct_get_included(&x_opt)` to get the inclusion mask.
-- `check()` rejects CoEGO (`activity_strategy`) when a design space is set.
+- `check()` rejects CoEGO (`activity_strategy`) when a design space is set,
+  until the optional PR 11.
 - Tests: hierarchical Goldstein (Pelamatti), Zaefferer–Horn, and an MLP-like
   problem with value constraints. Snapshot fixtures for new tests are taken
   from CI artifacts, not recorded locally.
@@ -308,9 +319,9 @@ places:
   - a comparison with the PR 4 baseline on the PR 4 problems.
 
 ### 8. Python bindings and docs
-- `egx.DesignSpace(xspecs)` with `declare_decreed_var` and
-  `add_value_constraint`, using SMT's names, and a `design_space` argument for
-  `Egor` and `Gpx`.
+- `egx.DesignSpace(xspecs, names=None)` with `decreed_var` and
+  `add_value_constraint`, taking variables as `int | str`, and a
+  `design_space` argument for `Egor` and `Gpx`.
 - Regenerated `.pyi` stubs, updated skills in `python/skills/`, and an MLP
   notebook.
 
@@ -330,20 +341,48 @@ places:
 
 ### 10. (optional) Interop and visualisation
 - A pure-Python adapter from SMT's `DesignSpace` / adsg-core.
-- DOT export of the role graph.
+- DOT export of the role graph, with variable names as labels (`x{i}` when
+  the variables are not named).
+
+### 11. (optional) CoEGO within configurations
+Worth doing only for hierarchical problems with enough continuous variables
+per configuration for CoEGO to pay off.
+- Two levels of groups in `optimize_infill_criterion`
+  (`solver_infill_optim.rs`), building on PR 5's `(active, anchor, bounds)`
+  groups: configurations are searched as alternatives (best of), and each
+  one chains CoEGO groups, as CoEGO does today.
+- CoEGO groups are drawn for each configuration among its active variables
+  (included, not meta), with a group size relative to their number, so that
+  no group consists mostly of fixed variables.
+- Each chain starts from the best point within its configuration, not from
+  the global `xbest`.
+- θ tuning: `ThetaTuning::Partial` (`adjust_theta_tuning`,
+  `solver_impl.rs`) indexes θ by unfolded column.
+  - With PR 4's imputation surrogate it works as is.
+  - With PR 7's surrogate (one θ per variable, two embedding columns per
+    Float, Int or Ord variable), the activity is translated from columns to
+    variables first.
+- Cost is about (configurations searched) × (groups per configuration)
+  local searches per iteration. PR 5's subset of configurations is then
+  required, and the number of groups per configuration may have to shrink.
+- Remove the `check()` rejection of `activity_strategy` with a design space
+  (PR 4).
+- Tests: compare with PR 5 alone on a high-dimensional hierarchical problem,
+  e.g. a MOPTA-like problem with a few architecture choices added.
 
 Dependencies:
 - 1 → 2 → 3 → 4 → 5;
 - 6 can start any time; 7 needs 4 and 6;
 - 8 comes after 4 for `Egor` and after 7 for `Gpx`;
-- 9 comes after 5, and 10 comes last.
+- 9 comes after 5, and 10 comes last;
+- 11 needs 5, and 7 for the θ mapping.
 
 ## Out of scope
 - The arc kernel, SMT's other hierarchical kernel, which learns an extra
   parameter ρ.
 - KPLS with a hierarchy, which the paper leaves as future work.
-- Using a design space with more than one cluster, with CoEGO's random
-  groups, or with sparse GPs.
+- Using a design space with more than one cluster or with sparse GPs.
+  CoEGO's groups are covered by the optional PR 11.
 
 ## Verification
 - Rust:
