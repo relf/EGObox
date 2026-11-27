@@ -22,6 +22,20 @@ const MIN_PROBA_OF_VIABILITY: f64 = 0.25;
 /// Number of bisection iterations to repair an infill point violating function constraints
 const FCSTR_REPAIR_ITERS: usize = 30;
 
+/// Zero the components of `grad`, a gradient with respect to the `active`
+/// internal columns, along the `excluded` internal columns: excluded variables
+/// of a hierarchical design space are fixed at their default value
+fn zero_excluded(grad: &mut [f64], active: &[usize], excluded: &[usize]) {
+    if excluded.is_empty() {
+        return;
+    }
+    for (g, col) in grad.iter_mut().zip(active) {
+        if excluded.contains(col) {
+            *g = 0.;
+        }
+    }
+}
+
 /// Bisection on the segment from `x_ref` (feasible) to `x` (infeasible): returns the feasible
 /// point found closest to `x` after `n_iter` halvings
 fn repair_on_segment(
@@ -153,11 +167,14 @@ where
                     if xcoop.iter().any(|x| x.is_nan()) {
                         return f64::INFINITY;
                     }
+                    // Hierarchical design space: evaluated at the corrected point
+                    let excluded = self.config.correct_point(&mut xcoop);
 
                     let (obj, g_obj) =
                         infill_objective(acquisition, pof, &xcoop, params, gradient.is_some());
                     if let (Some(grad), Some(g_obj)) = (gradient, g_obj) {
-                        let g_obj = g_obj.to_vec();
+                        let mut g_obj = g_obj.to_vec();
+                        excluded.iter().for_each(|&j| g_obj[j] = 0.);
                         grad[..].copy_from_slice(&coego::get_active_grad(&g_obj, &active));
                     }
                     obj
@@ -177,25 +194,32 @@ where
                         let InfillObjData { xbest: xcoop, .. } = params;
                         let mut xcoop = xcoop.clone();
                         coego::set_active_x(&mut xcoop, &active, x);
+                        let excluded = self.config.correct_point(&mut xcoop);
 
                         let scale_cstr = params.scale_cstr.as_ref().expect("constraint scaling")[i];
-                        if self.config.cstr_strategy == ConstraintStrategy::MeanConstraint {
-                            Self::scaled_mean_cstr(
-                                &*cstr_models[i],
-                                &xcoop,
-                                gradient,
-                                scale_cstr,
-                                &active,
-                            )
-                        } else {
-                            Self::scaled_upper_trust_bound_cstr(
-                                &*cstr_models[i],
-                                &xcoop,
-                                gradient,
-                                scale_cstr,
-                                &active,
-                            )
+                        let mut gradient = gradient;
+                        let value =
+                            if self.config.cstr_strategy == ConstraintStrategy::MeanConstraint {
+                                Self::scaled_mean_cstr(
+                                    &*cstr_models[i],
+                                    &xcoop,
+                                    gradient.as_deref_mut(),
+                                    scale_cstr,
+                                    &active,
+                                )
+                            } else {
+                                Self::scaled_upper_trust_bound_cstr(
+                                    &*cstr_models[i],
+                                    &xcoop,
+                                    gradient.as_deref_mut(),
+                                    scale_cstr,
+                                    &active,
+                                )
+                            };
+                        if let Some(grad) = gradient {
+                            zero_excluded(grad, &active, &excluded);
                         }
+                        value
                     };
 
                     Box::new(cstr) as Box<dyn OptFn<InfillObjData<f64>> + Sync>
@@ -244,6 +268,7 @@ where
                         let InfillObjData { xbest: xcoop, .. } = params;
                         let mut xcoop = xcoop.clone();
                         coego::set_active_x(&mut xcoop, &active, x);
+                        let excluded = self.config.correct_point(&mut xcoop);
                         let pov = Self::scaled_mean_cstr(
                             &**viab_model,
                             &xcoop,
@@ -256,6 +281,7 @@ where
                         if let Some(grad) = gradient {
                             if (0.0..=1.0).contains(&pov) {
                                 grad.iter_mut().for_each(|g| *g = -*g);
+                                zero_excluded(grad, &active, &excluded);
                             } else {
                                 grad.fill(0.0);
                             }
@@ -421,7 +447,12 @@ where
         };
         let n_max_optim = 3;
         for _ in 0..n_max_optim {
-            let x_start = multistarter.multistart(self.config.n_start, active);
+            let mut x_start = multistarter.multistart(self.config.n_start, active);
+            // Hierarchical design space (full activity, CoEGO being rejected):
+            // starting points corrected, e.g. midpoints mixing two configurations
+            if self.config.design_space.is_some() && x_start.ncols() == self.xlimits.nrows() {
+                x_start = self.projected(&x_start);
+            }
             let res = (0..x_start.nrows())
                 .into_par_iter()
                 .map(|i| {

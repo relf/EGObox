@@ -198,10 +198,17 @@ places:
 - Log `n_valid` / `n_declared`.
 
 ### 4. Egor integration with correction only (imputation baseline)
-- `EgorConfig::design_space(..)`, which also sets `xtypes`, and
-  `min_within_design_space(..)` next to `min_within_mixint_space`
-  (`crates/ego/src/egor.rs`, `crates/ego/src/solver/egor_service.rs`).
-- Correction goes where Egor casts discrete values today:
+- `min_within_design_space(&design_space)` next to `min_within_mixint_space`
+  (`crates/ego/src/egor.rs`, `crates/ego/src/solver/egor_service.rs`). The
+  design space goes into the configuration (crate-private
+  `EgorConfig::design_space`, which also sets `xtypes`), and `egobox-ego`
+  re-exports `DesignSpace`.
+- The configuration's `design_space` is not serialized: hot start
+  checkpoints are binary (postcard), so a new field would stop older
+  checkpoints from loading (`tests/compat.rs`). It is restored from the
+  running configuration when resuming (`executor.rs`).
+- Correction goes through two configuration helpers, `projected` (internal
+  space) and `to_user_space` (folded), where Egor casts discrete values today:
   - `projected` (`solver_computations.rs`), which is used for infill
     candidates and duplicate checks (`solver_impl.rs`), Thompson candidates
     and portfolio members (`point_selection.rs`), and TREGO points
@@ -213,18 +220,22 @@ places:
   Their `config.discrete()` guard must also pass when a design space is set.
 - Correction also applies to:
   - the initial DoE, drawn with the PR 3 sampler;
-  - DoE, warm-start and hot-start data given by the user;
-  - the infill criterion, which is evaluated at the corrected point.
+  - a DoE given by the user (`EgorConfig::doe`, with or without outputs) and
+    data given to the ask-and-tell service; warm-start and hot-start data
+    were corrected when first used;
+  - the infill criterion, the constraint models and the viability model,
+    evaluated at the corrected point (`correct_point` in the closures of
+    `solver_infill_optim.rs`).
 
   Gradients along excluded variables are set to zero, as Enum one-hot
-  columns already are (`unfold_fcstr_gradient`).
-- Every sampling site switches to the PR 3 sampler:
-  - Thompson sampling candidates (`candidate_set`, `thompson.rs`);
-  - the LHS fill of `MiddlePickerMultiStarter` and the TREGO
-    `LocalLhsMultiStarter` (`multistart.rs`).
-
-  A midpoint between training points from two configurations mixes those
-  configurations, so midpoints are corrected as well.
+  columns already are for function constraints (`unfold_fcstr_gradient`).
+- Thompson sampling global candidates come from the PR 3 sampler
+  (`candidate_set`, `thompson.rs`), so that they cover the configurations.
+- Multistart points (midpoints and LHS fill of `MiddlePickerMultiStarter`,
+  TREGO's `LocalLhsMultiStarter`) are corrected rather than resampled: a
+  midpoint between two configurations mixes them, and TREGO samples a local
+  box that the PR 3 sampler doesn't cover. PR 5 samples starts within each
+  configuration.
 - Duplicate checks (`usable_data` in `crates/ego/src/utils/misc.rs`,
   `distinct_indices` in `crates/ego/src/utils/portfolio.rs`) compare
   `projected` points. Two points that differ only in excluded variables
@@ -234,9 +245,19 @@ places:
   `DesignSpace::correct_get_included(&x_opt)` to get the inclusion mask.
 - `check()` rejects CoEGO (`activity_strategy`) when a design space is set,
   until the optional PR 11.
-- Tests: hierarchical Goldstein (Pelamatti), Zaefferer–Horn, and an MLP-like
-  problem with value constraints. Snapshot fixtures for new tests are taken
-  from CI artifacts, not recorded locally.
+- Tests (`crates/ego/tests/hierarchical.rs`), each objective counting the
+  invalid points it is given (none expected):
+  - hierarchical Goldstein (Pelamatti), as defined by SMT's
+    `HierarchicalGoldstein`. Its global minimum is 8.94; with seeds 0 to 5,
+    the best DoE value is 28 to 31 and 25 iterations reach 9.2 to 19.7
+    (this imputation baseline is the reference for PRs 5 and 7);
+  - an MLP-like loss on the MLP design space with its value constraints,
+    whose optimum (Adam, 2 layers of 45 units) is found;
+  - a given DoE corrected, CoEGO rejected, ask-and-tell suggestions valid,
+    and hot start resuming with the design space.
+
+  No snapshot fixtures: assertions are on validity and progress.
+  Zaefferer–Horn is left for PR 5's comparisons.
 
 ### 5. Infill within each configuration (reusing CoEGO's activity)
 - CoEGO's infill loop already optimizes only some of the components and keeps
@@ -390,12 +411,49 @@ per configuration for CoEGO to pay off.
 - Tests: compare with PR 5 alone on a high-dimensional hierarchical problem,
   e.g. a MOPTA-like problem with a few architecture choices added.
 
+### 12. (optional, breaking) One design space in the configuration
+Since PR 4, `ValidEgorConfig` holds both `xtypes` (always set, serialized in
+hot start checkpoints) and `design_space` (optional, `#[serde(skip)]`,
+restored from the running configuration when resuming). This PR keeps a
+single field.
+- `ValidEgorConfig` holds `design_space: DesignSpace`, always set, instead
+  of `xtypes: Vec<XType>` plus `design_space: Option<DesignSpace>`:
+  `DesignSpace::new(xtypes)` for continuous and mixed-integer problems.
+  `xtypes` is read through `design_space.xtypes()`.
+- `DesignSpace::has_hierarchy()` (some condition or value constraint).
+  Without hierarchy, `projected` and `to_user_space` keep today's vectorized
+  cast, so mixed-integer results don't change (no per-point search, no Int
+  clamping); `discrete()` is `has_hierarchy() || discrete(xtypes)`.
+- The design space is serialized in the configuration: drop
+  `#[serde(skip)]` and its restoration on resume (`executor.rs`).
+- Breaking: hot start checkpoints of earlier versions can no longer be
+  resumed. Re-record the `tests/compat.rs` fixtures in a separate commit,
+  reviewed on its own, and say so in the release notes. Best shipped with a
+  version that breaks something else anyway.
+- Public API unchanged: `EgorConfig::xtypes(..)` sets
+  `DesignSpace::new(xtypes)`; `min_within`, `min_within_mixint_space` and
+  `min_within_design_space` stay. `ValidEgorConfig` fields are
+  crate-private, so semver-checks sees no change.
+- Call sites to update (about 10 in `crates/ego/src`): the
+  `egor_config.rs` helpers, `solver_impl.rs` (`as_continuous_limits`),
+  `egor_solver.rs` (`MixintSampling`), `point_selection.rs` (`fd_steps`),
+  `solver_computations.rs` (`unfold_fcstr_gradient`), `egor_service.rs`.
+  The Python bindings go through the builders.
+- No impact on the `egmdo` branch, which only uses the public builders
+  (`min_within`) and doesn't touch `crates/ego`.
+- Best after PR 7, whose surrogate can then take the design space from the
+  configuration.
+- Tests: the existing suites unchanged (mixed-integer snapshots identical),
+  plus a hot start resume test on a hierarchical problem without the
+  restoration code.
+
 Dependencies:
 - 1 → 2 → 3 → 4 → 5;
 - 6 can start any time; 7 needs 4 and 6;
 - 8 comes after 4 for `Egor` and after 7 for `Gpx`;
 - 9 comes after 5, and 10 comes last;
-- 11 needs 5, and 7 for the θ mapping.
+- 11 needs 5, and 7 for the θ mapping;
+- 12 needs 4, best after 7.
 
 ## Out of scope
 - The arc kernel, SMT's other hierarchical kernel, which learns an extra

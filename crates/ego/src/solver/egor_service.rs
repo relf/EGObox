@@ -47,7 +47,7 @@ use std::marker::PhantomData;
 
 use crate::{EgorConfig, EgorSolver, errors::Result, to_xtypes, types::*};
 use egobox_gp::Cancellation;
-use egobox_moe::{GpMixtureParams, MixintGpMixtureParams, to_continuous_space, to_discrete_space};
+use egobox_moe::{DesignSpace, GpMixtureParams, MixintGpMixtureParams, to_continuous_space};
 use ndarray::{Array2, ArrayBase, Data, Ix2};
 
 use serde::{Serialize, de::DeserializeOwned};
@@ -90,7 +90,7 @@ impl<C: CstrFn> EgorServiceFactory<C> {
         self,
         xlimits: &ArrayBase<impl Data<Elem = f64>, Ix2>,
     ) -> Result<EgorServiceApi<GpMixtureParams<f64>, C>> {
-        self.build(&to_xtypes(xlimits))
+        self.build(&to_xtypes(xlimits), None)
     }
 
     /// Build an Egor optimizer to minimize the function R^n -> R^p taking
@@ -100,16 +100,31 @@ impl<C: CstrFn> EgorServiceFactory<C> {
         self,
         xtypes: &[XType],
     ) -> Result<EgorServiceApi<MixintGpMixtureParams, C>> {
-        self.build(xtypes)
+        self.build(xtypes, None)
+    }
+
+    /// Build the optimizer service within a hierarchical design space, where
+    /// some variables are only included for some values of others (see
+    /// [`DesignSpace`]). Suggested points are valid points, in folded space:
+    /// excluded variables at their default value and value constraints
+    /// satisfied. Given data are corrected the same way.
+    ///
+    /// CoEGO ([`EgorConfig::activity_strategy`]) is not supported.
+    pub fn min_within_design_space(
+        self,
+        design_space: &DesignSpace,
+    ) -> Result<EgorServiceApi<MixintGpMixtureParams, C>> {
+        self.build(design_space.xtypes(), Some(design_space.clone()))
     }
 
     /// Build the optimizer service within the design space given by `xtypes`
-    /// with the surrogate builder `SB`
+    /// and an optional hierarchical design space, with the surrogate builder `SB`
     fn build<SB: SurrogateBuilder + Serialize + DeserializeOwned>(
         self,
         xtypes: &[XType],
+        design_space: Option<DesignSpace>,
     ) -> Result<EgorServiceApi<SB, C>> {
-        let config = self.config.xtypes(xtypes);
+        let config = self.config.xtypes(xtypes).design_space(design_space);
         Ok(EgorServiceApi {
             solver: EgorSolver::new(config.check()?),
         })
@@ -137,10 +152,21 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorService
         x_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
         y_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
     ) -> Result<Array2<f64>> {
-        let xtypes = &self.solver.config.xtypes;
-        let x_data = to_continuous_space(xtypes, x_data);
+        let x_data = self.internal_data(x_data);
         let x = self.solver.suggest(&x_data, y_data)?;
-        Ok(to_discrete_space(xtypes, &x).to_owned())
+        Ok(self.solver.config.to_user_space(&x))
+    }
+
+    /// Given data in folded space, in the internal continuous (unfolded) space,
+    /// corrected with a hierarchical design space
+    fn internal_data(&self, x_data: &ArrayBase<impl Data<Elem = f64>, Ix2>) -> Array2<f64> {
+        let config = &self.solver.config;
+        let x_data = to_continuous_space(&config.xtypes, x_data);
+        if config.design_space.is_some() {
+            config.projected(&x_data)
+        } else {
+            x_data
+        }
     }
 
     /// Interrupt [`suggest`](Self::suggest) when the given `check` returns true: the surrogate
@@ -167,8 +193,7 @@ impl<SB: SurrogateBuilder + Serialize + DeserializeOwned, C: CstrFn> EgorService
         x_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
         y_data: &ArrayBase<impl Data<Elem = f64>, Ix2>,
     ) -> usize {
-        let xtypes = &self.solver.config.xtypes;
-        let x_data = to_continuous_space(xtypes, x_data);
+        let x_data = self.internal_data(x_data);
         // never interrupted: an interrupted training would silently give the observed best
         let solver = EgorSolver {
             cancellation: Cancellation::default(),
