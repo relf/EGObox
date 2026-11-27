@@ -411,12 +411,49 @@ per configuration for CoEGO to pay off.
 - Tests: compare with PR 5 alone on a high-dimensional hierarchical problem,
   e.g. a MOPTA-like problem with a few architecture choices added.
 
+### 12. (optional, breaking) One design space in the configuration
+Since PR 4, `ValidEgorConfig` holds both `xtypes` (always set, serialized in
+hot start checkpoints) and `design_space` (optional, `#[serde(skip)]`,
+restored from the running configuration when resuming). This PR keeps a
+single field.
+- `ValidEgorConfig` holds `design_space: DesignSpace`, always set, instead
+  of `xtypes: Vec<XType>` plus `design_space: Option<DesignSpace>`:
+  `DesignSpace::new(xtypes)` for continuous and mixed-integer problems.
+  `xtypes` is read through `design_space.xtypes()`.
+- `DesignSpace::has_hierarchy()` (some condition or value constraint).
+  Without hierarchy, `projected` and `to_user_space` keep today's vectorized
+  cast, so mixed-integer results don't change (no per-point search, no Int
+  clamping); `discrete()` is `has_hierarchy() || discrete(xtypes)`.
+- The design space is serialized in the configuration: drop
+  `#[serde(skip)]` and its restoration on resume (`executor.rs`).
+- Breaking: hot start checkpoints of earlier versions can no longer be
+  resumed. Re-record the `tests/compat.rs` fixtures in a separate commit,
+  reviewed on its own, and say so in the release notes. Best shipped with a
+  version that breaks something else anyway.
+- Public API unchanged: `EgorConfig::xtypes(..)` sets
+  `DesignSpace::new(xtypes)`; `min_within`, `min_within_mixint_space` and
+  `min_within_design_space` stay. `ValidEgorConfig` fields are
+  crate-private, so semver-checks sees no change.
+- Call sites to update (about 10 in `crates/ego/src`): the
+  `egor_config.rs` helpers, `solver_impl.rs` (`as_continuous_limits`),
+  `egor_solver.rs` (`MixintSampling`), `point_selection.rs` (`fd_steps`),
+  `solver_computations.rs` (`unfold_fcstr_gradient`), `egor_service.rs`.
+  The Python bindings go through the builders.
+- No impact on the `egmdo` branch, which only uses the public builders
+  (`min_within`) and doesn't touch `crates/ego`.
+- Best after PR 7, whose surrogate can then take the design space from the
+  configuration.
+- Tests: the existing suites unchanged (mixed-integer snapshots identical),
+  plus a hot start resume test on a hierarchical problem without the
+  restoration code.
+
 Dependencies:
 - 1 → 2 → 3 → 4 → 5;
 - 6 can start any time; 7 needs 4 and 6;
 - 8 comes after 4 for `Egor` and after 7 for `Gpx`;
 - 9 comes after 5, and 10 comes last;
-- 11 needs 5, and 7 for the θ mapping.
+- 11 needs 5, and 7 for the θ mapping;
+- 12 needs 4, best after 7.
 
 ## Out of scope
 - The arc kernel, SMT's other hierarchical kernel, which learns an extra
