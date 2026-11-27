@@ -2,9 +2,9 @@ name: pytest
 
 on:   
   pull_request:
-    branches: [ master ]
+    branches: [ master, hierarchical ]
   push:
-    branches: [ master ]
+    branches: [ master, hierarchical ]
 
 env:
   CARGO_TERM_COLOR: always
