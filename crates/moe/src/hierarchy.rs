@@ -35,6 +35,9 @@
 //! Optimization, 69, 65. <https://doi.org/10.1007/s00158-026-04249-2>
 
 mod correction;
+mod sampling;
+
+pub use sampling::HierarchicalSampling;
 
 use crate::errors::{MoeError, Result};
 use crate::mixint::space::{
@@ -441,7 +444,7 @@ impl DesignSpace {
             restrictions,
             mentioned,
         };
-        if !ds.has_valid_configuration() {
+        if !ds.has_valid_configuration(&ds.no_pins()) {
             return Err(invalid(
                 "the value constraints leave no valid configuration".to_string(),
             ));
@@ -715,6 +718,17 @@ impl DesignSpace {
         &self,
         x: &ArrayBase<impl Data<Elem = f64>, Ix2>,
     ) -> Result<(Array2<f64>, Array2<bool>)> {
+        self.correct_unfolded_pinned(x, &self.no_pins())
+    }
+
+    /// [`correct_get_included_unfolded`](DesignSpace::correct_get_included_unfolded)
+    /// with pinned variables taking their pinned value (see `correction`).
+    /// Pins must leave a valid configuration.
+    fn correct_unfolded_pinned(
+        &self,
+        x: &ArrayBase<impl Data<Elem = f64>, Ix2>,
+        pins: &[Option<f64>],
+    ) -> Result<(Array2<f64>, Array2<bool>)> {
         let starts = self.unfolded_starts();
         let dim: usize = self.xtypes.iter().map(unfolded_width).sum();
         if x.ncols() != dim {
@@ -729,9 +743,10 @@ impl DesignSpace {
         let mut included = Array2::from_elem((x.nrows(), nv), true);
         for (r, row) in x.rows().into_iter().enumerate() {
             let relaxed = row.to_vec();
-            // Unreachable: declarations that leave no valid configuration fail
+            // Unreachable: declarations and pins that leave no valid
+            // configuration fail
             let (folded, inc) = self
-                .correct_row(&relaxed, &starts)
+                .correct_row(&relaxed, &starts, pins)
                 .ok_or_else(|| invalid(format!("no valid configuration found for point {r}")))?;
             for (i, xtype) in self.xtypes.iter().enumerate() {
                 match xtype {
@@ -742,6 +757,11 @@ impl DesignSpace {
             }
         }
         Ok((xcorr, included))
+    }
+
+    /// Pins leaving every variable free
+    fn no_pins(&self) -> Vec<Option<f64>> {
+        vec![None; self.xtypes.len()]
     }
 
     /// First column of each variable in the relaxed space
