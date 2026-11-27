@@ -3,7 +3,9 @@
 use crate::errors::{MoeError, Result};
 use crate::xtypes::XType;
 use linfa::Float;
-use ndarray::{Array, Array2, ArrayBase, Axis, CowArray, Data, DataMut, Ix2, Zip, s};
+use ndarray::{
+    Array, Array2, ArrayBase, ArrayViewMut2, Axis, CowArray, Data, DataMut, Ix2, Zip, s,
+};
 use ndarray_stats::QuantileExt;
 
 /// Expand xlimits to add continuous dimensions for enumeration x features.
@@ -70,14 +72,19 @@ pub(crate) fn fold_with_enum_index<F: Float>(
     xfold
 }
 
+/// Number of columns of a variable in the continuously relaxed (unfolded) space
+pub(crate) fn unfolded_width(xtype: &XType) -> usize {
+    match xtype {
+        XType::Enum(v) => *v,
+        _ => 1,
+    }
+}
+
 /// Compute dimension when all variables are continuously relaxed
 pub(super) fn compute_continuous_dim(xtypes: &[XType]) -> usize {
     xtypes
         .iter()
-        .map(|s| match s {
-            XType::Enum(v) => *v,
-            _ => 1,
-        })
+        .map(unfolded_width)
         .reduce(|acc, l| -> usize { acc + l })
         .unwrap()
 }
@@ -134,6 +141,28 @@ fn take_closest<F: Float>(v: &[F], val: F) -> F {
     v[idx]
 }
 
+/// Project the continuously relaxed columns `x` of one variable of type `xtype`
+/// to their closer assessable values.
+///
+/// `x` holds the [`unfolded_width`] columns of the variable.
+pub(crate) fn cast_variable_mut<F: Float>(xtype: &XType, mut x: ArrayViewMut2<F>) {
+    match xtype {
+        XType::Float(_, _) => {}
+        XType::Int(_, _) => x.mapv_inplace(|v| v.round()),
+        XType::Ord(v) => {
+            let vals: Vec<F> = v.iter().map(|&v| F::cast(v)).collect();
+            x.mapv_inplace(|val| take_closest(&vals, val));
+        }
+        XType::Enum(_) => {
+            for mut row in x.rows_mut() {
+                let m = row.argmax().unwrap();
+                row.fill(F::zero());
+                row[m] = F::one();
+            }
+        }
+    }
+}
+
 /// Project continuously relaxed values to their closer assessable values.
 ///
 /// See cast_to_discrete_values
@@ -142,40 +171,16 @@ pub(super) fn cast_to_discrete_values_mut<F: Float>(
     x: &mut ArrayBase<impl DataMut<Elem = F>, Ix2>,
 ) {
     let mut xcol = 0;
-    xtypes.iter().for_each(|s| match s {
-        XType::Float(_, _) => xcol += 1,
-        XType::Int(_, _) => {
-            let xround = x.column(xcol).mapv(|v| v.round()).to_owned();
-            x.column_mut(xcol).assign(&xround);
-            xcol += 1;
-        }
-        XType::Ord(v) => {
-            let vals: Vec<F> = v.iter().map(|&v| F::cast(v)).collect();
-            let xround = x
-                .column(xcol)
-                .mapv(|val| take_closest(&vals, val))
-                .to_owned();
-            x.column_mut(xcol).assign(&xround);
-            xcol += 1;
-        }
-        XType::Enum(v) => {
-            let mut xenum = x.slice_mut(s![.., xcol..xcol + *v]);
-            let argmaxx = xenum.map_axis(Axis(1), |row| row.argmax().unwrap());
-            Zip::from(xenum.rows_mut())
-                .and(&argmaxx)
-                .for_each(|mut row, &m| {
-                    let mut xcast = Array::zeros(*v);
-                    xcast[m] = F::one();
-                    row.assign(&xcast);
-                });
-            xcol += *v;
-        }
-    });
+    for xtype in xtypes {
+        let width = unfolded_width(xtype);
+        cast_variable_mut(xtype, x.slice_mut(s![.., xcol..xcol + width]));
+        xcol += width;
+    }
 }
 
 /// Check that the columns of enum variables in folded space `x` hold category
 /// indices, i.e. integers in [0, n) for an enum with n categories.
-pub(super) fn check_enum_indices(
+pub(crate) fn check_enum_indices(
     xtypes: &[XType],
     x: &ArrayBase<impl Data<Elem = f64>, Ix2>,
 ) -> Result<()> {
